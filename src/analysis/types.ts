@@ -1,6 +1,9 @@
 import type { RcStatus } from '../data/types';
 import type { Vec } from './geo';
 
+/** How much track before the start fix the start chart draws behind each boat. */
+export const START_TRAIL_MS = 60_000;
+
 export type LegKind = 'upwind' | 'downwind' | 'reach';
 
 export interface LegDef {

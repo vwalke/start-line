@@ -102,9 +102,10 @@
   }
 }
 * { box-sizing: border-box; }
-html { overflow-x: hidden; }
-/* clip, not hidden: hidden would make body a scroll container and break the sticky boat list. */
-body { margin: 0; overflow-x: hidden; overflow-x: clip; }
+/* clip, not hidden: hidden on either html or body makes that element a scroll
+   container (overflow-y computes to auto) and the sticky boat list cannot stick. */
+html { overflow-x: clip; }
+body { margin: 0; overflow-x: clip; }
 a { color: var(--accent); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .wrap { max-width: var(--page-max); margin: 0 auto; padding: 14px 16px 48px; }
@@ -409,7 +410,20 @@ table.metrics {
 /* Leg / race group headers span their sub-columns; a rule marks where each group starts. */
 .metrics th.grp { text-align: center; color: var(--ink); padding-bottom: 2px; border-left: 1px solid var(--rule); }
 .metrics .g0 { border-left: 1px solid var(--rule); }
-.metrics th .sort { font: inherit; color: inherit; text-align: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; white-space: nowrap; }
+/* Fill the th so the whole header is the hit target, not just the label text. */
+.metrics th .sort {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  background: none;
+  border: 0;
+  padding: 6px 8px;
+  margin: -6px -8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
 .metrics th .sort:hover { color: var(--ink); }
 .metrics th[aria-sort] { color: var(--ink); }
 /* ↑/↓ sort glyph: accent coloured and inline, unlike the small ▲/▼ best/worst marks in cells. */

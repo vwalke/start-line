@@ -74,8 +74,9 @@ describe('distance sailed on the fixtures', () => {
       expect(b.distNm!).toBeCloseTo(sum, 9);
       expect(b.distApprox).toBe(false);
       expect(legs.every((l) => l.distGapS == null)).toBe(true);
-      // Same track, same clock: distance ÷ race time matches the average SOG.
-      expect(Math.abs(b.distNm! / (b.raceTimeS! / 3600) - b.sogAvgKn!)).toBeLessThan(0.05);
+      // Same track, same clock: SOG is Dist ÷ time.
+      expect(b.sogAvgKn!).toBeCloseTo(b.distNm! / (b.raceTimeS! / 3600), 9);
+      expect(b.legs.every((l) => l && Math.abs(l.sogKn - l.distNm / (l.timeS / 3600)) < 1e-9)).toBe(true);
     }
   });
 

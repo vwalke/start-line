@@ -4,8 +4,7 @@
  * back to the fixture (with a visible notice) if the network or proxy fails.
  */
 import fixtureUrl from '../../tests/fixtures/benelux_r8.json?url';
-import { START_TRAIL_MS } from '../analysis/analyze';
-import type { RaceAnalysis } from '../analysis/types';
+import { START_TRAIL_MS, type RaceAnalysis } from '../analysis/types';
 import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
@@ -188,6 +187,11 @@ export function startApp(): void {
     highlight = highlight === id ? null : id;
     render();
   }
+  function toggleRow(tr: Element): void {
+    const id = tr.getAttribute('data-id');
+    highlight = highlight === id ? null : id;
+    renderKeepingFocus(els.table, focusSel(tr, 'data-id'));
+  }
   els.table.addEventListener('click', (ev) => {
     const btn = (ev.target as HTMLElement).closest('button[data-sort]');
     if (btn && analysis) {
@@ -196,13 +200,13 @@ export function startApp(): void {
       return;
     }
     const tr = (ev.target as HTMLElement).closest('tr[data-id]');
-    if (tr) toggleHighlight(tr.getAttribute('data-id'));
+    if (tr) toggleRow(tr);
   });
   els.table.addEventListener('keydown', (ev) => {
     const tr = (ev.target as HTMLElement).closest('tr[data-id]');
     if (tr && (ev.key === 'Enter' || ev.key === ' ')) {
       ev.preventDefault();
-      toggleHighlight(tr.getAttribute('data-id'));
+      toggleRow(tr);
     }
   });
   els.boats.addEventListener('click', (ev) => {
