@@ -265,6 +265,7 @@ select { font: inherit; padding: 7px 8px; border-radius: 6px; border: 1px solid 
 
 svg.chart { width: 100%; height: auto; display: block; max-height: 70vh; }
 svg.chart.start { aspect-ratio: auto; }
+svg .hull { stroke-linejoin: round; stroke-linecap: round; }
 svg .trail { fill: none; opacity: 0.55; stroke-linejoin: round; }
 svg .trk { fill: none; opacity: 0.8; stroke-linejoin: round; stroke-linecap: round; }
 svg .trk.dim, svg .trail.dim { opacity: 0.12; }
@@ -276,7 +277,7 @@ svg .boat-min .min-ring { fill: none; }
 .zoom button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
 .zoom button:focus-visible { border-radius: 6px; }
 .zoom button[aria-pressed='true']:focus-visible { outline-color: var(--ink); }
-svg .startline { stroke: var(--ink); }
+svg .startline { stroke: var(--ink); stroke-linecap: round; }
 svg .finishline { stroke: var(--ink-2); stroke-dasharray: 4 3; }
 svg .pin { fill: var(--s4); stroke: var(--ink); }
 svg .rc { fill: var(--ink); }

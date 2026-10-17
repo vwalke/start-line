@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import type { Vec } from '../src/analysis/geo';
 import { classDims } from '../src/data/classes';
-import { rotator, startHullScale, startSnapshot, zoomCentre } from '../src/ui/charts';
+import { hullOutline, hullPathD, rotator, startHullScale, startSnapshot, zoomCentre } from '../src/ui/charts';
 import { fixtureRace } from './helpers';
 
 const analysis = analyzeRace(fixtureRace());
@@ -64,22 +64,31 @@ describe('start chart hulls', () => {
   it('draws J/70 hulls to scale at 8x with the bow tip on the DTL bow', () => {
     expect(startHullScale(analysis, 8)?.loaM).toBe(6.934);
     const svg = startSnapshot(analysis, null, 8);
-    const hulls = [...svg.matchAll(/<polygon class="hull" points="([^"]+)"/g)].map((m) =>
-      m[1].split(' ').map((p) => p.split(',').map(Number) as Vec),
-    );
-    expect(hulls).toHaveLength(analysis.drawings.length);
+    const ds = [...svg.matchAll(/<path class="hull" d="([^"]+)"/g)].map((m) => m[1]);
+    expect(ds).toHaveLength(analysis.drawings.length);
+    expect(ds.every((d) => d.includes('C') && d.includes('L') && d.endsWith('Z'))).toBe(true);
     expect(svg).not.toContain('boat-min');
     const rot = rotator(analysis.wind.twdAtGunDeg);
     const bows = analysis.drawings.map((d) => rot(d.bow!));
-    for (const hull of hulls) {
-      const [bx, by] = hull[0];
-      const match = bows.find(([x, y]) => Math.abs(x - bx) < 0.01 && Math.abs(y - by) < 0.01);
+    for (const d of ds) {
+      const m = /^M(-?[\d.]+),(-?[\d.]+)/.exec(d)!;
+      const match = bows.find(([x, y]) => Math.abs(x - +m[1]) < 0.01 && Math.abs(y - +m[2]) < 0.01);
       expect(match).toBeDefined();
-      // Bow-to-transom-centre is the class LOA.
-      const t = hull.length >> 1; // transom corners: hull[t], hull[t + 1]
-      const aft = [(hull[t][0] + hull[t + 1][0]) / 2, (hull[t][1] + hull[t + 1][1]) / 2];
-      expect(Math.hypot(aft[0] - bx, aft[1] - by)).toBeCloseTo(6.934, 1);
     }
+    const sample = analysis.drawings.find((d) => d.bow && d.headingAtSample != null)!;
+    const outline = hullOutline(sample.bow!, sample.headingAtSample!, { loaM: 6.934, beamM: 2.249 });
+    const t = outline.length >> 1;
+    const aft = [(outline[t][0] + outline[t + 1][0]) / 2, (outline[t][1] + outline[t + 1][1]) / 2];
+    expect(Math.hypot(aft[0] - outline[0][0], aft[1] - outline[0][1])).toBeCloseTo(6.934, 1);
+  });
+
+  it('splines each side and keeps a straight transom', () => {
+    const outline = hullOutline([0, 0], 0, { loaM: 10, beamM: 4 });
+    const t = outline.length >> 1;
+    const d = hullPathD(outline);
+    expect(d.startsWith(`M${outline[0][0].toFixed(2)},${outline[0][1].toFixed(2)}`)).toBe(true);
+    expect(d).toContain(`L${outline[t + 1][0].toFixed(2)},${outline[t + 1][1].toFixed(2)}`);
+    expect(d).toMatch(/C-?[\d.]+,-?[\d.]+ /);
   });
 
   it('falls back to the min-size marker when hulls would be under 6 px', () => {

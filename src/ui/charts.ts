@@ -66,6 +66,7 @@ function windArrow(box: Box, unit: number, k: number, label: string): string {
 /**
  * Stylized hull in hull coordinates: x across (±0.5 beam), y aft (bow 0,
  * transom 1). Pointed bow, fullest aft of midships, flat transom. Bow first.
+ * Control points for a Catmull-Rom along each side; the transom stays straight.
  */
 const HULL: Vec[] = [
   [0, 0],
@@ -84,6 +85,36 @@ const HULL: Vec[] = [
   [-0.24, 0.15],
   [-0.12, 0.06],
 ];
+
+const fmt = (p: Vec): string => `${p[0].toFixed(2)},${p[1].toFixed(2)}`;
+
+/** Open Catmull-Rom as SVG cubics from pts[0] (already the current point) through pts[n-1]. */
+function crCubics(pts: Vec[]): string {
+  if (pts.length < 2) return '';
+  let d = '';
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(pts.length - 1, i + 2)];
+    d += `C${fmt([p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6])} ${fmt([
+      p2[0] - (p3[0] - p1[0]) / 6,
+      p2[1] - (p3[1] - p1[1]) / 6,
+    ])} ${fmt(p2)}`;
+  }
+  return d;
+}
+
+/**
+ * Smooth closed hull path: cubic spline along each side, straight transom.
+ * `pts` is `hullOutline` order (bow, starboard, transom corners, port).
+ */
+export function hullPathD(pts: Vec[]): string {
+  const t = pts.length >> 1;
+  const stbd = pts.slice(0, t + 1);
+  const port = [...pts.slice(t + 1), pts[0]];
+  return `M${fmt(pts[0])}${crCubics(stbd)}L${fmt(pts[t + 1])}${crCubics(port)}Z`;
+}
 
 /** Hulls shorter than this on screen are drawn as the fixed-size marker instead. */
 const MIN_HULL_PX = 6;
@@ -187,7 +218,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, zoom = 
     if (dims && d.headingAtSample != null) {
       // True scale, along heading (not COG): the bow tip is the DTL bow point.
       const hull = hullOutline(d.bow, d.headingAtSample, dims).map(rot);
-      shape = `<polygon class="hull" points="${hull.map(([hx, hy]) => `${hx.toFixed(2)},${hy.toFixed(2)}`).join(' ')}" fill="${col}" stroke="var(--surface)" stroke-width="${0.75 * k}"/>`;
+      shape = `<path class="hull" d="${hullPathD(hull)}" fill="${col}" stroke="var(--surface)" stroke-width="${0.75 * k}"/>`;
     } else {
       const ang = d.courseAtGun - a.wind.twdAtGunDeg; // screen angle, 0 = up the page (into the wind)
       const s = 10 * unit;
@@ -212,6 +243,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, zoom = 
     <text x="${R[0]}" y="${R[1] - 11 * unit}" font-size="${11 * k}" text-anchor="middle" class="endlbl">RC</text>`;
 
   return `<svg viewBox="${view.x0} ${view.y0} ${w} ${h}" class="chart start" role="img"
+    shape-rendering="geometricPrecision"
     aria-label="Boats relative to the start line at the gun (Vakaros timing)">
     ${trails.join('')}${lineSvg}${boats.join('')}
     ${windArrow(view, unit, k, 'wind (est.)')}${scaleBar(view, unit, k)}</svg>`;
