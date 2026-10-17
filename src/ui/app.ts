@@ -9,8 +9,9 @@ import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import type { WorkerRequest, WorkerResponse } from '../worker';
-import { legLegend, startSnapshot, trackMap } from './charts';
-import { degLabel, esc, f0, gunTimeLine } from './format';
+import { classDims } from '../data/classes';
+import { legLegend, startHullScale, startSnapshot, trackMap } from './charts';
+import { degLabel, esc, f0, f2, gunTimeLine } from './format';
 import { metricsTable } from './table';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -31,6 +32,8 @@ export function startApp(): void {
     summary: $('summary'),
     start: $('start-chart'),
     startCaption: $('start-caption'),
+    startScale: $('start-scale'),
+    startZoom: $('start-zoom'),
     map: $('map-chart'),
     legend: $('map-legend'),
     table: $('table'),
@@ -62,6 +65,7 @@ export function startApp(): void {
 
   let analysis: RaceAnalysis | null = null;
   let highlight: string | null = null;
+  let zoom = 1;
   let regatta: RegattaResponse | null = null;
   let eventId = params.get('event') ?? '';
 
@@ -105,8 +109,8 @@ export function startApp(): void {
       a.line.favored === 'square'
         ? 'about square to the wind'
         : `${a.line.favored === 'left' ? 'pin' : 'RC'} end favoured by ≈${f0(a.line.favoredByM)} m`;
-    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (tracker + class bow offset) with the last 30 s of track shifted to the bow; arrows follow course over ground. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.`;
-    els.start.innerHTML = startSnapshot(a, highlight);
+    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (tracker + class bow offset) with the last 30 s of track shifted to the bow. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.`;
+    renderStart();
     els.map.innerHTML = trackMap(a, highlight);
     els.legend.innerHTML = legLegend(a);
     els.table.innerHTML = metricsTable(a, highlight);
@@ -115,6 +119,26 @@ export function startApp(): void {
     els.warnings.hidden = !a.warnings.length;
     els.digest.hidden = false;
   }
+
+  /** Start chart + its scale note; re-run on zoom without redrawing the rest. */
+  function renderStart(): void {
+    const a = analysis;
+    if (!a) return;
+    const dims = startHullScale(a, zoom);
+    const cls = classDims(a.meta.boatClass) ? a.meta.boatClass : a.meta.division;
+    els.startScale.textContent = dims
+      ? `Hulls drawn to scale (${cls} ${f2(dims.loaM)} m). Hulls point along heading.`
+      : 'Markers not to scale. Arrows follow course over ground.';
+    els.start.innerHTML = startSnapshot(a, highlight, zoom);
+  }
+
+  els.startZoom.addEventListener('click', (ev) => {
+    const btn = (ev.target as Element).closest('button[data-zoom]');
+    if (!btn) return;
+    zoom = Number(btn.getAttribute('data-zoom'));
+    for (const b of els.startZoom.querySelectorAll('button[data-zoom]')) b.setAttribute('aria-pressed', String(b === btn));
+    renderStart();
+  });
 
   function toggleHighlight(id: string | null): void {
     highlight = highlight === id ? null : id;

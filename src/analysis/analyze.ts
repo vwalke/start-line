@@ -219,6 +219,7 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
     let start: StartResult | null = null;
     let trail = { x: new Float32Array(0), y: new Float32Array(0) };
     let courseAtGun: number | null = null;
+    let headingAtSample: number | null = null;
     if (tr.t.length > 1 && tr.t[0] <= gun && tr.t[tr.t.length - 1] >= gun) {
       // DTL, line position and the bow are sampled where the source takes its
       // start fix (RaceSense: ~0.9 s before the gun), so ours checks against the
@@ -226,9 +227,9 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       const off = data.dtlSampleOffsetMs ?? 0;
       const ts = tr.t[0] <= gun - off ? gun - off : gun;
       const p: Vec = [interp(tr.t, tr.x, ts), interp(tr.t, tr.y, ts)];
-      const hdgAtSample = interpAngle(tr.t, tr.heading, ts);
+      headingAtSample = interpAngle(tr.t, tr.heading, ts);
       const hdg = interpAngle(tr.t, tr.heading, gun);
-      const bow = add(p, scale(bearingVec(hdgAtSample), b.bowOffsetM));
+      const bow = add(p, scale(bearingVec(headingAtSample), b.bowOffsetM));
       const dtl = -dot(sub(bow, L), nrm);
       // Velocity toward the course side at the gun (numpy.gradient, then interpolated).
       // xs in ms → gradient is m/ms; ×1000 gives m/s. Only the samples around the
@@ -335,6 +336,7 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       trail,
       bow: start?.bow ?? null,
       headingAtGun: start?.headingDeg ?? null,
+      headingAtSample,
       courseAtGun,
       segments,
     });

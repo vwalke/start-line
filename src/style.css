@@ -270,6 +270,10 @@ svg .trk { fill: none; opacity: 0.8; stroke-linejoin: round; stroke-linecap: rou
 svg .trk.dim, svg .trail.dim { opacity: 0.12; }
 svg .boat { cursor: pointer; }
 svg .boat.dim { opacity: 0.3; }
+svg .boat-min .min-ring { fill: none; }
+.zoom { display: flex; gap: 4px; margin: 0 0 6px; }
+.zoom button { font: inherit; font-size: 0.8rem; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.zoom button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
 svg .startline { stroke: var(--ink); }
 svg .finishline { stroke: var(--ink-2); stroke-dasharray: 4 3; }
 svg .pin { fill: var(--s4); stroke: var(--ink); }

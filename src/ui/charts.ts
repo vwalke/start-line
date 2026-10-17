@@ -5,8 +5,9 @@
  * direct sail-number labels.
  */
 import { primaryDtlM } from '../analysis/findings';
-import type { Vec } from '../analysis/geo';
+import { add, bearingVec, dot, median, scale, sub, type Vec } from '../analysis/geo';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
+import { classDims, type ClassDims } from '../data/classes';
 import { esc, f1 } from './format';
 
 const SLOTS = 8;
@@ -16,7 +17,7 @@ export const boatColor = (b: BoatResult, fleet: number): string =>
 export const legColor = (i: number): string => `var(--s${(i % SLOTS) + 1})`;
 
 /** Rotation that puts the wind direction (FROM) at the top; y flipped for SVG. */
-function rotator(twdDeg: number): (p: Vec) => Vec {
+export function rotator(twdDeg: number): (p: Vec) => Vec {
   const th = (twdDeg * Math.PI) / 180;
   const c = Math.cos(th);
   const s = Math.sin(th);
@@ -62,16 +63,62 @@ function windArrow(box: Box, unit: number, k: number, label: string): string {
     <text x="${x - 6 * unit}" y="${y + 3 * unit}" font-size="${11 * k}" text-anchor="end">${esc(label)}</text></g>`;
 }
 
-/** Boats vs the line at the gun: bow positions, heading arrows, 30 s trails. */
-export function startSnapshot(a: RaceAnalysis, highlight: string | null): string {
+/**
+ * Stylized hull in hull coordinates: x across (±0.5 beam), y aft (bow 0,
+ * transom 1). Pointed bow, fullest aft of midships, flat transom. Bow first.
+ */
+const HULL: Vec[] = [
+  [0, 0],
+  [0.12, 0.06],
+  [0.24, 0.15],
+  [0.36, 0.28],
+  [0.45, 0.45],
+  [0.5, 0.65],
+  [0.49, 0.85],
+  [0.46, 1],
+  [-0.46, 1],
+  [-0.49, 0.85],
+  [-0.5, 0.65],
+  [-0.45, 0.45],
+  [-0.36, 0.28],
+  [-0.24, 0.15],
+  [-0.12, 0.06],
+];
+
+/** Hulls shorter than this on screen are drawn as the fixed-size marker instead. */
+const MIN_HULL_PX = 6;
+
+/** Hull outline in local metres: bow tip on `bow`, extending aft along `headingDeg`. */
+export function hullOutline(bow: Vec, headingDeg: number, dims: ClassDims): Vec[] {
+  const fwd = bearingVec(headingDeg);
+  const stbd = bearingVec(headingDeg + 90);
+  return HULL.map(([x, y]) => add(bow, add(scale(fwd, -y * dims.loaM), scale(stbd, x * dims.beamM))));
+}
+
+/**
+ * Centre for a zoomed start view (screen coords, zw × zh view): the focused
+ * boat's bow if any; else halfway between the fleet's median bow and its
+ * foot-point on line L–R when both fit in the view, else the median bow.
+ */
+export function zoomCentre(bows: Vec[], L: Vec, R: Vec, focus: Vec | null, zw: number, zh: number): Vec {
+  if (focus) return focus;
+  if (!bows.length) return scale(add(L, R), 0.5);
+  const m: Vec = [median(bows.map((p) => p[0])), median(bows.map((p) => p[1]))];
+  const lr = sub(R, L);
+  const t = Math.max(0, Math.min(1, dot(sub(m, L), lr) / Math.max(dot(lr, lr), 1e-9)));
+  const foot = add(L, scale(lr, t));
+  // Both points sit ±half their separation from the midpoint; keep a 10% margin.
+  const fits = Math.abs(m[0] - foot[0]) <= 0.9 * zw && Math.abs(m[1] - foot[1]) <= 0.9 * zh;
+  return fits ? scale(add(m, foot), 0.5) : m;
+}
+
+function startView(a: RaceAnalysis, zoom: number, focusId: string | null = null) {
   const rot = rotator(a.wind.twdAtGunDeg);
   const L = rot(a.line.left);
   const R = rot(a.line.right);
   const box: Box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
   grow(box, L);
   grow(box, R);
-  const fleet = a.boats.length;
-  const byId = new Map(a.boats.map((b) => [b.id, b]));
   for (const d of a.drawings) if (d.bow) grow(box, rot(d.bow));
   // Room for the trails, but don't let one boat far from the line shrink everyone else.
   const mid = rot([(a.line.left[0] + a.line.right[0]) / 2, (a.line.left[1] + a.line.right[1]) / 2]);
@@ -87,10 +134,39 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null): string
   box.x1 += pad;
   box.y0 -= pad * 1.4;
   box.y1 += pad;
-  const w = box.x1 - box.x0;
-  const h = box.y1 - box.y0;
-  const unit = w / 600; // ~1 css px at 600 px wide
+  // Zoom shrinks the view around the selected boat or the fleet, keeping the aspect.
+  const zw = (box.x1 - box.x0) / zoom;
+  const zh = (box.y1 - box.y0) / zoom;
+  let view = box;
+  if (zoom !== 1) {
+    const bows = a.drawings.filter((d) => d.bow).map((d) => rot(d.bow!));
+    const focus = a.drawings.find((d) => d.id === focusId)?.bow;
+    const c = zoomCentre(bows, L, R, focus ? rot(focus) : null, zw, zh);
+    view = { x0: c[0] - zw / 2, x1: c[0] + zw / 2, y0: c[1] - zh / 2, y1: c[1] + zh / 2 };
+  }
+  return { rot, L, R, box, view, unit: zw / 600 }; // unit: ~1 css px at 600 px wide
+}
+
+function startDims(a: RaceAnalysis): ClassDims | null {
+  return classDims(a.meta.boatClass) ?? classDims(a.meta.division);
+}
+
+/** The class dims when hulls are drawn to scale at this zoom, else null (markers). */
+export function startHullScale(a: RaceAnalysis, zoom = 1): ClassDims | null {
+  const dims = startDims(a);
+  return dims && dims.loaM / startView(a, zoom).unit >= MIN_HULL_PX ? dims : null;
+}
+
+/** Boats vs the line at the gun: to-scale hulls (or markers) at the bow, 30 s trails. */
+export function startSnapshot(a: RaceAnalysis, highlight: string | null, zoom = 1): string {
+  const { rot, L, R, box, view, unit } = startView(a, zoom, highlight);
+  const fleet = a.boats.length;
+  const byId = new Map(a.boats.map((b) => [b.id, b]));
+  const w = view.x1 - view.x0;
+  const h = view.y1 - view.y0;
   const k = unit;
+  const dims = startHullScale(a, zoom);
+  const minCls = startDims(a) && !dims ? ' boat-min' : '';
 
   const trails: string[] = [];
   const boats: string[] = [];
@@ -106,17 +182,27 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null): string
     if (tr.length > 1) trails.push(`<polyline class="trail${dim}" points="${pts(tr)}" stroke="${col}" stroke-width="${1.5 * k}"/>`);
     if (!d.bow || d.courseAtGun == null || !b.start) continue;
     const [x, y] = rot(d.bow);
-    const ang = d.courseAtGun - a.wind.twdAtGunDeg; // screen angle, 0 = up the page (into the wind)
-    const s = 10 * unit;
-    const tip = `0,${-s * 1.3}`;
-    const tri = `<polygon points="${tip} ${s * 0.7},${s * 0.9} 0,${s * 0.4} ${-s * 0.7},${s * 0.9}" fill="${col}" stroke="var(--surface)" stroke-width="${1.5 * k}"/>`;
     const st = b.start;
-    boats.push(`<g class="boat${dim}" data-id="${esc(b.id)}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+    let shape: string;
+    if (dims && d.headingAtSample != null) {
+      // True scale, along heading (not COG): the bow tip is the DTL bow point.
+      const hull = hullOutline(d.bow, d.headingAtSample, dims).map(rot);
+      shape = `<polygon class="hull" points="${hull.map(([hx, hy]) => `${hx.toFixed(2)},${hy.toFixed(2)}`).join(' ')}" fill="${col}" stroke="var(--surface)" stroke-width="${0.75 * k}"/>`;
+    } else {
+      const ang = d.courseAtGun - a.wind.twdAtGunDeg; // screen angle, 0 = up the page (into the wind)
+      const s = 10 * unit;
+      const tip = `0,${-s * 1.3}`;
+      const tri = `<polygon points="${tip} ${s * 0.7},${s * 0.9} 0,${s * 0.4} ${-s * 0.7},${s * 0.9}" fill="${col}" stroke="var(--surface)" stroke-width="${1.5 * k}"/>`;
+      const ring = minCls ? `<circle class="min-ring" r="${13 * unit}" stroke="${col}" stroke-width="${k}" stroke-dasharray="${2 * k} ${2 * k}"/>` : '';
+      shape = `<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">${ring}<g transform="rotate(${ang.toFixed(1)})">${tri}</g></g>`;
+    }
+    boats.push(`<g class="boat${minCls}${dim}" data-id="${esc(b.id)}">
       <title>#${esc(b.sail)}: ${f1(primaryDtlM(st))} m behind${st.rcDtlM != null ? ` (ours ${f1(st.dtlM)} m)` : ''}, ${f1(st.secsLate)} s late, ${f1(st.speedKn)} kn</title>
-      <circle r="${16 * unit}" fill="transparent"/>
-      <g transform="rotate(${ang.toFixed(1)})">${tri}</g>
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${16 * unit}" fill="transparent"/>
+      ${shape}
+      <g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
       <text x="${11 * unit}" y="${-2 * unit}" font-size="${13 * k}" class="lbl">${esc(b.sail)}</text>
-      <text x="${11 * unit}" y="${11 * unit}" font-size="${11 * k}" class="sub">${f1(primaryDtlM(st))} m</text></g>`);
+      <text x="${11 * unit}" y="${11 * unit}" font-size="${11 * k}" class="sub">${f1(primaryDtlM(st))} m</text></g></g>`);
   }
 
   const lineSvg = `<line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>
@@ -125,10 +211,10 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null): string
     <text x="${L[0]}" y="${L[1] - 11 * unit}" font-size="${11 * k}" text-anchor="middle" class="endlbl">PIN</text>
     <text x="${R[0]}" y="${R[1] - 11 * unit}" font-size="${11 * k}" text-anchor="middle" class="endlbl">RC</text>`;
 
-  return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart start" role="img"
+  return `<svg viewBox="${view.x0} ${view.y0} ${w} ${h}" class="chart start" role="img"
     aria-label="Boats relative to the start line at the gun">
     ${trails.join('')}${lineSvg}${boats.join('')}
-    ${windArrow(box, unit, k, 'wind (est.)')}${scaleBar(box, unit, k)}</svg>`;
+    ${windArrow(view, unit, k, 'wind (est.)')}${scaleBar(view, unit, k)}</svg>`;
 }
 
 /** Whole-race tracks, coloured by leg. */
