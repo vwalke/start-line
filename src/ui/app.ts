@@ -10,9 +10,11 @@ import { fetchLanding, fetchRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { classDims } from '../data/classes';
-import { legLegend, startHullScale, startSnapshot, trackMap } from './charts';
+import { legLegend, startFitBox, startHullScale, startSnapshot, trackMap } from './charts';
 import { degLabel, esc, f0, f2, gunTimeLine } from './format';
+import { attachPanZoom } from './panzoom';
 import { metricsTable } from './table';
+import { clampView, fitView, presetActive, type Box, type View } from './view';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -65,7 +67,8 @@ export function startApp(): void {
 
   let analysis: RaceAnalysis | null = null;
   let highlight: string | null = null;
-  let zoom = 1;
+  let fitBox: Box | null = null;
+  let view: View = { cx: 0, cy: 0, k: 1 };
   let regatta: RegattaResponse | null = null;
   let eventId = params.get('event') ?? '';
 
@@ -120,26 +123,49 @@ export function startApp(): void {
     els.digest.hidden = false;
   }
 
-  /** Start chart + its scale note; re-run on zoom without redrawing the rest. */
+  /** Start chart + its scale note; re-run on pan/zoom without redrawing the rest. */
   function renderStart(): void {
     const a = analysis;
     if (!a) return;
-    const dims = startHullScale(a, zoom);
+    const dims = startHullScale(a, view);
     const cls = classDims(a.meta.boatClass) ? a.meta.boatClass : a.meta.division;
     els.startScale.textContent = dims
       ? `Hulls drawn to scale (${cls} ${f2(dims.loaM)} m). Hulls point along heading.`
       : 'Markers not to scale. Arrows follow course over ground.';
-    els.start.innerHTML = startSnapshot(a, highlight, zoom);
+    els.start.innerHTML = startSnapshot(a, highlight, view);
+  }
+
+  let frame = 0;
+  /** Store the start view, sync presets and touch-action now, redraw on the next frame. */
+  function setView(v: View): void {
+    if (!fitBox) return;
+    view = clampView(fitBox, v);
+    for (const b of els.startZoom.querySelectorAll('button[data-zoom]')) {
+      b.setAttribute('aria-pressed', String(presetActive(fitBox, view, Number(b.getAttribute('data-zoom')))));
+    }
+    els.start.classList.toggle('zoomed', view.k > 1);
+    if (!frame) {
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        renderStart();
+      });
+    }
   }
 
   els.startZoom.addEventListener('click', (ev) => {
     const btn = (ev.target as Element).closest('button[data-zoom]');
-    if (!btn) return;
+    if (!btn || !fitBox) return;
     const next = Number(btn.getAttribute('data-zoom'));
     if (!Number.isFinite(next) || next <= 0) return;
-    zoom = next;
-    for (const b of els.startZoom.querySelectorAll('button[data-zoom]')) b.setAttribute('aria-pressed', String(b === btn));
-    renderStart();
+    // Presets zoom about the current centre; Fit resets it.
+    setView(next === 1 ? fitView(fitBox) : { ...view, k: next });
+  });
+
+  attachPanZoom(els.start, {
+    getBox: () => fitBox,
+    getView: () => view,
+    setView,
+    getRect: () => (els.start.querySelector('svg') ?? els.start).getBoundingClientRect(),
   });
 
   function toggleHighlight(id: string | null): void {
@@ -167,6 +193,8 @@ export function startApp(): void {
     try {
       analysis = await p;
       highlight = null;
+      fitBox = startFitBox(analysis);
+      setView(fitView(fitBox));
       render();
       setStatus('');
     } finally {
