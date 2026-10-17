@@ -109,7 +109,7 @@ export function startApp(): void {
       a.line.favored === 'square'
         ? 'about square to the wind'
         : `${a.line.favored === 'left' ? 'pin' : 'RC'} end favoured by ≈${f0(a.line.favoredByM)} m`;
-    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (tracker + class bow offset) with the last 30 s of track shifted to the bow. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.`;
+    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (Vakaros timing) with the last 30 s of track shifted to the bow. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.`;
     renderStart();
     els.map.innerHTML = trackMap(a, highlight);
     els.legend.innerHTML = legLegend(a);
@@ -135,7 +135,9 @@ export function startApp(): void {
   els.startZoom.addEventListener('click', (ev) => {
     const btn = (ev.target as Element).closest('button[data-zoom]');
     if (!btn) return;
-    zoom = Number(btn.getAttribute('data-zoom'));
+    const next = Number(btn.getAttribute('data-zoom'));
+    if (!Number.isFinite(next) || next <= 0) return;
+    zoom = next;
     for (const b of els.startZoom.querySelectorAll('button[data-zoom]')) b.setAttribute('aria-pressed', String(b === btn));
     renderStart();
   });

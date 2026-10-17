@@ -4,7 +4,13 @@ import {
   argbToHex,
   buildRaceData,
   currentDoc,
-defaultRace, listRaces, parseTelemetry, snFromHex, telemetryWindow, tzOffsetMs } from '../src/data/racesense/adapter';
+  defaultRace,
+  listRaces,
+  parseTelemetry,
+  snFromHex,
+  telemetryWindow,
+  tzOffsetMs,
+} from '../src/data/racesense/adapter';
 import { fixtureRace, loadFixture } from './helpers';
 
 describe('RaceSense adapter', () => {

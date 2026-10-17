@@ -1,4 +1,5 @@
 /** Compact metrics table with best/worst highlights per column (▲ best, ▼ worst — never colour alone). */
+import { primaryDtlM } from '../analysis/findings';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { boatColor } from './charts';
 import { duration, esc, f0, f1, f2, localTime, twaLabel } from './format';
@@ -20,13 +21,13 @@ interface Col {
 }
 
 function columns(a: RaceAnalysis): Col[] {
-  const clean = (b: BoatResult): boolean => !!b.start && b.start.dtlM >= 0 && !b.start.ocs;
+  const clean = (b: BoatResult): boolean => !!b.start && primaryDtlM(b.start) >= 0 && !b.start.ocs;
   const hasVakaros = a.boats.some((b) => b.start?.rcDtlM != null);
   const dtlCols: Col[] = hasVakaros
     ? [
         {
           head: 'DTL<br><small>Vakaros m</small>',
-          title: "Distance to line at the gun measured by the boat's Vakaros device (feed dtlMm, bow-corrected). Primary figure.",
+          title: "Distance to line from the boat's Vakaros device (feed dtlMm, bow-corrected; device start-fix timing). Primary figure.",
           rank: (b) => (b.start?.rcDtlM != null && b.start.rcDtlM >= 0 && !b.start.ocs ? b.start.rcDtlM : null),
           better: 'low',
           cell: (b) => f1(b.start?.rcDtlM),

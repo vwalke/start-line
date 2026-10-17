@@ -212,7 +212,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, zoom = 
     <text x="${R[0]}" y="${R[1] - 11 * unit}" font-size="${11 * k}" text-anchor="middle" class="endlbl">RC</text>`;
 
   return `<svg viewBox="${view.x0} ${view.y0} ${w} ${h}" class="chart start" role="img"
-    aria-label="Boats relative to the start line at the gun">
+    aria-label="Boats relative to the start line at the gun (Vakaros timing)">
     ${trails.join('')}${lineSvg}${boats.join('')}
     ${windArrow(view, unit, k, 'wind (est.)')}${scaleBar(view, unit, k)}</svg>`;
 }

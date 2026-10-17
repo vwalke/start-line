@@ -92,7 +92,7 @@ export interface TrackSegment {
 
 export interface BoatDrawing {
   id: string;
-  /** Last 30 s before the gun (+ a few after), full rate. */
+  /** ~30 s of track up to the DTL sample, shifted so the last point is the bow. */
   trail: { x: Float32Array; y: Float32Array };
   bow: Vec | null;
   /** Compass heading at the gun (TWA). */

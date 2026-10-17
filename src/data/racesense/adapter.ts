@@ -350,7 +350,7 @@ export function buildRaceData(
     raceNumber: race.raceNumber,
     gunMs,
     dtlSampleOffsetMs: RACESENSE_DTL_SAMPLE_OFFSET_MS,
-    tzOffsetMs:tzOffsetMs(race.timezoneOffset),
+    tzOffsetMs: tzOffsetMs(race.timezoneOffset),
     startLine,
     finishLine,
     course: marks,
