@@ -55,7 +55,8 @@
               <button type="button" data-zoom="4" aria-pressed="false">4×</button>
               <button type="button" data-zoom="8" aria-pressed="false">8×</button>
             </div>
-            <div id="start-chart"></div>
+            <div id="start-chart" class="panzoom" tabindex="0" role="group" aria-label="Start chart. Arrow keys pan, plus and minus zoom, 0 resets." aria-describedby="start-hint"></div>
+            <p class="hint" id="start-hint"><span class="hint-touch">Pinch to zoom · drag to pan when zoomed · double-tap to zoom in</span><span class="hint-fine">Drag to pan · Ctrl/⌘ + scroll or trackpad pinch to zoom · double-click to zoom in</span></p>
             <p class="cap"><span id="start-caption"></span> <span id="start-scale"></span></p>
           </section>
           <section class="card">

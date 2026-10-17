@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import type { Vec } from '../src/analysis/geo';
 import { classDims } from '../src/data/classes';
-import { hullOutline, hullPathD, rotator, startHullScale, startSnapshot, zoomCentre } from '../src/ui/charts';
+import { hullOutline, hullPathD, rotator, startFitBox, startHullScale, startSnapshot } from '../src/ui/charts';
+import { clampView, fitView, type View } from '../src/ui/view';
 import { fixtureRace } from './helpers';
 
 const analysis = analyzeRace(fixtureRace());
@@ -20,50 +21,47 @@ describe('class dimensions', () => {
   });
 });
 
-describe('zoom centre', () => {
-  const L: Vec = [-50, 0];
-  const R: Vec = [50, 0];
-  const bows: Vec[] = [
-    [-20, 10],
-    [0, 12],
-    [30, 8],
-  ];
+const box = startFitBox(analysis);
+const fit = fitView(box);
+const at = (k: number): View => clampView(box, { ...fit, k });
+const vb = (svg: string): number[] => /viewBox="([^"]+)"/.exec(svg)![1].split(' ').map(Number);
 
-  it('centres on the focused bow', () => {
-    expect(zoomCentre(bows, L, R, [7, 9], 20, 15)).toEqual([7, 9]);
+describe('start chart view', () => {
+  it('draws the fit box by default and the clamped view otherwise', () => {
+    vb(startSnapshot(analysis, null)).forEach((n, i) => expect(n).toBeCloseTo([box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0][i], 9));
+    const [x0, y0, w, h] = vb(startSnapshot(analysis, null, at(4)));
+    expect(w).toBeCloseTo((box.x1 - box.x0) / 4, 9);
+    expect(h).toBeCloseTo((box.y1 - box.y0) / 4, 9);
+    expect(x0 + w / 2).toBeCloseTo(fit.cx, 9);
+    expect(y0 + h / 2).toBeCloseTo(fit.cy, 9);
+    // Out-of-range views are clamped into the box.
+    const [cx0, cy0, cw, ch] = vb(startSnapshot(analysis, null, { cx: box.x1 + 500, cy: box.y0 - 500, k: 99 }));
+    expect(cw).toBeCloseTo((box.x1 - box.x0) / 16, 9);
+    expect(cx0 + cw).toBeCloseTo(box.x1, 9);
+    expect(cy0).toBeCloseTo(box.y0, 9);
+    expect(ch).toBeGreaterThan(0);
   });
 
-  it('centres between the median bow and its foot on the line when both fit', () => {
-    expect(zoomCentre(bows, L, R, null, 40, 30)).toEqual([0, 5]);
-  });
-
-  it('falls back to the median bow when the line would not fit', () => {
-    expect(zoomCentre(bows, L, R, null, 20, 8)).toEqual([0, 10]);
-  });
-
-  it('clamps the foot-point to the line ends', () => {
-    expect(zoomCentre([[80, 10]], L, R, null, 100, 100)).toEqual([65, 5]);
-  });
-
-  it('keeps the fleet in view at 8x on the demo race', () => {
-    const svg = startSnapshot(analysis, null, 8);
-    const [x0, y0, w, h] = /viewBox="([^"]+)"/.exec(svg)![1].split(' ').map(Number);
+  it('centres an 8x view on a boat bow and draws its hull from the bow', () => {
     const rot = rotator(analysis.wind.twdAtGunDeg);
-    const inView = analysis.drawings.map((d) => rot(d.bow!)).filter(([x, y]) => x > x0 && x < x0 + w && y > y0 && y < y0 + h);
-    expect(inView.length).toBeGreaterThan(0);
-    // A highlighted boat is always in the middle.
-    const d = analysis.drawings[analysis.drawings.length - 1];
-    const [hx0, hy0, hw, hh] = /viewBox="([^"]+)"/.exec(startSnapshot(analysis, d.id, 8))![1].split(' ').map(Number);
+    const d = analysis.drawings.find((x) => x.bow && x.headingAtSample != null)!;
     const [bx, by] = rot(d.bow!);
-    expect(hx0 + hw / 2).toBeCloseTo(bx, 6);
-    expect(hy0 + hh / 2).toBeCloseTo(by, 6);
+    const v = clampView(box, { cx: bx, cy: by, k: 8 });
+    expect(v).toEqual({ cx: bx, cy: by, k: 8 });
+    const svg = startSnapshot(analysis, d.id, v);
+    const [x0, y0, w, h] = vb(svg);
+    expect(x0 + w / 2).toBeCloseTo(bx, 6);
+    expect(y0 + h / 2).toBeCloseTo(by, 6);
+    const g = new RegExp(`data-id="${d.id}"[\\s\\S]*?<path class="hull" d="M(-?[\\d.]+),(-?[\\d.]+)`).exec(svg)!;
+    expect(+g[1]).toBeCloseTo(bx, 1);
+    expect(+g[2]).toBeCloseTo(by, 1);
   });
 });
 
 describe('start chart hulls', () => {
   it('draws J/70 hulls to scale at 8x with the bow tip on the DTL bow', () => {
-    expect(startHullScale(analysis, 8)?.loaM).toBe(6.934);
-    const svg = startSnapshot(analysis, null, 8);
+    expect(startHullScale(analysis, at(8))?.loaM).toBe(6.934);
+    const svg = startSnapshot(analysis, null, at(8));
     const ds = [...svg.matchAll(/<path class="hull" d="([^"]+)"/g)].map((m) => m[1]);
     expect(ds).toHaveLength(analysis.drawings.length);
     expect(ds.every((d) => d.includes('C') && d.includes('L') && d.endsWith('Z'))).toBe(true);
@@ -93,15 +91,20 @@ describe('start chart hulls', () => {
 
   it('falls back to the min-size marker when hulls would be under 6 px', () => {
     const far = { ...analysis, drawings: analysis.drawings.map((d, i) => (i ? d : { ...d, bow: [d.bow![0] + 3000, d.bow![1]] as Vec })) };
-    expect(startHullScale(far, 1)).toBeNull();
-    const svg = startSnapshot(far, null, 1);
+    expect(startHullScale(far)).toBeNull();
+    const svg = startSnapshot(far, null);
     expect(svg).toContain('boat-min');
     expect(svg).not.toContain('class="hull"');
+    // Zooming in far enough brings the hulls back.
+    const farBox = startFitBox(far);
+    const zoomed = clampView(farBox, { ...fitView(farBox), k: 16 });
+    expect(startHullScale(far, zoomed)?.loaM).toBe(6.934);
+    expect(startSnapshot(far, null, zoomed)).toContain('class="hull"');
   });
 
   it('keeps the plain marker for unknown classes', () => {
     const meta = { ...analysis.meta, boatClass: 'Mystery', division: 'Mystery' };
-    const svg = startSnapshot({ ...analysis, meta }, null, 8);
+    const svg = startSnapshot({ ...analysis, meta }, null, at(8));
     expect(svg).not.toContain('class="hull"');
     expect(svg).not.toContain('boat-min');
   });

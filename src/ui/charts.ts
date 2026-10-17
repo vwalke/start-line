@@ -5,10 +5,11 @@
  * direct sail-number labels.
  */
 import { primaryDtlM } from '../analysis/findings';
-import { add, bearingVec, dot, median, scale, sub, type Vec } from '../analysis/geo';
+import { add, bearingVec, scale, type Vec } from '../analysis/geo';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { classDims, type ClassDims } from '../data/classes';
 import { esc, f1 } from './format';
+import { clampView, fitView, viewBox, type Box, type View } from './view';
 
 const SLOTS = 8;
 
@@ -22,13 +23,6 @@ export function rotator(twdDeg: number): (p: Vec) => Vec {
   const c = Math.cos(th);
   const s = Math.sin(th);
   return ([x, y]) => [x * c - y * s, -(x * s + y * c)];
-}
-
-interface Box {
-  x0: number;
-  y0: number;
-  x1: number;
-  y1: number;
 }
 
 function grow(b: Box, p: Vec): void {
@@ -126,24 +120,12 @@ export function hullOutline(bow: Vec, headingDeg: number, dims: ClassDims): Vec[
   return HULL.map(([x, y]) => add(bow, add(scale(fwd, -y * dims.loaM), scale(stbd, x * dims.beamM))));
 }
 
-/**
- * Centre for a zoomed start view (screen coords, zw × zh view): the focused
- * boat's bow if any; else halfway between the fleet's median bow and its
- * foot-point on line L–R when both fit in the view, else the median bow.
- */
-export function zoomCentre(bows: Vec[], L: Vec, R: Vec, focus: Vec | null, zw: number, zh: number): Vec {
-  if (focus) return focus;
-  if (!bows.length) return scale(add(L, R), 0.5);
-  const m: Vec = [median(bows.map((p) => p[0])), median(bows.map((p) => p[1]))];
-  const lr = sub(R, L);
-  const t = Math.max(0, Math.min(1, dot(sub(m, L), lr) / Math.max(dot(lr, lr), 1e-9)));
-  const foot = add(L, scale(lr, t));
-  // Both points sit ±half their separation from the midpoint; keep a 10% margin.
-  const fits = Math.abs(m[0] - foot[0]) <= 0.9 * zw && Math.abs(m[1] - foot[1]) <= 0.9 * zh;
-  return fits ? scale(add(m, foot), 0.5) : m;
+/** The start chart's Fit box: the line, bows and nearby trails, padded. */
+export function startFitBox(a: RaceAnalysis): Box {
+  return startFrame(a).box;
 }
 
-function startView(a: RaceAnalysis, zoom: number, focusId: string | null = null) {
+function startFrame(a: RaceAnalysis) {
   const rot = rotator(a.wind.twdAtGunDeg);
   const L = rot(a.line.left);
   const R = rot(a.line.right);
@@ -165,38 +147,36 @@ function startView(a: RaceAnalysis, zoom: number, focusId: string | null = null)
   box.x1 += pad;
   box.y0 -= pad * 1.4;
   box.y1 += pad;
-  // Zoom shrinks the view around the selected boat or the fleet, keeping the aspect.
-  const zw = (box.x1 - box.x0) / zoom;
-  const zh = (box.y1 - box.y0) / zoom;
-  let view = box;
-  if (zoom !== 1) {
-    const bows = a.drawings.filter((d) => d.bow).map((d) => rot(d.bow!));
-    const focus = a.drawings.find((d) => d.id === focusId)?.bow;
-    const c = zoomCentre(bows, L, R, focus ? rot(focus) : null, zw, zh);
-    view = { x0: c[0] - zw / 2, x1: c[0] + zw / 2, y0: c[1] - zh / 2, y1: c[1] + zh / 2 };
-  }
-  return { rot, L, R, box, view, unit: zw / 600 }; // unit: ~1 css px at 600 px wide
+  return { rot, L, R, box };
+}
+
+function startView(a: RaceAnalysis, v?: View) {
+  const { rot, L, R, box } = startFrame(a);
+  // A window onto the fit box with the same aspect.
+  const vb = viewBox(box, clampView(box, v ?? fitView(box)));
+  const view: Box = { x0: vb.x0, y0: vb.y0, x1: vb.x0 + vb.w, y1: vb.y0 + vb.h };
+  return { rot, L, R, box, view, unit: vb.w / 600 }; // unit: ~1 css px at 600 px wide
 }
 
 function startDims(a: RaceAnalysis): ClassDims | null {
   return classDims(a.meta.boatClass) ?? classDims(a.meta.division);
 }
 
-/** The class dims when hulls are drawn to scale at this zoom, else null (markers). */
-export function startHullScale(a: RaceAnalysis, zoom = 1): ClassDims | null {
+/** The class dims when hulls are drawn to scale in this view (default Fit), else null (markers). */
+export function startHullScale(a: RaceAnalysis, v?: View): ClassDims | null {
   const dims = startDims(a);
-  return dims && dims.loaM / startView(a, zoom).unit >= MIN_HULL_PX ? dims : null;
+  return dims && dims.loaM / startView(a, v).unit >= MIN_HULL_PX ? dims : null;
 }
 
 /** Boats vs the line at the gun: to-scale hulls (or markers) at the bow, 30 s trails. */
-export function startSnapshot(a: RaceAnalysis, highlight: string | null, zoom = 1): string {
-  const { rot, L, R, box, view, unit } = startView(a, zoom, highlight);
+export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: View): string {
+  const { rot, L, R, box, view, unit } = startView(a, v);
   const fleet = a.boats.length;
   const byId = new Map(a.boats.map((b) => [b.id, b]));
   const w = view.x1 - view.x0;
   const h = view.y1 - view.y0;
   const k = unit;
-  const dims = startHullScale(a, zoom);
+  const dims = startHullScale(a, v);
   const minCls = startDims(a) && !dims ? ' boat-min' : '';
 
   const trails: string[] = [];
