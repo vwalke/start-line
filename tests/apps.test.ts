@@ -12,12 +12,12 @@ describe('app switcher list', () => {
       { id: 'railmath', name: 'Rail Math', description: 'Time-on-time deltas', href: 'https://railmath.walkeforward.com/' },
       { id: 'legwork', name: 'Leg Work', description: 'Range & bearing to every mark', href: 'https://legwork.walkeforward.com/' },
       { id: 'vanncast', name: 'VannCast', description: 'Annapolis racing weather', href: 'https://vanncast.walkeforward.com/' },
-      { id: 'startline', name: 'Start Line', description: 'Start & leg digest', href: 'https://startline.walkeforward.com/' },
+      { id: 'recall', name: 'Recall', description: 'Start & leg digest', href: 'https://recall.walkeforward.com/' },
     ]);
   });
 
-  it('marks Start Line as the current app', () => {
-    expect(HERE).toBe('startline');
+  it('marks Recall as the current app', () => {
+    expect(HERE).toBe('recall');
     expect(APPS.some((a) => a.id === HERE)).toBe(true);
   });
 
@@ -39,7 +39,7 @@ describe('app switcher list', () => {
 describe('web manifest', () => {
   it('parses and carries the fleet colours', () => {
     const manifest = JSON.parse(readFileSync(join(publicDir, 'manifest.webmanifest'), 'utf8'));
-    expect(manifest.name).toBe('Start Line');
+    expect(manifest.name).toBe('Recall');
     expect(manifest.theme_color).toBe('#16181c');
     expect(manifest.background_color).toBe('#131922');
     for (const icon of manifest.icons) expect(existsSync(join(publicDir, icon.src))).toBe(true);

@@ -2,7 +2,7 @@
   "name": "start-line",
   "version": "0.1.0",
   "private": true,
-  "description": "Start Line: a lean start + leg digest for sailboat races from Vakaros RaceSense public data. A Walke Forward project.",
+  "description": "Recall: a lean start + leg digest for sailboat races from Vakaros RaceSense public data. A Walke Forward project.",
   "type": "module",
   "engines": {
     "node": ">=20.19"

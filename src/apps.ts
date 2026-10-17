@@ -3,7 +3,9 @@
  * bottom-sheet switcher the header logo opens (ported from VannCast).
  * Native `<dialog>` supplies the focus trap, Esc, and returning focus to the logo.
  */
-export const HERE = 'startline' as const;
+export const HERE = 'recall' as const;
+
+const RECALL_URL = 'https://recall.walkeforward.com/';
 
 export const APPS = [
   {
@@ -28,11 +30,11 @@ export const APPS = [
     icon: '/apps/vanncast.svg',
   },
   {
-    id: 'startline',
-    name: 'Start Line',
+    id: 'recall',
+    name: 'Recall',
     description: 'Start & leg digest',
-    href: 'https://startline.walkeforward.com/',
-    icon: '/apps/startline.svg',
+    href: RECALL_URL,
+    icon: '/apps/recall.svg',
   },
 ] as const;
 

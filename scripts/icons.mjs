@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Renders the Start Line icons from brand/ into public/:
-//   favicon.svg / .ico / -32.png    from brand/favicon.svg (the small-size drawing)
+// Renders the Recall icons from brand/ into public/:
+//   favicon.svg / .ico / -32.png    from brand/logo-favicon.svg (the small-size drawing)
 //   apple-touch-icon.png            opaque full-bleed square (iOS rounds it)
-//   icon-192.png, icon-512.png      the rounded tile as drawn in brand/icon.svg
+//   icon-192.png, icon-512.png      the rounded tile as drawn in brand/logo-icon.svg
 //   icon-maskable-512.png           full-bleed square, artwork inside the safe zone
 //   manifest.webmanifest
-//   apps/startline.svg              the app switcher tile
+//   apps/recall.svg                 the app switcher tile
 // `--check` regenerates in memory and fails on any stale or missing file (used in CI).
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -21,22 +21,65 @@ const check = process.argv.includes('--check');
 const INK = '#131922';
 const CARBON = '#16181c';
 
-const iconSvg = readFileSync(join(root, 'brand', 'icon.svg'), 'utf8');
-const faviconSvg = readFileSync(join(root, 'brand', 'favicon.svg'), 'utf8');
+const iconSvg = readFileSync(join(root, 'brand', 'logo-icon.svg'), 'utf8');
+const faviconSvg = readFileSync(join(root, 'brand', 'logo-favicon.svg'), 'utf8');
 
-// The tile is <g clip-path="url(#tB)"><rect ink/>…artwork…</g>; pull the artwork out
+// The tile is <g clip-path="url(#…)"><rect ink/>…artwork…</g>; pull the artwork out
 // so the square variants can drop the rounded clip.
-const tile = iconSvg.match(/<g clip-path="url\(#tB\)"><rect width="512" height="512" fill="#131922"\/>([\s\S]*)<\/g><\/svg>/);
-if (!tile) throw new Error('brand/icon.svg no longer matches the expected tile structure');
+const tile = iconSvg.match(/<g clip-path="url\(#[^)]+\)"><rect width="512" height="512" fill="#131922"\/>([\s\S]*)<\/g><\/svg>/);
+if (!tile) throw new Error('brand/logo-icon.svg no longer matches the expected tile structure');
 const artwork = tile[1];
 
 const svg512 = (body) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" fill="${INK}"/>${body}</svg>`;
 const square = svg512(artwork);
-// The maskable safe zone is the central circle of radius 40 % (204.8 px at 512). The farthest
-// artwork point from the centre is the gold line's left cap (≈ 268 px out), so 0.76 keeps it inside.
-const MASKABLE_SCALE = 0.76;
-const maskable = svg512(`<g transform="translate(256 256) scale(${MASKABLE_SCALE}) translate(-256 -256)">${artwork}</g>`);
+
+// The maskable safe zone is the central circle of radius 40 % (204.8 px at 512). The artwork is
+// <g transform="translate(4 -16) rotate(-10 256 256)"> around two stroked polygons (blue pennant,
+// stroke 24; gold inner triangle, stroke 14.4). Every vertex is measured after that transform,
+// plus half its stroke width. About the canvas centre the farthest point is the upper hoist
+// corner at 244.2 px (scale 0.802); centring the bounding box is worse (250.4 px, the pennant
+// is lopsided), so instead the artwork is centred on its minimum enclosing circle, centre
+// ≈ (234.4, 244.5), radius 220.0 px, touched by the fly tip and both hoist corners. The gold
+// triangle's farthest point is 206 px from that centre (inside the pennant). Scaling by 0.890
+// puts the farthest point at 195.8 px, inside 204.8 with a little margin.
+const SAFE_RADIUS = 196;
+const group = artwork.match(/^<g transform="translate\(([-\d.]+) ([-\d.]+)\) rotate\(([-\d.]+) 256 256\)">/);
+if (!group) throw new Error('brand/logo-icon.svg artwork transform is not translate() rotate(… 256 256)');
+const [tx, ty, deg] = group.slice(1).map(Number);
+const cos = Math.cos((deg * Math.PI) / 180);
+const sin = Math.sin((deg * Math.PI) / 180);
+const shapes = [...artwork.matchAll(/<path d="([^"]+)"[^>]*stroke-width="([\d.]+)"/g)].map(([, d, sw]) => ({
+  half: Number(sw) / 2,
+  points: [...d.matchAll(/(-?[\d.]+) (-?[\d.]+)/g)].map(([, x, y]) => [
+    256 + (x - 256) * cos - (y - 256) * sin + tx,
+    256 + (x - 256) * sin + (y - 256) * cos + ty,
+  ]),
+}));
+const outline = shapes.flatMap(({ half, points }) => points.map(([x, y]) => ({ x, y, half })));
+const farthest = (cx, cy) => {
+  let best = { r: -1 };
+  for (const p of outline) {
+    const r = Math.hypot(p.x - cx, p.y - cy) + p.half;
+    if (r > best.r) best = { ...p, r };
+  }
+  return best;
+};
+// Bădoiu–Clarkson: step towards the current farthest point with a shrinking step.
+let [cx, cy] = [256, 256];
+for (let i = 1; i <= 5000; i++) {
+  const p = farthest(cx, cy);
+  cx += (p.x - cx) / (i + 1);
+  cy += (p.y - cy) / (i + 1);
+}
+[cx, cy] = [Number(cx.toFixed(2)), Number(cy.toFixed(2))];
+const reach = farthest(cx, cy).r;
+const MASKABLE_SCALE = Math.floor((SAFE_RADIUS / reach) * 1000) / 1000;
+const maskable = svg512(
+  `<g transform="translate(256 256) scale(${MASKABLE_SCALE}) translate(${-cx} ${-cy})">${artwork}</g>`,
+);
+const maskableReach = reach * MASKABLE_SCALE;
+if (maskableReach > 204.8) throw new Error(`maskable artwork reaches ${maskableReach.toFixed(1)} px, outside the safe zone`);
 
 const render = (svg, width) => new Resvg(svg, { fitTo: { mode: 'width', value: width } }).render();
 const png = (svg, width) => render(svg, width).asPng();
@@ -98,8 +141,8 @@ function ico(images) {
 }
 
 const manifest = {
-  name: 'Start Line',
-  short_name: 'Start Line',
+  name: 'Recall',
+  short_name: 'Recall',
   description: 'How your start and each leg went, in one screen. A lean start and leg digest from Vakaros RaceSense public data.',
   start_url: '/',
   scope: '/',
@@ -122,7 +165,7 @@ const files = [
   ['icon-512.png', png(iconSvg, 512)],
   ['icon-maskable-512.png', png(maskable, 512)],
   ['manifest.webmanifest', Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)],
-  ['apps/startline.svg', Buffer.from(iconSvg)],
+  ['apps/recall.svg',Buffer.from(iconSvg)],
 ];
 
 if (check) {
@@ -139,5 +182,9 @@ if (check) {
 } else {
   mkdirSync(join(publicDir, 'apps'), { recursive: true });
   for (const [name, data] of files) writeFileSync(join(publicDir, name), data);
+  console.log(
+    `Maskable: artwork centred on ${cx.toFixed(1)},${cy.toFixed(1)}, reach ${reach.toFixed(1)} px, ` +
+      `scale ${MASKABLE_SCALE} -> ${maskableReach.toFixed(1)} px of 204.8`,
+  );
   console.log(`Wrote ${files.length} files:\n  ${files.map(([name]) => `public/${name}`).join('\n  ')}`);
 }

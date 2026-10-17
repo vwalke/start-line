@@ -1,6 +1,6 @@
 /**
  * Cloudflare Pages Function: a narrow, cached proxy for the public
- * RaceSense endpoints Start Line needs.
+ * RaceSense endpoints Recall needs.
  *
  *   /api/landing                          → events list
  *   /api/regatta?event=ID                 → event document

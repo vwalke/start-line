@@ -1,6 +1,6 @@
 {
-  "name": "Start Line",
-  "short_name": "Start Line",
+  "name": "Recall",
+  "short_name": "Recall",
   "description": "How your start and each leg went, in one screen. A lean start and leg digest from Vakaros RaceSense public data.",
   "start_url": "/",
   "scope": "/",
