@@ -28,6 +28,19 @@ export function fixtureRace(): RaceData {
   });
 }
 
+/** C31 Gold Cup race 10: four boats chosen for the Vakaros data-quality cases (stale row, mask 5, no distance, clean). */
+export function c31Fixture(): Fixture {
+  return JSON.parse(readFileSync(here('./fixtures/c31_r10.json'), 'utf8')) as Fixture;
+}
+
+export function c31Race(f: Fixture = c31Fixture()): RaceData {
+  return buildRaceData(f.regatta, { division: 'C31', raceNumber: 10 }, [f.telemetry], {
+    eventId: f.eventId,
+    kind: 'fixture',
+    wind: f.wind,
+  });
+}
+
 export type CsvRow = Record<string, string>;
 export function loadExpected(): CsvRow[] {
   const [head, ...lines] = readFileSync(here('./fixtures/benelux_act3_race8_metrics.csv'), 'utf8').trim().split('\n');

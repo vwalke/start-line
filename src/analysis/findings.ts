@@ -2,8 +2,8 @@
 import { compassRound, median, wrap180 } from './geo';
 import type { BoatResult, Finding, RaceAnalysis, StartResult } from './types';
 
-/** The DTL to show and rank by: the boat's Vakaros figure when the feed has it, else ours. */
-export const primaryDtlM = (s: StartResult): number => s.rcDtlM ?? s.dtlM;
+/** The DTL to show and rank by (see `StartResult.rank`): Vakaros when valid, else ours when valid, else null. */
+export const primaryDtlM = (s: StartResult): number | null => s.rank?.m ?? null;
 
 const tag = (b: BoatResult): string => (b.name && b.name !== `#${b.sail}` ? `#${b.sail} (${b.name})` : `#${b.sail}`);
 const r0 = (x: number): string => Math.round(x).toString();
@@ -40,21 +40,24 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
   }
 
   // Starts.
-  const dtl = (b: BoatResult): number => primaryDtlM(b.start!);
-  const over = started.filter((b) => dtl(b) < 0 || b.start!.ocs);
-  const clean = started.filter((b) => !over.includes(b)).sort((x, y) => dtl(x) - dtl(y));
+  // Ranked by one value per boat (Vakaros when valid, else our track check); boats with neither are skipped.
+  const dtl = (b: BoatResult): number => b.start!.rank!.m;
+  const by = (b: BoatResult): string => (b.start!.rank!.source === 'ours' ? ' by our track check' : '');
+  const late = (s: StartResult, approx = false): string => (s.lateS == null ? '' : `, ${approx ? '≈' + r0(s.lateS) : r1(s.lateS)} s late`);
+  const over = started.filter((b) => b.start!.over);
+  const clean = started.filter((b) => b.start!.startPlace != null).sort((x, y) => x.start!.startPlace! - y.start!.startPlace!);
   if (clean.length) {
     const best = clean[0];
     const tied = clean.filter((b) => dtl(b) - dtl(best) < 1);
     const s = best.start!;
-    let text = `Best start: ${joinTags(tied)} — ${r1(dtl(best))} m back, ${r1(s.secsLate)} s late, at ${r1(s.speedKn)} kn.`;
+    let text = `Best start: ${joinTags(tied)} — ${r1(dtl(best))} m back${by(best)}${late(s)}, at ${r1(s.speedKn)} kn.`;
     const fin = tied.filter((b) => b.finishPos != null).map((b) => `${tag(b)} finished ${ord(b.finishPos!)}`);
     if (fin.length) text += ` ${fin.join('; ')}.`;
     out.push({ kind: 'start', text });
     if (clean.length >= 3) {
       const worst = clean[clean.length - 1];
       const w = worst.start!;
-      let wt = `Furthest back: ${tag(worst)} — ${r1(dtl(worst))} m, ≈${r0(w.secsLate)} s late`;
+      let wt = `Furthest back: ${tag(worst)} — ${r1(dtl(worst))} m${by(worst)}${late(w, true)}`;
       if (Math.abs(w.twaDeg) > 42) wt += `, sailing low (TWA ${r0(Math.abs(w.twaDeg))}°)`;
       else if (w.speedKn < median(started.map((b) => b.start!.speedKn)) - 1) wt += `, slow at ${r1(w.speedKn)} kn`;
       out.push({ kind: 'start', text: wt + '.' });
@@ -66,7 +69,20 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
       kind: 'start',
       text: s.ocs
         ? `${tag(b)} was flagged OCS by race control.`
-        : `${tag(b)}'s bow was ${r1(-primaryDtlM(s))} m over the line at the gun ${s.rcDtlM == null ? 'by our estimate' : 'by the Vakaros DTL'} (not flagged OCS — GPS and bow offset are approximate).`,
+        : `${tag(b)}'s bow was ${r1(-dtl(b))} m over the line at the gun ${s.rank!.source === 'ours' ? 'by our estimate' : 'by the Vakaros DTL'} (not flagged OCS — GPS and bow offset are approximate).`,
+    });
+  }
+  // Boats race control's OCS check couldn't see: no usable Vakaros fix, and our figure is near or over the line.
+  for (const b of started.filter((x) => x.start!.ocsBlind)) {
+    const s = b.start!;
+    const rc = s.rcStatus === 'stale' ? 'Vakaros had no start fix for this race' : 'Vakaros reported no distance for this boat';
+    const pos = s.dtlM < 0 ? `≈${r1(-s.dtlM)} m over` : `≈${r1(s.dtlM)} m behind`;
+    out.push({
+      kind: 'start',
+      text:
+        s.dtlGapS != null
+          ? `${tag(b)}: ${rc} and our track has a ${r0(s.dtlGapS)} s gap at the gun; it may have been over (${pos} by interpolation), but neither figure is reliable.`
+          : `${tag(b)}: ${rc}, and our track puts the bow ${pos} the line at the start; it may have been over without race control's OCS check seeing it (GPS and bow offset are approximate).`,
     });
   }
 

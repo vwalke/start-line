@@ -359,3 +359,13 @@ ul.warnings { font-size: 0.85rem; color: var(--ink-2); margin: 8px 0 0; padding-
 .key-notes { font-size: 0.8rem; color: var(--ink-2); }
 .key-notes p { margin: 4px 0; }
 footer { font-size: 0.75rem; color: var(--ink-3); margin-top: 24px; }
+
+/* Start-figure validity: greyed gap values, unavailable fixes, disagreement marks, notes under the table. */
+.metrics .gap, .metrics .na { color: var(--ink-3); }
+.metrics .warn { color: var(--bad); margin-right: 3px; }
+.metrics .rk-src { font-size: 0.7rem; color: var(--ink-3); }
+.metrics .rk-over { font-size: 0.75rem; color: var(--bad); }
+.table-notes { position: sticky; left: 0; font-size: 0.8rem; color: var(--ink-2); white-space: normal; margin-top: 6px; }
+.table-notes p { margin: 4px 0; }
+.table-notes ul { margin: 0; padding-left: 18px; }
+.table-notes li { margin: 2px 0; }

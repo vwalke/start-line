@@ -4,14 +4,16 @@
  * normalized `RaceData`. Pure functions only; fetching lives in api.ts so
  * the same code runs against the offline fixture in tests and demo mode.
  */
-import type { Boat, CourseMark, LatLon, Line, MarkTrack, RaceData, Track, WindSample } from '../types';
+import type { Boat, CourseMark, LatLon, Line, MarkTrack, RaceData, RcStart, Track, WindSample } from '../types';
 import type {
   Course,
   Division,
+  FeedPoint,
   Race,
   RegattaDoc,
   RegattaResponse,
   Start,
+  StartingStat,
   TelemetryPage,
   WindResponse,
 } from './types';
@@ -110,6 +112,102 @@ export function argbToHex(argb: number | undefined): string | null {
 export function tzOffsetMs(raw: number | undefined): number {
   if (raw == null || !Number.isFinite(raw)) return 0;
   return Math.abs(raw) > 15 * 3_600_000 ? raw / 1000 : raw;
+}
+
+/**
+ * Vakaros start-fix quality. Each `startingStats` row carries `mask.value`,
+ * a bitfield of which fields the device actually reported. Undocumented;
+ * inferred over 10,885 rows from 47 events:
+ *
+ * | bit | field                            | set & present | unset & absent | exceptions |
+ * |-----|----------------------------------|---------------|----------------|------------|
+ * | 1   | dtlMm (and headingAtStartDeg)    | 10,419        | 464            | 2 (unset, dtlMm≠0); 0 set with dtlMm exactly 0 |
+ * | 2   | positionAtStart                  | 10,368        | 516            | 1          |
+ * | 4   | lineLeftLocation                 | 10,373        | 511            | 1          |
+ * | 8   | lineRightLocation                | 10,419        | 463            | 3          |
+ *
+ * Mask 15 in 9,701 rows; every other value 0–14 appears 43–166 times.
+ * Hence: bit 1 unset ⇒ no distance; bit 1 set with dtlMm 0 ⇒ a genuine 0.
+ * Without a mask, a null or 0 dtlMm can't be confirmed and counts as missing.
+ * Absent points are [0, 0] and are never compared.
+ *
+ * Rows are also carried over from earlier starts unchanged (23 rows in races
+ * 4–10 of one event had another race's `raceNumber` and line ends), so a row
+ * is stale when its raceNumber, startTime (always null so far) or any present
+ * line end disagrees with this start.
+ */
+export const MASK_DTL = 1;
+export const MASK_POSITION = 2;
+export const MASK_LINE_LEFT = 4;
+export const MASK_LINE_RIGHT = 8;
+/** A row's line end further than this from the start's line end means the row is from another start. */
+export const LINE_MATCH_M = 10;
+export const START_TIME_MATCH_MS = 1000;
+export const RC_NO_DISTANCE = 'Vakaros reported no distance for this boat';
+
+/** The device's own DTL in metres, or null when it reported none (a genuine 0 is kept). */
+export function rcDistanceM(s: StartingStat): number | null {
+  const mm = s.dtlMm;
+  if (mm == null || !Number.isFinite(mm)) return null;
+  const mask = s.mask?.value;
+  if (mask == null || !Number.isFinite(mask)) return mm === 0 ? null : mm / 1000;
+  return mask & MASK_DTL ? mm / 1000 : null;
+}
+
+/** A feed [lon, lat] point, or null when absent ([0, 0]). */
+function feedPoint(p: FeedPoint | undefined): LatLon | null {
+  const c = p?.coordinates;
+  if (!c || !Number.isFinite(c[0]) || !Number.isFinite(c[1]) || (c[0] === 0 && c[1] === 0)) return null;
+  return { lat: c[1], lon: c[0] };
+}
+
+/** Great-circle distance, metres. */
+export function metresBetween(a: LatLon, b: LatLon): number {
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLon = (b.lon - a.lon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Do the row's present line ends lie within LINE_MATCH_M of this line's? null when it has none. */
+export function lineEndsMatch(s: StartingStat, line: NonNullable<Start['startLine']>): boolean | null {
+  const ends: [LatLon | null, [number, number]][] = [
+    [feedPoint(s.lineLeftLocation), line.leftEnd],
+    [feedPoint(s.lineRightLocation), line.rightEnd],
+  ];
+  const present = ends.filter((e): e is [LatLon, [number, number]] => e[0] != null);
+  if (!present.length) return null;
+  return present.every(([p, [lat, lon]]) => metresBetween(p, { lat, lon }) <= LINE_MATCH_M);
+}
+
+/** Classify a boat's Vakaros start row for this start (see the mask notes above). */
+export function rcStartFix(s: StartingStat | undefined, div: Division, race: Race, st: Start): RcStart {
+  if (!s) return { status: 'none', dtlM: null };
+  const stale = (n: number | null): RcStart => ({
+    status: 'stale',
+    dtlM: null,
+    staleRace: n,
+    note: n != null ? `Vakaros reported no start fix (stale race ${n} data)` : 'Vakaros reported no start fix (stale data from another start)',
+  });
+  if (s.raceNumber != null && s.raceNumber !== race.raceNumber) return stale(s.raceNumber);
+  const timeOff = s.startTime != null && st.startTime != null && Math.abs(s.startTime - st.startTime) > START_TIME_MATCH_MS;
+  if (timeOff || (st.startLine && lineEndsMatch(s, st.startLine) === false)) {
+    // Name the start it came from: the nearest-in-time other race whose line (or start time) matches the row.
+    const gun = st.startTime ?? 0;
+    const from = (div.races ?? [])
+      .filter((r) => r !== race)
+      .map((r) => ({ r, rs: raceStart(r) }))
+      .filter(({ rs }) => {
+        if (!rs) return false;
+        if (s.startTime != null && rs.startTime != null && Math.abs(s.startTime - rs.startTime) <= START_TIME_MATCH_MS) return true;
+        return !!rs.startLine && lineEndsMatch(s, rs.startLine) === true;
+      })
+      .sort((a, b) => Math.abs((a.rs!.startTime ?? 0) - gun) - Math.abs((b.rs!.startTime ?? 0) - gun))[0];
+    return stale(from ? from.r.raceNumber : null);
+  }
+  const dtlM = rcDistanceM(s);
+  return dtlM == null ? { status: 'missing', dtlM: null, note: RC_NO_DISTANCE } : { status: 'ok', dtlM };
 }
 
 function median(xs: number[]): number {
@@ -317,7 +415,7 @@ export function buildRaceData(
     if (!trackRows || trackRows.length < 10) continue;
     const fin = finishes.get(sail);
     const fms = fin ? Date.parse(fin.finishingTime) : NaN;
-    const dtlMm = stats.get(sail)?.dtlMm;
+    const rc = rcStartFix(stats.get(sail), div, race, st);
     boats.push({
       id: sail,
       sail,
@@ -327,7 +425,8 @@ export function buildRaceData(
       track: toTrack(trackRows),
       finishMs: Number.isFinite(fms) ? fms : null,
       ocs: ocs.has(sail),
-      rcDtlM: dtlMm == null ? null : dtlMm / 1000,
+      rcDtlM: rc.status === 'ok' ? rc.dtlM : null,
+      rc,
     });
   }
   if (!boats.length) throw new Error('No boat tracks in the telemetry for this race');

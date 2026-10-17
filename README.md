@@ -51,14 +51,52 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   positions are followed over time, because committees re-lay marks between
   laps. If most finishers clearly didn't sail the listed course, it is
   treated as shortened.
-- **DTL** is computed from the GPS antenna plus the class bow offset. Race
-  control's own DTL is shown alongside for reference. The app flags it when
-  the two disagree widely, which does happen.
+- **DTL** comes from each boat's Vakaros device when its start row is valid.
+  Our own figure, from the GPS antenna plus the class bow offset, is shown
+  alongside as a check. The app flags it when the two disagree widely, which
+  does happen. See "Vakaros start data quality" below.
 - **"Pin" and "RC"** are the left and right ends of the start line as the feed
   defines them.
 - **Politeness:** responses are cached at the edge (Pages Function) and in the
   browser (Cache API). Finished races are cached for a long time, so a repeat
   visit makes no telemetry requests. There is no bulk downloading.
+
+## Vakaros start data quality
+
+Each boat's Vakaros start row (`startingStats`) is the primary DTL figure, and
+our own figure from the public track is a check on it. Both can be wrong,
+so each is checked before it's used (`src/data/racesense/adapter.ts`,
+`src/analysis/validity.ts`):
+
+- **Completeness mask.** `mask.value` is an undocumented bitfield. We inferred
+  it from 10,885 rows across 47 events: bit 1 = `dtlMm` (and heading) present
+  (set and non-zero in 10,419 rows; unset and 0 in 464; unset but non-zero in
+  only 2; set with exactly 0 in none), bit 2 = `positionAtStart`
+  (10,368 / 516 / 1 exception), bit 4 = `lineLeftLocation` (10,373 / 511 / 1),
+  bit 8 = `lineRightLocation` (10,419 / 463 / 3). Mask 15 covers 9,701 rows;
+  every other value 0–14 appears 43–166 times. With bit 1 unset there is no
+  distance (shown as —, not 0.0). With bit 1 set, a `dtlMm` of 0 is a genuine
+  0.0. With no mask, a null or 0 `dtlMm` counts as missing. Absent points are
+  `[0, 0]`.
+- **Stale rows.** Rows are sometimes carried over unchanged from an earlier
+  start. In one event, 23 rows in races 4–10 had the wrong `raceNumber`.
+  A row counts as stale if its `raceNumber` isn't this race, its `startTime`
+  is more than 1 s off, or any present line end is more than 10 m from this
+  start's line. A stale row is not used, and the note names the race it came
+  from when that race can be identified. For a stale row with a positive
+  distance, race control's OCS check was blind for that boat.
+- **Gaps in our check.** The public track is about 2 Hz but loses points near
+  the gun. If the nearest real point is more than 2 s from our sample, our
+  figure is interpolated across the gap. It is shown greyed with a `~`, never
+  ranked, and has no Late (s).
+- **Disagreement.** If both figures are valid and differ by more than 3 m,
+  the Vakaros value gets a ⚠. If Vakaros has no usable fix and our figure is
+  under 1 m (near or over the line), the boat is flagged as one race
+  control's OCS check had no data for.
+- **Ranking** uses one value per boat: Vakaros when it's valid, otherwise ours
+  when it's valid, otherwise the boat is unranked. The table's Start column
+  shows the place among clean starters and the source (`V` or `ours`).
+  Every caveat is listed under the table so it can be read on a phone.
 
 ## Architecture
 
@@ -73,8 +111,8 @@ src/
   ui/                        plain TS + SVG rendering
 functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing/regatta/wind/telemetry
 functions/_lib.ts            allowlist, query validation and cache TTL (not a route)
-tests/                       vitest; offline, using tests/fixtures/benelux_r8.json
-scripts/make-fixture.mjs     builds the trimmed fixture from raw downloads
+tests/                       vitest; offline, using tests/fixtures/benelux_r8.json and c31_r10.json
+scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31)
 ```
 
 The analysis only ever sees `RaceData`. A future `.vkx` upload
@@ -107,7 +145,8 @@ npm run lint && npm run typecheck && npm test
 - Deep links: `?event=<eventId>&div=<division>&race=<n>`.
 
 Tests never touch the network. To regenerate the fixture from raw downloads,
-run `node scripts/make-fixture.mjs <dir-with-raw-json>`.
+run `node scripts/make-fixture.mjs <dir-with-raw-json>`. Add `--preset c31` to
+rebuild the C31 Gold Cup race 10 fixture (the data-quality cases).
 
 ## Cloudflare Pages setup
 

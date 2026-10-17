@@ -38,6 +38,7 @@ import type {
   WindEstimate,
   WindInfo,
 } from './types';
+import { assessStart, rankStarts, sampleGap } from './validity';
 import { estimateTwd, makeTwdAt, steadyIndices } from './wind';
 
 const centroid = (ps: Vec[]): Vec => scale(ps.reduce((a, b) => add(a, b), [0, 0] as Vec), 1 / ps.length);
@@ -240,6 +241,8 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       const vel = add(scale(v(i), 1 - f), scale(v(i + 1), f));
       const vperp = dot(vel, nrm);
       courseAtGun = len(vel) > 0.15 ? vecBearing(vel) : hdg;
+      // The public track is lossy near the gun: judge the sample by the nearest real point.
+      const gap = sampleGap(tr.t, gun - off);
       start = {
         dtlM: dtl,
         secsLate: dtl / Math.max(vperp, 0.3),
@@ -250,7 +253,18 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
         twaDeg: wrap180(twdGun - hdg),
         bow,
         ocs: !!b.ocs,
-        rcDtlM: b.rcDtlM ?? null,
+        rcDtlM: b.rc ? b.rc.dtlM : (b.rcDtlM ?? null),
+        rcStatus: b.rc?.status ?? (b.rcDtlM != null ? 'ok' : 'none'),
+        rcNote: b.rc?.note ?? null,
+        dtlGapS: gap?.gapS ?? null,
+        dtlNote: gap?.note ?? null,
+        // Filled in once the fleet's speed floor is known.
+        lateS: null,
+        rank: null,
+        over: false,
+        startPlace: null,
+        warn: null,
+        ocsBlind: false,
       };
       // 30 s of the tracker up to the DTL sample, translated by that sample's
       // bow offset so the polyline ends exactly on the bow used for DTL.
@@ -346,7 +360,12 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
   // judge its lateness against half the fleet's typical approach speed instead.
   const approach = results.filter((r) => r.start && r.start.vToLineMs > 0).map((r) => r.start!.vToLineMs);
   const vFloor = Math.max(0.3, approach.length ? 0.5 * median(approach) : 0.3);
-  for (const r of results) if (r.start) r.start.secsLate = r.start.dtlM / Math.max(r.start.vToLineMs, vFloor);
+  for (const r of results) {
+    if (!r.start) continue;
+    r.start.secsLate = r.start.dtlM / Math.max(r.start.vToLineMs, vFloor);
+    Object.assign(r.start, assessStart(r.start));
+  }
+  rankStarts(results);
 
   // Rank at each mark.
   for (let li = 0; li < nLegs; li++) {
@@ -375,7 +394,7 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
 
   // The Vakaros DTL is the primary figure; ours is a check. Flag it when they clearly disagree.
   const rcDiff = results
-    .filter((r) => r.start?.rcDtlM != null)
+    .filter((r) => r.start?.rcDtlM != null && r.start.dtlGapS == null)
     .map((r) => Math.abs(r.start!.rcDtlM! - r.start!.dtlM));
   if (rcDiff.length >= 3 && median(rcDiff) > 3) {
     warnings.push(`Vakaros DTL differs from the GPS tracks by a median ${Math.round(median(rcDiff))} m for this start; treat the DTL columns with caution.`);

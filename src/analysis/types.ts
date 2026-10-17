@@ -1,3 +1,4 @@
+import type { RcStatus } from '../data/types';
 import type { Vec } from './geo';
 
 export type LegKind = 'upwind' | 'downwind' | 'reach';
@@ -40,8 +41,27 @@ export interface StartResult {
   twaDeg: number;
   bow: Vec;
   ocs: boolean;
-  /** The boat's Vakaros device's own DTL (feed `dtlMm`), m; null if the feed has none. */
+  /** The boat's Vakaros device's own DTL (feed `dtlMm`), m; null unless `rcStatus` is 'ok'. */
   rcDtlM: number | null;
+  rcStatus: RcStatus;
+  /** Why the Vakaros figure is unavailable, if it is. */
+  rcNote: string | null;
+  /** Set when our `dtlM` is interpolated across a telemetry gap (> GAP_MS to the nearest point): the gap, s. */
+  dtlGapS: number | null;
+  /** Why our `dtlM` is unreliable, if it is. */
+  dtlNote: string | null;
+  /** Seconds late shown to users: `secsLate`, or null when our DTL is gap-interpolated. */
+  lateS: number | null;
+  /** The one value starts are ranked by: Vakaros when valid, else ours when valid; null = unranked. */
+  rank: { m: number; source: 'vakaros' | 'ours' } | null;
+  /** Flagged OCS, or the ranking value is negative. */
+  over: boolean;
+  /** Place among clean starters (1 = closest to the line); null when over or unranked. */
+  startPlace: number | null;
+  /** Vakaros and ours are both valid but clearly disagree. */
+  warn: string | null;
+  /** Vakaros had no usable fix, and our figure puts the boat near or over the line. */
+  ocsBlind: boolean;
 }
 
 export interface BoatResult {

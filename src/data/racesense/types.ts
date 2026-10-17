@@ -44,10 +44,25 @@ export interface Participant {
   color?: number;
 }
 
+/** GeoJSON point: [lon, lat]. Absent values are [0, 0]. */
+export interface FeedPoint {
+  coordinates: [number, number];
+}
+
 export interface StartingStat {
   sailNumber: string;
   serialNumber?: string;
   dtlMm?: number | null;
+  /** Which fields the device actually reported (bitfield; see `rcStartFix` in adapter.ts). */
+  mask?: { value: number } | null;
+  /** The race this row was recorded for; may be an earlier race's row carried over. */
+  raceNumber?: number | null;
+  /** Always null in the feeds seen so far. */
+  startTime?: number | null;
+  headingAtStartDeg?: number;
+  positionAtStart?: FeedPoint;
+  lineLeftLocation?: FeedPoint;
+  lineRightLocation?: FeedPoint;
 }
 
 export interface Start {
