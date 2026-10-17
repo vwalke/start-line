@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512">
+  <defs><clipPath id="c46840214"><rect width="512" height="512" rx="114"/></clipPath></defs>
+  <g clip-path="url(#c46840214)">
+    <rect width="512" height="512" fill="#131922"/>
+    <g transform="rotate(0 256 290)">
+      <rect x="224.75" y="43.50" width="62.50" height="60.00" fill="#FFFFFF"/>
+      <rect x="178.50" y="-14.00" width="155.00" height="57.50" rx="16.10" fill="#FFFFFF"/>
+    </g>
+    <g transform="rotate(45 256 290)">
+      <rect x="223.50" y="46.00" width="65.00" height="70.00" rx="11.70" fill="#FFFFFF"/>
+    </g>
+    <circle cx="256" cy="290" r="174" fill="none" stroke="#FFFFFF" stroke-width="50"/>
+    <path d="M256.00,116.00 A174,174 0 0 1 406.69,377.00" fill="none" stroke="#FFC94D" stroke-width="50" stroke-linecap="butt"/>
+    <g transform="translate(138.40 206.25) scale(1.6749)">
+      <path transform="translate(99.12 54.65) rotate(-40)" d="M0,-47.13 C5.25,-39.59 15.45,-3.77 15.45,30.17 C15.45,38.65 14.80,47.13 14.37,47.13 L-14.37,47.13 C-14.80,47.13 -15.45,38.65 -15.45,30.17 C-15.45,-3.77 -5.25,-39.59 0,-47.13 Z" fill="#3987E5"/>
+      <g transform="translate(99.12 54.65) rotate(-40)">
+        <circle cx="0" cy="-11.31" r="2.63" fill="#131922"/>
+        <path d="M0,-11.31 L-4.95,29.22" stroke="#131922" stroke-width="1.85" stroke-linecap="round"/>
+      </g>
+      <path transform="translate(30.30 36.11) rotate(-40)" d="M0,-47.13 C5.25,-39.59 15.45,-3.77 15.45,30.17 C15.45,38.65 14.80,47.13 14.37,47.13 L-14.37,47.13 C-14.80,47.13 -15.45,38.65 -15.45,30.17 C-15.45,-3.77 -5.25,-39.59 0,-47.13 Z" fill="#FFC94D"/>
+      <g transform="translate(30.30 36.11) rotate(-40)">
+        <circle cx="0" cy="-11.31" r="2.63" fill="#131922"/>
+        <path d="M0,-11.31 L-4.95,29.22" stroke="#131922" stroke-width="1.85" stroke-linecap="round"/>
+      </g>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="VannCast app icon">
+  <title>VannCast app icon</title>
+  <rect width="512" height="512" fill="#131922"/>
+  <g transform="translate(64 112) scale(3)">
+    <rect x="8" y="0" width="6" height="96" rx="3" fill="#ffffff"/>
+    <rect x="4" y="0" width="14" height="6" rx="3" fill="#ffffff"/>
+    <rect x="4" y="90" width="14" height="6" rx="3" fill="#ffffff"/>
+    <path d="M14 8 C34 2 50 16 66 12 S100 18 118 24 C100 30 82 26 66 34 S34 46 14 40 Z" fill="#3987e5"/>
+    <path d="M14 56 C34 50 50 64 66 60 S100 66 118 72 C100 78 82 74 66 82 S34 94 14 88 Z" fill="#e9b43f"/>
+  </g>
+</svg>
