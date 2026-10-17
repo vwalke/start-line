@@ -30,7 +30,7 @@ export function tzLabel(offsetMs: number): string {
   return `UTC${sign}${Number.isInteger(abs) ? abs : abs.toFixed(1)}`;
 }
 
-/** Venue-local clock time. */
+/** Clock time at a given UTC offset (from a milliseconds-since-epoch instant). */
 export function localTime(ms: number | null, offsetMs: number): string {
   if (ms == null) return '—';
   return new Date(ms + offsetMs).toISOString().slice(11, 19);
@@ -38,4 +38,21 @@ export function localTime(ms: number | null, offsetMs: number): string {
 
 export function localDate(ms: number, offsetMs: number): string {
   return new Date(ms + offsetMs).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Viewer's UTC offset at `ms`, milliseconds east of UTC. */
+export function viewerOffsetMs(ms: number): number {
+  return -new Date(ms).getTimezoneOffset() * 60_000;
+}
+
+/**
+ * Gun time for the header: venue clock first, labelled with its offset,
+ * then the viewer's local clock when that differs.
+ */
+export function gunTimeLine(ms: number, venueOffsetMs: number, viewerOff = viewerOffsetMs(ms)): string {
+  const venue = `${localDate(ms, venueOffsetMs)} ${localTime(ms, venueOffsetMs)} (venue ${tzLabel(venueOffsetMs)})`;
+  if (viewerOff === venueOffsetMs) return `Gun ${venue}`;
+  const sameDate = localDate(ms, viewerOff) === localDate(ms, venueOffsetMs);
+  const viewerClock = sameDate ? localTime(ms, viewerOff) : `${localDate(ms, viewerOff)} ${localTime(ms, viewerOff)}`;
+  return `Gun ${venue} · ${viewerClock} where you are (${tzLabel(viewerOff)})`;
 }

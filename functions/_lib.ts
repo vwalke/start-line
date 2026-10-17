@@ -5,9 +5,11 @@
  */
 
 export const UPSTREAM = 'https://racesense.vakaros.com/api/';
+export const TELE_UPSTREAM = 'https://teleapi.regatta.app/telemetry/event/';
 export const MIN = 60;
 export const DAY = 86_400;
 export const MAX_UPSTREAM_BYTES = 2_000_000;
+export const UA = 'StartLine/1 (+https://walkeforward.com)';
 
 export const ALLOWED: Record<string, readonly string[]> = {
   landing: [],
@@ -16,10 +18,12 @@ export const ALLOWED: Record<string, readonly string[]> = {
 };
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const EVENT_ID = /^[A-Za-z0-9_-]{4,64}$/;
+const MS = /^\d{10,16}$/;
 
 const RULES: Record<string, Record<string, (v: string) => boolean>> = {
   landing: {},
-  regatta: { event: (v) => /^[A-Za-z0-9_-]{4,64}$/.test(v) },
+  regatta: { event: (v) => EVENT_ID.test(v) },
   wind: {
     v: (v) => /^\d{1,2}$/.test(v),
     lat: (v) => {
@@ -55,6 +59,22 @@ export interface QueryErr {
   error: string;
 }
 
+export type ProxyRoute =
+  | { kind: 'racesense'; path: string }
+  | { kind: 'telemetry'; eventId: string }
+  | { kind: 'error'; status: number; error: string };
+
+/** landing / regatta / wind, or /telemetry/event/:id (streamed, larger). */
+export function parseRoute(path: string): ProxyRoute {
+  if (path in ALLOWED) return { kind: 'racesense', path };
+  const m = /^telemetry\/event\/([^/]+)$/.exec(path);
+  if (m) {
+    if (!EVENT_ID.test(m[1])) return { kind: 'error', status: 400, error: 'Bad event' };
+    return { kind: 'telemetry', eventId: m[1] };
+  }
+  return { kind: 'error', status: 404, error: 'Unknown endpoint' };
+}
+
 /** Drop unknown params, validate the rest, require the ones each endpoint needs. */
 export function buildQuery(path: string, search: URLSearchParams): QueryOk | QueryErr {
   const allowed = ALLOWED[path];
@@ -74,6 +94,32 @@ export function buildQuery(path: string, search: URLSearchParams): QueryOk | Que
   return { ok: true, qs };
 }
 
+export function buildTelemetryQuery(search: URLSearchParams): QueryOk | QueryErr {
+  const after = search.get('after') ?? '';
+  const before = search.get('before') ?? '';
+  if (!MS.test(after)) return { ok: false, status: 400, error: 'Bad after' };
+  if (!MS.test(before)) return { ok: false, status: 400, error: 'Bad before' };
+  const a = Number(after);
+  const b = Number(before);
+  if (!(b > a) || b - a > 6 * 3_600_000) return { ok: false, status: 400, error: 'Bad window' };
+  const qs = new URLSearchParams();
+  qs.set('after', after);
+  qs.set('before', before);
+  const limit = search.get('limit');
+  if (limit != null && limit !== '') {
+    if (!/^\d{1,6}$/.test(limit) || Number(limit) < 1 || Number(limit) > 100_000) {
+      return { ok: false, status: 400, error: 'Bad limit' };
+    }
+    qs.set('limit', limit);
+  }
+  const division = search.get('division');
+  if (division != null && division !== '') {
+    if (!/^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,63}$/.test(division)) return { ok: false, status: 400, error: 'Bad division' };
+    qs.set('division', division);
+  }
+  return { ok: true, qs };
+}
+
 export function ttlFor(path: string, qs: URLSearchParams, body: string): number {
   if (path === 'landing') return 10 * MIN;
   if (path === 'wind') {
@@ -87,6 +133,12 @@ export function ttlFor(path: string, qs: URLSearchParams, body: string): number 
     /* not JSON: short */
   }
   return 2 * MIN;
+}
+
+/** Past race windows can sit in the edge cache; a live window stays short. */
+export function telemetryTtl(qs: URLSearchParams): number {
+  const before = Number(qs.get('before') ?? '');
+  return Number.isFinite(before) && Date.now() - before > DAY * 1000 ? 7 * DAY : MIN;
 }
 
 export function looksLikeJson(body: string): boolean {

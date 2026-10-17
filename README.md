@@ -34,7 +34,7 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 | `racesense.vakaros.com/api/landing` | event list | via our `/api` proxy (no CORS upstream) |
 | `racesense.vakaros.com/api/regatta?event=` | divisions, entries, course & mark trackers, gun time, start line at the gun, OCS, race-control DTL, finishes | via `/api` proxy |
 | `racesense.vakaros.com/api/wind?v=3&…` | modelled wind, used only to cross-check | via `/api` proxy |
-| `teleapi.regatta.app/telemetry/event/{id}` | ~5 Hz GPS tracks for boats and marks | direct from the browser (CORS is open); only the selected race's time window and division, paginated with `after` |
+| `teleapi.regatta.app/telemetry/event/{id}` | ~5 Hz GPS tracks for boats and marks | via `/api/telemetry/event/{id}` (same-origin proxy; one race window, paginated with `after`) |
 
 - **Unofficial.** These are public but undocumented feeds, read anonymously,
   and they may change without notice. Start Line is not affiliated with
@@ -71,7 +71,7 @@ src/
   analysis/                  RaceData -> RaceAnalysis (geometry, legs, wind, findings)
   worker.ts                  fetch + normalize + analyze, off the main thread
   ui/                        plain TS + SVG rendering
-functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing/regatta/wind
+functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing/regatta/wind/telemetry
 functions/_lib.ts            allowlist, query validation and cache TTL (not a route)
 tests/                       vitest; offline, using tests/fixtures/benelux_r8.json
 scripts/make-fixture.mjs     builds the trimmed fixture from raw downloads
@@ -95,7 +95,7 @@ Requires Node 20.19+ (CI uses Node 22).
 
 ```sh
 npm install
-npm run dev        # http://localhost:5173 (Vite proxies /api to racesense.vakaros.com)
+npm run dev        # http://localhost:5173 (Vite proxies /api and /api/telemetry)
 npm run build && npm run preview   # production build; preview proxies /api too
 npm run lint && npm run typecheck && npm test
 ```
@@ -115,14 +115,18 @@ run `node scripts/make-fixture.mjs <dir-with-raw-json>`.
 2. **Build command:** `npm run build`. **Build output directory:** `dist`.
    **Node version:** set `NODE_VERSION=22`.
 3. **Functions:** `functions/` is picked up automatically, and
-   `functions/api/[[path]].ts` serves `/api/landing`, `/api/regatta` and
-   `/api/wind`. It only forwards those three. Query parameters are
-   allowlisted and validated (event id, lat/lon, ISO dates). Unknown
-   paths and extra parameters are dropped or rejected. It caches at the
-   edge with `caches.default` when available: landing for 10 min, regatta
-   for 2 min while an event is live and 7 days once it has ended, and wind
-   for 6 h (30 days for past days). Upstream errors and non-JSON bodies
-   are not cached.
+   `functions/api/[[path]].ts` serves `/api/landing`, `/api/regatta`,
+   `/api/wind` and `/api/telemetry/event/{id}`. It only forwards those.
+   Query parameters are allowlisted and validated (event id, lat/lon, ISO
+   dates; telemetry `after`/`before` as 10–16 digit ms, optional `limit`
+   and `division`). Unknown paths and extra parameters are dropped or
+   rejected. Landing/regatta/wind responses are buffered (2 MB cap, JSON
+   check). Telemetry is streamed (pages can be tens of MB). It caches at
+   the edge with `caches.default` when available: landing for 10 min,
+   regatta for 2 min while an event is live and 7 days once it has ended,
+   wind for 6 h (30 days for past days), and telemetry 7 days when
+   `before` is more than a day ago else 60 s. Upstream errors and
+   non-JSON landing/regatta/wind bodies are not cached.
 4. **No secrets or environment variables are needed.**
 5. Custom domain, suggested: `startline.walkeforward.com`.
 

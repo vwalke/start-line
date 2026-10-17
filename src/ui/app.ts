@@ -10,7 +10,7 @@ import { fetchLanding, fetchRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { legLegend, startSnapshot, trackMap } from './charts';
-import { degLabel, esc, f0, localDate, localTime, tzLabel } from './format';
+import { degLabel, esc, f0, gunTimeLine } from './format';
 import { metricsTable } from './table';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -97,7 +97,7 @@ export function startApp(): void {
           : `Wind assumed ${degLabel(w.twdAtGunDeg)} (first leg dead upwind)`;
     const model = w.model && w.method === 'tacks' ? ` · model ${degLabel(w.model.dirAtGunDeg)}` : '';
     els.summary.innerHTML = `<h2>${esc(m.eventName)} · ${esc(m.boatClass)} · Race ${m.raceNumber}</h2>
-      <p>Gun ${esc(localDate(m.gunMs, m.tzOffsetMs))} ${localTime(m.gunMs, m.tzOffsetMs)} (${tzLabel(m.tzOffsetMs)}) ·
+      <p>${esc(gunTimeLine(m.gunMs, m.tzOffsetMs))} ·
       ${a.boats.length} boats · ${a.legs.map((l) => esc(l.name)).join(', ')} ·
       <span title="No wind sensor on the boats: estimated from the fleet's steady upwind headings">${windText}${model}</span> ·
       <span class="muted">${esc(m.sourceLabel)}</span></p>`;
@@ -168,9 +168,12 @@ export function startApp(): void {
     setUrl({ event: eventId, div: division, race: String(raceNumber) });
     try {
       await show(run({ type: 'live', eventId, regatta, division, raceNumber }));
+      setNotice('');
     } catch (e) {
       setStatus('');
-      await loadDemo(`Couldn't load that race (${(e as Error).message}).`);
+      // Keep the event/race picker so another race can be tried; only boot
+      // falls all the way back to the bundled demo.
+      setNotice(`Couldn't load that race (${(e as Error).message}).`);
     }
   }
 
