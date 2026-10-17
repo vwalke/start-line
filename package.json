@@ -2,7 +2,7 @@
   "name": "start-line",
   "version": "0.1.0",
   "private": true,
-  "description": "Start Line: a lean start + leg digest for sailboat races from Vakaros RaceSense public data. A Walke Forward project.",
+  "description": "Recall: a lean start + leg digest for sailboat races from Vakaros RaceSense public data. A Walke Forward project.",
   "type": "module",
   "engines": {
     "node": ">=20.19"
@@ -14,10 +14,13 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "make-fixture": "node scripts/make-fixture.mjs"
+    "make-fixture": "node scripts/make-fixture.mjs",
+    "icons": "node scripts/icons.mjs",
+    "icons:check": "node scripts/icons.mjs --check"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^22.20.5",
     "eslint": "^9.39.5",
     "globals": "^16.5.0",

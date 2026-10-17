@@ -1,4 +1,4 @@
-# Start Line
+# Recall
 
 A lean **start + leg digest** for a sailboat race, built from the public
 [Vakaros RaceSense](https://www.vakaros.com/pages/racesense) data. It's for
@@ -37,7 +37,7 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 | `teleapi.regatta.app/telemetry/event/{id}` | ~5 Hz GPS tracks for boats and marks | via `/api/telemetry/event/{id}` (same-origin proxy; one race window, paginated with `after`) |
 
 - **Unofficial.** These are public but undocumented feeds, read anonymously,
-  and they may change without notice. Start Line is not affiliated with
+  and they may change without notice. Recall is not affiliated with
   Vakaros.
 - **Wind is estimated.** The boats carry no wind sensor. The true wind
   direction comes from the fleet's steady upwind headings: a two-cluster
@@ -128,7 +128,7 @@ run `node scripts/make-fixture.mjs <dir-with-raw-json>`.
    `before` is more than a day ago else 60 s. Upstream errors and
    non-JSON landing/regatta/wind bodies are not cached.
 4. **No secrets or environment variables are needed.**
-5. Custom domain, suggested: `startline.walkeforward.com`.
+5. Custom domain: `recall.walkeforward.com`.
 
 To test the function locally: `npx wrangler pages dev dist` after a build.
 Wrangler is intentionally not a dependency.
