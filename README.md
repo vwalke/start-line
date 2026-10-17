@@ -128,7 +128,7 @@ run `node scripts/make-fixture.mjs <dir-with-raw-json>`.
    `before` is more than a day ago else 60 s. Upstream errors and
    non-JSON landing/regatta/wind bodies are not cached.
 4. **No secrets or environment variables are needed.**
-5. Custom domain, suggested: `recall.walkeforward.com` (pending confirmation).
+5. Custom domain: `recall.walkeforward.com`.
 
 To test the function locally: `npx wrangler pages dev dist` after a build.
 Wrangler is intentionally not a dependency.
