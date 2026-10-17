@@ -17,9 +17,9 @@ describe('gun time line', () => {
   });
 
   it('repeats the date when the viewer is on another calendar day', () => {
-    const utcMinus6 = -6 * 3_600_000;
-    expect(gunTimeLine(GUN, UTC2, utcMinus6)).toBe(
-      'Gun Sat 17 Oct 2026 13:40:01 (venue UTC+2) · Fri 16 Oct 2026 05:40:01 where you are (UTC−6)',
+    const utcMinus12 = -12 * 3_600_000;
+    expect(gunTimeLine(GUN, UTC2, utcMinus12)).toBe(
+      'Gun Sat 17 Oct 2026 13:40:01 (venue UTC+2) · Fri 16 Oct 2026 23:40:01 where you are (UTC−12)',
     );
   });
 });

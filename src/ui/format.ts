@@ -36,8 +36,12 @@ export function localTime(ms: number | null, offsetMs: number): string {
   return new Date(ms + offsetMs).toISOString().slice(11, 19);
 }
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
 export function localDate(ms: number, offsetMs: number): string {
-  return new Date(ms + offsetMs).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  const d = new Date(ms + offsetMs);
+  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
 /** Viewer's UTC offset at `ms`, milliseconds east of UTC. */
