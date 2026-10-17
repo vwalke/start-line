@@ -1,14 +1,12 @@
 /**
- * Network access to the public RaceSense endpoints. racesense.vakaros.com
- * has no CORS, so it goes through our own /api proxy (a Cloudflare Pages
- * Function in production, the Vite proxy in dev). teleapi.regatta.app is
- * CORS-open and is called directly, for one race window only.
+ * Network access to the public RaceSense endpoints. Everything goes through
+ * our /api proxy (a Cloudflare Pages Function in production; Vite in dev)
+ * so the browser Web Worker never has to CORS-fetch a third party.
  */
 import { DAY, HOUR, MINUTE, cachedJson } from '../cache';
 import type { LandingResponse, RegattaResponse, TelemetryPage, WindResponse } from './types';
 
 export const PROXY_BASE = '/api';
-export const TELE_BASE = 'https://teleapi.regatta.app';
 /** teleapi's maximum page size. */
 const PAGE = 100_000;
 /** Never walk more than this many pages for one race. */
@@ -45,7 +43,7 @@ export async function fetchTelemetry(
   for (let n = 0; n < MAX_PAGES; n++) {
     const p = new URLSearchParams({ after: String(cursor), before: String(Math.floor(before)), limit: String(PAGE) });
     if (division) p.set('division', division);
-    const url = `${TELE_BASE}/telemetry/event/${encodeURIComponent(eventId)}?${p}`;
+    const url = `${PROXY_BASE}/telemetry/event/${encodeURIComponent(eventId)}?${p}`;
     const page = await cachedJson<TelemetryPage>(url, ttl, opts.signal);
     pages.push(page);
     opts.onPage?.(n + 1, page.Rows?.length ?? 0);
