@@ -5,6 +5,7 @@
  * TWD from steady upwind tack headings, VMG from displacement along the wind.
  */
 import type { RaceData } from '../data/types';
+import { pathDistance } from './distance';
 import { buildFindings } from './findings';
 import {
   MS_TO_KN,
@@ -25,18 +26,19 @@ import {
 } from './geo';
 import { inferRoundings, splitLegs, type Waypoint } from './legs';
 import { projectTrack, rangeIdx, type XYTrack } from './prepare';
-import type {
-  BoatDrawing,
-  BoatResult,
-  LegDef,
-  LegKind,
-  LegResult,
-  LineInfo,
-  RaceAnalysis,
-  StartResult,
-  TrackSegment,
-  WindEstimate,
-  WindInfo,
+import {
+  START_TRAIL_MS,
+  type BoatDrawing,
+  type BoatResult,
+  type LegDef,
+  type LegKind,
+  type LegResult,
+  type LineInfo,
+  type RaceAnalysis,
+  type StartResult,
+  type TrackSegment,
+  type WindEstimate,
+  type WindInfo,
 } from './types';
 import { assessStart, rankStarts, sampleGap } from './validity';
 import { estimateTwd, makeTwdAt, steadyIndices } from './wind';
@@ -49,6 +51,8 @@ function legKind(bearing: number, twd: number): LegKind {
 }
 
 const KIND_NAME: Record<LegKind, string> = { upwind: 'Beat', downwind: 'Run', reach: 'Reach' };
+
+export { START_TRAIL_MS };
 
 export function analyzeRace(data: RaceData): RaceAnalysis {
   const warnings: string[] = [];
@@ -267,9 +271,9 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
         warn: null,
         ocsBlind: false,
       };
-      // 30 s of the tracker up to the DTL sample, translated by that sample's
-      // bow offset so the polyline ends exactly on the bow used for DTL.
-      const [t0, t1] = rangeIdx(tr.t, gun - 30_000, ts);
+      // START_TRAIL_MS of the tracker up to the DTL sample, translated by that
+      // sample's bow offset so the polyline ends exactly on the bow used for DTL.
+      const [t0, t1] = rangeIdx(tr.t, gun - START_TRAIL_MS, ts);
       const dx = bow[0] - p[0];
       const dy = bow[1] - p[1];
       const needTip = t1 === t0 || tr.t[t1 - 1] < ts - 50;
@@ -298,22 +302,25 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       const disp: Vec = [interp(tr.t, tr.x, e) - interp(tr.t, tr.x, a), interp(tr.t, tr.y, e) - interp(tr.t, tr.y, a)];
       const vmg = (Math.abs(dot(disp, bearingVec(twdl))) / T) * MS_TO_KN;
       const [i0, i1] = rangeIdx(tr.t, a, e);
-      let path = 0;
-      for (let k = i0 + 1; k < i1; k++) path += Math.hypot(tr.x[k] - tr.x[k - 1], tr.y[k] - tr.y[k - 1]);
       let idx = T > 40 ? steadyIndices(tr, a, e) : [];
       if (!idx.length) idx = Array.from({ length: i1 - i0 }, (_, k) => i0 + k);
       const twa = median(idx.map((k) => Math.abs(wrap180(twdl - tr.heading[k]))));
-      legResults.push({ startMs: a, endMs: e, timeS: T, sogKn: (path / T) * MS_TO_KN, vmgKn: vmg, twaDeg: twa, rankAtEnd: null });
+      const dist = pathDistance(tr.t, tr.x, tr.y, a, e);
+      // SOG is Dist (the interpolated path) ÷ time, in knots.
+      legResults.push({ startMs: a, endMs: e, timeS: T, sogKn: dist.distNm / (T / 3600), vmgKn: vmg, twaDeg: twa, rankAtEnd: null, ...dist });
     }
 
     let raceTimeS: number | null = null;
     let sogAvgKn: number | null = null;
+    let distNm: number | null = null;
+    let distApprox = false;
     if (b.finishMs != null && b.finishMs > gun) {
       raceTimeS = (b.finishMs - gun) / 1000;
-      const [i0, i1] = rangeIdx(tr.t, gun, b.finishMs);
-      let path = 0;
-      for (let k = i0 + 1; k < i1; k++) path += Math.hypot(tr.x[k] - tr.x[k - 1], tr.y[k] - tr.y[k - 1]);
-      sogAvgKn = (path / raceTimeS) * MS_TO_KN;
+      // Gun → finish in one pass; equals the sum of the legs when every leg was split.
+      const d = pathDistance(tr.t, tr.x, tr.y, gun, b.finishMs);
+      distNm = d.distNm;
+      distApprox = d.distGapS != null;
+      sogAvgKn = d.distNm / (raceTimeS / 3600);
     }
     const pos = finishOrder.indexOf(b.id);
     results.push({
@@ -325,6 +332,8 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       finishMs: b.finishMs,
       raceTimeS,
       sogAvgKn,
+      distNm,
+      distApprox,
       start,
       legs: legResults,
     });

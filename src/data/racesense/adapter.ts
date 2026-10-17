@@ -86,6 +86,9 @@ export function findRace(doc: RegattaDoc, ref: RaceRef): { div: Division; race: 
   return { div, race };
 }
 
+/** Pre-start telemetry fetched for the start-chart trails: covers START_TRAIL_MS (analyze.ts) with margin. */
+export const PRE_START_FETCH_MS = 90_000;
+
 /** Telemetry time window worth fetching for a race: a short pre-start (for trails) to just past the last finish. */
 export function telemetryWindow(doc: RegattaDoc, ref: RaceRef): { after: number; before: number } {
   const { race } = findRace(doc, ref);
@@ -94,7 +97,7 @@ export function telemetryWindow(doc: RegattaDoc, ref: RaceRef): { after: number;
   const fins = finishMs(race);
   const endIso = race.endTime ? Date.parse(race.endTime) : NaN;
   const end = fins.length ? Math.max(...fins) + 30_000 : Number.isFinite(endIso) ? endIso : st.startTime + 90 * 60_000;
-  return { after: st.startTime - 90_000, before: end };
+  return { after: st.startTime - PRE_START_FETCH_MS, before: end };
 }
 
 /** Firestore carries a 10-hex-digit serial; telemetry's `sn` is its low 16 bits as a number. */

@@ -1,6 +1,9 @@
 import type { RcStatus } from '../data/types';
 import type { Vec } from './geo';
 
+/** How much track before the start fix the start chart draws behind each boat. */
+export const START_TRAIL_MS = 60_000;
+
 export type LegKind = 'upwind' | 'downwind' | 'reach';
 
 export interface LegDef {
@@ -24,6 +27,10 @@ export interface LegResult {
   twaDeg: number;
   /** Rank at the end of this leg among boats that completed it. */
   rankAtEnd: number | null;
+  /** Distance sailed along the GPS track, nm. */
+  distNm: number;
+  /** Longest telemetry hole (> SPAN_MS) the distance bridges with a straight line, s; null = none. */
+  distGapS: number | null;
 }
 
 export interface StartResult {
@@ -74,6 +81,10 @@ export interface BoatResult {
   finishMs: number | null;
   raceTimeS: number | null;
   sogAvgKn: number | null;
+  /** Distance sailed gun → finish, nm (the sum of the legs); null without a finish. */
+  distNm: number | null;
+  /** Some leg's distance bridges a telemetry gap (see `LegResult.distGapS`). */
+  distApprox: boolean;
   start: StartResult | null;
   legs: (LegResult | null)[];
 }
@@ -112,7 +123,7 @@ export interface TrackSegment {
 
 export interface BoatDrawing {
   id: string;
-  /** ~30 s of track up to the DTL sample, shifted so the last point is the bow. */
+  /** START_TRAIL_MS (60 s) of track up to the DTL sample, shifted so the last point is the bow. */
   trail: { x: Float32Array; y: Float32Array };
   bow: Vec | null;
   /** Compass heading at the gun (TWA). */
@@ -128,6 +139,8 @@ export interface BoatDrawing {
 export interface Finding {
   kind: 'start' | 'line' | 'leg' | 'wind' | 'result';
   text: string;
+  /** The boats this finding is about, if any. */
+  boatIds?: string[];
 }
 
 export interface RaceAnalysis {
