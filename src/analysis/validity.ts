@@ -8,6 +8,8 @@ import type { BoatResult, StartResult } from './types';
 
 /** Our check is "gap-interpolated" when the nearest track point is further than this from the sample. */
 export const GAP_MS = 2000;
+/** Also interpolated when the bracketing hole is longer than this, even if a neighbour is within GAP_MS. */
+export const SPAN_MS = 5000;
 /** Vakaros and ours "disagree" beyond this, m. */
 export const DISAGREE_M = 3;
 /** Our figure is "near the line" below this, m. */
@@ -16,7 +18,11 @@ export const OCS_BLIND_NOTE = 'Vakaros OCS check had no data for this boat';
 
 const r1 = (x: number): string => x.toFixed(1);
 
-/** Null when a track point lies within GAP_MS of `ts`; else the gap (s) the value is interpolated (or extrapolated) across. */
+/**
+ * Null when the sample sits on a real point, or a neighbour is within GAP_MS
+ * *and* the bracketing hole is no longer than SPAN_MS. Otherwise the gap (s)
+ * the value is interpolated (or extrapolated) across.
+ */
 export function sampleGap(t: ArrayLike<number>, ts: number): { gapS: number; note: string } | null {
   const n = t.length;
   if (!n) return null;
@@ -36,8 +42,12 @@ export function sampleGap(t: ArrayLike<number>, ts: number): { gapS: number; not
   }
   const prev = t[lo - 1];
   const next = t[lo];
-  if (Math.min(ts - prev, next - ts) <= GAP_MS) return null;
-  const gapS = (next - prev) / 1000;
+  // An exact hit is a real fix, not an interpolation, even if the next hole is long.
+  if (ts === prev || ts === next) return null;
+  const nearest = Math.min(ts - prev, next - ts);
+  const span = next - prev;
+  if (nearest <= GAP_MS && span <= SPAN_MS) return null;
+  const gapS = span / 1000;
   return { gapS, note: `interpolated across a ${Math.round(gapS)} s data gap` };
 }
 

@@ -86,9 +86,10 @@ so each is checked before it's used (`src/data/racesense/adapter.ts`,
   from when that race can be identified. For a stale row with a positive
   distance, race control's OCS check was blind for that boat.
 - **Gaps in our check.** The public track is about 2 Hz but loses points near
-  the gun. If the nearest real point is more than 2 s from our sample, our
-  figure is interpolated across the gap. It is shown greyed with a `~`, never
-  ranked, and has no Late (s).
+  the gun. Our figure is interpolated across the gap if the nearest real point
+  is more than 2 s from our sample, or if the hole bracketing the sample is
+  longer than 5 s (even when a neighbour is within 2 s). It is shown greyed
+  with a `~`, never ranked, and has no Late (s).
 - **Disagreement.** If both figures are valid and differ by more than 3 m,
   the Vakaros value gets a ⚠. If Vakaros has no usable fix and our figure is
   under 1 m (near or over the line), the boat is flagged as one race

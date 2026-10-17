@@ -46,7 +46,7 @@ export interface StartResult {
   rcStatus: RcStatus;
   /** Why the Vakaros figure is unavailable, if it is. */
   rcNote: string | null;
-  /** Set when our `dtlM` is interpolated across a telemetry gap (> GAP_MS to the nearest point): the gap, s. */
+  /** Set when our `dtlM` is interpolated across a telemetry gap (nearest point > GAP_MS, or bracketing hole > SPAN_MS): the gap, s. */
   dtlGapS: number | null;
   /** Why our `dtlM` is unreliable, if it is. */
   dtlNote: string | null;

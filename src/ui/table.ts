@@ -28,7 +28,7 @@ function startCell(b: BoatResult): string {
   const s = b.start;
   if (!s) return '—';
   if (s.over) return '<span class="rk-over">over</span>';
-  if (s.startPlace == null) return '<span class="na" title="No reliable start figure">—</span>';
+  if (s.startPlace == null) return '<span class="na" title="No reliable start figure" aria-label="No reliable start figure">—</span>';
   const src = s.rank!.source === 'vakaros' ? ['V', 'Vakaros device'] : ['ours', 'our track check'];
   return `${s.startPlace} <small class="rk-src" title="${src[1]}">${src[0]}</small>`;
 }
@@ -36,14 +36,14 @@ function startCell(b: BoatResult): string {
 function rcCell(b: BoatResult): string {
   const s = b.start;
   if (!s) return '—';
-  if (s.rcDtlM == null) return s.rcNote ? `<span class="na" title="${esc(s.rcNote)}">—</span>` : '—';
+  if (s.rcDtlM == null) return s.rcNote ? `<span class="na" title="${esc(s.rcNote)}" aria-label="${esc(s.rcNote)}">—</span>` : '—';
   return `${s.warn ? `<span class="warn" title="${esc(s.warn)}" aria-label="disagrees with our check">⚠</span>` : ''}${f1(s.rcDtlM)}`;
 }
 
 function oursCell(b: BoatResult): string {
   const s = b.start;
   if (!s) return '—';
-  if (s.dtlNote) return `<span class="gap" title="${esc(s.dtlNote)}">~${f1(s.dtlM)}</span>`;
+  if (s.dtlNote) return `<span class="gap" title="${esc(s.dtlNote)}" aria-label="${esc(s.dtlNote)}">~${f1(s.dtlM)}</span>`;
   return f1(s.dtlM);
 }
 

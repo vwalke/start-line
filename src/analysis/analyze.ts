@@ -241,8 +241,9 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       const vel = add(scale(v(i), 1 - f), scale(v(i + 1), f));
       const vperp = dot(vel, nrm);
       courseAtGun = len(vel) > 0.15 ? vecBearing(vel) : hdg;
-      // The public track is lossy near the gun: judge the sample by the nearest real point.
-      const gap = sampleGap(tr.t, gun - off);
+      // The public track is lossy near the gun: judge the sample by the nearest real point
+      // and by the hole it sits in (a neighbour within 2 s still interpolates across > 5 s).
+      const gap = sampleGap(tr.t, ts);
       start = {
         dtlM: dtl,
         secsLate: dtl / Math.max(vperp, 0.3),

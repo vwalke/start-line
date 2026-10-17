@@ -4,6 +4,7 @@ import {
   GAP_MS,
   NEAR_LINE_M,
   OCS_BLIND_NOTE,
+  SPAN_MS,
   assessStart,
   disagreement,
   isOcsBlind,
@@ -123,15 +124,34 @@ describe('stale Vakaros rows (rcStartFix)', () => {
 
 describe('gaps in our check (sampleGap)', () => {
   const t = [0, 500, 1000, 18_100, 18_600];
-  it(`is fine when a real point is within ${GAP_MS} ms`, () => {
+  it(`is fine when a real point is within ${GAP_MS} ms and the hole is at most ${SPAN_MS} ms`, () => {
     expect(sampleGap(t, 750)).toBeNull();
-    expect(sampleGap(t, 3000)).toBeNull();
-    expect(sampleGap(t, 16_100)).toBeNull();
+    expect(sampleGap(t, 0)).toBeNull();
     expect(sampleGap(t, 19_000)).toBeNull();
+    // Neighbour within 2 s, hole of exactly 5 s: still a real enough sample.
+    expect(sampleGap([0, SPAN_MS], 1800)).toBeNull();
   });
-  it('reports the bracketing gap otherwise', () => {
+  it('reports the bracketing gap when the nearest point is too far', () => {
     expect(sampleGap(t, 9000)).toEqual({ gapS: 17.1, note: 'interpolated across a 17 s data gap' });
     expect(sampleGap(t, 3001)?.gapS).toBe(17.1);
+  });
+  it(`treats a hole longer than ${SPAN_MS / 1000} s as interpolated even when a neighbour is within ${GAP_MS} ms`, () => {
+    // Same series: 3.0 s and 16.1 s sit 2.0 s from an edge of the 17.1 s hole.
+    expect(sampleGap(t, 3000)).toEqual({ gapS: 17.1, note: 'interpolated across a 17 s data gap' });
+    expect(sampleGap(t, 16_100)).toEqual({ gapS: 17.1, note: 'interpolated across a 17 s data gap' });
+    expect(sampleGap([0, SPAN_MS + 1], 1800)?.note).toBe('interpolated across a 5 s data gap');
+  });
+  it('MON 3159 (C31 Gold Cup race 10): 22 s hole from −2.7 s to +19.4 s, sample ~0.9 s before the gun', () => {
+    // Last real point 2.7 s before the gun, next 19.4 s after. The start-fix sample
+    // is 0.9 s before the gun — 1.8 s from the nearest point, so the 2 s rule
+    // alone would keep it and award a Late from the interpolation.
+    const gun = 10_000;
+    const tMon = [gun - 2700, gun + 19_400];
+    const ts = gun - 900;
+    expect(Math.min(ts - tMon[0], tMon[1] - ts)).toBe(1800);
+    expect(tMon[1] - tMon[0]).toBe(22_100);
+    expect(sampleGap(tMon, ts)).toEqual({ gapS: 22.1, note: 'interpolated across a 22 s data gap' });
+    expect(sampleGap(tMon, tMon[0])).toBeNull();
   });
   it('flags samples the track does not cover', () => {
     expect(sampleGap(t, -5000)?.note).toBe('our track starts 5 s after the start fix');

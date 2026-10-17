@@ -365,7 +365,8 @@ footer { font-size: 0.75rem; color: var(--ink-3); margin-top: 24px; }
 .metrics .warn { color: var(--bad); margin-right: 3px; }
 .metrics .rk-src { font-size: 0.7rem; color: var(--ink-3); }
 .metrics .rk-over { font-size: 0.75rem; color: var(--bad); }
-.table-notes { position: sticky; left: 0; font-size: 0.8rem; color: var(--ink-2); white-space: normal; margin-top: 6px; }
+/* width: 100% of the scrollport, not the wide table, so notes wrap on a phone. */
+.table-notes { position: sticky; left: 0; width: 100%; max-width: 100%; box-sizing: border-box; font-size: 0.8rem; color: var(--ink-2); white-space: normal; overflow-wrap: anywhere; margin-top: 6px; }
 .table-notes p { margin: 4px 0; }
 .table-notes ul { margin: 0; padding-left: 18px; }
 .table-notes li { margin: 2px 0; }

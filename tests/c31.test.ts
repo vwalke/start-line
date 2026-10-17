@@ -93,9 +93,13 @@ describe('C31 race 10: metrics table', () => {
 
   it('Black Pearl: — for Vakaros and rank, ~ for ours, no Late', () => {
     const c = cells(html, 'GER42');
-    expect(c[START]).toBe('<span class="na" title="No reliable start figure">—</span>');
-    expect(c[VAK]).toBe('<span class="na" title="Vakaros reported no start fix (stale race 9 data)">—</span>');
-    expect(c[OURS]).toBe('<span class="gap" title="interpolated across a 17 s data gap">~-3.1</span>');
+    expect(c[START]).toBe('<span class="na" title="No reliable start figure" aria-label="No reliable start figure">—</span>');
+    expect(c[VAK]).toBe(
+      '<span class="na" title="Vakaros reported no start fix (stale race 9 data)" aria-label="Vakaros reported no start fix (stale race 9 data)">—</span>',
+    );
+    expect(c[OURS]).toBe(
+      '<span class="gap" title="interpolated across a 17 s data gap" aria-label="interpolated across a 17 s data gap">~-3.1</span>',
+    );
     expect(c[LATE]).toBe('—');
   });
 
@@ -104,13 +108,17 @@ describe('C31 race 10: metrics table', () => {
     expect(c[START]).toBe('<span class="ic" aria-label="best">▲</span>1 <small class="rk-src" title="Vakaros device">V</small>');
     expect(tdClass(html, 'ITA 78', START)).toBe('num best');
     expect(c[VAK]).toBe('0.4');
-    expect(c[OURS]).toBe('<span class="gap" title="interpolated across a 32 s data gap">~-6.0</span>');
+    expect(c[OURS]).toBe(
+      '<span class="gap" title="interpolated across a 32 s data gap" aria-label="interpolated across a 32 s data gap">~-6.0</span>',
+    );
     expect(c[LATE]).toBe('—');
   });
 
   it('Stella Maris: — (not 0.0) for Vakaros, ranked by ours', () => {
     const c = cells(html, 'AUT 3165');
-    expect(c[VAK]).toBe('<span class="na" title="Vakaros reported no distance for this boat">—</span>');
+    expect(c[VAK]).toBe(
+      '<span class="na" title="Vakaros reported no distance for this boat" aria-label="Vakaros reported no distance for this boat">—</span>',
+    );
     expect(c[VAK]).not.toContain('0.0');
     expect(c[START]).toBe('2 <small class="rk-src" title="our track check">ours</small>');
     expect(c[OURS]).toBe('2.1');
