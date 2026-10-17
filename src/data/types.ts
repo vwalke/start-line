@@ -36,8 +36,27 @@ export interface Boat {
   finishMs: number | null;
   /** Flagged on-course-side at the start by race control. */
   ocs?: boolean;
-  /** The boat's Vakaros device's own distance-to-line at the start (feed `dtlMm`, bow-corrected), metres (if provided). */
+  /** The boat's Vakaros device's own distance-to-line at the start (feed `dtlMm`, bow-corrected), metres; set only when `rc.status` is 'ok'. */
   rcDtlM?: number | null;
+  /** Whether the Vakaros start fix can be used, and why not. */
+  rc?: RcStart;
+}
+
+/**
+ * Validity of a boat's Vakaros start fix: 'ok' (usable), 'stale' (the row
+ * belongs to another start), 'missing' (the device reported no distance) or
+ * 'none' (no row for this boat).
+ */
+export type RcStatus = 'ok' | 'stale' | 'missing' | 'none';
+
+export interface RcStart {
+  status: RcStatus;
+  /** Metres; null unless status is 'ok'. A genuine 0 is kept. */
+  dtlM: number | null;
+  /** For 'stale': the race the row was really recorded for, if known. */
+  staleRace?: number | null;
+  /** Plain-English reason when not 'ok'. */
+  note?: string;
 }
 
 /** A start or finish line. "left"/"right" as seen looking up the course. */

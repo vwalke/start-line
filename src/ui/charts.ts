@@ -208,12 +208,12 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
       shape = `<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">${ring}<g transform="rotate(${ang.toFixed(1)})">${tri}</g></g>`;
     }
     boats.push(`<g class="boat${minCls}${dim}" data-id="${esc(b.id)}">
-      <title>#${esc(b.sail)}: ${f1(primaryDtlM(st))} m behind${st.rcDtlM != null ? ` (ours ${f1(st.dtlM)} m)` : ''}, ${f1(st.secsLate)} s late, ${f1(st.speedKn)} kn</title>
+      <title>#${esc(b.sail)}: ${st.rank ? `${f1(st.rank.m)} m behind (${st.rank.source === 'vakaros' ? `Vakaros; ours ${st.dtlGapS != null ? '~' : ''}${f1(st.dtlM)} m` : 'our track check'})` : `no reliable distance (ours ~${f1(st.dtlM)} m)`}${st.lateS != null ? `, ${f1(st.lateS)} s late` : ''}, ${f1(st.speedKn)} kn</title>
       <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${16 * unit}" fill="transparent"/>
       ${shape}
       <g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
       <text x="${11 * unit}" y="${-2 * unit}" font-size="${13 * k}" class="lbl">${esc(b.sail)}</text>
-      <text x="${11 * unit}" y="${11 * unit}" font-size="${11 * k}" class="sub">${f1(primaryDtlM(st))} m</text></g></g>`);
+      <text x="${11 * unit}" y="${11 * unit}" font-size="${11 * k}" class="sub">${primaryDtlM(st) != null ? `${f1(primaryDtlM(st))} m` : st.dtlGapS != null ? `~${f1(st.dtlM)} m` : '—'}</text></g></g>`);
   }
 
   const lineSvg = `<line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>

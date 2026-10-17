@@ -1,6 +1,6 @@
 /** Compact metrics table with best/worst highlights per column (▲ best, ▼ worst — never colour alone). */
-import { primaryDtlM } from '../analysis/findings';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
+import { startNotes } from '../analysis/validity';
 import { boatColor } from './charts';
 import { duration, esc, f0, f1, f2, localTime, twaLabel } from './format';
 
@@ -20,33 +20,68 @@ interface Col {
   cls?: string;
 }
 
+const START_TITLE =
+  'Place among clean starters by distance to the line: V = ranked by the Vakaros device figure, ours = by our GPS track check (no usable Vakaros fix). over = OCS or bow over the line; — = no reliable figure.';
+
+// Caveat markers carry a title for hover; the same text is listed under the table for touch screens.
+function startCell(b: BoatResult): string {
+  const s = b.start;
+  if (!s) return '—';
+  if (s.over) return '<span class="rk-over">over</span>';
+  if (s.startPlace == null) return '<span class="na" title="No reliable start figure" aria-label="No reliable start figure">—</span>';
+  const src = s.rank!.source === 'vakaros' ? ['V', 'Vakaros device'] : ['ours', 'our track check'];
+  return `${s.startPlace} <small class="rk-src" title="${src[1]}">${src[0]}</small>`;
+}
+
+function rcCell(b: BoatResult): string {
+  const s = b.start;
+  if (!s) return '—';
+  if (s.rcDtlM == null) return s.rcNote ? `<span class="na" title="${esc(s.rcNote)}" aria-label="${esc(s.rcNote)}">—</span>` : '—';
+  return `${s.warn ? `<span class="warn" title="${esc(s.warn)}" aria-label="disagrees with our check">⚠</span>` : ''}${f1(s.rcDtlM)}`;
+}
+
+function oursCell(b: BoatResult): string {
+  const s = b.start;
+  if (!s) return '—';
+  if (s.dtlNote) return `<span class="gap" title="${esc(s.dtlNote)}" aria-label="${esc(s.dtlNote)}">~${f1(s.dtlM)}</span>`;
+  return f1(s.dtlM);
+}
+
+/** The key, then one line per boat with caveats, so the notes are readable without hover. */
+function notesList(a: RaceAnalysis): string {
+  const items = a.boats
+    .filter((b) => b.start && startNotes(b.start).length)
+    .map((b) => {
+      const text = startNotes(b.start!).map((n) => n.replace(/\.$/, '')).join('; ') + '.';
+      return `<li><b>#${esc(b.sail)}</b>${b.name !== `#${b.sail}` ? ` ${esc(b.name)}` : ''} — ${esc(text)}</li>`;
+    });
+  const key = 'Start: place among clean starters; V = Vakaros device, ours = our track check. ~ = interpolated across a data gap; ⚠ = Vakaros and ours disagree.';
+  return `<div class="table-notes"><p>${esc(key)}</p>${items.length ? `<p>Notes:</p><ul>${items.join('')}</ul>` : ''}</div>`;
+}
+
 function columns(a: RaceAnalysis): Col[] {
-  const clean = (b: BoatResult): boolean => !!b.start && primaryDtlM(b.start) >= 0 && !b.start.ocs;
-  const hasVakaros = a.boats.some((b) => b.start?.rcDtlM != null);
+  const hasVakaros = a.boats.some((b) => b.start && b.start.rcStatus !== 'none');
   const dtlCols: Col[] = hasVakaros
     ? [
         {
           head: 'DTL<br><small>Vakaros m</small>',
-          title: "Distance to line from the boat's Vakaros device (feed dtlMm, bow-corrected; device start-fix timing). Primary figure.",
-          rank: (b) => (b.start?.rcDtlM != null && b.start.rcDtlM >= 0 && !b.start.ocs ? b.start.rcDtlM : null),
-          better: 'low',
-          cell: (b) => f1(b.start?.rcDtlM),
+          title:
+            "Distance to line from the boat's Vakaros device (feed dtlMm, bow-corrected; device start-fix timing). Primary figure. — = no usable fix; ⚠ = differs from our check by more than 3 m.",
+          cell: rcCell,
         },
         {
           head: 'Check<br><small>ours m</small>',
           title:
-            "Our independent estimate from the GPS track (bow offset along heading, sampled at the device's start fix). A check on the Vakaros figure, not the official number.",
-          cell: (b) => f1(b.start?.dtlM),
+            "Our independent estimate from the GPS track (bow offset along heading, sampled at the device's start fix). A check on the Vakaros figure, not the official number. ~ = interpolated across a telemetry gap.",
+          cell: oursCell,
           cls: 'num muted',
         },
       ]
     : [
         {
           head: 'DTL<br><small>@gun m</small>',
-          title: 'Bow distance behind the line at the gun (bow-corrected). Negative = over.',
-          rank: (b) => (clean(b) ? b.start!.dtlM : null),
-          better: 'low',
-          cell: (b) => f1(b.start?.dtlM),
+          title: 'Bow distance behind the line at the gun (bow-corrected). Negative = over. ~ = interpolated across a telemetry gap.',
+          cell: oursCell,
         },
       ];
   const cols: Col[] = [
@@ -59,13 +94,20 @@ function columns(a: RaceAnalysis): Col[] {
           b.name !== `#${b.sail}` ? ` <span class="bname">${esc(b.name)}</span>` : ''
         }${b.start?.ocs ? ' <span class="flag" title="Flagged OCS by race control">OCS</span>' : ''}`,
     },
+    {
+      head: 'Start<br><small>rank</small>',
+      title: START_TITLE,
+      rank: (b) => (b.start?.startPlace != null ? b.start.rank!.m : null),
+      better: 'low',
+      cell: startCell,
+    },
     ...dtlCols,
     {
       head: 'Late<br><small>s</small>',
-      title: 'DTL ÷ speed toward the line at the gun',
-      rank: (b) => (clean(b) ? b.start!.secsLate : null),
+      title: 'Our DTL ÷ speed toward the line at the gun (blank when our DTL is interpolated across a gap)',
+      rank: (b) => (b.start?.startPlace != null ? b.start.lateS : null),
       better: 'low',
-      cell: (b) => f1(b.start?.secsLate),
+      cell: (b) => f1(b.start?.lateS),
     },
     {
       head: 'Line<br><small>pos %</small>',
@@ -143,5 +185,5 @@ export function metricsTable(a: RaceAnalysis, highlight: string | null): string 
       return `<tr data-id="${esc(b.id)}" class="${highlight === b.id ? 'sel' : ''}" tabindex="0">${tds}</tr>`;
     })
     .join('');
-  return `<table class="metrics"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+  return `<table class="metrics"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>${notesList(a)}`;
 }
