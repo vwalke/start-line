@@ -168,7 +168,7 @@ export function startHullScale(a: RaceAnalysis, v?: View): ClassDims | null {
   return dims && dims.loaM / startView(a, v).unit >= MIN_HULL_PX ? dims : null;
 }
 
-/** Boats vs the line at the gun: to-scale hulls (or markers) at the bow, 30 s trails. */
+/** Boats vs the line at the gun: to-scale hulls (or markers) at the bow, START_TRAIL_MS trails. */
 export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: View): string {
   const { rot, L, R, box, view, unit } = startView(a, v);
   const fleet = a.boats.length;
@@ -185,12 +185,16 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     const b = byId.get(d.id)!;
     const col = boatColor(b, fleet);
     const dim = highlight && highlight !== d.id ? ' dim' : '';
-    const tr: Vec[] = [];
+    // Only the parts inside the fit box; a trail that leaves and re-enters is drawn as separate runs.
+    const runs: Vec[][] = [[]];
     for (let i = 0; i < d.trail.x.length; i++) {
       const p = rot([d.trail.x[i], d.trail.y[i]]);
-      if (p[0] > box.x0 && p[0] < box.x1 && p[1] > box.y0 && p[1] < box.y1) tr.push(p);
+      if (p[0] > box.x0 && p[0] < box.x1 && p[1] > box.y0 && p[1] < box.y1) runs[runs.length - 1].push(p);
+      else if (runs[runs.length - 1].length) runs.push([]);
     }
-    if (tr.length > 1) trails.push(`<polyline class="trail${dim}" points="${pts(tr)}" stroke="${col}" stroke-width="${1.5 * k}"/>`);
+    for (const tr of runs) {
+      if (tr.length > 1) trails.push(`<polyline class="trail${dim}" points="${pts(tr)}" stroke="${col}" stroke-width="${1.5 * k}"/>`);
+    }
     if (!d.bow || d.courseAtGun == null || !b.start) continue;
     const [x, y] = rot(d.bow);
     const st = b.start;
@@ -229,34 +233,54 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     ${windArrow(view, unit, k, 'wind (est.)')}${scaleBar(view, unit, k)}</svg>`;
 }
 
-/** Whole-race tracks, coloured by leg. */
-export function trackMap(a: RaceAnalysis, highlight: string | null): string {
+/** The fixed points a leg runs between: the line or previous mark, and its own mark or the finish. */
+function legEnds(a: RaceAnalysis, leg: number): Vec[] {
+  const out: Vec[] = [];
+  if (leg === 0) out.push(a.line.left, a.line.right);
+  if (leg === a.legs.length - 1 && a.finishLine) out.push(a.finishLine.left, a.finishLine.right);
+  const names = new Set([a.legs[leg - 1]?.to, leg < a.legs.length - 1 ? a.legs[leg].to : undefined]);
+  for (const m of a.marks) if (names.has(m.name)) out.push(...m.xy);
+  return out;
+}
+
+/** The track map's view: everything, or one leg's segments plus its marks; padded. */
+export function mapBox(a: RaceAnalysis, leg: number | null = null): Box {
   const rot = rotator(a.wind.twdAtGunDeg);
   const box: Box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
-  grow(box, rot(a.line.left));
-  grow(box, rot(a.line.right));
-  for (const m of a.marks) for (const p of m.xy) grow(box, rot(p));
-  const paths: string[] = [];
-  const hi: string[] = [];
+  const fixed = leg == null ? [a.line.left, a.line.right, ...a.marks.flatMap((m) => m.xy)] : legEnds(a, leg);
+  for (const p of fixed) grow(box, rot(p));
   for (const d of a.drawings) {
     for (const seg of d.segments) {
-      const ps: Vec[] = [];
-      for (let i = 0; i < seg.x.length; i++) {
-        const p = rot([seg.x[i], seg.y[i]]);
-        grow(box, p);
-        ps.push(p);
-      }
-      if (ps.length < 2) continue;
-      const cls = highlight ? (highlight === d.id ? 'trk on' : 'trk dim') : 'trk';
-      const svg = `<polyline class="${cls}" points="${pts(ps)}" stroke="${legColor(seg.leg)}" STROKE/>`;
-      (highlight === d.id ? hi : paths).push(svg);
+      if (leg != null && seg.leg !== leg) continue;
+      for (let i = 0; i < seg.x.length; i++) grow(box, rot([seg.x[i], seg.y[i]]));
     }
   }
-  const pad = 0.06 * Math.max(box.x1 - box.x0, box.y1 - box.y0);
+  if (!Number.isFinite(box.x0)) return leg == null ? { x0: -100, y0: -100, x1: 100, y1: 100 } : mapBox(a, null);
+  const pad = Math.max(10, 0.06 * Math.max(box.x1 - box.x0, box.y1 - box.y0));
   box.x0 -= pad;
   box.x1 += pad;
   box.y0 -= pad;
   box.y1 += pad;
+  return box;
+}
+
+/** Whole-race tracks coloured by leg, or only leg `leg` (fitted to it). */
+export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number | null = null): string {
+  const rot = rotator(a.wind.twdAtGunDeg);
+  const box = mapBox(a, leg);
+  const paths: string[] = [];
+  const hi: string[] = [];
+  for (const d of a.drawings) {
+    for (const seg of d.segments) {
+      if (leg != null && seg.leg !== leg) continue;
+      const ps: Vec[] = [];
+      for (let i = 0; i < seg.x.length; i++) ps.push(rot([seg.x[i], seg.y[i]]));
+      if (ps.length < 2) continue;
+      const cls = highlight ? (highlight === d.id ? 'trk on' : 'trk dim') : 'trk';
+      const svg = `<polyline class="${cls}" data-leg="${seg.leg}" points="${pts(ps)}" stroke="${legColor(seg.leg)}" STROKE/>`;
+      (highlight === d.id ? hi : paths).push(svg);
+    }
+  }
   const w = box.x1 - box.x0;
   const h = box.y1 - box.y0;
   const unit = Math.max(w, h) / 600;
@@ -282,14 +306,27 @@ export function trackMap(a: RaceAnalysis, highlight: string | null): string {
         })()
       : '';
 
-  return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map" role="img" aria-label="Tracks coloured by leg">
+  const label = leg == null ? 'Tracks coloured by leg' : `Tracks on ${a.legs[leg]?.name ?? 'one leg'}`;
+  return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map" role="img" aria-label="${esc(label)}">
     ${paths.map((s) => stroke(s, 1.2)).join('')}${hi.map((s) => stroke(s, 2.6)).join('')}
     <line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>${finish}${marks}
     ${windArrow(box, unit, k, 'wind (est.)')}${scaleBar(box, unit, k)}</svg>`;
 }
 
-export function legLegend(a: RaceAnalysis): string {
-  return a.legs
-    .map((l) => `<span class="key"><i style="background:${legColor(l.index)}"></i>${esc(l.name)}${l.index === a.legs.length - 1 ? ' → finish' : ''}</span>`)
-    .join('');
+/** The map's legend doubles as a leg selector: All, then one toggle per leg. */
+export function legLegend(a: RaceAnalysis, selected: number | null = null): string {
+  const btn = (key: string, pressed: boolean, body: string): string =>
+    `<button type="button" class="key" data-leg="${key}" aria-pressed="${pressed}">${body}</button>`;
+  return (
+    btn('all', selected == null, 'All') +
+    a.legs
+      .map((l) =>
+        btn(
+          String(l.index),
+          selected === l.index,
+          `<i style="background:${legColor(l.index)}"></i>${esc(l.name)}${l.index === a.legs.length - 1 ? ' → finish' : ''}`,
+        ),
+      )
+      .join('')
+  );
 }

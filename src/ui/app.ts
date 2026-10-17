@@ -4,16 +4,18 @@
  * back to the fixture (with a visible notice) if the network or proxy fails.
  */
 import fixtureUrl from '../../tests/fixtures/benelux_r8.json?url';
+import { START_TRAIL_MS } from '../analysis/analyze';
 import type { RaceAnalysis } from '../analysis/types';
 import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { classDims } from '../data/classes';
+import { boatList, findingsList } from './boats';
 import { legLegend, startFitBox, startHullScale, startSnapshot, trackMap } from './charts';
 import { degLabel, esc, f0, f2, gunTimeLine } from './format';
 import { attachPanZoom } from './panzoom';
-import { metricsTable } from './table';
+import { metricsTable, toggleSort, type SortState } from './table';
 import { clampView, fitView, presetActive, type Box, type View } from './view';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -40,6 +42,7 @@ export function startApp(): void {
     legend: $('map-legend'),
     table: $('table'),
     findings: $('findings'),
+    boats: $('boat-list'),
     warnings: $('warnings'),
     mode: $('mode-link'),
   };
@@ -66,7 +69,11 @@ export function startApp(): void {
     });
 
   let analysis: RaceAnalysis | null = null;
+  /** The one selected boat, shared by the boat list, both charts, the table and the findings. */
   let highlight: string | null = null;
+  /** Table sort (null = finish order) and the map's leg filter; both reset per race. */
+  let sort: SortState | null = null;
+  let legSel: number | null = null;
   let fitBox: Box | null = null;
   let view: View = { cx: 0, cy: 0, k: 1 };
   let regatta: RegattaResponse | null = null;
@@ -112,12 +119,13 @@ export function startApp(): void {
       a.line.favored === 'square'
         ? 'about square to the wind'
         : `${a.line.favored === 'left' ? 'pin' : 'RC'} end favoured by ≈${f0(a.line.favoredByM)} m`;
-    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (Vakaros timing) with the last 30 s of track shifted to the bow. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.`;
+    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (Vakaros timing) with the last ${START_TRAIL_MS / 1000} s of track shifted to the bow. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.`;
     renderStart();
-    els.map.innerHTML = trackMap(a, highlight);
-    els.legend.innerHTML = legLegend(a);
-    els.table.innerHTML = metricsTable(a, highlight);
-    els.findings.innerHTML = a.findings.map((f) => `<li class="${f.kind}">${esc(f.text)}</li>`).join('');
+    els.map.innerHTML = trackMap(a, highlight, legSel);
+    els.legend.innerHTML = legLegend(a, legSel);
+    els.table.innerHTML = metricsTable(a, highlight, sort);
+    els.boats.innerHTML = boatList(a, highlight);
+    els.findings.innerHTML = findingsList(a.findings, highlight);
     els.warnings.innerHTML = a.warnings.map((t) => `<li>${esc(t)}</li>`).join('');
     els.warnings.hidden = !a.warnings.length;
     els.digest.hidden = false;
@@ -168,11 +176,25 @@ export function startApp(): void {
     getRect: () => (els.start.querySelector('svg') ?? els.start).getBoundingClientRect(),
   });
 
+  /** Re-render, then put keyboard focus back on the rebuilt control matching `selector` (if focus was in it). */
+  function renderKeepingFocus(container: HTMLElement, selector: string | null): void {
+    render();
+    if (selector) container.querySelector<HTMLElement>(selector)?.focus();
+  }
+  const focusSel = (el: Element, attr: string): string | null =>
+    el.contains(document.activeElement) ? `[${attr}="${CSS.escape(el.getAttribute(attr) ?? '')}"]` : null;
+
   function toggleHighlight(id: string | null): void {
     highlight = highlight === id ? null : id;
     render();
   }
   els.table.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement).closest('button[data-sort]');
+    if (btn && analysis) {
+      sort = toggleSort(analysis, sort, btn.getAttribute('data-sort')!);
+      renderKeepingFocus(els.table, focusSel(btn, 'data-sort'));
+      return;
+    }
     const tr = (ev.target as HTMLElement).closest('tr[data-id]');
     if (tr) toggleHighlight(tr.getAttribute('data-id'));
   });
@@ -182,6 +204,28 @@ export function startApp(): void {
       ev.preventDefault();
       toggleHighlight(tr.getAttribute('data-id'));
     }
+  });
+  els.boats.addEventListener('click', (ev) => {
+    const el = ev.target as HTMLElement;
+    const item = el.closest('button[data-id]');
+    if (item) {
+      const id = item.getAttribute('data-id');
+      highlight = highlight === id ? null : id;
+      renderKeepingFocus(els.boats, focusSel(item, 'data-id'));
+    } else if (el.closest('button[data-clear]')) {
+      const hadFocus = el.closest('button[data-clear]')!.contains(document.activeElement);
+      highlight = null;
+      // Clear disables itself once nothing is selected; keep keyboard focus in the list.
+      renderKeepingFocus(els.boats, hadFocus ? 'button[data-id]' : null);
+    }
+  });
+  els.legend.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement).closest('button[data-leg]');
+    if (!btn) return;
+    const key = btn.getAttribute('data-leg');
+    const leg = key === 'all' ? null : Number(key);
+    legSel = leg == null || leg === legSel ? null : leg;
+    renderKeepingFocus(els.legend, focusSel(btn, 'data-leg'));
   });
   els.start.addEventListener('click', (ev) => {
     const g = (ev.target as Element).closest('g.boat[data-id]');
@@ -193,6 +237,8 @@ export function startApp(): void {
     try {
       analysis = await p;
       highlight = null;
+      sort = null;
+      legSel = null;
       fitBox = startFitBox(analysis);
       setView(fitView(fitBox));
       render();

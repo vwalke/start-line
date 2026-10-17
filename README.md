@@ -12,20 +12,25 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 ## What it shows
 
 - **Start at the gun:** each boat's bow (GPS tracker + class bow offset)
-  against the line with a 30 s trail shifted so it ends on that bow, arrows
-  along course over ground, plus the line length and bias and which end was
-  favoured. Wind bearings display as 0° rather than 360°.
+  against the line with a 60 s trail (`START_TRAIL_MS`) shifted so it ends on
+  that bow, arrows along course over ground, plus the line length and bias and
+  which end was favoured. Wind bearings display as 0° rather than 360°.
 - **Per boat:** distance off the line at the gun (bow-corrected), seconds late,
   line position (0% pin … 100% RC), speed at the gun, and TWA at the gun.
-- **Per leg:** VMG, SOG and TWA, plus leg time and the boat's place at the mark.
-  Finish time and race time.
+- **Per leg:** VMG, SOG, TWA, distance sailed (nm), and leg time with the
+  boat's place at the mark, each in its own column under the leg's name.
+  Race distance, finish time and race time. Distance sums the GPS track point
+  to point; where fixes are more than 5 s apart it's shown as `~` (approximate).
+- **Sorting:** every column header sorts the table, best end first; click
+  again to reverse. Missing values always sort last.
 - **Tracks by leg:** a map in local metres (no map tiles), rotated so the wind
-  comes from the top.
+  comes from the top. The legend picks one leg and zooms the map to it.
 - **Findings:** plain-English notes: favoured end, best and worst start, the
   biggest single-leg gain and loss, the quickest boats upwind and downwind,
   places gained or lost, and a wind cross-check.
-- **Highlights:** ▲ best and ▼ worst in each column. Tap a row or a boat to
-  highlight it.
+- **Highlights:** ▲ best and ▼ worst in each column. Select a boat in the boat
+  list, the start chart or a table row to highlight it in both charts, the
+  table and the findings.
 
 ## Data sources & caveats
 

@@ -103,7 +103,8 @@
 }
 * { box-sizing: border-box; }
 html { overflow-x: hidden; }
-body { margin: 0; overflow-x: hidden; }
+/* clip, not hidden: hidden would make body a scroll container and break the sticky boat list. */
+body { margin: 0; overflow-x: hidden; overflow-x: clip; }
 a { color: var(--accent); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .wrap { max-width: var(--page-max); margin: 0 auto; padding: 14px 16px 48px; }
@@ -256,14 +257,84 @@ select { font: inherit; padding: 7px 8px; border-radius: 6px; border: 1px solid 
 #summary p { margin: 0 0 10px; color: var(--ink-2); font-size: 0.9rem; }
 .muted { color: var(--ink-3); }
 
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-@media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+/* Boat list on the left, the digest beside it; charts stacked full width of the content column. */
+.digest { display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: 16px; align-items: start; }
+.digest[hidden] { display: none; }
+.content { min-width: 0; }
 .card { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; min-width: 0; }
 .card h3 { font-size: 0.95rem; margin: 0 0 6px; }
 .card .cap { font-size: 0.8rem; color: var(--ink-2); margin: 6px 0 0; }
-.card + .card, .grid + .card { margin-top: 16px; }
+.card + .card { margin-top: 16px; }
+
+.boatbar {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 10px 8px;
+  margin-top: 10px;
+}
+.boats-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 4px 6px; }
+.boats-head h3 { font-size: 0.95rem; margin: 0; }
+.boats-clear { font: inherit; font-size: 0.75rem; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.boats-clear:disabled { opacity: 0.45; cursor: default; }
+.boat-items { list-style: none; margin: 0; padding: 0; }
+.boat-item {
+  display: grid;
+  grid-template-columns: 10px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+.boat-item:hover { background: var(--grid); }
+.boat-item[aria-pressed='true'] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.boat-item .sw { width: 10px; height: 10px; border-radius: 50%; }
+.boat-item .sail { font-weight: 600; white-space: nowrap; }
+.boat-item .bname { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.boat-item .pos { color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: 0.75rem; }
+/* Narrow screens: a sticky strip across the top that scrolls sideways; charts keep the full width. */
+@media (max-width: 900px) {
+  /* Block, not a one-column grid: a grid item can only stick within its own row. */
+  .digest { display: block; }
+  .content { margin-top: 4px; }
+  .boatbar {
+    top: 0;
+    z-index: 3;
+    max-height: none;
+    overflow: visible;
+    margin: 0 -16px;
+    padding: 6px 16px;
+    border-width: 0 0 1px;
+    border-radius: 0;
+    background: var(--page);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .boats-head { padding: 0; flex: none; }
+  .boats-head h3 { display: none; }
+  .boat-items { flex: 1 1 auto; min-width: 0; display: flex; gap: 4px; overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .boat-items li { flex: none; }
+  .boat-item { grid-template-columns: 10px auto auto; background: var(--surface); border-color: var(--rule); }
+  .boat-item .bname { display: none; }
+}
 
 svg.chart { width: 100%; height: auto; display: block; max-height: 70vh; }
+/* Full-width stacked charts: as big as fits a laptop screen; the viewBox keeps the aspect (letterboxed). */
+svg.chart.start, svg.chart.map { max-height: min(78vh, 760px); }
 svg.chart.start { aspect-ratio: auto; }
 svg .hull { stroke-linejoin: round; stroke-linecap: round; }
 svg .trail { fill: none; opacity: 0.55; stroke-linejoin: round; }
@@ -301,7 +372,9 @@ svg .wind text { fill: var(--accent); }
 svg .scalebar line { stroke: var(--ink-2); }
 svg .scalebar text { fill: var(--ink-2); }
 
-.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8rem; color: var(--ink-2); margin-bottom: 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px; font-size: 0.8rem; color: var(--ink-2); margin-bottom: 4px; }
+.legend .key { font: inherit; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.legend .key[aria-pressed='true'] { border-color: var(--ink-2); color: var(--ink); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
 .legend .key i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
 
 .tablewrap {
@@ -331,8 +404,17 @@ table.metrics {
   .metrics th, .metrics td { padding: 5px 6px; }
   .table-hint { display: block; }
 }
-.metrics th { font-size: 0.75rem; font-weight: 600; color: var(--ink-2); text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; vertical-align: bottom; cursor: help; }
+.metrics th { font-size: 0.75rem; font-weight: 600; color: var(--ink-2); text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; vertical-align: bottom; }
 .metrics th small { font-weight: 400; color: var(--ink-3); }
+/* Leg / race group headers span their sub-columns; a rule marks where each group starts. */
+.metrics th.grp { text-align: center; color: var(--ink); padding-bottom: 2px; border-left: 1px solid var(--rule); }
+.metrics .g0 { border-left: 1px solid var(--rule); }
+.metrics th .sort { font: inherit; color: inherit; text-align: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; white-space: nowrap; }
+.metrics th .sort:hover { color: var(--ink); }
+.metrics th[aria-sort] { color: var(--ink); }
+/* ↑/↓ sort glyph: accent coloured and inline, unlike the small ▲/▼ best/worst marks in cells. */
+.metrics th .si { display: inline-block; min-width: 0.8em; margin-left: 2px; color: var(--accent); font-weight: 700; }
+.metrics .rk { color: var(--ink-3); font-size: 0.72rem; }
 .metrics td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; vertical-align: top; }
 .metrics td.boat, .metrics th.boat { text-align: left; }
 .metrics .sticky0, .metrics .sticky1 { position: sticky; background: var(--surface); z-index: 1; }
@@ -354,7 +436,10 @@ table.metrics {
 .metrics .flag { font-size: 0.7rem; background: var(--bad-bg); color: var(--bad); border-radius: 3px; padding: 0 4px; }
 
 ul.findings { margin: 0; padding-left: 18px; }
-ul.findings li { margin: 4px 0; }
+ul.findings li { margin: 4px 0; transition: opacity 0.15s; }
+ul.findings li.dim { opacity: 0.45; }
+ul.findings li.hl { font-weight: 600; }
+ul.findings li.hl::marker { color: var(--accent); }
 ul.warnings { font-size: 0.85rem; color: var(--ink-2); margin: 8px 0 0; padding-left: 18px; }
 .key-notes { font-size: 0.8rem; color: var(--ink-2); }
 .key-notes p { margin: 4px 0; }

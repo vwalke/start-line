@@ -5,6 +5,7 @@
  * TWD from steady upwind tack headings, VMG from displacement along the wind.
  */
 import type { RaceData } from '../data/types';
+import { pathDistance } from './distance';
 import { buildFindings } from './findings';
 import {
   MS_TO_KN,
@@ -49,6 +50,9 @@ function legKind(bearing: number, twd: number): LegKind {
 }
 
 const KIND_NAME: Record<LegKind, string> = { upwind: 'Beat', downwind: 'Run', reach: 'Reach' };
+
+/** How much track before the start fix the start chart draws behind each boat. */
+export const START_TRAIL_MS = 60_000;
 
 export function analyzeRace(data: RaceData): RaceAnalysis {
   const warnings: string[] = [];
@@ -267,9 +271,9 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
         warn: null,
         ocsBlind: false,
       };
-      // 30 s of the tracker up to the DTL sample, translated by that sample's
-      // bow offset so the polyline ends exactly on the bow used for DTL.
-      const [t0, t1] = rangeIdx(tr.t, gun - 30_000, ts);
+      // START_TRAIL_MS of the tracker up to the DTL sample, translated by that
+      // sample's bow offset so the polyline ends exactly on the bow used for DTL.
+      const [t0, t1] = rangeIdx(tr.t, gun - START_TRAIL_MS, ts);
       const dx = bow[0] - p[0];
       const dy = bow[1] - p[1];
       const needTip = t1 === t0 || tr.t[t1 - 1] < ts - 50;
@@ -303,17 +307,24 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       let idx = T > 40 ? steadyIndices(tr, a, e) : [];
       if (!idx.length) idx = Array.from({ length: i1 - i0 }, (_, k) => i0 + k);
       const twa = median(idx.map((k) => Math.abs(wrap180(twdl - tr.heading[k]))));
-      legResults.push({ startMs: a, endMs: e, timeS: T, sogKn: (path / T) * MS_TO_KN, vmgKn: vmg, twaDeg: twa, rankAtEnd: null });
+      const dist = pathDistance(tr.t, tr.x, tr.y, a, e);
+      legResults.push({ startMs: a, endMs: e, timeS: T, sogKn: (path / T) * MS_TO_KN, vmgKn: vmg, twaDeg: twa, rankAtEnd: null, ...dist });
     }
 
     let raceTimeS: number | null = null;
     let sogAvgKn: number | null = null;
+    let distNm: number | null = null;
+    let distApprox = false;
     if (b.finishMs != null && b.finishMs > gun) {
       raceTimeS = (b.finishMs - gun) / 1000;
       const [i0, i1] = rangeIdx(tr.t, gun, b.finishMs);
       let path = 0;
       for (let k = i0 + 1; k < i1; k++) path += Math.hypot(tr.x[k] - tr.x[k - 1], tr.y[k] - tr.y[k - 1]);
       sogAvgKn = (path / raceTimeS) * MS_TO_KN;
+      // Gun → finish in one pass; equals the sum of the legs when every leg was split.
+      const d = pathDistance(tr.t, tr.x, tr.y, gun, b.finishMs);
+      distNm = d.distNm;
+      distApprox = d.distGapS != null;
     }
     const pos = finishOrder.indexOf(b.id);
     results.push({
@@ -325,6 +336,8 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       finishMs: b.finishMs,
       raceTimeS,
       sogAvgKn,
+      distNm,
+      distApprox,
       start,
       legs: legResults,
     });
