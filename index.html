@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Start Line: a lean start + leg digest for a sailboat race, from Vakaros RaceSense public data." />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>Start Line — race start &amp; leg digest</title>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <h1>Start Line</h1>
+        <span class="tag">How your start and each leg went — in one screen.</span>
+        <nav>
+          <a id="mode-link" href="?demo=1">Demo (offline)</a>
+          <a href="https://railmath.walkeforward.com">Rail Math</a>
+        </nav>
+      </header>
+
+      <div class="controls">
+        <label>Event <select id="event" disabled><option>Loading…</option></select></label>
+        <label class="race">Race <select id="race" disabled><option>—</option></select></label>
+      </div>
+      <div id="notice" class="notice" role="status" hidden></div>
+      <div id="status" class="status" aria-live="polite">Loading…</div>
+
+      <main id="digest" hidden>
+        <section id="summary"></section>
+        <div class="grid">
+          <section class="card">
+            <h3>Start at the gun <span class="muted">(wind ↓ from top, estimated)</span></h3>
+            <div id="start-chart"></div>
+            <p id="start-caption" class="cap"></p>
+          </section>
+          <section class="card">
+            <h3>Tracks by leg</h3>
+            <div id="map-legend" class="legend"></div>
+            <div id="map-chart"></div>
+            <p class="cap">Legs split at each boat's closest approach to the mark trackers. Tap a boat or a table row to highlight it.</p>
+          </section>
+        </div>
+        <section class="card">
+          <h3>Findings</h3>
+          <ul id="findings" class="findings"></ul>
+          <ul id="warnings" class="warnings" hidden></ul>
+        </section>
+        <section class="card">
+          <h3>Per boat</h3>
+          <div id="table" class="tablewrap"></div>
+          <div class="key-notes">
+            <p><b>DTL</b>: bow distance behind the line at the gun (GPS + bow offset). <b>RC DTL</b>: race control's own figure. <b>Late</b>: DTL ÷ speed toward the line. <b>Line pos</b>: 0% pin, 100% RC.</p>
+            <p><b>TWA / VMG are estimates.</b> The boats carry no wind sensor; wind direction comes from the fleet's steady upwind tack headings (cross-checked against a weather model). VMG = distance made good along the wind ÷ leg time. Leg TWA = median |TWA| while sailing steadily. ▲ best / ▼ worst in column.</p>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        Unofficial. Data: public Vakaros RaceSense feeds (race control + 5 Hz GPS), fetched per race and cached.
+        Not affiliated with Vakaros. A <a href="https://walkeforward.com">Walke Forward</a> project.
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
