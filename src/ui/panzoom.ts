@@ -34,6 +34,7 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
   let start: Pt | null = null; // first pointer's down position
   let moved = false; // dragged past the slop or pinched, this gesture
   let lastTap: { t: number; x: number; y: number } | null = null;
+  let lastClick: (Pt & { t: number }) | null = null;
   let lastTouchUp = -Infinity;
   let suppressAt = -Infinity;
   let lastCtrlWheel = -Infinity;
@@ -148,10 +149,21 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
 
   function onClick(ev: MouseEvent): void {
     // One click after a drag or pinch is the gesture's end, not a tap.
-    if (performance.now() - suppressAt > 500) return;
-    suppressAt = -Infinity;
-    ev.stopPropagation();
-    ev.preventDefault();
+    if (performance.now() - suppressAt <= 500) {
+      suppressAt = -Infinity;
+      ev.stopPropagation();
+      ev.preventDefault();
+      return;
+    }
+    // Second click of a double-tap/click: the zoom is the action, not a boat toggle.
+    const t = performance.now();
+    const second =
+      lastClick && t - lastClick.t < DOUBLE_TAP_MS && Math.hypot(ev.clientX - lastClick.x, ev.clientY - lastClick.y) < DOUBLE_TAP_PX;
+    lastClick = { t, x: ev.clientX, y: ev.clientY };
+    if (second) {
+      ev.stopPropagation();
+      ev.preventDefault();
+    }
   }
 
   function onWheel(ev: WheelEvent): void {
@@ -165,18 +177,32 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
   // Safari (desktop) trackpad pinch: non-standard GestureEvent with a cumulative scale.
   type GestureLike = Event & { scale: number; clientX: number; clientY: number };
   function onGestureStart(ev: Event): void {
-    if (pointers.size) return; // iOS: pointer events already handle the pinch
+    // Always cancel Safari's page pinch-zoom. If pointer events are already
+    // driving the pinch (iOS), skip the scale so we don't zoom twice.
     ev.preventDefault();
+    if (pointers.size) return;
     gestureScale = 1;
   }
   function onGestureChange(ev: Event): void {
-    if (pointers.size) return;
     ev.preventDefault();
+    if (pointers.size) return;
     const g = ev as GestureLike;
     const factor = g.scale / gestureScale;
     gestureScale = g.scale;
     if (performance.now() - lastCtrlWheel < 200 || !Number.isFinite(factor) || factor <= 0) return;
     zoomAt(factor, g.clientX, g.clientY);
+  }
+  function onGestureEnd(ev: Event): void {
+    ev.preventDefault();
+  }
+
+  // iOS Safari still page-zooms / pointercancels unless native touch is cancelled.
+  // Don't preventDefault on one-finger touchstart: that would swallow tap-to-select.
+  function onTouchStart(ev: TouchEvent): void {
+    if (ev.touches.length >= 2) ev.preventDefault();
+  }
+  function onTouchMove(ev: TouchEvent): void {
+    if (ev.touches.length >= 2 || opts.getView().k > 1) ev.preventDefault();
   }
 
   function onKey(ev: KeyboardEvent): void {
@@ -208,6 +234,9 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
     ['wheel', onWheel as EventListener, { passive: false }],
     ['gesturestart', onGestureStart, { passive: false }],
     ['gesturechange', onGestureChange, { passive: false }],
+    ['gestureend', onGestureEnd, { passive: false }],
+    ['touchstart', onTouchStart as EventListener, { passive: false }],
+    ['touchmove', onTouchMove as EventListener, { passive: false }],
     ['keydown', onKey as EventListener],
   ];
   for (const [type, fn, o] of on) el.addEventListener(type, fn, o);
