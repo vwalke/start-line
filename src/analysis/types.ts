@@ -26,7 +26,7 @@ export interface LegResult {
 }
 
 export interface StartResult {
-  /** Bow distance behind the line at the gun, m (negative = over). */
+  /** Our bow distance behind the line at the start (sampled at `RaceData.dtlSampleOffsetMs` before the gun), m (negative = over). */
   dtlM: number;
   /** DTL / speed toward the line at the gun (speed floored at half the fleet median). */
   secsLate: number;
@@ -40,6 +40,7 @@ export interface StartResult {
   twaDeg: number;
   bow: Vec;
   ocs: boolean;
+  /** The boat's Vakaros device's own DTL (feed `dtlMm`), m; null if the feed has none. */
   rcDtlM: number | null;
 }
 
@@ -91,11 +92,13 @@ export interface TrackSegment {
 
 export interface BoatDrawing {
   id: string;
-  /** Last 30 s before the gun (+ a few after), full rate. */
+  /** ~30 s of track up to the DTL sample, shifted so the last point is the bow. */
   trail: { x: Float32Array; y: Float32Array };
   bow: Vec | null;
-  /** Compass heading at the gun (TWA / bow-offset direction). */
+  /** Compass heading at the gun (TWA). */
   headingAtGun: number | null;
+  /** Heading at the DTL sample, used to project `bow` — the to-scale hull points this way. */
+  headingAtSample: number | null;
   /** Course over ground at the gun — used for the start arrow. */
   courseAtGun: number | null;
   /** Gun → finish, ~1 Hz, split by leg. */

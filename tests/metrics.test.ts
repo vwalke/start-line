@@ -53,10 +53,21 @@ describe('Benelux Act III race 8 vs prototype CSV', () => {
     expect(text).toMatch(/#3 lost \d+ s on Beat 1/);
   });
 
+  it('samples DTL at the source offset before the gun', () => {
+    const atGun = analyzeRace({ ...fixtureRace(), dtlSampleOffsetMs: 0 });
+    for (const b of atGun.boats) {
+      const s = bySail.get(b.sail)!.start!;
+      // Every boat is moving toward the line, so 0.9 s earlier it is further back.
+      expect(s.dtlM - b.start!.dtlM).toBeGreaterThan(0.3);
+      expect(s.speedKn).toBe(b.start!.speedKn);
+    }
+  });
+
   for (const r of expected) {
     it(`start metrics for #${r.sail}`, () => {
       const s = bySail.get(r.sail)!.start!;
-      expect(Math.abs(s.dtlM - +r.dtl_m)).toBeLessThan(1.5);
+      // Our DTL, sampled at the device's start fix, agrees with the Vakaros figure.
+      expect(Math.abs(s.dtlM - +r.dtl_rc_m)).toBeLessThan(0.5);
       expect(Math.abs(s.speedKn - +r.speed_at_gun_kn)).toBeLessThan(0.3);
       expect(Math.abs(s.twaDeg - +r.twa_at_gun)).toBeLessThan(6);
       expect(Math.abs(s.linePosPct - +r.line_pos_pct)).toBeLessThan(3);

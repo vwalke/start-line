@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { argbToHex, currentDoc, defaultRace, listRaces, parseTelemetry, snFromHex, telemetryWindow, tzOffsetMs } from '../src/data/racesense/adapter';
+import {
+  RACESENSE_DTL_SAMPLE_OFFSET_MS,
+  argbToHex,
+  buildRaceData,
+  currentDoc,
+  defaultRace,
+  listRaces,
+  parseTelemetry,
+  snFromHex,
+  telemetryWindow,
+  tzOffsetMs,
+} from '../src/data/racesense/adapter';
 import { fixtureRace, loadFixture } from './helpers';
 
 describe('RaceSense adapter', () => {
@@ -48,5 +59,17 @@ describe('RaceSense adapter', () => {
     // Mark tracks are kept (10 s medians) so moved marks can be followed.
     expect(rd.course[0].tracks?.[0].t.length).toBeGreaterThan(10);
     expect(rd.course[0].id).toBe(rd.course[2].id);
+    expect(rd.dtlSampleOffsetMs).toBe(RACESENSE_DTL_SAMPLE_OFFSET_MS);
+    expect(RACESENSE_DTL_SAMPLE_OFFSET_MS).toBe(900);
+  });
+
+  it('treats a negative bowOffsetCm as unset and uses the division default', () => {
+    const f = loadFixture();
+    const regatta = structuredClone(f.regatta);
+    const div = currentDoc(regatta).divisions.find((d) => d.name === 'J70')!;
+    div.offsetOverrideCm = 265;
+    div.participants.find((p) => p.sailNumber === '3')!.bowOffsetCm = -1;
+    const rd = buildRaceData(regatta, { division: 'J70', raceNumber: 8 }, [f.telemetry]);
+    expect(rd.boats.find((b) => b.sail === '3')!.bowOffsetM).toBe(2.65);
   });
 });

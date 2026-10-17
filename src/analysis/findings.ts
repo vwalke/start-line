@@ -1,6 +1,9 @@
 /** Plain-English findings from a finished analysis. Short, specific, hedged where the wind is estimated. */
 import { compassRound, median, wrap180 } from './geo';
-import type { BoatResult, Finding, RaceAnalysis } from './types';
+import type { BoatResult, Finding, RaceAnalysis, StartResult } from './types';
+
+/** The DTL to show and rank by: the boat's Vakaros figure when the feed has it, else ours. */
+export const primaryDtlM = (s: StartResult): number => s.rcDtlM ?? s.dtlM;
 
 const tag = (b: BoatResult): string => (b.name && b.name !== `#${b.sail}` ? `#${b.sail} (${b.name})` : `#${b.sail}`);
 const r0 = (x: number): string => Math.round(x).toString();
@@ -37,20 +40,21 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
   }
 
   // Starts.
-  const over = started.filter((b) => b.start!.dtlM < 0 || b.start!.ocs);
-  const clean = started.filter((b) => !over.includes(b)).sort((x, y) => x.start!.dtlM - y.start!.dtlM);
+  const dtl = (b: BoatResult): number => primaryDtlM(b.start!);
+  const over = started.filter((b) => dtl(b) < 0 || b.start!.ocs);
+  const clean = started.filter((b) => !over.includes(b)).sort((x, y) => dtl(x) - dtl(y));
   if (clean.length) {
     const best = clean[0];
-    const tied = clean.filter((b) => b.start!.dtlM - best.start!.dtlM < 1);
+    const tied = clean.filter((b) => dtl(b) - dtl(best) < 1);
     const s = best.start!;
-    let text = `Best start: ${joinTags(tied)} — ${r1(s.dtlM)} m back, ${r1(s.secsLate)} s late, at ${r1(s.speedKn)} kn.`;
+    let text = `Best start: ${joinTags(tied)} — ${r1(dtl(best))} m back, ${r1(s.secsLate)} s late, at ${r1(s.speedKn)} kn.`;
     const fin = tied.filter((b) => b.finishPos != null).map((b) => `${tag(b)} finished ${ord(b.finishPos!)}`);
     if (fin.length) text += ` ${fin.join('; ')}.`;
     out.push({ kind: 'start', text });
     if (clean.length >= 3) {
       const worst = clean[clean.length - 1];
       const w = worst.start!;
-      let wt = `Furthest back: ${tag(worst)} — ${r1(w.dtlM)} m, ≈${r0(w.secsLate)} s late`;
+      let wt = `Furthest back: ${tag(worst)} — ${r1(dtl(worst))} m, ≈${r0(w.secsLate)} s late`;
       if (Math.abs(w.twaDeg) > 42) wt += `, sailing low (TWA ${r0(Math.abs(w.twaDeg))}°)`;
       else if (w.speedKn < median(started.map((b) => b.start!.speedKn)) - 1) wt += `, slow at ${r1(w.speedKn)} kn`;
       out.push({ kind: 'start', text: wt + '.' });
@@ -62,7 +66,7 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
       kind: 'start',
       text: s.ocs
         ? `${tag(b)} was flagged OCS by race control.`
-        : `${tag(b)}'s bow was ${r1(-s.dtlM)} m over the line at the gun by our estimate (not flagged OCS — GPS and bow offset are approximate).`,
+        : `${tag(b)}'s bow was ${r1(-primaryDtlM(s))} m over the line at the gun ${s.rcDtlM == null ? 'by our estimate' : 'by the Vakaros DTL'} (not flagged OCS — GPS and bow offset are approximate).`,
     });
   }
 

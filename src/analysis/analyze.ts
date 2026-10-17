@@ -219,10 +219,17 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
     let start: StartResult | null = null;
     let trail = { x: new Float32Array(0), y: new Float32Array(0) };
     let courseAtGun: number | null = null;
+    let headingAtSample: number | null = null;
     if (tr.t.length > 1 && tr.t[0] <= gun && tr.t[tr.t.length - 1] >= gun) {
-      const p: Vec = [interp(tr.t, tr.x, gun), interp(tr.t, tr.y, gun)];
+      // DTL, line position and the bow are sampled where the source takes its
+      // start fix (RaceSense: ~0.9 s before the gun), so ours checks against the
+      // device's dtlMm. Bow offset is applied along heading, as the device does.
+      const off = data.dtlSampleOffsetMs ?? 0;
+      const ts = tr.t[0] <= gun - off ? gun - off : gun;
+      const p: Vec = [interp(tr.t, tr.x, ts), interp(tr.t, tr.y, ts)];
+      headingAtSample = interpAngle(tr.t, tr.heading, ts);
       const hdg = interpAngle(tr.t, tr.heading, gun);
-      const bow = add(p, scale(bearingVec(hdg), b.bowOffsetM));
+      const bow = add(p, scale(bearingVec(headingAtSample), b.bowOffsetM));
       const dtl = -dot(sub(bow, L), nrm);
       // Velocity toward the course side at the gun (numpy.gradient, then interpolated).
       // xs in ms → gradient is m/ms; ×1000 gives m/s. Only the samples around the
@@ -245,12 +252,12 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
         ocs: !!b.ocs,
         rcDtlM: b.rcDtlM ?? null,
       };
-      // Last 30 s of the tracker, translated by the gun-time bow offset so the
-      // polyline ends on the bow. DTL still uses that same bow point.
-      const [t0, t1] = rangeIdx(tr.t, gun - 30_000, gun);
+      // 30 s of the tracker up to the DTL sample, translated by that sample's
+      // bow offset so the polyline ends exactly on the bow used for DTL.
+      const [t0, t1] = rangeIdx(tr.t, gun - 30_000, ts);
       const dx = bow[0] - p[0];
       const dy = bow[1] - p[1];
-      const needTip = t1 === t0 || tr.t[t1 - 1] < gun - 50;
+      const needTip = t1 === t0 || tr.t[t1 - 1] < ts - 50;
       const n = t1 - t0 + (needTip ? 1 : 0);
       const xs = new Float32Array(n);
       const ys = new Float32Array(n);
@@ -258,10 +265,8 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
         xs[k] = tr.x[t0 + k] + dx;
         ys[k] = tr.y[t0 + k] + dy;
       }
-      if (needTip) {
-        xs[n - 1] = bow[0];
-        ys[n - 1] = bow[1];
-      }
+      xs[n - 1] = bow[0];
+      ys[n - 1] = bow[1];
       trail = { x: xs, y: ys };
     }
 
@@ -331,6 +336,7 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       trail,
       bow: start?.bow ?? null,
       headingAtGun: start?.headingDeg ?? null,
+      headingAtSample,
       courseAtGun,
       segments,
     });
@@ -367,12 +373,12 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
   const moved = drawnMarks.filter((m, i) => drawnMarks.findIndex((o) => o.name === m.name) !== i).map((m) => m.name);
   if (moved.length) warnings.push(`${[...new Set(moved)].join(', ')} moved during the race; legs use the mark's position at the time.`);
 
-  // Race control's own DTL is shown for reference; flag it when it clearly disagrees with the tracks.
+  // The Vakaros DTL is the primary figure; ours is a check. Flag it when they clearly disagree.
   const rcDiff = results
     .filter((r) => r.start?.rcDtlM != null)
-    .map((r) => Math.abs(r.start!.rcDtlM! - Math.max(0, r.start!.dtlM)));
-  if (rcDiff.length >= 3 && median(rcDiff) > 6) {
-    warnings.push(`Race control's DTL differs from the GPS tracks by a median ${Math.round(median(rcDiff))} m for this start; treat the RC DTL column with caution.`);
+    .map((r) => Math.abs(r.start!.rcDtlM! - r.start!.dtlM));
+  if (rcDiff.length >= 3 && median(rcDiff) > 3) {
+    warnings.push(`Vakaros DTL differs from the GPS tracks by a median ${Math.round(median(rcDiff))} m for this start; treat the DTL columns with caution.`);
   }
 
   const analysis: RaceAnalysis = {

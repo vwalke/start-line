@@ -1,4 +1,5 @@
 /** Compact metrics table with best/worst highlights per column (▲ best, ▼ worst — never colour alone). */
+import { primaryDtlM } from '../analysis/findings';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { boatColor } from './charts';
 import { duration, esc, f0, f1, f2, localTime, twaLabel } from './format';
@@ -20,7 +21,34 @@ interface Col {
 }
 
 function columns(a: RaceAnalysis): Col[] {
-  const clean = (b: BoatResult): boolean => !!b.start && b.start.dtlM >= 0 && !b.start.ocs;
+  const clean = (b: BoatResult): boolean => !!b.start && primaryDtlM(b.start) >= 0 && !b.start.ocs;
+  const hasVakaros = a.boats.some((b) => b.start?.rcDtlM != null);
+  const dtlCols: Col[] = hasVakaros
+    ? [
+        {
+          head: 'DTL<br><small>Vakaros m</small>',
+          title: "Distance to line from the boat's Vakaros device (feed dtlMm, bow-corrected; device start-fix timing). Primary figure.",
+          rank: (b) => (b.start?.rcDtlM != null && b.start.rcDtlM >= 0 && !b.start.ocs ? b.start.rcDtlM : null),
+          better: 'low',
+          cell: (b) => f1(b.start?.rcDtlM),
+        },
+        {
+          head: 'Check<br><small>ours m</small>',
+          title:
+            "Our independent estimate from the GPS track (bow offset along heading, sampled at the device's start fix). A check on the Vakaros figure, not the official number.",
+          cell: (b) => f1(b.start?.dtlM),
+          cls: 'num muted',
+        },
+      ]
+    : [
+        {
+          head: 'DTL<br><small>@gun m</small>',
+          title: 'Bow distance behind the line at the gun (bow-corrected). Negative = over.',
+          rank: (b) => (clean(b) ? b.start!.dtlM : null),
+          better: 'low',
+          cell: (b) => f1(b.start?.dtlM),
+        },
+      ];
   const cols: Col[] = [
     { head: 'Fin', cell: (b) => (b.finishPos == null ? 'DNF' : String(b.finishPos)), cls: 'num sticky0' },
     {
@@ -31,19 +59,7 @@ function columns(a: RaceAnalysis): Col[] {
           b.name !== `#${b.sail}` ? ` <span class="bname">${esc(b.name)}</span>` : ''
         }${b.start?.ocs ? ' <span class="flag" title="Flagged OCS by race control">OCS</span>' : ''}`,
     },
-    {
-      head: 'DTL<br><small>@gun m</small>',
-      title: 'Bow distance behind the line at the gun (bow-corrected). Negative = over.',
-      rank: (b) => (clean(b) ? b.start!.dtlM : null),
-      better: 'low',
-      cell: (b) => f1(b.start?.dtlM),
-    },
-    {
-      head: 'RC DTL<br><small>m</small>',
-      title: "Race control's own distance-to-line figure from the feed",
-      cell: (b) => f1(b.start?.rcDtlM),
-      cls: 'num muted',
-    },
+    ...dtlCols,
     {
       head: 'Late<br><small>s</small>',
       title: 'DTL ÷ speed toward the line at the gun',
