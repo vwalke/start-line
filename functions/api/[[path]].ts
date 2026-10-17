@@ -8,10 +8,15 @@
  *   /api/regatta?event=ID    → event document          (2 min live, 7 days once the event ended)
  *   /api/wind?v=3&lat&lon&…  → modelled wind (not measured) (6 h, 30 days for past days)
  */
-
-interface CacheStorageCF {
-  default: Cache;
-}
+import {
+  MAX_UPSTREAM_BYTES,
+  UPSTREAM,
+  buildQuery,
+  endpointPath,
+  jsonError,
+  looksLikeJson,
+  ttlFor,
+} from '../_lib';
 
 interface Ctx {
   request: Request;
@@ -19,72 +24,64 @@ interface Ctx {
   waitUntil(p: Promise<unknown>): void;
 }
 
-const UPSTREAM = 'https://racesense.vakaros.com/api/';
-const MIN = 60;
-const DAY = 86_400;
-
-const ALLOWED: Record<string, string[]> = {
-  landing: [],
-  regatta: ['event'],
-  wind: ['v', 'lat', 'lon', 'start', 'end'],
-};
-
-function ttlFor(path: string, url: URL, body: string): number {
-  if (path === 'landing') return 10 * MIN;
-  if (path === 'wind') {
-    const end = Date.parse(url.searchParams.get('end') ?? '');
-    return Number.isFinite(end) && Date.now() - end > 2 * DAY * 1000 ? 30 * DAY : 6 * 3600;
-  }
-  // regatta: long once the event is over.
+function edgeCache(): Cache | null {
   try {
-    const doc = (JSON.parse(body) as { revisions?: { doc?: { endDate?: number } }[] }).revisions?.at(-1)?.doc;
-    if (doc?.endDate && Date.now() - doc.endDate > DAY * 1000) return 7 * DAY;
+    const bag = globalThis.caches as CacheStorage & { default?: Cache };
+    return bag.default ?? null;
   } catch {
-    /* not JSON: short */
+    return null;
   }
-  return 2 * MIN;
 }
 
-const json = (status: number, msg: string): Response =>
-  new Response(JSON.stringify({ error: msg }), { status, headers: { 'content-type': 'application/json' } });
-
 export const onRequestGet = async (ctx: Ctx): Promise<Response> => {
-  const raw = ctx.params.path;
-  const path = (Array.isArray(raw) ? raw.join('/') : raw ?? '').replace(/\/+$/, '');
-  const allowed = ALLOWED[path];
-  if (!allowed) return json(404, 'Unknown endpoint');
-
+  const path = endpointPath(ctx.params.path);
   const url = new URL(ctx.request.url);
-  // Only forward known parameters, in a stable order, so the cache key is canonical.
-  const qs = new URLSearchParams();
-  for (const k of allowed) {
-    const v = url.searchParams.get(k);
-    if (v != null) qs.set(k, v);
-  }
-  if (path === 'regatta' && !/^[A-Za-z0-9_-]{4,64}$/.test(qs.get('event') ?? '')) return json(400, 'Bad event id');
-  const upstream = `${UPSTREAM}${path}${qs.size ? `?${qs}` : ''}`;
-  const cacheKey = new Request(`${url.origin}/api/${path}${qs.size ? `?${qs}` : ''}`);
-  const cache = (globalThis.caches as unknown as CacheStorageCF).default;
+  const q = buildQuery(path, url.searchParams);
+  if (!q.ok) return jsonError(q.status, q.error);
 
-  const hit = await cache.match(cacheKey);
-  if (hit) return hit;
+  const qs = q.qs;
+  const suffix = qs.size ? `?${qs}` : '';
+  const upstream = `${UPSTREAM}${path}${suffix}`;
+  const cacheKey = new Request(`${url.origin}/api/${path}${suffix}`);
+  const cache = edgeCache();
+
+  if (cache) {
+    try {
+      const hit = await cache.match(cacheKey);
+      if (hit) return hit;
+    } catch {
+      /* cache read is best-effort */
+    }
+  }
 
   let res: Response;
   try {
-    res = await fetch(upstream, { headers: { accept: 'application/json', 'user-agent': 'StartLine/1 (+https://walkeforward.com)' } });
+    res = await fetch(upstream, {
+      headers: { accept: 'application/json', 'user-agent': 'StartLine/1 (+https://walkeforward.com)' },
+    });
   } catch {
-    return json(502, 'Upstream unreachable');
+    return jsonError(502, 'Upstream unreachable');
   }
+
+  const announced = Number(res.headers.get('content-length') ?? 0);
+  if (announced > MAX_UPSTREAM_BYTES) return jsonError(502, 'Upstream response too large');
+
   const body = await res.text();
-  if (!res.ok) return json(res.status === 404 ? 404 : 502, `Upstream ${res.status}`);
-  const ttl = ttlFor(path, url, body);
+  if (body.length > MAX_UPSTREAM_BYTES) return jsonError(502, 'Upstream response too large');
+  if (!res.ok) return jsonError(res.status === 404 ? 404 : 502, `Upstream ${res.status}`);
+  if (!looksLikeJson(body)) return jsonError(502, 'Upstream returned non-JSON');
+
+  const ttl = ttlFor(path, qs, body);
   const out = new Response(body, {
     headers: {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': `public, max-age=${Math.min(ttl, 300)}, s-maxage=${ttl}`,
+      'x-content-type-options': 'nosniff',
       'x-start-line-cache-ttl': String(ttl),
     },
   });
-  ctx.waitUntil(cache.put(cacheKey, out.clone()));
+  if (cache) {
+    ctx.waitUntil(cache.put(cacheKey, out.clone()).catch(() => undefined));
+  }
   return out;
 };

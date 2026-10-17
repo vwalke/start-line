@@ -32,6 +32,11 @@ export function norm360(a: number): number {
   return ((a % 360) + 360) % 360;
 }
 
+/** Nearest whole compass degree in [0, 360). 359.6° and 360° both become 0. */
+export function compassRound(deg: number): number {
+  return ((Math.round(deg) % 360) + 360) % 360;
+}
+
 /** Circular mean of angles in degrees, result in [0, 360). */
 export function circMean(angles: ArrayLike<number>): number {
   let s = 0;

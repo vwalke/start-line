@@ -63,7 +63,9 @@ async function handle(req: WorkerRequest): Promise<RaceAnalysis> {
     const extra = await fetchTelemetry(req.eventId, null, gun, gun + 60_000, { finished });
     const markOnly = extra.map((p) => ({ Fields: p.Fields, Rows: p.Rows.filter((r) => r[p.Fields.indexOf('role')] === 'mark') }));
     data = buildRaceData(req.regatta, ref, [...pages, ...markOnly], { eventId: req.eventId, wind });
+    extra.length = 0;
   }
+  pages.length = 0;
   return analyzeRace(data);
 }
 

@@ -94,7 +94,10 @@ export interface BoatDrawing {
   /** Last 30 s before the gun (+ a few after), full rate. */
   trail: { x: Float32Array; y: Float32Array };
   bow: Vec | null;
+  /** Compass heading at the gun (TWA / bow-offset direction). */
   headingAtGun: number | null;
+  /** Course over ground at the gun — used for the start arrow. */
+  courseAtGun: number | null;
   /** Gun → finish, ~1 Hz, split by leg. */
   segments: TrackSegment[];
 }

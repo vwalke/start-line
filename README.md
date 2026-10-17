@@ -11,8 +11,10 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 
 ## What it shows
 
-- **Start at the gun:** each boat's bow position against the line with a 30 s
-  trail, the line length and bias, and which end was favoured.
+- **Start at the gun:** each boat's bow (GPS tracker + class bow offset)
+  against the line with a 30 s trail shifted so it ends on that bow, arrows
+  along course over ground, plus the line length and bias and which end was
+  favoured. Wind bearings display as 0° rather than 360°.
 - **Per boat:** distance off the line at the gun (bow-corrected), seconds late,
   line position (0% pin … 100% RC), speed at the gun, and TWA at the gun.
 - **Per leg:** VMG, SOG and TWA, plus leg time and the boat's place at the mark.
@@ -70,6 +72,7 @@ src/
   worker.ts                  fetch + normalize + analyze, off the main thread
   ui/                        plain TS + SVG rendering
 functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing/regatta/wind
+functions/_lib.ts            allowlist, query validation and cache TTL (not a route)
 tests/                       vitest; offline, using tests/fixtures/benelux_r8.json
 scripts/make-fixture.mjs     builds the trimmed fixture from raw downloads
 ```
@@ -113,10 +116,13 @@ run `node scripts/make-fixture.mjs <dir-with-raw-json>`.
    **Node version:** set `NODE_VERSION=22`.
 3. **Functions:** `functions/` is picked up automatically, and
    `functions/api/[[path]].ts` serves `/api/landing`, `/api/regatta` and
-   `/api/wind`. It only forwards those three, with whitelisted parameters.
-   It caches at the edge with `caches.default`: landing for 10 min, regatta
+   `/api/wind`. It only forwards those three. Query parameters are
+   allowlisted and validated (event id, lat/lon, ISO dates). Unknown
+   paths and extra parameters are dropped or rejected. It caches at the
+   edge with `caches.default` when available: landing for 10 min, regatta
    for 2 min while an event is live and 7 days once it has ended, and wind
-   for 6 h (30 days for past days).
+   for 6 h (30 days for past days). Upstream errors and non-JSON bodies
+   are not cached.
 4. **No secrets or environment variables are needed.**
 5. Custom domain, suggested: `startline.walkeforward.com`.
 

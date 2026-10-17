@@ -103,9 +103,9 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null): string
       if (p[0] > box.x0 && p[0] < box.x1 && p[1] > box.y0 && p[1] < box.y1) tr.push(p);
     }
     if (tr.length > 1) trails.push(`<polyline class="trail${dim}" points="${pts(tr)}" stroke="${col}" stroke-width="${1.5 * k}"/>`);
-    if (!d.bow || d.headingAtGun == null || !b.start) continue;
+    if (!d.bow || d.courseAtGun == null || !b.start) continue;
     const [x, y] = rot(d.bow);
-    const ang = d.headingAtGun - a.wind.twdAtGunDeg; // screen angle, 0 = up
+    const ang = d.courseAtGun - a.wind.twdAtGunDeg; // screen angle, 0 = up the page (into the wind)
     const s = 10 * unit;
     const tip = `0,${-s * 1.3}`;
     const tri = `<polygon points="${tip} ${s * 0.7},${s * 0.9} 0,${s * 0.4} ${-s * 0.7},${s * 0.9}" fill="${col}" stroke="var(--surface)" stroke-width="${1.5 * k}"/>`;

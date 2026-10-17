@@ -10,7 +10,7 @@ import { fetchLanding, fetchRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { legLegend, startSnapshot, trackMap } from './charts';
-import { esc, f0, localDate, localTime, tzLabel } from './format';
+import { degLabel, esc, f0, localDate, localTime, tzLabel } from './format';
 import { metricsTable } from './table';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -91,11 +91,11 @@ export function startApp(): void {
     const w = a.wind;
     const windText =
       w.method === 'tacks'
-        ? `Wind est. ${w.estimates.map((e) => `${f0(e.twdDeg)}°`).join(' → ')} from tack headings`
+        ? `Wind est. ${w.estimates.map((e) => degLabel(e.twdDeg)).join(' → ')} from tack headings`
         : w.method === 'model'
-          ? `Wind ${f0(w.twdAtGunDeg)}° from the weather model`
-          : `Wind assumed ${f0(w.twdAtGunDeg)}° (first leg dead upwind)`;
-    const model = w.model && w.method === 'tacks' ? ` · model ${f0(w.model.dirAtGunDeg)}°` : '';
+          ? `Wind ${degLabel(w.twdAtGunDeg)} from the weather model`
+          : `Wind assumed ${degLabel(w.twdAtGunDeg)} (first leg dead upwind)`;
+    const model = w.model && w.method === 'tacks' ? ` · model ${degLabel(w.model.dirAtGunDeg)}` : '';
     els.summary.innerHTML = `<h2>${esc(m.eventName)} · ${esc(m.boatClass)} · Race ${m.raceNumber}</h2>
       <p>Gun ${esc(localDate(m.gunMs, m.tzOffsetMs))} ${localTime(m.gunMs, m.tzOffsetMs)} (${tzLabel(m.tzOffsetMs)}) ·
       ${a.boats.length} boats · ${a.legs.map((l) => esc(l.name)).join(', ')} ·
@@ -105,7 +105,7 @@ export function startApp(): void {
       a.line.favored === 'square'
         ? 'about square to the wind'
         : `${a.line.favored === 'left' ? 'pin' : 'RC'} end favoured by ≈${f0(a.line.favoredByM)} m`;
-    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${f0(a.line.bearingDeg)}°; ${fav} (est. wind). Bow positions at the gun with the last 30 s of track; labels show distance behind the line.`;
+    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (tracker + class bow offset) with the last 30 s of track shifted to the bow; arrows follow course over ground. Labels are distance behind the line.`;
     els.start.innerHTML = startSnapshot(a, highlight);
     els.map.innerHTML = trackMap(a, highlight);
     els.legend.innerHTML = legLegend(a);

@@ -1,9 +1,10 @@
 /** Plain-English findings from a finished analysis. Short, specific, hedged where the wind is estimated. */
-import { median, wrap180 } from './geo';
+import { compassRound, median, wrap180 } from './geo';
 import type { BoatResult, Finding, RaceAnalysis } from './types';
 
 const tag = (b: BoatResult): string => (b.name && b.name !== `#${b.sail}` ? `#${b.sail} (${b.name})` : `#${b.sail}`);
 const r0 = (x: number): string => Math.round(x).toString();
+const rDeg = (x: number): string => compassRound(x).toString();
 const r1 = (x: number): string => x.toFixed(1);
 const ord = (n: number): string => n + (['th', 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] ?? 'th');
 
@@ -21,10 +22,10 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
   const { line, wind } = a;
   const est = wind.method === 'tacks' ? 'estimated' : 'assumed';
   if (line.favored === 'square') {
-    out.push({ kind: 'line', text: `The line was close to square to the ${est} wind (${r0(wind.twdAtGunDeg)}°).` });
+    out.push({ kind: 'line', text: `The line was close to square to the ${est} wind (${rDeg(wind.twdAtGunDeg)}°).` });
   } else {
     const end = line.favored === 'left' ? 'pin (left)' : 'RC (right)';
-    let text = `The ${end} end was favoured by ≈${r0(line.favoredByM)} m against the ${est} wind of ${r0(wind.twdAtGunDeg)}°.`;
+    let text = `The ${end} end was favoured by ≈${r0(line.favoredByM)} m against the ${est} wind of ${rDeg(wind.twdAtGunDeg)}°.`;
     if (winner?.start) {
       const winnerLeft = winner.start.linePosPct < 50;
       const onFav = winnerLeft === (line.favored === 'left');
@@ -121,11 +122,11 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
 
   // Wind.
   if (wind.method === 'tacks') {
-    const ests = wind.estimates.map((e) => `${r0(e.twdDeg)}° on ${a.legs[e.legIndex].name}`).join(', ');
+    const ests = wind.estimates.map((e) => `${rDeg(e.twdDeg)}° on ${a.legs[e.legIndex].name}`).join(', ');
     let text = `Wind estimated from the fleet's tack headings: ${ests}.`;
     if (wind.model) {
       const d = Math.abs(wrap180(wind.model.dirAtGunDeg - wind.twdAtGunDeg));
-      text += ` The ${wind.model.label} model had ${r0(wind.model.dirAtGunDeg)}° at the gun (${r0(d)}° apart).`;
+      text += ` The ${wind.model.label} model had ${rDeg(wind.model.dirAtGunDeg)}° at the gun (${r0(d)}° apart).`;
     }
     out.push({ kind: 'wind', text });
   }

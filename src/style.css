@@ -54,7 +54,8 @@
   }
 }
 * { box-sizing: border-box; }
-body { margin: 0; }
+html { overflow-x: hidden; }
+body { margin: 0; overflow-x: hidden; }
 a { color: var(--accent); }
 .wrap { max-width: 1200px; margin: 0 auto; padding: 0 16px 48px; }
 
@@ -107,8 +108,33 @@ svg .scalebar text { fill: var(--ink-2); }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8rem; color: var(--ink-2); margin-bottom: 4px; }
 .legend .key i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
 
-.tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-table.metrics { border-collapse: separate; border-spacing: 0; font-size: 0.85rem; width: 100%; font-variant-numeric: tabular-nums; }
+.tablewrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  max-width: 100%;
+  background:
+    linear-gradient(to right, var(--surface) 20%, transparent) 0 0 / 28px 100% local,
+    linear-gradient(to left, var(--surface) 20%, transparent) 100% 0 / 28px 100% local,
+    radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.16), transparent) 0 0 / 14px 100% scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.16), transparent) 100% 0 / 14px 100% scroll;
+  background-repeat: no-repeat;
+}
+table.metrics {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.85rem;
+  width: max-content;
+  min-width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.table-hint { display: none; font-size: 0.75rem; color: var(--ink-3); margin: 6px 0 0; }
+@media (max-width: 600px) {
+  table.metrics { font-size: 0.78rem; }
+  .metrics th, .metrics td { padding: 5px 6px; }
+  .table-hint { display: block; }
+}
 .metrics th { font-size: 0.75rem; font-weight: 600; color: var(--ink-2); text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; vertical-align: bottom; cursor: help; }
 .metrics th small { font-weight: 400; color: var(--ink-3); }
 .metrics td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; vertical-align: top; }

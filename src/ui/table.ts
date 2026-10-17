@@ -3,6 +3,12 @@ import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { boatColor } from './charts';
 import { duration, esc, f0, f1, f2, localTime, twaLabel } from './format';
 
+const ordinal = (n: number): string => {
+  const m = n % 100;
+  const suf = m > 10 && m < 14 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th');
+  return `${n}${suf}`;
+};
+
 interface Col {
   head: string;
   title?: string;
@@ -82,7 +88,7 @@ function columns(a: RaceAnalysis): Col[] {
         const l = b.legs[i];
         if (!l) return '—';
         return `<b>${f2(l.vmgKn)}</b><span class="sub">${f1(l.sogKn)} · ${f0(l.twaDeg)}°</span><span class="sub t">${duration(l.timeS)}${
-          l.rankAtEnd ? ` · ${l.rankAtEnd}${['th', 'st', 'nd', 'rd'][l.rankAtEnd] ?? 'th'}` : ''
+          l.rankAtEnd ? ` · ${ordinal(l.rankAtEnd)}` : ''
         }</span>`;
       },
     });

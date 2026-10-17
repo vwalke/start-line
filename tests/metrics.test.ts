@@ -35,6 +35,17 @@ describe('Benelux Act III race 8 vs prototype CSV', () => {
     expect(Math.abs(analysis.line.favoredByM - 17)).toBeLessThan(3);
   });
 
+  it('ends each start trail on the bow and points the arrow along COG', () => {
+    for (const d of analysis.drawings) {
+      expect(d.bow).not.toBeNull();
+      expect(d.courseAtGun).not.toBeNull();
+      expect(d.trail.x.length).toBeGreaterThan(5);
+      const i = d.trail.x.length - 1;
+      expect(d.trail.x[i]).toBeCloseTo(d.bow![0], 5);
+      expect(d.trail.y[i]).toBeCloseTo(d.bow![1], 5);
+    }
+  });
+
   it('writes plain-English findings naming the best and worst starters', () => {
     const text = analysis.findings.map((f) => f.text).join('\n');
     expect(text).toMatch(/Best start: #6 and #4/);

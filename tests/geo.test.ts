@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   bearingVec,
   circMean,
+  compassRound,
   gradientAt,
   interp,
   interpAngle,
@@ -30,6 +31,14 @@ describe('angles', () => {
 
   it('round-trips bearings and vectors', () => {
     for (const b of [0, 45, 112, 270, 359]) expect(vecBearing(bearingVec(b))).toBeCloseTo(b, 6);
+  });
+
+  it('displays 0° rather than 360°', () => {
+    expect(compassRound(0)).toBe(0);
+    expect(compassRound(360)).toBe(0);
+    expect(compassRound(359.6)).toBe(0);
+    expect(compassRound(-0.4)).toBe(0);
+    expect(compassRound(359.4)).toBe(359);
   });
 });
 

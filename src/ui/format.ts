@@ -1,9 +1,15 @@
+import { compassRound } from '../analysis/geo';
+
 export const esc = (s: string): string =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 export const f0 = (x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : Math.round(x).toString());
 export const f1 = (x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : x.toFixed(1));
 export const f2 = (x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : x.toFixed(2));
+
+/** Whole compass degrees, never 360°. */
+export const degLabel = (x: number | null | undefined): string =>
+  x == null || !Number.isFinite(x) ? '—' : `${compassRound(x)}°`;
 
 /** Signed TWA as S37° / P28°. */
 export const twaLabel = (twa: number | null | undefined): string =>

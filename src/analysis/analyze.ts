@@ -57,7 +57,7 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
   const L = proj.toXY(sl.left.lat, sl.left.lon);
   const R = proj.toXY(sl.right.lat, sl.right.lon);
   const lineVec = sub(R, L);
-  const lineLen = len(lineVec);
+  const lineLen = Math.max(len(lineVec), 1e-9);
   const ldir = scale(lineVec, 1 / lineLen);
   const lineMid = centroid([L, R]);
 
@@ -96,20 +96,24 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
     }
   }
 
-  // Shortened course: if most finishers never complete the listed course, keep
-  // the longest prefix that most of them did complete (then on to the finish).
+  // Split once, then treat a course as shortened if most finishers never
+  // completed it (keep the longest prefix that most of them did).
+  const times = new Map<string, (number | null)[]>();
+  for (const b of data.boats) times.set(b.id, splitLegs(tracks.get(b.id)!, gun, wps, b.finishMs));
   if (wps.length && finishers.length) {
-    const done = (k: number): number =>
-      finishers.filter((b) => {
-        const tt = splitLegs(tracks.get(b.id)!, gun, wps.slice(0, k), b.finishMs);
-        return tt.every((t) => t != null);
-      }).length;
+    const nWp = wps.length;
+    const completed = (tt: (number | null)[], k: number): boolean => {
+      for (let i = 0; i <= k; i++) if (tt[i] == null) return false;
+      return tt[tt.length - 1] != null;
+    };
+    const done = (k: number): number => finishers.filter((b) => completed(times.get(b.id)!, k)).length;
     const need = Math.ceil(0.6 * finishers.length);
-    if (done(wps.length) < need) {
-      let k = wps.length - 1;
+    if (done(nWp) < need) {
+      let k = nWp - 1;
       while (k > 0 && done(k) < need) k--;
       const dropped = wps.slice(k).map((w) => w.name);
       wps = wps.slice(0, k);
+      for (const [id, tt] of times) times.set(id, k === nWp ? tt : [...tt.slice(0, k + 1), tt[tt.length - 1]]);
       warnings.push(
         `The fleet didn't sail the full course in the feed; treating it as shortened (skipping ${dropped.join(', ')}).`,
       );
@@ -145,9 +149,6 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
   const prior = wps.length ? legBearings[0] : modelGun ?? vecBearing(nrm);
   let kinds = legBearings.map((b) => legKind(b, prior));
 
-  // ---- per-boat waypoint times
-  const times = new Map<string, (number | null)[]>();
-  for (const b of data.boats) times.set(b.id, splitLegs(tracks.get(b.id)!, gun, wps, b.finishMs));
   const nLegs = wps.length + 1;
 
   // ---- wind from upwind tack headings
@@ -216,20 +217,22 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
     const tr = tracks.get(b.id)!;
     const tt = times.get(b.id)!;
     let start: StartResult | null = null;
+    let trail = { x: new Float32Array(0), y: new Float32Array(0) };
+    let courseAtGun: number | null = null;
     if (tr.t.length > 1 && tr.t[0] <= gun && tr.t[tr.t.length - 1] >= gun) {
       const p: Vec = [interp(tr.t, tr.x, gun), interp(tr.t, tr.y, gun)];
       const hdg = interpAngle(tr.t, tr.heading, gun);
       const bow = add(p, scale(bearingVec(hdg), b.bowOffsetM));
       const dtl = -dot(sub(bow, L), nrm);
       // Velocity toward the course side at the gun (numpy.gradient, then interpolated).
+      // xs in ms → gradient is m/ms; ×1000 gives m/s. Only the samples around the
+      // gun are read — do not copy the whole ~5 Hz series.
       const i = Math.max(0, Math.min(tr.t.length - 2, rangeIdx(tr.t, gun, gun)[0] - 1));
-      const ts = tr.t;
-      const tsec = Array.from(ts, (v) => v / 1000);
-      const v = (k: number): Vec => [gradientAt(tsec, tr.x, k), gradientAt(tsec, tr.y, k)];
-      const f = ts[i + 1] === ts[i] ? 0 : (gun - ts[i]) / (ts[i + 1] - ts[i]);
-      const v0 = v(i);
-      const v1 = v(i + 1);
-      const vperp = dot(add(scale(v0, 1 - f), scale(v1, f)), nrm);
+      const v = (k: number): Vec => [gradientAt(tr.t, tr.x, k) * 1000, gradientAt(tr.t, tr.y, k) * 1000];
+      const f = tr.t[i + 1] === tr.t[i] ? 0 : (gun - tr.t[i]) / (tr.t[i + 1] - tr.t[i]);
+      const vel = add(scale(v(i), 1 - f), scale(v(i + 1), f));
+      const vperp = dot(vel, nrm);
+      courseAtGun = len(vel) > 0.15 ? vecBearing(vel) : hdg;
       start = {
         dtlM: dtl,
         secsLate: dtl / Math.max(vperp, 0.3),
@@ -242,6 +245,24 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
         ocs: !!b.ocs,
         rcDtlM: b.rcDtlM ?? null,
       };
+      // Last 30 s of the tracker, translated by the gun-time bow offset so the
+      // polyline ends on the bow. DTL still uses that same bow point.
+      const [t0, t1] = rangeIdx(tr.t, gun - 30_000, gun);
+      const dx = bow[0] - p[0];
+      const dy = bow[1] - p[1];
+      const needTip = t1 === t0 || tr.t[t1 - 1] < gun - 50;
+      const n = t1 - t0 + (needTip ? 1 : 0);
+      const xs = new Float32Array(n);
+      const ys = new Float32Array(n);
+      for (let k = 0; k < t1 - t0; k++) {
+        xs[k] = tr.x[t0 + k] + dx;
+        ys[k] = tr.y[t0 + k] + dy;
+      }
+      if (needTip) {
+        xs[n - 1] = bow[0];
+        ys[n - 1] = bow[1];
+      }
+      trail = { x: xs, y: ys };
     }
 
     const legResults: (LegResult | null)[] = [];
@@ -288,9 +309,6 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       legs: legResults,
     });
 
-    // ---- drawing data
-    const [t0, t1] = rangeIdx(tr.t, gun - 30_000, gun + 5_000);
-    const trail = { x: Float32Array.from(tr.x.subarray(t0, t1)), y: Float32Array.from(tr.y.subarray(t0, t1)) };
     const segments: TrackSegment[] = [];
     for (let li = 0; li < nLegs; li++) {
       const a = tt[li];
@@ -308,7 +326,14 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       }
       segments.push({ leg: li, x: Float32Array.from(xs), y: Float32Array.from(ys) });
     }
-    drawings.push({ id: b.id, trail, bow: start?.bow ?? null, headingAtGun: start?.headingDeg ?? null, segments });
+    drawings.push({
+      id: b.id,
+      trail,
+      bow: start?.bow ?? null,
+      headingAtGun: start?.headingDeg ?? null,
+      courseAtGun,
+      segments,
+    });
   }
 
   // A boat stalled or reaching along the line at the gun has ~0 speed toward it;
