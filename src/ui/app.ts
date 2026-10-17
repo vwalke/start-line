@@ -105,7 +105,7 @@ export function startApp(): void {
       a.line.favored === 'square'
         ? 'about square to the wind'
         : `${a.line.favored === 'left' ? 'pin' : 'RC'} end favoured by ≈${f0(a.line.favoredByM)} m`;
-    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (tracker + class bow offset) with the last 30 s of track shifted to the bow; arrows follow course over ground. Labels are distance behind the line.`;
+    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (tracker + class bow offset) with the last 30 s of track shifted to the bow; arrows follow course over ground. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.`;
     els.start.innerHTML = startSnapshot(a, highlight);
     els.map.innerHTML = trackMap(a, highlight);
     els.legend.innerHTML = legLegend(a);

@@ -26,7 +26,7 @@ export interface LegResult {
 }
 
 export interface StartResult {
-  /** Bow distance behind the line at the gun, m (negative = over). */
+  /** Our bow distance behind the line at the start (sampled at `RaceData.dtlSampleOffsetMs` before the gun), m (negative = over). */
   dtlM: number;
   /** DTL / speed toward the line at the gun (speed floored at half the fleet median). */
   secsLate: number;
@@ -40,6 +40,7 @@ export interface StartResult {
   twaDeg: number;
   bow: Vec;
   ocs: boolean;
+  /** The boat's Vakaros device's own DTL (feed `dtlMm`), m; null if the feed has none. */
   rcDtlM: number | null;
 }
 

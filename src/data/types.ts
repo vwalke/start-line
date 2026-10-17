@@ -36,7 +36,7 @@ export interface Boat {
   finishMs: number | null;
   /** Flagged on-course-side at the start by race control. */
   ocs?: boolean;
-  /** Race control's own distance-to-line at the gun, metres (if provided). */
+  /** The boat's Vakaros device's own distance-to-line at the start (feed `dtlMm`, bow-corrected), metres (if provided). */
   rcDtlM?: number | null;
 }
 
@@ -87,6 +87,12 @@ export interface RaceData {
   raceNumber: number;
   /** Starting signal. */
   gunMs: number;
+  /**
+   * Ms before the gun at which the DTL sample is taken. RaceSense device
+   * stats are taken about 900 ms before startTime in the telemetry
+   * timebase. Default 0.
+   */
+  dtlSampleOffsetMs?: number;
   /** Venue's UTC offset in ms, for local clock display (0 if unknown). */
   tzOffsetMs: number;
   startLine: Line;

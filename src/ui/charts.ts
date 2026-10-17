@@ -4,6 +4,7 @@
  * sail order (≤ 8 boats); larger fleets fall back to neutral ink plus
  * direct sail-number labels.
  */
+import { primaryDtlM } from '../analysis/findings';
 import type { Vec } from '../analysis/geo';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { esc, f1 } from './format';
@@ -111,11 +112,11 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null): string
     const tri = `<polygon points="${tip} ${s * 0.7},${s * 0.9} 0,${s * 0.4} ${-s * 0.7},${s * 0.9}" fill="${col}" stroke="var(--surface)" stroke-width="${1.5 * k}"/>`;
     const st = b.start;
     boats.push(`<g class="boat${dim}" data-id="${esc(b.id)}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
-      <title>#${esc(b.sail)}: ${f1(st.dtlM)} m behind, ${f1(st.secsLate)} s late, ${f1(st.speedKn)} kn</title>
+      <title>#${esc(b.sail)}: ${f1(primaryDtlM(st))} m behind${st.rcDtlM != null ? ` (ours ${f1(st.dtlM)} m)` : ''}, ${f1(st.secsLate)} s late, ${f1(st.speedKn)} kn</title>
       <circle r="${16 * unit}" fill="transparent"/>
       <g transform="rotate(${ang.toFixed(1)})">${tri}</g>
       <text x="${11 * unit}" y="${-2 * unit}" font-size="${13 * k}" class="lbl">${esc(b.sail)}</text>
-      <text x="${11 * unit}" y="${11 * unit}" font-size="${11 * k}" class="sub">${f1(st.dtlM)} m</text></g>`);
+      <text x="${11 * unit}" y="${11 * unit}" font-size="${11 * k}" class="sub">${f1(primaryDtlM(st))} m</text></g>`);
   }
 
   const lineSvg = `<line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>

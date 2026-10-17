@@ -16,6 +16,9 @@ import type {
   WindResponse,
 } from './types';
 
+/** Device DTL (`dtlMm`) matches the track ~900 ms before startTime in the telemetry timebase (median residual 0.12 m over 196 starts). */
+export const RACESENSE_DTL_SAMPLE_OFFSET_MS = 900;
+
 export interface RaceRef {
   division: string;
   raceNumber: number;
@@ -319,7 +322,8 @@ export function buildRaceData(
       id: sail,
       sail,
       name: p.boatName?.trim() || `#${sail}`,
-      bowOffsetM: (p.bowOffsetCm ?? defaultBowCm) / 100,
+      // RaceSense uses -1 (any negative) for "not set".
+      bowOffsetM: (p.bowOffsetCm != null && p.bowOffsetCm >= 0 ? p.bowOffsetCm : defaultBowCm) / 100,
       track: toTrack(trackRows),
       finishMs: Number.isFinite(fms) ? fms : null,
       ocs: ocs.has(sail),
@@ -345,7 +349,8 @@ export function buildRaceData(
     boatClass: div.boatClass ?? div.name,
     raceNumber: race.raceNumber,
     gunMs,
-    tzOffsetMs: tzOffsetMs(race.timezoneOffset),
+    dtlSampleOffsetMs: RACESENSE_DTL_SAMPLE_OFFSET_MS,
+    tzOffsetMs:tzOffsetMs(race.timezoneOffset),
     startLine,
     finishLine,
     course: marks,
