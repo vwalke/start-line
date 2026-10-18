@@ -157,9 +157,16 @@ export interface RaceAnalysis {
   };
   line: LineInfo;
   finishLine: { left: Vec; right: Vec } | null;
-  marks: { name: string; xy: Vec[] }[];
+  /** Marks as rounded; `estimated` ones are turns placed from the fleet's tracks where no tracker was. */
+  marks: { name: string; xy: Vec[]; estimated?: boolean }[];
   legs: LegDef[];
-  legSource: 'course' | 'tracks' | 'none';
+  /**
+   * How legs were split: 'course' (mark trackers in the feed's order),
+   * 'tracks' (mark trackers, order inferred from the leaders), 'fleet'
+   * (where the boats turned at the top and bottom of the course, snapped to
+   * trackers where present) or 'none' (one leg).
+   */
+  legSource: 'course' | 'tracks' | 'fleet' | 'none';
   wind: WindInfo;
   boats: BoatResult[];
   drawings: BoatDrawing[];

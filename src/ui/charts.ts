@@ -292,9 +292,13 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   const marks = a.marks
     .map((m) => {
       const ps = m.xy.map(rot);
-      const c = ps.map((p) => `<circle class="mark" cx="${p[0]}" cy="${p[1]}" r="${5.5 * unit}" stroke-width="${1.5 * k}"/>`).join('');
+      // Turns placed from the tracks (no tracker): hollow, dashed, labelled "(est.)".
+      const cls = m.estimated ? 'mark est' : 'mark';
+      const dash = m.estimated ? ` stroke-dasharray="${(3 * k).toFixed(2)} ${(2 * k).toFixed(2)}"` : '';
+      const c = ps.map((p) => `<circle class="${cls}" cx="${p[0]}" cy="${p[1]}" r="${5.5 * unit}" stroke-width="${1.5 * k}"${dash}/>`).join('');
       const top = ps.reduce((x, y) => (y[0] > x[0] ? y : x));
-      return `${c}<text x="${top[0] + 9 * unit}" y="${top[1] + 4 * unit}" font-size="${12 * k}" class="lbl">${esc(m.name)}</text>`;
+      const name = m.estimated ? `${m.name.replace(/ mark$/i, '')} (est.)` : m.name;
+      return `${c}<text x="${top[0] + 9 * unit}" y="${top[1] + 4 * unit}" font-size="${12 * k}" class="lbl${m.estimated ? ' est' : ''}">${esc(name)}</text>`;
     })
     .join('');
   const fl = a.finishLine;
@@ -311,6 +315,18 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
     ${paths.map((s) => stroke(s, 1.2)).join('')}${hi.map((s) => stroke(s, 2.6)).join('')}
     <line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>${finish}${marks}
     ${windArrow(box, unit, k, 'wind (est.)')}${scaleBar(box, unit, k)}</svg>`;
+}
+
+/** How the map's legs were split, for its caption. */
+export function legSplitCaption(a: RaceAnalysis): string {
+  switch (a.legSource) {
+    case 'fleet':
+      return `Legs split where each boat turned at the top and bottom of the course (snapped to the mark trackers where present)${a.marks.some((m) => m.estimated) ? '; hollow marks are estimated from the tracks' : ''}.`;
+    case 'none':
+      return 'One leg: no mark trackers or turns to split the race at.';
+    default:
+      return "Legs split at each boat's closest approach to the mark trackers.";
+  }
 }
 
 /** The map's legend doubles as a leg selector: All, then one toggle per leg. */

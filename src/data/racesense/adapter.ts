@@ -242,6 +242,8 @@ export function parseTelemetry(pages: TelemetryPage[]): Row[] {
   const seen = new Set<string>();
   const rows: Row[] = [];
   for (const page of pages) {
+    // Events that publish no telemetry return pages with null Fields/Rows.
+    if (!page?.Fields || !page.Rows) continue;
     const f = Object.fromEntries(page.Fields.map((name, i) => [name, i]));
     const need = ['ts', 'sn', 'role', 'latitude', 'longitude'];
     for (const n of need) if (f[n] === undefined) throw new Error(`Telemetry is missing field ${n}`);
@@ -358,6 +360,7 @@ export function buildRaceData(
 
   const course = courseAt(div, gunMs);
   const marks: CourseMark[] = [];
+  const untracked: string[] = [];
   let finishLine: Line | null = null;
   for (const a of course?.achievements ?? []) {
     if (a.type === 'startLine') continue;
@@ -370,7 +373,10 @@ export function buildRaceData(
       continue;
     }
     const devices = a.deviceRoles.filter((d) => markPos(d.sn) !== null);
-    if (!devices.length) continue;
+    if (!devices.length) {
+      untracked.push(a.title || a.type);
+      continue;
+    }
     marks.push({
       id: devices.map((d) => d.sn).sort().join('+'),
       name: a.title || a.type,
@@ -458,6 +464,7 @@ export function buildRaceData(
     course: marks,
     boats,
   };
+  if (untracked.length) data.courseUntracked = untracked;
   if (ws?.length) {
     data.windModel = { label: opts.wind?.modelLabel ?? opts.wind?.model ?? 'weather model', samples: ws };
   }

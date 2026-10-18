@@ -41,6 +41,21 @@ export function c31Race(f: Fixture = c31Fixture()): RaceData {
   });
 }
 
+function trimmedRace(file: string, division: string, raceNumber: number): RaceData {
+  const f = JSON.parse(readFileSync(here(file), 'utf8')) as Fixture;
+  return buildRaceData(f.regatta, { division, raceNumber }, [f.telemetry], {
+    eventId: f.eventId,
+    kind: 'fixture',
+    wind: f.wind ?? undefined,
+  });
+}
+
+/** Melges 24 Worlds race 4: only the Gate is tracked (the start boats, which motor up to lay it); 12 boats incl. the winner 870. */
+export const m24Race = (): RaceData => trimmedRace('./fixtures/m24_r4.json', 'M24', 4);
+
+/** J/88 North Americans race 5: no mark trackers at all; 8 boats. */
+export const j88Race = (): RaceData => trimmedRace('./fixtures/j88_r5.json', 'J88', 5);
+
 export type CsvRow = Record<string, string>;
 export function loadExpected(): CsvRow[] {
   const [head, ...lines] = readFileSync(here('./fixtures/benelux_act3_race8_metrics.csv'), 'utf8').trim().split('\n');

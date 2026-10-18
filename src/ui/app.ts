@@ -11,7 +11,7 @@ import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { classDims } from '../data/classes';
 import { boatList, findingsList } from './boats';
-import { legLegend, startFitBox, startHullScale, startSnapshot, trackMap } from './charts';
+import { legLegend, legSplitCaption, startFitBox, startHullScale, startSnapshot, trackMap } from './charts';
 import { degLabel, esc, f0, f2, gunTimeLine } from './format';
 import { attachPanZoom } from './panzoom';
 import { metricsTable, toggleSort, type SortState } from './table';
@@ -39,6 +39,7 @@ export function startApp(): void {
     startZoom: $('start-zoom'),
     map: $('map-chart'),
     legend: $('map-legend'),
+    mapSplit: $('map-split'),
     table: $('table'),
     findings: $('findings'),
     boats: $('boat-list'),
@@ -122,6 +123,7 @@ export function startApp(): void {
     renderStart();
     els.map.innerHTML = trackMap(a, highlight, legSel);
     els.legend.innerHTML = legLegend(a, legSel);
+    els.mapSplit.textContent = legSplitCaption(a);
     els.table.innerHTML = metricsTable(a, highlight, sort);
     els.boats.innerHTML = boatList(a, highlight);
     els.findings.innerHTML = findingsList(a.findings, highlight);

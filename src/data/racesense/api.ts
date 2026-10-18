@@ -47,7 +47,7 @@ export async function fetchTelemetry(
     const page = await cachedJson<TelemetryPage>(url, ttl, opts.signal);
     pages.push(page);
     opts.onPage?.(n + 1, page.Rows?.length ?? 0);
-    if (!page.Rows || page.Rows.length < PAGE) break;
+    if (!page.Fields || !page.Rows || page.Rows.length < PAGE) break;
     const tsIdx = page.Fields.indexOf('ts');
     const last = Math.floor(Number(page.Rows[page.Rows.length - 1][tsIdx]));
     if (!(last > cursor + 1)) break;

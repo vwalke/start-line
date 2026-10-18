@@ -113,10 +113,10 @@ export interface RegattaResponse {
   revisions: { validFrom?: number | null; doc: RegattaDoc }[];
 }
 
-/** teleapi /telemetry/event: positional rows; columns looked up by name. */
+/** teleapi /telemetry/event: positional rows; columns looked up by name. Both are null when the event publishes no telemetry. */
 export interface TelemetryPage {
-  Fields: string[];
-  Rows: (string | number | null)[][];
+  Fields: string[] | null;
+  Rows: (string | number | null)[][] | null;
 }
 
 export interface WindResponse {
