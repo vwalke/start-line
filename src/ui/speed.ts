@@ -25,7 +25,7 @@
  */
 import { legRanks, overallRanks, raceLegRanks, type SpeedRank } from '../analysis/speedRank';
 import type { RaceAnalysis } from '../analysis/types';
-import { duration, esc } from './format';
+import { boatLabel, duration, esc } from './format';
 
 /** Plasma at 0, 0.1, … 1 (matplotlib). */
 const PLASMA = [
@@ -136,7 +136,8 @@ export const topLimit = (top: SpeedTop, of: number): number | null => (top !== '
 export type Selection = 'none' | 'this' | 'other';
 
 export interface SpeedStyle {
-  kind: 'ranked' | 'out' | 'unranked';
+  /** 'picked-out': the selected boat, ranked but outside the top N (drawn neutral, never a rank colour). */
+  kind: 'ranked' | 'out' | 'unranked' | 'picked-out';
   /** Position on the colour scale (0 fastest … 1); null = grey. */
   t: number | null;
   tier: Tier | null;
@@ -151,8 +152,9 @@ export const SELECTION_DIM = 0.6;
 /**
  * Colour position, opacity and width for one boat's stroke. Under Top N, ranks
  * past N are faint grey and the scale spans ranks 1..N (so the N use the full
- * yellow → purple range). A selected boat is always full-opacity and thick, in
- * its own colour (past N: the slowest end); everyone else is dimmed.
+ * yellow → purple range). A selected boat is always full-opacity and thick: in
+ * its own colour within N, past N 'picked-out' with no colour (so only the N
+ * ever carry rank colours); everyone else is dimmed.
  */
 export function speedStyle(r: SpeedRank | undefined, top: SpeedTop, sel: Selection): SpeedStyle {
   const dim = sel === 'other' ? SELECTION_DIM : 1;
@@ -161,7 +163,8 @@ export function speedStyle(r: SpeedRank | undefined, top: SpeedTop, sel: Selecti
   const n = topLimit(top, r.of);
   const out = n != null && r.rank > n;
   const t = n == null ? r.t : Math.min(1, (r.rank - 1) / (n - 1));
-  if (selected) return { kind: out ? 'out' : 'ranked', t, tier: out ? null : speedEmphasis(r.rank, r.of).tier, opacity: 1, width: 3.2, selected };
+  if (selected && out) return { kind: 'picked-out', t: null, tier: null, opacity: 1, width: 3.2, selected };
+  if (selected) return { kind: 'ranked', t, tier: speedEmphasis(r.rank, r.of).tier, opacity: 1, width: 3.2, selected };
   if (out) return { kind: 'out', t: null, tier: null, opacity: 0.2 * dim, width: 0.8, selected };
   const e = speedEmphasis(r.rank, r.of);
   // Under Top N, everyone in it keeps at least the strong tier.
@@ -294,20 +297,50 @@ export function colourControls(
 const gradient = (scheme: 'light' | 'dark'): string =>
   `linear-gradient(to right, ${[0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1].map((t) => speedColor(t, scheme)).join(', ')})`;
 
-/** The key under the legend in Rank mode: the gradient, what it spans, and the grey notes. */
-export function speedKey(a: RaceAnalysis, leg: number | null, rankBy: RankBy, top: SpeedTop = 'all'): string {
+/**
+ * Under Top N, the tie straddling the cut in one ranking (competition ranks,
+ * 1, 2, 2, 4): more than `n` boats at rank ≤ n because the last rank in is
+ * shared. Ties stay in (it's fair); the key says so. Null when exactly ≤ n are in.
+ */
+export function tieAtCut(ranks: number[], n: number): { rank: number; count: number } | null {
+  const inN = ranks.filter((r) => r <= n);
+  if (inN.length <= n) return null;
+  const rank = Math.max(...inN);
+  return { rank, count: inN.filter((r) => r === rank).length };
+}
+
+/**
+ * The key under the legend in Rank mode: the gradient, what it spans, the grey
+ * notes, any tie at the Top N cut, and the picked boat `highlight` when it's
+ * drawn outside the top N (with its rank, per leg when ranking each leg).
+ */
+export function speedKey(a: RaceAnalysis, leg: number | null, rankBy: RankBy, top: SpeedTop = 'all', highlight: string | null = null): string {
   const r = speedRanking(a, leg, rankBy);
   const legs = leg == null ? a.legs.map((l) => l.index) : [leg];
+  const eachLeg = leg == null && !r.overall;
+  const legName = (i: number): string => a.legs[i]?.name ?? `Leg ${i + 1}`;
   const shown: SpeedRank[] = [];
+  /** Under Top N, each ranking's (each leg's, or the one overall) ranks within N, one per boat. */
+  const cut = new Map<number, { n: number; ranks: Map<string, number> }>();
+  /** The picked boat's ranks where it's outside the top N, one per leg (one in all for Overall). */
+  const picked = new Map<number, number>();
   let unranked = false;
   let out = false;
   for (const d of a.drawings) {
     for (const s of d.segments) {
       if (!legs.includes(s.leg) || s.x.length < 2) continue;
       const k = r.at(d.id, s.leg);
+      const g = r.overall ? -1 : s.leg;
+      if (k && d.id === highlight && speedStyle(k, top, 'this').kind === 'picked-out') picked.set(g, k.rank);
       if (!k) unranked = true;
       else if (speedStyle(k, top, 'none').kind === 'out') out = true;
-      else shown.push(k);
+      else {
+        shown.push(k);
+        const n = topLimit(top, k.of);
+        if (n == null) continue;
+        if (!cut.has(g)) cut.set(g, { n, ranks: new Map() });
+        cut.get(g)!.ranks.set(d.id, k.rank);
+      }
     }
   }
   const times = shown.map((k) => k.timeS).filter(Number.isFinite);
@@ -322,6 +355,22 @@ export function speedKey(a: RaceAnalysis, leg: number | null, rankBy: RankBy, to
   const what = leg == null && !r.overall ? `fastest → ${end} on each leg` : r.overall ? `fastest → ${end} race time` : `fastest → ${end} on this leg`;
   const others = out ? ` · <span class="spd-out" aria-hidden="true"></span> others grey` : '';
   const none = unranked ? ` · <span class="spd-none" aria-hidden="true"></span> grey dashed = ${r.overall ? "didn't finish" : "didn't complete the leg"}` : '';
+  const ties = [...cut]
+    .sort(([x], [y]) => x - y)
+    .flatMap(([l, c]) => {
+      const tie = tieAtCut([...c.ranks.values()], c.n);
+      return tie ? [` · <span class="spd-tie">${tie.count} tied at #${tie.rank}${eachLeg ? ` on ${esc(legName(l))}` : ''}</span>`] : [];
+    })
+    .join('');
+  let pick = '';
+  if (highlight != null && picked.size) {
+    const who = esc(boatLabel(a.boats.find((b) => b.id === highlight), highlight));
+    const ranks = [...picked].sort(([x], [y]) => x - y);
+    const where = eachLeg
+      ? `, ${ranks.map(([l, k]) => `#${k} ${esc(legName(l))}`).join(' · ')}`
+      : ` #${ranks[0][1]} ${r.overall ? 'race time' : 'on this leg'}`;
+    pick = ` · <span class="spd-picked"><span class="spd-pick" aria-hidden="true"></span> picked: ${who}${where}</span>`;
+  }
   return `<span class="spd-bar" style="--g:${gradient('light')};--gd:${gradient('dark')}" aria-hidden="true"></span>
-    <span>${what}</span>${span ? ` <span class="muted">${span}</span>` : ''}${others}${none}`;
+    <span>${what}</span>${span ? ` <span class="muted">${span}</span>` : ''}${ties}${others}${pick}${none}`;
 }
