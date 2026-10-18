@@ -394,6 +394,40 @@ svg .scalebar text { fill: var(--ink-2); }
 .legend .key { font: inherit; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2); cursor: pointer; }
 .legend .key[aria-pressed='true'] { border-color: var(--ink-2); color: var(--ink); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
 .legend .key i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+/* Colour: Speed. Swatches would read as a key for the tracks, so they go; the leg buttons stay. */
+.legend.speed .key i { display: none; }
+
+/* Leg legend on the left, the Colour / Rank by switches on the right; they wrap below on narrow screens. */
+.map-tools { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 4px 12px; margin-bottom: 4px; }
+.map-tools .legend { margin-bottom: 0; flex: 1 1 320px; }
+.segs { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.seg { display: inline-flex; align-items: center; font-size: 0.8rem; color: var(--ink-2); }
+.seg-lbl { margin-right: 5px; }
+.seg button { font: inherit; padding: 3px 9px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2); cursor: pointer; margin-left: -1px; }
+.seg button:first-of-type { border-radius: 6px 0 0 6px; margin-left: 0; }
+.seg button:last-of-type { border-radius: 0 6px 6px 0; }
+.seg button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--surface); position: relative; }
+.seg button:focus-visible { position: relative; z-index: 1; }
+.seg button[aria-pressed='true']:focus-visible { outline-color: var(--ink); }
+.speed-key { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 0.8rem; color: var(--ink-2); margin: 2px 0 4px; }
+.speed-key[hidden] { display: none; }
+.speed-key .spd-bar { display: inline-block; width: 96px; height: 8px; border-radius: 4px; background: var(--g); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 25%, transparent); }
+.speed-key .spd-none { display: inline-block; width: 22px; height: 0; border-top: 2px dashed var(--ink-3); vertical-align: middle; }
+
+/* Speed strokes: `stroke` is the day colour, `--cd` the night one (a brighter slice of viridis). */
+svg .trk.spd { opacity: 0.9; }
+svg .trk.spd.top, svg .trk.spd.on { opacity: 1; }
+svg .trk.spd.fade, svg .spd-case.fade { opacity: 0.45; }
+svg .trk.spd.unranked { stroke: var(--ink-3); opacity: 0.6; stroke-linecap: butt; }
+svg .trk.spd.unranked.on { opacity: 1; }
+svg .trk.spd.unranked.fade { opacity: 0.3; }
+svg .spd-case { fill: none; stroke: var(--ink); opacity: 0.55; stroke-linejoin: round; stroke-linecap: round; }
+svg .spd-sel { fill: none; stroke: var(--ink); stroke-linejoin: round; stroke-linecap: round; }
+@media (prefers-color-scheme: dark) {
+  svg .trk.spd[style] { stroke: var(--cd); }
+  svg .spd-case { display: none; }
+  .speed-key .spd-bar { background: var(--gd); }
+}
 
 .tablewrap {
   overflow-x: auto;

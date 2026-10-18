@@ -63,9 +63,13 @@
           </section>
           <section class="card">
             <h3>Tracks by leg</h3>
-            <div id="map-legend" class="legend" role="group" aria-label="Show one leg" aria-controls="map-chart"></div>
+            <div class="map-tools">
+              <div id="map-legend" class="legend" role="group" aria-label="Show one leg" aria-controls="map-chart"></div>
+              <div id="map-colour" class="segs" aria-controls="map-chart"></div>
+            </div>
+            <p id="map-speed-key" class="speed-key" hidden></p>
             <div id="map-chart"></div>
-            <p class="cap">GPS tracker tracks (bow offset is a few metres and omitted at this scale). <span id="map-split">Legs split at each boat's closest approach to the mark trackers.</span> Pick a leg above to show only it. Select a boat in the list, the start chart or a table row to highlight it.</p>
+            <p class="cap">GPS tracker tracks (bow offset is a few metres and omitted at this scale). <span id="map-split">Legs split at each boat's closest approach to the mark trackers.</span> Pick a leg above to show only it. Colour: Speed shades each boat by its elapsed-time rank (brightest fastest; hover a track for its time). Select a boat in the list, the start chart or a table row to highlight it.</p>
           </section>
           <section class="card">
             <h3>Findings</h3>

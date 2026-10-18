@@ -14,6 +14,7 @@ import { parsePickerParams } from './params';
 import { legLegend, legSplitCaption, startFitBox, startHullScale, startSnapshot, trackMap } from './charts';
 import { degLabel, esc, f0, f2, gunTimeLine } from './format';
 import { attachPanZoom } from './panzoom';
+import { COLOUR_KEY, RANK_KEY, colourControls, parseRankBy, parseTrackColour, readPref, speedKey, writePref } from './speed';
 import { metricsTable, toggleSort, type SortState } from './table';
 import { clampView, fitView, presetActive, type Box, type View } from './view';
 
@@ -41,6 +42,8 @@ export function startApp(): void {
     startZoom: $('start-zoom'),
     map: $('map-chart'),
     legend: $('map-legend'),
+    colour: $('map-colour'),
+    speedKey: $('map-speed-key'),
     mapSplit: $('map-split'),
     table: $('table'),
     findings: $('findings'),
@@ -78,6 +81,9 @@ export function startApp(): void {
   /** Table sort (null = finish order) and the map's leg filter; both reset per race. */
   let sort: SortState | null = null;
   let legSel: number | null = null;
+  /** Map colouring: a viewing preference kept across races and visits (not in the URL). */
+  let trackColour = parseTrackColour(readPref(COLOUR_KEY));
+  let rankBy = parseRankBy(readPref(RANK_KEY));
   let fitBox: Box | null = null;
   let view: View = { cx: 0, cy: 0, k: 1 };
   let regatta: RegattaResponse | null = null;
@@ -136,8 +142,13 @@ export function startApp(): void {
         : `${a.line.favored === 'left' ? 'pin' : 'RC'} end favoured by ≈${f0(a.line.favoredByM)} m`;
     els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (Vakaros timing) with the last ${START_TRAIL_MS / 1000} s of track shifted to the bow. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.`;
     renderStart();
-    els.map.innerHTML = trackMap(a, highlight, legSel);
+    els.map.innerHTML = trackMap(a, highlight, legSel, { colour: trackColour, rankBy });
     els.legend.innerHTML = legLegend(a, legSel);
+    // In Speed the leg swatches would read as a colour key for the tracks; the buttons stay, the swatches go.
+    els.legend.classList.toggle('speed', trackColour === 'speed');
+    els.colour.innerHTML = colourControls(trackColour, rankBy, legSel);
+    els.speedKey.innerHTML = trackColour === 'speed' ? speedKey(a, legSel, rankBy) : '';
+    els.speedKey.hidden = trackColour !== 'speed';
     els.mapSplit.textContent = legSplitCaption(a);
     els.table.innerHTML = metricsTable(a, highlight, sort);
     els.boats.innerHTML = boatList(a, highlight);
@@ -247,6 +258,19 @@ export function startApp(): void {
     const leg = key === 'all' ? null : Number(key);
     legSel = leg == null || leg === legSel ? null : leg;
     renderKeepingFocus(els.legend, focusSel(btn, 'data-leg'));
+  });
+  els.colour.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement).closest('button[data-colour], button[data-rank]');
+    if (!btn) return;
+    const colour = btn.getAttribute('data-colour');
+    if (colour != null) {
+      trackColour = parseTrackColour(colour);
+      writePref(COLOUR_KEY, trackColour);
+    } else {
+      rankBy = parseRankBy(btn.getAttribute('data-rank'));
+      writePref(RANK_KEY, rankBy);
+    }
+    renderKeepingFocus(els.colour, focusSel(btn, colour != null ? 'data-colour' : 'data-rank'));
   });
   els.start.addEventListener('click', (ev) => {
     const g = (ev.target as Element).closest('g.boat[data-id]');

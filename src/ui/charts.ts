@@ -8,7 +8,9 @@ import { primaryDtlM } from '../analysis/findings';
 import { add, bearingVec, scale, type Vec } from '../analysis/geo';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { classDims, type ClassDims } from '../data/classes';
-import { esc, f1 } from './format';
+import type { SpeedRank } from '../analysis/speedRank';
+import { duration, esc, f1 } from './format';
+import { CASED_BELOW_T, speedColor, speedRanking, type RankBy, type TrackColour } from './speed';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
 
 const SLOTS = 8;
@@ -264,28 +266,82 @@ export function mapBox(a: RaceAnalysis, leg: number | null = null): Box {
   return box;
 }
 
-/** Whole-race tracks coloured by leg, or only leg `leg` (fitted to it). */
-export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number | null = null): string {
+export interface TrackMapOptions {
+  /** 'leg' (default): one colour per leg. 'speed': viridis by elapsed-time rank (ui/speed.ts). */
+  colour?: TrackColour;
+  /** Whole race in Speed: rank each leg's segment on that leg, or the whole track by race time. */
+  rankBy?: RankBy;
+}
+
+/** "#851 Name", as the boat list labels boats. */
+const boatLabel = (b: BoatResult | undefined, id: string): string =>
+  b ? `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}` : id;
+
+/** Tooltip for a speed-coloured segment. */
+function speedTitle(who: string, legName: string, r: SpeedRank | undefined, overall: boolean): string {
+  if (!r) return `${who} · ${legName} · ${overall ? 'did not finish' : 'did not complete'}`;
+  const time = Number.isFinite(r.timeS) ? ` · ${r.gapS != null ? `~${duration(r.timeS)} (telemetry gap ${Math.round(r.gapS)} s)` : duration(r.timeS)}` : '';
+  return `${who} · ${legName} · ${overall ? 'overall ' : ''}#${r.rank} of ${r.of}${time}`;
+}
+
+/** Whole-race tracks coloured by leg (or by speed rank), or only leg `leg` (fitted to it). */
+export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number | null = null, opts: TrackMapOptions = {}): string {
   const rot = rotator(a.wind.twdAtGunDeg);
   const box = mapBox(a, leg);
+  const w = box.x1 - box.x0;
+  const h = box.y1 - box.y0;
+  const unit = Math.max(w, h) / 600;
+  const k = unit;
+  const sw = (width: number): string => `stroke-width="${(width * k).toFixed(2)}"`;
+  const byId = new Map(a.boats.map((b) => [b.id, b]));
+  const legName = (i: number): string => a.legs[i]?.name ?? `Leg ${i + 1}`;
+  const speed = opts.colour === 'speed' ? speedRanking(a, leg, opts.rankBy ?? 'leg') : null;
+
   const paths: string[] = [];
   const hi: string[] = [];
+  /** Speed mode: [draw order, svg]; unranked first, then slowest → fastest, the selection last. */
+  const ordered: [number, string][] = [];
   for (const d of a.drawings) {
+    const who = esc(boatLabel(byId.get(d.id), d.id));
     for (const seg of d.segments) {
       if (leg != null && seg.leg !== leg) continue;
       const ps: Vec[] = [];
       for (let i = 0; i < seg.x.length; i++) ps.push(rot([seg.x[i], seg.y[i]]));
       if (ps.length < 2) continue;
-      const cls = highlight ? (highlight === d.id ? 'trk on' : 'trk dim') : 'trk';
-      const svg = `<polyline class="${cls}" data-leg="${seg.leg}" points="${pts(ps)}" stroke="${legColor(seg.leg)}" STROKE/>`;
-      (highlight === d.id ? hi : paths).push(svg);
+      const p = pts(ps);
+      if (!speed) {
+        const cls = highlight ? (highlight === d.id ? 'trk on' : 'trk dim') : 'trk';
+        const width = highlight === d.id ? 2.6 : 1.2;
+        const svg = `<polyline class="${cls}" data-leg="${seg.leg}" points="${p}" stroke="${legColor(seg.leg)}" ${sw(width)}><title>${who} · ${esc(legName(seg.leg))}</title></polyline>`;
+        (highlight === d.id ? hi : paths).push(svg);
+        continue;
+      }
+      const r = speed.at(d.id, seg.leg);
+      const on = highlight === d.id;
+      const fade = highlight && !on ? ' fade' : '';
+      const title = `<title>${esc(speedTitle(boatLabel(byId.get(d.id), d.id), legName(seg.leg), r, speed.overall))}</title>`;
+      const attrs = `data-leg="${seg.leg}" data-id="${esc(d.id)}" points="${p}"`;
+      let svg: string;
+      if (!r) {
+        const dash = `stroke-dasharray="${(3 * k).toFixed(2)} ${(2.5 * k).toFixed(2)}"`;
+        svg = `<polyline class="trk spd unranked${on ? ' on' : fade}" ${attrs} ${sw(on ? 2 : 0.9)} ${dash}>${title}</polyline>`;
+      } else {
+        const width = on ? 3 : r.rank <= 3 ? 2.2 : 1.4;
+        // Selection: an ink casing under the boat's own colour. Otherwise, by day, a thin dark casing under the pale fast end.
+        const casing = on
+          ? `<polyline class="spd-sel" points="${p}" ${sw(width + 2.4)}/>`
+          : r.t < CASED_BELOW_T
+            ? `<polyline class="spd-case${fade}" points="${p}" ${sw(width + 1)}/>`
+            : '';
+        svg = `${casing}<polyline class="trk spd${r.rank <= 3 ? ' top' : ''}${on ? ' on' : fade}" ${attrs} stroke="${speedColor(r.t)}" style="--cd:${speedColor(r.t, 'dark')}" ${sw(width)}>${title}</polyline>`;
+      }
+      ordered.push([on ? 2 : r ? 1 - r.t : -1, svg]);
     }
   }
-  const w = box.x1 - box.x0;
-  const h = box.y1 - box.y0;
-  const unit = Math.max(w, h) / 600;
-  const k = unit;
-  const stroke = (s: string, width: number): string => s.replace('STROKE', `stroke-width="${(width * k).toFixed(2)}"`);
+  if (speed) {
+    ordered.sort((x, y) => x[0] - y[0]);
+    paths.push(...ordered.map(([, s]) => s));
+  }
 
   const L = rot(a.line.left);
   const R = rot(a.line.right);
@@ -310,9 +366,14 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
         })()
       : '';
 
-  const label = leg == null ? 'Tracks coloured by leg' : `Tracks on ${a.legs[leg]?.name ?? 'one leg'}`;
+  const label =
+    leg == null
+      ? speed
+        ? `Tracks coloured by speed, ${speed.overall ? 'race time' : 'rank on each leg'}: brightest fastest`
+        : 'Tracks coloured by leg'
+      : `Tracks on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', coloured by speed on the leg: brightest fastest' : ''}`;
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map" role="img" aria-label="${esc(label)}">
-    ${paths.map((s) => stroke(s, 1.2)).join('')}${hi.map((s) => stroke(s, 2.6)).join('')}
+    ${paths.join('')}${hi.join('')}
     <line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>${finish}${marks}
     ${windArrow(box, unit, k, 'wind (est.)')}${scaleBar(box, unit, k)}</svg>`;
 }
