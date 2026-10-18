@@ -2,7 +2,7 @@
  * RaceSense source adapter: turns the public RaceSense responses (regatta
  * document + teleapi telemetry pages + optional model wind) into the
  * normalized `RaceData`. Pure functions only; fetching lives in api.ts so
- * the same code runs against the offline fixture in tests and demo mode.
+ * the same code runs against the offline fixtures in tests.
  */
 import type { Boat, CourseMark, LatLon, Line, MarkTrack, RaceData, RcStart, Track, WindSample } from '../types';
 import type {
@@ -449,7 +449,7 @@ export function buildRaceData(
   const data: RaceData = {
     source: {
       kind: opts.kind ?? 'racesense',
-      label: opts.kind === 'fixture' ? 'Bundled demo (RaceSense public feed snapshot)' : 'RaceSense public feed',
+      label: opts.kind === 'fixture' ? 'Offline fixture (RaceSense public feed snapshot)' : 'RaceSense public feed',
       eventId: opts.eventId,
     },
     eventName: doc.name,

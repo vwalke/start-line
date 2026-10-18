@@ -29,16 +29,17 @@
           <h1 class="wordmark">Recall</h1>
           <p class="tag">How your start and each leg went — in one screen.</p>
         </div>
-        <nav>
-          <a id="mode-link" href="?demo=1">Demo (offline)</a>
-        </nav>
       </div>
     </header>
 
     <div class="wrap">
 
       <div class="controls">
-        <label>Event <select id="event" disabled><option>Loading…</option></select></label>
+        <div class="search">
+          <label>Search <input type="search" id="event-search" placeholder="Event, venue, class or date" autocomplete="off" spellcheck="false" aria-controls="event" aria-describedby="event-count" disabled></label>
+          <span id="event-count" class="count" aria-live="polite"></span>
+        </div>
+        <label class="event">Event <select id="event" disabled><option>Loading…</option></select></label>
         <label class="race">Race <select id="race" disabled><option>—</option></select></label>
       </div>
       <div id="notice" class="notice" role="status" hidden></div>

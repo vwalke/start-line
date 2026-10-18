@@ -1,9 +1,7 @@
 /**
- * The page: pick an event → race, run the worker, render the digest.
- * `?demo=1` loads the bundled fixture; otherwise we try live data and fall
- * back to the fixture (with a visible notice) if the network or proxy fails.
+ * The page: search/pick an event → race, run the worker, render the digest.
+ * Live data only: if the feed or proxy fails we say so, with a way to retry.
  */
-import fixtureUrl from '../../tests/fixtures/benelux_r8.json?url';
 import { START_TRAIL_MS, type RaceAnalysis } from '../analysis/types';
 import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchRegatta } from '../data/racesense/api';
@@ -11,6 +9,8 @@ import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { classDims } from '../data/classes';
 import { boatList, findingsList } from './boats';
+import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
+import { parsePickerParams } from './params';
 import { legLegend, legSplitCaption, startFitBox, startHullScale, startSnapshot, trackMap } from './charts';
 import { degLabel, esc, f0, f2, gunTimeLine } from './format';
 import { attachPanZoom } from './panzoom';
@@ -27,6 +27,8 @@ const $ = <T extends HTMLElement>(id: string): T => {
 
 export function startApp(): void {
   const els = {
+    search: $<HTMLInputElement>('event-search'),
+    count: $('event-count'),
     event: $<HTMLSelectElement>('event'),
     race: $<HTMLSelectElement>('race'),
     notice: $('notice'),
@@ -44,11 +46,9 @@ export function startApp(): void {
     findings: $('findings'),
     boats: $('boat-list'),
     warnings: $('warnings'),
-    mode: $('mode-link'),
   };
 
-  const params = new URLSearchParams(location.search);
-  const demo = params.has('demo') && params.get('demo') !== '0';
+  const params = parsePickerParams(location.search);
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   let reqId = 0;
   const pending = new Map<number, { resolve: (a: RaceAnalysis) => void; reject: (e: Error) => void }>();
@@ -77,15 +77,26 @@ export function startApp(): void {
   let fitBox: Box | null = null;
   let view: View = { cx: 0, cy: 0, k: 1 };
   let regatta: RegattaResponse | null = null;
-  let eventId = params.get('event') ?? '';
+  /** The event whose races are loaded (and shown in the digest); '' until one loads. */
+  let eventId = '';
+  /** Every listed event, most recent first; the search filters this. */
+  let events: LandingEvent[] = [];
+  let matchCount = 0;
 
   function setStatus(text: string): void {
     els.status.textContent = text;
     els.status.hidden = !text;
   }
 
-  function setNotice(text: string): void {
+  function setNotice(text: string, action?: { label: string; run: () => void }): void {
     els.notice.textContent = text;
+    if (action) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = action.label;
+      btn.addEventListener('click', action.run, { once: true });
+      els.notice.append(' ', btn);
+    }
     els.notice.hidden = !text;
   }
 
@@ -254,21 +265,6 @@ export function startApp(): void {
     }
   }
 
-  async function loadDemo(reason: string | null): Promise<void> {
-    setNotice(reason ? `${reason} Showing the bundled demo race (Benelux Sailing League Act III, J70 race 8).` : '');
-    els.event.innerHTML = '<option>Benelux Sailing League Act III (demo)</option>';
-    els.race.innerHTML = '<option>J70 · Race 8</option>';
-    els.event.disabled = true;
-    els.race.disabled = true;
-    els.mode.textContent = 'Try live data';
-    els.mode.setAttribute('href', '?');
-    try {
-      await show(run({ type: 'fixture', url: fixtureUrl }));
-    } catch (e) {
-      setStatus(`Couldn't load the demo data: ${(e as Error).message}`);
-    }
-  }
-
   async function loadRace(division: string, raceNumber: number): Promise<void> {
     if (!regatta) return;
     setUrl({ event: eventId, div: division, race: String(raceNumber) });
@@ -277,19 +273,37 @@ export function startApp(): void {
       setNotice('');
     } catch (e) {
       setStatus('');
-      // Keep the event/race picker so another race can be tried; only boot
-      // falls all the way back to the bundled demo.
+      // Keep the event/race picker so another race can be tried.
       setNotice(`Couldn't load that race (${(e as Error).message}).`);
     }
   }
 
+  /** Rebuild the Event select from the search query, keeping the loaded event selected. */
+  function renderEventOptions(): void {
+    const q = els.search.value;
+    const { options, matches } = pickerOptions(events, q, eventId);
+    matchCount = matches.length;
+    // Nothing loaded yet: a placeholder, so picking the first event still fires `change`.
+    const placeholder = eventId ? '' : '<option value="" disabled selected>Choose an event…</option>';
+    els.event.innerHTML = placeholder + options.map((o) => `<option value="${esc(o.eventId)}">${esc(o.label)}</option>`).join('');
+    if (eventId) els.event.value = eventId;
+    els.count.textContent = matchCountLabel(matchCount, events.length, q);
+    els.count.classList.toggle('none', q.trim() !== '' && matchCount === 0);
+  }
+
+  let eventReq = 0;
+  /** Load an event and its default (or wanted) race. False if it has no finished races. */
   async function loadEvent(id: string, want?: { division: string; raceNumber: number }): Promise<boolean> {
-    eventId = id;
+    const req = ++eventReq;
     setStatus('Loading event…');
-    regatta = await fetchRegatta(id);
-    const doc = currentDoc(regatta);
+    const next = await fetchRegatta(id);
+    if (req !== eventReq) return true; // superseded by a newer pick
+    const doc = currentDoc(next);
     const races = listRaces(doc).filter((r) => r.finishers > 0);
     if (!races.length) return false;
+    regatta = next;
+    eventId = id;
+    renderEventOptions();
     els.race.innerHTML = races
       .map((r) => `<option value="${esc(r.division)}|${r.raceNumber}">${esc(r.division)} · Race ${r.raceNumber}</option>`)
       .join('');
@@ -301,55 +315,105 @@ export function startApp(): void {
     return true;
   }
 
-  els.event.addEventListener('change', () => {
-    loadEvent(els.event.value).then(
-      (ok) => ok || setStatus('No finished races in this event yet.'),
-      (e: Error) => setStatus(`Couldn't load the event: ${e.message}`),
+  const titleOf = (id: string): string => events.find((e) => e.eventId === id)?.title ?? id;
+
+  /** A user pick (select, or Enter in the search). On failure the select goes back to the loaded event. */
+  function pickEvent(id: string): void {
+    if (!id || id === eventId) return;
+    loadEvent(id).then(
+      (ok) => {
+        if (ok) return;
+        setStatus(`${titleOf(id)} has no finished races yet.`);
+        renderEventOptions();
+      },
+      (e: Error) => {
+        setStatus(`Couldn't load ${titleOf(id)}: ${e.message}`);
+        renderEventOptions();
+      },
     );
-  });
+  }
+
+  els.event.addEventListener('change', () => pickEvent(els.event.value));
   els.race.addEventListener('change', () => {
     const [div, n] = els.race.value.split('|');
     void loadRace(div, Number(n));
   });
 
-  async function boot(): Promise<void> {
-    if (demo) {
-      els.mode.textContent = 'Live data';
-      return loadDemo(null);
+  // Typing only filters; it never loads an event (each load fetches telemetry).
+  els.search.addEventListener('input', renderEventOptions);
+  els.search.addEventListener('keydown', (ev) => {
+    const action = searchKeyAction(ev.key, els.search.value, matchCount);
+    if (action === 'clear') {
+      ev.preventDefault();
+      els.search.value = '';
+      renderEventOptions();
+    } else if (action === 'pick') {
+      ev.preventDefault();
+      const only = pickerOptions(events, els.search.value, '').matches[0];
+      if (only) pickEvent(only.eventId);
     }
-    els.mode.textContent = 'Demo (offline)';
-    els.mode.setAttribute('href', '?demo=1');
-    let events: LandingEvent[];
+  });
+  // "/" jumps to the search, as on many sites, unless the user is typing or choosing somewhere.
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== '/' || ev.ctrlKey || ev.metaKey || ev.altKey || els.search.disabled) return;
+    const t = ev.target as HTMLElement | null;
+    if (t?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])') || document.querySelector('dialog[open]')) return;
+    ev.preventDefault();
+    els.search.focus();
+    els.search.select();
+  });
+
+  async function boot(): Promise<void> {
+    setNotice('');
     try {
       setStatus('Loading events…');
+      // /api/landing returns every listed event in one response (no pagination), so
+      // filtering this list client-side searches the whole feed, as RaceSense's own page does.
       const landing = await fetchLanding();
       const now = Date.now();
       const recency = (e: LandingEvent): number => (e.capturedRaceTime ? Date.parse(e.capturedRaceTime) : Math.min(e.endMs, now));
       events = landing.events.filter((e) => e.startMs <= now).sort((a, b) => recency(b) - recency(a));
     } catch (e) {
-      return loadDemo(`Live data unavailable (${(e as Error).message}).`);
+      setStatus('');
+      els.event.innerHTML = '<option>—</option>';
+      setNotice(`Couldn't load the live race list (${(e as Error).message}).`, { label: 'Retry', run: () => void boot() });
+      return;
     }
-    if (eventId && !events.some((e) => e.eventId === eventId)) {
-      events.unshift({ eventId, title: eventId, startMs: 0, endMs: 0 });
+    const explicit = params.eventId;
+    if (explicit && !events.some((e) => e.eventId === explicit)) {
+      events.unshift({ eventId: explicit, title: explicit, startMs: 0, endMs: 0 });
     }
-    els.event.innerHTML = events
-      .map((e) => `<option value="${esc(e.eventId)}">${esc(e.title)}${e.dateLabel ? ` — ${esc(e.dateLabel)}` : ''}</option>`)
-      .join('');
+    renderEventOptions();
     els.event.disabled = false;
-    const wantRace = params.get('race');
-    const want = params.get('div') && wantRace ? { division: params.get('div')!, raceNumber: Number(wantRace) } : undefined;
-    // Explicit event first; otherwise the most recent event that has a finished race (polite: at most 4 tries).
-    const candidates = eventId ? [eventId] : events.slice(0, 4).map((e) => e.eventId);
-    for (const id of candidates) {
+    els.search.disabled = false;
+    // Pointer devices only (no on-screen keyboard popping up), and never steal focus the user already moved.
+    if (matchMedia('(pointer: fine)').matches && (!document.activeElement || document.activeElement === document.body)) {
+      els.search.focus();
+    }
+    if (explicit) {
       try {
-        els.event.value = id;
-        if (await loadEvent(id, want)) return;
+        if (await loadEvent(explicit, params.want)) return;
+        setStatus('');
+        setNotice(`${titleOf(explicit)} has no finished races yet. Pick another event.`);
       } catch (e) {
-        if (eventId) return loadDemo(`Couldn't load event ${id} (${(e as Error).message}).`);
+        setStatus('');
+        setNotice(`Couldn't load event ${explicit} (${(e as Error).message}). Pick another event.`);
+      }
+      return;
+    }
+    // Otherwise the most recent event that has a finished race (polite: at most 4 tries).
+    for (const e of events.slice(0, 4)) {
+      try {
+        if (await loadEvent(e.eventId, params.want)) return;
+      } catch {
+        // try the next one
       }
     }
-    return loadDemo('No recent finished race found in the live feed.');
+    setStatus('');
+    setNotice('No finished race found in the most recent events. Search or pick an event above.');
   }
 
+  // `?demo=` is retired (live data only); drop it from old links and open the normal list.
+  if (new URLSearchParams(location.search).has('demo')) setUrl({ demo: null });
   void boot();
 }
