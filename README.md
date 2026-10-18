@@ -153,7 +153,7 @@ npm run lint && npm run typecheck && npm test
   by title, venue, class, division, dates (including year and month names),
   fleet size or event id. Every word must match; case, accents and
   punctuation don't matter (`j70` finds `J/70`, `malmo` finds `Malmö`).
-  `/landing` returns every listed event at once, so this covers the whole
+  `/api/landing` returns every listed event at once, so this covers the whole
   feed. Typing never loads an event: pick one in the Event list, or press
   Enter when exactly one matches. Esc clears the search; `/` focuses it.
 - Deep links: `?event=<eventId>&div=<division>&race=<n>`.

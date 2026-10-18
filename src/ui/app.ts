@@ -52,6 +52,8 @@ export function startApp(): void {
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   let reqId = 0;
   const pending = new Map<number, { resolve: (a: RaceAnalysis) => void; reject: (e: Error) => void }>();
+  const SUPERSEDED = 'superseded';
+  const isSuperseded = (e: unknown): boolean => e instanceof Error && e.message === SUPERSEDED;
   worker.onmessage = (ev: MessageEvent<WorkerResponse>) => {
     const msg = ev.data;
     if (msg.id !== reqId) return; // a newer request superseded this one
@@ -64,6 +66,8 @@ export function startApp(): void {
   const run = (req: DistributiveOmit<WorkerRequest, 'id'>): Promise<RaceAnalysis> =>
     new Promise((resolve, reject) => {
       const id = ++reqId;
+      for (const p of pending.values()) p.reject(new Error(SUPERSEDED));
+      pending.clear();
       pending.set(id, { resolve, reject });
       worker.postMessage({ ...req, id } as WorkerRequest);
     });
@@ -249,10 +253,13 @@ export function startApp(): void {
     toggleHighlight(g ? g.getAttribute('data-id') : null);
   });
 
+  let showGen = 0;
   async function show(p: Promise<RaceAnalysis>): Promise<void> {
+    const g = ++showGen;
     els.digest.classList.add('loading');
     try {
       analysis = await p;
+      if (g !== showGen) return;
       highlight = null;
       sort = null;
       legSel = null;
@@ -261,7 +268,7 @@ export function startApp(): void {
       render();
       setStatus('');
     } finally {
-      els.digest.classList.remove('loading');
+      if (g === showGen) els.digest.classList.remove('loading');
     }
   }
 
@@ -272,6 +279,7 @@ export function startApp(): void {
       await show(run({ type: 'live', eventId, regatta, division, raceNumber }));
       setNotice('');
     } catch (e) {
+      if (isSuperseded(e)) return;
       setStatus('');
       // Keep the event/race picker so another race can be tried.
       setNotice(`Couldn't load that race (${(e as Error).message}).`);
@@ -296,23 +304,28 @@ export function startApp(): void {
   async function loadEvent(id: string, want?: { division: string; raceNumber: number }): Promise<boolean> {
     const req = ++eventReq;
     setStatus('Loading event…');
-    const next = await fetchRegatta(id);
-    if (req !== eventReq) return true; // superseded by a newer pick
-    const doc = currentDoc(next);
-    const races = listRaces(doc).filter((r) => r.finishers > 0);
-    if (!races.length) return false;
-    regatta = next;
-    eventId = id;
-    renderEventOptions();
-    els.race.innerHTML = races
-      .map((r) => `<option value="${esc(r.division)}|${r.raceNumber}">${esc(r.division)} · Race ${r.raceNumber}</option>`)
-      .join('');
-    const pick =
-      (want && races.find((r) => r.division === want.division && r.raceNumber === want.raceNumber)) ?? defaultRace(doc) ?? races[0];
-    els.race.value = `${pick.division}|${pick.raceNumber}`;
-    els.race.disabled = false;
-    await loadRace(pick.division, pick.raceNumber);
-    return true;
+    try {
+      const next = await fetchRegatta(id);
+      if (req !== eventReq) return true; // superseded by a newer pick
+      const doc = currentDoc(next);
+      const races = listRaces(doc).filter((r) => r.finishers > 0);
+      if (!races.length) return false;
+      regatta = next;
+      eventId = id;
+      renderEventOptions();
+      els.race.innerHTML = races
+        .map((r) => `<option value="${esc(r.division)}|${r.raceNumber}">${esc(r.division)} · Race ${r.raceNumber}</option>`)
+        .join('');
+      const pick =
+        (want && races.find((r) => r.division === want.division && r.raceNumber === want.raceNumber)) ?? defaultRace(doc) ?? races[0];
+      els.race.value = `${pick.division}|${pick.raceNumber}`;
+      els.race.disabled = false;
+      await loadRace(pick.division, pick.raceNumber);
+      return true;
+    } catch (e) {
+      if (req !== eventReq) return true;
+      throw e;
+    }
   }
 
   const titleOf = (id: string): string => events.find((e) => e.eventId === id)?.title ?? id;
@@ -342,6 +355,7 @@ export function startApp(): void {
   // Typing only filters; it never loads an event (each load fetches telemetry).
   els.search.addEventListener('input', renderEventOptions);
   els.search.addEventListener('keydown', (ev) => {
+    if (ev.isComposing || ev.key === 'Process') return;
     const action = searchKeyAction(ev.key, els.search.value, matchCount);
     if (action === 'clear') {
       ev.preventDefault();
@@ -350,7 +364,10 @@ export function startApp(): void {
     } else if (action === 'pick') {
       ev.preventDefault();
       const only = pickerOptions(events, els.search.value, '').matches[0];
-      if (only) pickEvent(only.eventId);
+      if (only) {
+        els.event.value = only.eventId;
+        pickEvent(only.eventId);
+      }
     }
   });
   // "/" jumps to the search, as on many sites, unless the user is typing or choosing somewhere.
@@ -387,10 +404,12 @@ export function startApp(): void {
     els.event.disabled = false;
     els.search.disabled = false;
     // Pointer devices only (no on-screen keyboard popping up), and never steal focus the user already moved.
-    if (matchMedia('(pointer: fine)').matches && (!document.activeElement || document.activeElement === document.body)) {
+    const ae = document.activeElement;
+    if (matchMedia('(pointer: fine)').matches && (!ae || ae === document.body || ae === document.documentElement)) {
       els.search.focus();
     }
     if (explicit) {
+      els.event.value = explicit;
       try {
         if (await loadEvent(explicit, params.want)) return;
         setStatus('');
@@ -403,12 +422,14 @@ export function startApp(): void {
     }
     // Otherwise the most recent event that has a finished race (polite: at most 4 tries).
     for (const e of events.slice(0, 4)) {
+      els.event.value = e.eventId;
       try {
         if (await loadEvent(e.eventId, params.want)) return;
       } catch {
         // try the next one
       }
     }
+    els.event.value = '';
     setStatus('');
     setNotice('No finished race found in the most recent events. Search or pick an event above.');
   }

@@ -125,10 +125,12 @@ describe('searchKeyAction', () => {
     expect(searchKeyAction('Escape', '', 48)).toBeNull();
   });
 
-  it('picks on Enter only with exactly one match', () => {
+  it('picks on Enter only with exactly one match and a non-empty query', () => {
     expect(searchKeyAction('Enter', 'zzz', 0)).toBeNull();
     expect(searchKeyAction('Enter', 'worlds', 1)).toBe('pick');
     expect(searchKeyAction('Enter', 'j70', 2)).toBeNull();
+    expect(searchKeyAction('Enter', '', 1)).toBeNull();
+    expect(searchKeyAction('Enter', '  ', 1)).toBeNull();
   });
 
   it('ignores other keys', () => {

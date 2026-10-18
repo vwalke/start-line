@@ -66,7 +66,8 @@ export function matchCountLabel(shown: number, total: number, query: string): st
 /** What a key in the search box does: Esc clears a query, Enter loads the only match. */
 export function searchKeyAction(key: string, query: string, matchCount: number): 'clear' | 'pick' | null {
   if (key === 'Escape') return query ? 'clear' : null;
-  if (key === 'Enter') return matchCount === 1 ? 'pick' : null;
+  // Empty query is not a filter: don't load just because the feed has one event.
+  if (key === 'Enter') return query.trim() !== '' && matchCount === 1 ? 'pick' : null;
   return null;
 }
 
