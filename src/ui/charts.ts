@@ -334,9 +334,9 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
       if (ps.length < 2) continue;
       const p = pts(ps);
       if (isNc) {
-        const dash = ` stroke-dasharray="${(5 * k).toFixed(2)} ${(4 * k).toFixed(2)}"`;
+        const dash = `stroke-dasharray="${(5 * k).toFixed(2)} ${(4 * k).toFixed(2)}"`;
         const title = `<title>${who} · ${esc(legName(seg.leg))} · not racing</title>`;
-        const svg = `<polyline class="trk on nc" data-leg="${seg.leg}" data-id="${esc(d.id)}" points="${p}" stroke="${NC_COLOR}" ${sw(2.6)}${dash}>${title}</polyline>`;
+        const svg = `<polyline class="trk on nc" data-leg="${seg.leg}" data-id="${esc(d.id)}" points="${p}" stroke="${NC_COLOR}" ${dash} ${sw(2.6)}>${title}</polyline>`;
         if (speed) ordered.push([2, svg]);
         else hi.push(svg);
         continue;
