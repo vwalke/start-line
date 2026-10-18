@@ -1,6 +1,6 @@
 /**
  * Who sailed a leg (or the race) fastest: elapsed-time ranks for the map's
- * "Colour: Speed" mode. Pure; the colours live in ui/speed.ts.
+ * "Colour: Rank" mode. Pure; the colours live in ui/speed.ts.
  *
  * Ties share a rank (competition ranking: 1, 2, 2, 4). `t` is rank-based,
  * (rank - 1) / (worst rank - 1), so 0 = fastest and 1 = slowest: one very slow

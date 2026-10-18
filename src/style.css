@@ -407,7 +407,7 @@ svg .scalebar text { fill: var(--ink-2); }
 .legend .key { font: inherit; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2); cursor: pointer; }
 .legend .key[aria-pressed='true'] { border-color: var(--ink-2); color: var(--ink); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
 .legend .key i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
-/* Colour: Speed. Swatches would read as a key for the tracks, so they go; the leg buttons stay. */
+/* Colour: Rank or Boat speed. Swatches would read as a key for the tracks, so they go; the leg buttons stay. */
 .legend.speed .key i { display: none; }
 
 /* Leg legend on the left, the Colour / Rank by switches on the right; they wrap below on narrow screens. */
@@ -428,7 +428,7 @@ svg .scalebar text { fill: var(--ink-2); }
 .speed-key .spd-none { display: inline-block; width: 22px; height: 0; border-top: 2px dashed var(--ink-3); vertical-align: middle; }
 .speed-key .spd-out { display: inline-block; width: 22px; height: 0; border-top: 2px solid color-mix(in srgb, var(--ink-3) 45%, transparent); vertical-align: middle; }
 
-/* Speed strokes: `stroke` is the day colour, `--cd` the night one (a brighter slice of plasma).
+/* Rank strokes: `stroke` is the day colour, `--cd` the night one (a brighter slice of plasma).
    Rank sets each stroke's stroke-opacity and width in the SVG (ui/speed.ts speedEmphasis), so no group opacity here. */
 svg .trk.spd { opacity: 1; }
 svg .trk.spd.unranked { stroke: var(--ink-3); stroke-linecap: butt; }
@@ -440,6 +440,44 @@ svg .spd-sel { fill: none; stroke: var(--ink); stroke-linejoin: round; stroke-li
   svg .spd-case { display: none; }
   .speed-key .spd-bar { background: var(--gd); }
 }
+
+/* Boat speed (map) and Speed (start trails): per-bin paths, `stroke` = day, `--cd` = night (ui/sog.ts).
+   By day the pale fast bins sit on a thin dark casing; gaps are grey dashed; a selection dims the rest. */
+svg .sog, svg .sog-case, svg .sog-gap, svg .sog-sel { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+svg .sog-case { stroke: var(--ink); stroke-opacity: 0.45; }
+svg .sog-gap { stroke: var(--ink-3); stroke-linecap: butt; }
+svg .sog-sel { stroke: var(--ink); }
+svg .sog-trk { stroke-opacity: 0.9; }
+svg .sog-trk.dim { opacity: 0.22; }
+svg .sog-trk.on { stroke-opacity: 1; }
+svg .trail.sog { opacity: 0.95; }
+svg .trail.sog.dim { opacity: 0.2; }
+svg .sog-hover { fill: none; stroke: var(--ink); pointer-events: none; }
+@media (prefers-color-scheme: dark) {
+  svg .sog[style] { stroke: var(--cd); }
+  svg .sog-fill[style] { fill: var(--cd); }
+  svg .sog-case { display: none; }
+}
+.speed-key .sog-lo, .speed-key .sog-hi { font-variant-numeric: tabular-nums; color: var(--ink); }
+.start-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin: 0 0 6px; }
+.start-tools .zoom { margin: 0; }
+.map-wrap { position: relative; }
+.map-tip {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  padding: 4px 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+.map-tip[hidden] { display: none; }
 
 .tablewrap {
   overflow-x: auto;

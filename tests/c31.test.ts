@@ -189,7 +189,7 @@ describe('C31 race 10: findings and chart', () => {
     expect(label('GER42')).toBe('~-3.1 m');
     expect(label('AUT 3165')).toBe('2.1 m');
     expect(label('FRA 901')).toBe('12.6 m');
-    expect(svg).toMatch(/<title>#GER42: no reliable distance \(ours ~-3\.1 m\), 6\.\d kn<\/title>/);
-    expect(svg).toMatch(/<title>#ITA 78: 0\.4 m behind \(Vakaros; ours ~-6\.0 m\), 5\.6 kn<\/title>/);
+    expect(svg).toMatch(/<title>#GER42: no reliable distance \(ours ~-3\.1 m\), SOG 6\.\d kn at the gun<\/title>/);
+    expect(svg).toMatch(/<title>#ITA 78: 0\.4 m behind \(Vakaros; ours ~-6\.0 m\), SOG 5\.6 kn at the gun<\/title>/);
   });
 });

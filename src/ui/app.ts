@@ -11,12 +11,24 @@ import { classDims } from '../data/classes';
 import { boatList, findingsList } from './boats';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
 import { parsePickerParams } from './params';
-import { legLegend, legSplitCaption, startFitBox, startHullScale, startSnapshot, trackMap } from './charts';
-import { degLabel, esc, f0, f2, gunTimeLine } from './format';
+import { legLegend, legSplitCaption, mapBox, startFitBox, startHullScale, startSnapshot, trackMap, trackSogIndex } from './charts';
+import { degLabel, duration, esc, f0, f1, f2, gunTimeLine, localTime } from './format';
 import { attachPanZoom } from './panzoom';
+import {
+  START_COLOUR_KEY,
+  hasGaps,
+  nearestSample,
+  segmentTimes,
+  parseStartColour,
+  sogKey,
+  startColourControls,
+  startSogRange,
+  trackSogRange,
+  type SogIndex,
+} from './sog';
 import { COLOUR_KEY, RANK_KEY, TOP_KEY, colourControls, parseRankBy, parseSpeedTop, parseTrackColour, readPref, speedKey, writePref } from './speed';
 import { metricsTable, toggleSort, type SortState } from './table';
-import { clampView, fitView, presetActive, type Box, type View } from './view';
+import { clampView, clientToChart, fitView, presetActive, type Box, type View } from './view';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -40,7 +52,10 @@ export function startApp(): void {
     startCaption: $('start-caption'),
     startScale: $('start-scale'),
     startZoom: $('start-zoom'),
+    startColour: $('start-colour'),
+    startKey: $('start-speed-key'),
     map: $('map-chart'),
+    mapTip: $('map-tip'),
     legend: $('map-legend'),
     colour: $('map-colour'),
     speedKey: $('map-speed-key'),
@@ -89,6 +104,9 @@ export function startApp(): void {
   let trackColour = parseTrackColour(readPref(COLOUR_KEY));
   let rankBy = parseRankBy(readPref(RANK_KEY));
   let speedTop = parseSpeedTop(readPref(TOP_KEY));
+  let startColour = parseStartColour(readPref(START_COLOUR_KEY));
+  /** Boat speed hover: the map's box and fix lookup, built on first hover after each render. */
+  let hover: { box: Box; ix: SogIndex } | null = null;
   let fitBox: Box | null = null;
   let view: View = { cx: 0, cy: 0, k: 1 };
   let regatta: RegattaResponse | null = null;
@@ -145,15 +163,28 @@ export function startApp(): void {
       a.line.favored === 'square'
         ? 'about square to the wind'
         : `${a.line.favored === 'left' ? 'pin' : 'RC'} end favoured by ≈${f0(a.line.favoredByM)} m`;
-    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (Vakaros timing) with the last ${START_TRAIL_MS / 1000} s of track shifted to the bow. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.`;
+    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (Vakaros timing) with the last ${START_TRAIL_MS / 1000} s of track shifted to the bow. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.${startColour === 'speed' ? ' Colour: Speed shades each trail by speed over ground (4 s mean) and each hull by its SOG at the gun; hover a boat for the figure.' : ''}`;
     renderStart();
+    els.startColour.innerHTML = startColourControls(startColour);
+    els.startKey.innerHTML =
+      startColour === 'speed'
+        ? sogKey(startSogRange(a), `Last ${START_TRAIL_MS / 1000} s before the gun; hulls at the gun`, hasGaps(a.drawings.map((d) => d.trail.t)))
+        : '';
+    els.startKey.hidden = startColour !== 'speed';
     els.map.innerHTML = trackMap(a, highlight, legSel, { colour: trackColour, rankBy, top: speedTop });
+    hover = null;
+    els.mapTip.hidden = true;
     els.legend.innerHTML = legLegend(a, legSel);
-    // In Speed the leg swatches would read as a colour key for the tracks; the buttons stay, the swatches go.
-    els.legend.classList.toggle('speed', trackColour === 'speed');
+    // In Rank or Boat speed the leg swatches would read as a colour key for the tracks; the buttons stay, the swatches go.
+    els.legend.classList.toggle('speed', trackColour !== 'leg');
     els.colour.innerHTML = colourControls(trackColour, rankBy, legSel, speedTop);
-    els.speedKey.innerHTML = trackColour === 'speed' ? speedKey(a, legSel, rankBy, speedTop) : '';
-    els.speedKey.hidden = trackColour !== 'speed';
+    els.speedKey.innerHTML =
+      trackColour === 'rank'
+        ? speedKey(a, legSel, rankBy, speedTop)
+        : trackColour === 'sog'
+          ? sogKey(trackSogRange(a, legSel), legSel == null ? 'Whole race' : `${a.legs[legSel]?.name ?? 'This leg'}`, hasGaps(segmentTimes(a, legSel)))
+          : '';
+    els.speedKey.hidden = trackColour === 'leg';
     els.mapSplit.textContent = legSplitCaption(a);
     els.table.innerHTML = metricsTable(a, highlight, sort);
     els.boats.innerHTML = boatList(a, highlight, ncOpen);
@@ -172,8 +203,71 @@ export function startApp(): void {
     els.startScale.textContent = dims
       ? `Hulls drawn to scale (${cls} ${f2(dims.loaM)} m). Hulls point along heading.`
       : 'Markers not to scale. Arrows follow course over ground.';
-    els.start.innerHTML = startSnapshot(a, highlight, view);
+    els.start.innerHTML = startSnapshot(a, highlight, view, startColour);
   }
+
+  /** Boat speed: the nearest drawn fix under the pointer (the selected boat's, within 40 px; else anyone's within 8 px). */
+  function showHover(ev: PointerEvent): void {
+    const a = analysis;
+    const svg = els.map.querySelector('svg');
+    if (!a || trackColour !== 'sog' || !svg) return;
+    if (!hover) {
+      const box = mapBox(a, legSel);
+      hover = { box, ix: trackSogIndex(a, legSel) };
+    }
+    const { box, ix } = hover;
+    const rect = svg.getBoundingClientRect();
+    const [x, y] = clientToChart(box, fitView(box), rect, ev.clientX, ev.clientY);
+    const px = 1 / (Math.min(rect.width / (box.x1 - box.x0), rect.height / (box.y1 - box.y0)) || 1);
+    const i = nearestSample(ix, x, y, (highlight ? 40 : 8) * px, highlight);
+    let dot = svg.querySelector<SVGCircleElement>('circle.sog-hover');
+    if (i < 0) {
+      dot?.remove();
+      els.mapTip.hidden = true;
+      return;
+    }
+    if (!dot) {
+      dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('class', 'sog-hover');
+      svg.append(dot);
+    }
+    dot.setAttribute('cx', String(ix.x[i]));
+    dot.setAttribute('cy', String(ix.y[i]));
+    dot.setAttribute('r', String(4 * px));
+    dot.setAttribute('stroke-width', String(1.5 * px));
+    const b = a.boats.find((q) => q.id === ix.ids[ix.boat[i]]);
+    const who = b ? `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}` : ix.ids[ix.boat[i]];
+    els.mapTip.innerHTML = `<b>${esc(who)}</b><br>${localTime(ix.t[i], a.meta.tzOffsetMs)} <span class="muted">(gun +${duration((ix.t[i] - a.meta.gunMs) / 1000)})</span><br><b>${f1(ix.sog[i])} kn</b> SOG`;
+    els.mapTip.hidden = false;
+    // Beside the pointer, flipped to the left near the right edge.
+    const wrap = els.mapTip.parentElement!.getBoundingClientRect();
+    const left = ev.clientX - wrap.left;
+    const flip = left + 12 + els.mapTip.offsetWidth > wrap.width;
+    els.mapTip.style.left = `${flip ? left - 12 - els.mapTip.offsetWidth : left + 12}px`;
+    els.mapTip.style.top = `${Math.max(0, ev.clientY - wrap.top - els.mapTip.offsetHeight - 10)}px`;
+  }
+  function hideHover(): void {
+    els.map.querySelector('circle.sog-hover')?.remove();
+    els.mapTip.hidden = true;
+  }
+  let hoverFrame = 0;
+  let hoverEv: PointerEvent | null = null;
+  const queueHover = (ev: PointerEvent): void => {
+    if (trackColour !== 'sog') return;
+    hoverEv = ev;
+    if (!hoverFrame) {
+      hoverFrame = requestAnimationFrame(() => {
+        hoverFrame = 0;
+        if (hoverEv) showHover(hoverEv);
+      });
+    }
+  };
+  els.map.addEventListener('pointermove', queueHover);
+  els.map.addEventListener('pointerdown', queueHover);
+  els.map.addEventListener('pointerleave', () => {
+    hoverEv = null;
+    hideHover();
+  });
 
   let frame = 0;
   /** Store the start view, sync presets and touch-action now, redraw on the next frame. */
@@ -297,6 +391,13 @@ export function startApp(): void {
       writePref(RANK_KEY, rankBy);
     }
     renderKeepingFocus(els.colour, focusSel(btn, attr));
+  });
+  els.startColour.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement).closest('button[data-start-colour]');
+    if (!btn) return;
+    startColour = parseStartColour(btn.getAttribute('data-start-colour'));
+    writePref(START_COLOUR_KEY, startColour);
+    renderKeepingFocus(els.startColour, focusSel(btn, 'data-start-colour'));
   });
   els.start.addEventListener('click', (ev) => {
     const g = (ev.target as Element).closest('g.boat[data-id]');

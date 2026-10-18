@@ -8,6 +8,7 @@ import type { Boat, RaceData } from '../src/data/types';
 import { boatList } from '../src/ui/boats';
 import { pickedExcluded, startSnapshot, trackMap } from '../src/ui/charts';
 import { parsePickerParams } from '../src/ui/params';
+import { startSogRange, trackSogRange } from '../src/ui/sog';
 import { metricsTable } from '../src/ui/table';
 import { c31Race, fixtureRace, j88Race, m24Race, type Fixture } from './helpers';
 
@@ -228,14 +229,32 @@ describe('picking a boat that is not racing', () => {
     expect(startSnapshot(a, '03')).toMatch(/<g class="boat[^"]* nc" data-id="03">/);
   });
 
-  it('in Speed, ranks only competitors; a picked non-competitor stays grey and unranked', () => {
+  it('in Rank, ranks only competitors; a picked non-competitor stays grey and unranked', () => {
     const of = a.boats.filter((b) => b.finishPos != null).length;
-    const svg = trackMap(a, '03', null, { colour: 'speed', rankBy: 'overall' });
+    const svg = trackMap(a, '03', null, { colour: 'rank', rankBy: 'overall' });
     expect(svg).toMatch(/<polyline class="trk on nc"[^>]*stroke="var\(--ink-3\)" stroke-dasharray/);
     expect(svg).toContain('not racing');
     expect(svg).not.toMatch(/data-id="03"[^>]*(?:stroke="#[0-9a-f]{6}"|overall #)/);
     expect(svg).toContain(`overall #1 of ${of}`);
     expect(svg).not.toContain(`#1 of ${of + 1}`);
+  });
+
+  it('in Boat speed, leaves excluded boats out of the scale and keeps a pick grey and dashed', () => {
+    const data = m24Race();
+    const without = analyzeRace({ ...data, boats: data.boats.filter((b) => !NON_COMPETITORS.includes(b.id)) });
+    expect(trackSogRange(a, null)).toEqual(trackSogRange(without, null));
+    expect(startSogRange(a)).toEqual(startSogRange(without));
+    const svg = trackMap(a, '03', null, { colour: 'sog' });
+    expect(svg).toMatch(/<polyline class="trk on nc"[^>]*stroke="var\(--ink-3\)" stroke-dasharray/);
+    expect(svg).toContain('not racing');
+    expect(svg).not.toMatch(/<g class="sog-trk[^"]*" data-id="03"/);
+    const start = startSnapshot(a, '03', undefined, 'speed');
+    expect(start).toMatch(/<g class="boat[^"]* nc" data-id="03">/);
+    expect(start).toMatch(/<polyline class="trail[^"]*nc"[^>]*stroke="var\(--ink-3\)" stroke-dasharray/);
+    expect(start).not.toMatch(/data-id="03"[^>]*sog-fill/);
+    const g = start.match(/<g class="boat[^"]* nc" data-id="03">[\s\S]*?<\/g><\/g>/)?.[0] ?? '';
+    expect(g).toContain('(not racing)');
+    expect(g).not.toContain('sog-fill');
   });
 
   it('adds one unranked row at the foot of the table, leaving the rest as they were', () => {

@@ -10,6 +10,19 @@ import type { BoatDrawing, BoatResult, ExcludedBoat, RaceAnalysis } from '../ana
 import { classDims, type ClassDims } from '../data/classes';
 import type { SpeedRank } from '../analysis/speedRank';
 import { duration, esc, f1 } from './format';
+import {
+  addSogTrack,
+  emptySogPaths,
+  sogFill,
+  sogIndex,
+  sogPathsSvg,
+  startSogRange,
+  trackSogRange,
+  type IndexedTrack,
+  type SogIndex,
+  type SogPaths,
+  type StartColour,
+} from './sog';
 import { casedByDay, speedColor, speedRanking, speedStyle, type RankBy, type SpeedTop, type TrackColour } from './speed';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
 
@@ -178,8 +191,12 @@ export function startHullScale(a: RaceAnalysis, v?: View): ClassDims | null {
   return dims && dims.loaM / startView(a, v).unit >= MIN_HULL_PX ? dims : null;
 }
 
-/** Boats vs the line at the gun: to-scale hulls (or markers) at the bow, START_TRAIL_MS trails. */
-export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: View): string {
+/**
+ * Boats vs the line at the gun: to-scale hulls (or markers) at the bow, START_TRAIL_MS trails.
+ * `colour` 'speed': trails shaded by SOG (ui/sog.ts, range fitted to the trails) and each hull
+ * filled by its SOG at the gun; 'boat' (default): the boat's own colour.
+ */
+export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: View, colour: StartColour = 'boat'): string {
   const { rot, L, R, box, view, unit } = startView(a, v);
   const fleet = a.boats.length;
   const byId = new Map(a.boats.map((b) => [b.id, b]));
@@ -188,6 +205,10 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
   const k = unit;
   const dims = startHullScale(a, v);
   const minCls = startDims(a) && !dims ? ' boat-min' : '';
+  const range = colour === 'speed' ? (startSogRange(a) ?? { lo: 0, hi: 1 }) : null;
+  /** Speed: the whole fleet's trails batched by bin, the dimmed boats in their own group. */
+  const sogTrails = { on: emptySogPaths(), dim: emptySogPaths() };
+  const inBox = (p: Vec): boolean => p[0] > box.x0 && p[0] < box.x1 && p[1] > box.y0 && p[1] < box.y1;
 
   const trails: string[] = [];
   const boats: string[] = [];
@@ -195,42 +216,57 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
   const nc = pickedExcluded(a, highlight);
   const items: { d: BoatDrawing; b: BoatResult; nc: boolean }[] = a.drawings.map((d) => ({ d, b: byId.get(d.id)!, nc: false }));
   if (nc) items.push({ d: nc.drawing, b: nc.result, nc: true });
+  // Speed trails are batched; a picked non-competitor stays a grey dashed polyline on top.
+  const ncTrails: string[] = [];
   for (const { d, b, nc: isNc } of items) {
     const col = boatColor(b, fleet);
     const dim = (highlight && highlight !== d.id ? ' dim' : '') + (isNc ? ' nc' : '');
     const dash = isNc ? ` stroke-dasharray="${(4 * k).toFixed(2)} ${(3 * k).toFixed(2)}"` : '';
-    // Only the parts inside the fit box; a trail that leaves and re-enters is drawn as separate runs.
-    const runs: Vec[][] = [[]];
-    for (let i = 0; i < d.trail.x.length; i++) {
-      const p = rot([d.trail.x[i], d.trail.y[i]]);
-      if (p[0] > box.x0 && p[0] < box.x1 && p[1] > box.y0 && p[1] < box.y1) runs[runs.length - 1].push(p);
-      else if (runs[runs.length - 1].length) runs.push([]);
-    }
-    for (const tr of runs) {
-      if (tr.length > 1) trails.push(`<polyline class="trail${dim}" points="${pts(tr)}" stroke="${col}" stroke-width="${1.5 * k}"${dash}/>`);
+    if (range && !isNc) {
+      const n = d.trail.x.length;
+      const x = new Float64Array(n);
+      const y = new Float64Array(n);
+      for (let i = 0; i < n; i++) [x[i], y[i]] = rot([d.trail.x[i], d.trail.y[i]]);
+      addSogTrack(highlight && highlight !== d.id ? sogTrails.dim : sogTrails.on, x, y, d.trail.t, d.trail.sog, range, (i) => inBox([x[i], y[i]]));
+    } else {
+      // Only the parts inside the fit box; a trail that leaves and re-enters is drawn as separate runs.
+      const runs: Vec[][] = [[]];
+      for (let i = 0; i < d.trail.x.length; i++) {
+        const p = rot([d.trail.x[i], d.trail.y[i]]);
+        if (inBox(p)) runs[runs.length - 1].push(p);
+        else if (runs[runs.length - 1].length) runs.push([]);
+      }
+      const dest = isNc ? ncTrails : trails;
+      for (const tr of runs) {
+        if (tr.length > 1) dest.push(`<polyline class="trail${dim}" points="${pts(tr)}" stroke="${col}" stroke-width="${1.5 * k}"${dash}/>`);
+      }
     }
     if (!d.bow || d.courseAtGun == null || !b.start) continue;
     const [x, y] = rot(d.bow);
     const st = b.start;
+    // Speed: the hull is the biggest thing at the line, so it carries SOG at the gun (the table's Speed @gun),
+    // outlined in ink so the pale fast end still reads by day. A non-competitor stays hollow grey.
+    const paint = range && !isNc ? `${sogFill(st.speedKn, range)} stroke="var(--ink)"` : `fill="${col}" stroke="var(--surface)"`;
+    const sogCls = range && !isNc ? ' sog-fill' : '';
     let shape: string;
     if (dims && d.headingAtSample != null) {
       // True scale, along heading (not COG): the bow tip is the DTL bow point.
       const hull = hullOutline(d.bow, d.headingAtSample, dims).map(rot);
       shape = isNc
         ? `<path class="hull" d="${hullPathD(hull)}" fill="none" stroke="${col}" stroke-width="${1.2 * k}"${dash}/>`
-        : `<path class="hull" d="${hullPathD(hull)}" fill="${col}" stroke="var(--surface)" stroke-width="${0.75 * k}"/>`;
+        : `<path class="hull${sogCls}" d="${hullPathD(hull)}" ${paint} stroke-width="${((range ? 0.5 : 0.75) * k).toFixed(2)}"/>`;
     } else {
       const ang = d.courseAtGun - a.wind.twdAtGunDeg; // screen angle, 0 = up the page (into the wind)
       const s = 10 * unit;
       const tip = `0,${-s * 1.3}`;
-      const tri = `<polygon points="${tip} ${s * 0.7},${s * 0.9} 0,${s * 0.4} ${-s * 0.7},${s * 0.9}" ${
-        isNc ? `fill="none" stroke="${col}"${dash}` : `fill="${col}" stroke="var(--surface)"`
-      } stroke-width="${1.5 * k}"/>`;
+      const tri = isNc
+        ? `<polygon points="${tip} ${s * 0.7},${s * 0.9} 0,${s * 0.4} ${-s * 0.7},${s * 0.9}" fill="none" stroke="${col}"${dash} stroke-width="${1.5 * k}"/>`
+        : `<polygon${range ? ' class="sog-fill"' : ''} points="${tip} ${s * 0.7},${s * 0.9} 0,${s * 0.4} ${-s * 0.7},${s * 0.9}" ${paint} stroke-width="${((range ? 1 : 1.5) * k).toFixed(2)}"/>`;
       const ring = minCls ? `<circle class="min-ring" r="${13 * unit}" stroke="${col}" stroke-width="${k}" stroke-dasharray="${2 * k} ${2 * k}"/>` : '';
       shape = `<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">${ring}<g transform="rotate(${ang.toFixed(1)})">${tri}</g></g>`;
     }
     boats.push(`<g class="boat${minCls}${dim}" data-id="${esc(b.id)}">
-      <title>#${esc(b.sail)}${isNc ? ' (not racing)' : ''}: ${st.rank ? `${f1(st.rank.m)} m behind (${st.rank.source === 'vakaros' ? `Vakaros; ours ${st.dtlGapS != null ? '~' : ''}${f1(st.dtlM)} m` : 'our track check'})` : `no reliable distance (ours ~${f1(st.dtlM)} m)`}${st.lateS != null ? `, ${f1(st.lateS)} s late` : ''}, ${f1(st.speedKn)} kn</title>
+      <title>#${esc(b.sail)}${isNc ? ' (not racing)' : ''}: ${st.rank ? `${f1(st.rank.m)} m behind (${st.rank.source === 'vakaros' ? `Vakaros; ours ${st.dtlGapS != null ? '~' : ''}${f1(st.dtlM)} m` : 'our track check'})` : `no reliable distance (ours ~${f1(st.dtlM)} m)`}${st.lateS != null ? `, ${f1(st.lateS)} s late` : ''}, SOG ${f1(st.speedKn)} kn at the gun</title>
       <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${16 * unit}" fill="transparent"/>
       ${shape}
       <g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
@@ -244,9 +280,21 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     <text x="${L[0]}" y="${L[1] - 11 * unit}" font-size="${11 * k}" text-anchor="middle" class="endlbl">PIN</text>
     <text x="${R[0]}" y="${R[1] - 11 * unit}" font-size="${11 * k}" text-anchor="middle" class="endlbl">RC</text>`;
 
+  if (range) {
+    const g = (acc: SogPaths, dim: string): string => {
+      const body = sogPathsSvg(acc, 2, k);
+      return body ? `<g class="trail sog${dim}" stroke-width="${(2 * k).toFixed(2)}">${body}</g>` : '';
+    };
+    trails.push(g(sogTrails.dim, ' dim'), g(sogTrails.on, ''));
+  }
+  trails.push(...ncTrails);
+  const label = range
+    ? `Boats relative to the start line at the gun (Vakaros timing); trails and hulls coloured by speed over ground, ${f1(range.lo)} to ${f1(range.hi)} kn: dark purple slowest, yellow-green fastest`
+    : 'Boats relative to the start line at the gun (Vakaros timing)';
+
   return `<svg viewBox="${view.x0} ${view.y0} ${w} ${h}" class="chart start" role="img"
     shape-rendering="geometricPrecision"
-    aria-label="Boats relative to the start line at the gun (Vakaros timing)">
+    aria-label="${esc(label)}">
     ${trails.join('')}${lineSvg}${boats.join('')}
     ${windArrow(view, unit, k, 'wind (est.)')}${scaleBar(view, unit, k)}</svg>`;
 }
@@ -283,11 +331,14 @@ export function mapBox(a: RaceAnalysis, leg: number | null = null): Box {
 }
 
 export interface TrackMapOptions {
-  /** 'leg' (default): one colour per leg. 'speed': plasma and emphasis by elapsed-time rank (ui/speed.ts). */
+  /**
+   * 'leg' (default): one colour per leg. 'rank': plasma and emphasis by
+   * elapsed-time rank (ui/speed.ts). 'sog': viridis by each boat's own SOG (ui/sog.ts).
+   */
   colour?: TrackColour;
-  /** Whole race in Speed: rank each leg's segment on that leg, or the whole track by race time. */
+  /** Whole race in Rank: rank each leg's segment on that leg, or the whole track by race time. */
   rankBy?: RankBy;
-  /** Speed: colour only the top N (per leg when ranking each leg); the rest faint grey. Default all. */
+  /** Rank: colour only the top N (per leg when ranking each leg); the rest faint grey. Default all. */
   top?: SpeedTop;
 }
 
@@ -302,7 +353,62 @@ function speedTitle(who: string, legName: string, r: SpeedRank | undefined, over
   return `${who} · ${legName} · ${overall ? 'overall ' : ''}#${r.rank} of ${r.of}${time}`;
 }
 
-/** Whole-race tracks coloured by leg (or by speed rank), or only leg `leg` (fitted to it). */
+/** Each boat's drawn segments (leg `leg`, or all) in map coordinates, as the map draws them. */
+function mapTracks(a: RaceAnalysis, leg: number | null): IndexedTrack[] {
+  const rot = rotator(a.wind.twdAtGunDeg);
+  const out: IndexedTrack[] = [];
+  for (const d of a.drawings) {
+    for (const seg of d.segments) {
+      if (leg != null && seg.leg !== leg) continue;
+      const n = seg.x.length;
+      const x = new Float64Array(n);
+      const y = new Float64Array(n);
+      for (let i = 0; i < n; i++) [x[i], y[i]] = rot([seg.x[i], seg.y[i]]);
+      out.push({ id: d.id, x, y, t: seg.t, sog: seg.sog });
+    }
+  }
+  return out;
+}
+
+/** Stroke widths in Boat speed, map units: everyone, and the selected boat. */
+const SOG_W = 1.4;
+const SOG_W_ON = 2.6;
+
+/**
+ * Colour: Boat speed. Per boat, a group of batched paths (ui/sog.ts); with a
+ * selection, everyone else dimmed and the selected boat last, thicker, over
+ * an ink outline.
+ */
+function sogLayer(a: RaceAnalysis, highlight: string | null, leg: number | null, k: number): string {
+  const r = trackSogRange(a, leg) ?? { lo: 0, hi: 1 };
+  const byBoat = new Map<string, SogPaths>();
+  for (const tk of mapTracks(a, leg)) {
+    let acc = byBoat.get(tk.id);
+    if (!acc) byBoat.set(tk.id, (acc = emptySogPaths()));
+    addSogTrack(acc, tk.x, tk.y, tk.t, tk.sog, r);
+  }
+  const out: string[] = [];
+  let sel = '';
+  for (const [id, acc] of byBoat) {
+    const on = highlight === id;
+    const w = on ? SOG_W_ON : SOG_W;
+    const body = sogPathsSvg(acc, w, k);
+    if (!body) continue;
+    const cls = highlight ? (on ? 'sog-trk on' : 'sog-trk dim') : 'sog-trk';
+    const g = `<g class="${cls}" data-id="${esc(id)}" stroke-width="${(w * k).toFixed(2)}">${body}</g>`;
+    if (on) sel = `<path class="sog-sel" d="${acc.bins.join('')}" stroke-width="${((w + 2.4) * k).toFixed(2)}"/>${g}`;
+    else out.push(g);
+  }
+  return out.join('') + sel;
+}
+
+/** The hover lookup for the map in Boat speed: every drawn fix of leg `leg` (or all), in map coordinates. */
+export function trackSogIndex(a: RaceAnalysis, leg: number | null): SogIndex {
+  const box = mapBox(a, leg);
+  return sogIndex(mapTracks(a, leg), Math.max(box.x1 - box.x0, box.y1 - box.y0) / 120);
+}
+
+/** Whole-race tracks coloured by leg (or by speed rank, or boat speed), or only leg `leg` (fitted to it). */
 export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number | null = null, opts: TrackMapOptions = {}): string {
   const rot = rotator(a.wind.twdAtGunDeg);
   const box = mapBox(a, leg);
@@ -313,18 +419,21 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   const sw = (width: number): string => `stroke-width="${(width * k).toFixed(2)}"`;
   const byId = new Map(a.boats.map((b) => [b.id, b]));
   const legName = (i: number): string => a.legs[i]?.name ?? `Leg ${i + 1}`;
-  const speed = opts.colour === 'speed' ? speedRanking(a, leg, opts.rankBy ?? 'leg') : null;
+  const speed = opts.colour === 'rank' ? speedRanking(a, leg, opts.rankBy ?? 'leg') : null;
+  const sog = opts.colour === 'sog' ? trackSogRange(a, leg) : null;
   // A picked boat that isn't racing: grey and dashed on top, split at the fleet's
-  // leg times. It never moves the fit, and Speed never ranks it.
+  // leg times. It never moves the fit, and Rank / Boat speed never colour it.
   const nc = pickedExcluded(a, highlight);
   if (nc) byId.set(nc.result.id, nc.result);
   const drawings = nc ? [...a.drawings, nc.drawing] : a.drawings;
 
-  const paths: string[] = [];
+  const paths: string[] = opts.colour === 'sog' ? [sogLayer(a, highlight, leg, k)] : [];
   const hi: string[] = [];
-  /** Speed mode: [draw order, svg]; unranked first, then slowest → fastest, the selection last. */
+  /** Rank mode: [draw order, svg]; unranked first, then slowest → fastest, the selection last. */
   const ordered: [number, string][] = [];
-  for (const d of drawings) {
+  // Boat speed draws its own layer (above); the per-segment polylines are for Leg
+  // and Rank. A picked non-competitor is still a grey dashed polyline in every mode.
+  for (const d of opts.colour === 'sog' ? (nc ? [nc.drawing] : []) : drawings) {
     const isNc = d === nc?.drawing;
     const who = esc(boatLabel(byId.get(d.id), d.id));
     for (const seg of d.segments) {
@@ -400,12 +509,15 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
         })()
       : '';
 
+  const sogLabel = opts.colour === 'sog' ? `coloured by boat speed (SOG)${sog ? `, ${f1(sog.lo)} to ${f1(sog.hi)} kn` : ''}: dark purple slowest, through teal, to yellow-green fastest` : '';
   const label =
     leg == null
       ? speed
         ? `Tracks coloured by speed, ${speed.overall ? 'race time' : 'rank on each leg'}: yellow and boldest fastest`
-        : 'Tracks coloured by leg'
-      : `Tracks on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', coloured by speed on the leg: yellow and boldest fastest' : ''}`;
+        : sogLabel
+          ? `Tracks ${sogLabel}`
+          : 'Tracks coloured by leg'
+      : `Tracks on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', coloured by speed on the leg: yellow and boldest fastest' : sogLabel ? `, ${sogLabel}` : ''}`;
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map" role="img" aria-label="${esc(label)}">
     ${paths.join('')}${hi.join('')}
     <line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>${finish}${marks}

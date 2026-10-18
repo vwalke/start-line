@@ -1,5 +1,5 @@
 /**
- * "Colour: Speed" for the track map: a reversed plasma scale, the rank-based
+ * "Colour: Rank" for the track map: a reversed plasma scale, the rank-based
  * emphasis (opacity and width), the saved viewing preferences, and the controls
  * + key beside the leg legend. Fastest = bright yellow, through orange, red and
  * magenta, to slowest = deep purple.
@@ -171,14 +171,17 @@ export function speedStyle(r: SpeedRank | undefined, top: SpeedTop, sel: Selecti
 
 // ---- preference -------------------------------------------------------------
 
-export type TrackColour = 'leg' | 'speed';
+/** 'leg': one colour per leg. 'rank': this module (elapsed-time rank). 'sog': boat speed (ui/sog.ts). */
+export type TrackColour = 'leg' | 'rank' | 'sog';
 export type RankBy = 'leg' | 'overall';
 
 export const COLOUR_KEY = 'recall.trackColour';
 export const RANK_KEY = 'recall.rankBy';
 export const TOP_KEY = 'recall.speedTop';
 
-export const parseTrackColour = (raw: string | null | undefined): TrackColour => (raw === 'speed' ? 'speed' : 'leg');
+/** The stored value; 'speed' is what rank colouring was saved as before Boat speed existed. */
+export const parseTrackColour = (raw: string | null | undefined): TrackColour =>
+  raw === 'rank' || raw === 'speed' ? 'rank' : raw === 'sog' ? 'sog' : 'leg';
 export const parseRankBy = (raw: string | null | undefined): RankBy => (raw === 'overall' ? 'overall' : 'leg');
 export const parseSpeedTop = (raw: string | null | undefined): SpeedTop => (raw === '3' ? 3 : raw === '10' ? 10 : 'all');
 
@@ -231,15 +234,16 @@ function seg(label: string, short: string, attr: string, value: string, opts: [s
 }
 
 /**
- * "Colour: Leg | Speed"; in Speed, "Rank by: Each leg | Overall" for the whole
- * race and "Highlight: Top 3 | Top 10 | All".
+ * "Colour: Leg | Rank | Boat speed"; in Rank, "Rank by: Each leg | Overall"
+ * for the whole race and "Highlight: Top 3 | Top 10 | All".
  */
 export function colourControls(colour: TrackColour, rankBy: RankBy, leg: number | null, top: SpeedTop = 'all'): string {
   const c = seg('Colour tracks by', 'Colour', 'data-colour', colour, [
     ['leg', 'Leg'],
-    ['speed', 'Speed'],
+    ['rank', 'Rank'],
+    ['sog', 'Boat speed'],
   ]);
-  if (colour !== 'speed') return c;
+  if (colour !== 'rank') return c;
   const rank =
     leg == null
       ? seg('Rank by', 'Rank by', 'data-rank', rankBy, [
@@ -261,7 +265,7 @@ export function colourControls(colour: TrackColour, rankBy: RankBy, leg: number 
 const gradient = (scheme: 'light' | 'dark'): string =>
   `linear-gradient(to right, ${[0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1].map((t) => speedColor(t, scheme)).join(', ')})`;
 
-/** The key under the legend in Speed mode: the gradient, what it spans, and the grey notes. */
+/** The key under the legend in Rank mode: the gradient, what it spans, and the grey notes. */
 export function speedKey(a: RaceAnalysis, leg: number | null, rankBy: RankBy, top: SpeedTop = 'all'): string {
   const r = speedRanking(a, leg, rankBy);
   const legs = leg == null ? a.legs.map((l) => l.index) : [leg];
