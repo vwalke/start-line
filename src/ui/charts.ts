@@ -10,7 +10,7 @@ import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { classDims, type ClassDims } from '../data/classes';
 import type { SpeedRank } from '../analysis/speedRank';
 import { duration, esc, f1 } from './format';
-import { CASED_BELOW_T, speedColor, speedRanking, type RankBy, type TrackColour } from './speed';
+import { casedByDay, speedColor, speedRanking, speedStyle, type RankBy, type SpeedTop, type TrackColour } from './speed';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
 
 const SLOTS = 8;
@@ -267,10 +267,12 @@ export function mapBox(a: RaceAnalysis, leg: number | null = null): Box {
 }
 
 export interface TrackMapOptions {
-  /** 'leg' (default): one colour per leg. 'speed': viridis by elapsed-time rank (ui/speed.ts). */
+  /** 'leg' (default): one colour per leg. 'speed': plasma and emphasis by elapsed-time rank (ui/speed.ts). */
   colour?: TrackColour;
   /** Whole race in Speed: rank each leg's segment on that leg, or the whole track by race time. */
   rankBy?: RankBy;
+  /** Speed: colour only the top N (per leg when ranking each leg); the rest faint grey. Default all. */
+  top?: SpeedTop;
 }
 
 /** "#851 Name", as the boat list labels boats. */
@@ -318,22 +320,24 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
       }
       const r = speed.at(d.id, seg.leg);
       const on = highlight === d.id;
-      const fade = highlight && !on ? ' fade' : '';
+      const st = speedStyle(r, opts.top ?? 'all', on ? 'this' : highlight ? 'other' : 'none');
       const title = `<title>${esc(speedTitle(boatLabel(byId.get(d.id), d.id), legName(seg.leg), r, speed.overall))}</title>`;
       const attrs = `data-leg="${seg.leg}" data-id="${esc(d.id)}" points="${p}"`;
+      // Grey strokes are classed by why (unranked / out of the top N), coloured ones by tier.
+      const cls = ['trk spd', st.t == null ? st.kind : st.tier, on ? 'on' : ''].filter(Boolean).join(' ');
+      const op = `stroke-opacity="${st.opacity.toFixed(2)}"`;
       let svg: string;
-      if (!r) {
-        const dash = `stroke-dasharray="${(3 * k).toFixed(2)} ${(2.5 * k).toFixed(2)}"`;
-        svg = `<polyline class="trk spd unranked${on ? ' on' : fade}" ${attrs} ${sw(on ? 2 : 0.9)} ${dash}>${title}</polyline>`;
+      if (st.t == null) {
+        const dash = st.kind === 'unranked' ? ` stroke-dasharray="${(3 * k).toFixed(2)} ${(2.5 * k).toFixed(2)}"` : '';
+        svg = `<polyline class="${cls}" ${attrs} ${sw(st.width)} ${op}${dash}>${title}</polyline>`;
       } else {
-        const width = on ? 3 : r.rank <= 3 ? 2.2 : 1.4;
-        // Selection: an ink casing under the boat's own colour. Otherwise, by day, a thin dark casing under the pale fast end.
+        // Selection: an ink outline under the boat's own colour. Otherwise, by day, a thin dark casing under the pale fast end, as faint as its stroke.
         const casing = on
-          ? `<polyline class="spd-sel" points="${p}" ${sw(width + 2.4)}/>`
-          : r.t < CASED_BELOW_T
-            ? `<polyline class="spd-case${fade}" points="${p}" ${sw(width + 1)}/>`
+          ? `<polyline class="spd-sel" points="${p}" ${sw(st.width + 2.4)}/>`
+          : casedByDay(st.t)
+            ? `<polyline class="spd-case" points="${p}" ${sw(st.width + 1)} stroke-opacity="${(0.55 * st.opacity).toFixed(2)}"/>`
             : '';
-        svg = `${casing}<polyline class="trk spd${r.rank <= 3 ? ' top' : ''}${on ? ' on' : fade}" ${attrs} stroke="${speedColor(r.t)}" style="--cd:${speedColor(r.t, 'dark')}" ${sw(width)}>${title}</polyline>`;
+        svg = `${casing}<polyline class="${cls}" ${attrs} stroke="${speedColor(st.t)}" style="--cd:${speedColor(st.t, 'dark')}" ${sw(st.width)} ${op}>${title}</polyline>`;
       }
       ordered.push([on ? 2 : r ? 1 - r.t : -1, svg]);
     }
@@ -369,9 +373,9 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   const label =
     leg == null
       ? speed
-        ? `Tracks coloured by speed, ${speed.overall ? 'race time' : 'rank on each leg'}: brightest fastest`
+        ? `Tracks coloured by speed, ${speed.overall ? 'race time' : 'rank on each leg'}: yellow and boldest fastest`
         : 'Tracks coloured by leg'
-      : `Tracks on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', coloured by speed on the leg: brightest fastest' : ''}`;
+      : `Tracks on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', coloured by speed on the leg: yellow and boldest fastest' : ''}`;
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map" role="img" aria-label="${esc(label)}">
     ${paths.join('')}${hi.join('')}
     <line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>${finish}${marks}

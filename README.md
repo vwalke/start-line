@@ -26,11 +26,15 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 - **Tracks by leg:** a map in local metres (no map tiles), rotated so the wind
   comes from the top. The legend picks one leg and zooms the map to it.
 - **Colour by speed:** an optional `Colour: Speed` switch beside the legend
-  shades each boat by its elapsed-time rank (viridis: brightest = fastest,
-  top 3 thicker and on top; grey dashed = didn't complete). On one leg it
+  shades each boat by its elapsed-time rank (reversed plasma: yellow =
+  fastest, through orange and magenta to purple = slowest). Rank also sets
+  opacity and width: the top 3 bold and on top, the rest of the top quartile
+  strong, the slower half faint; grey dashed = didn't complete. On one leg it
   ranks that leg; on the whole race it ranks each leg's segment on that leg,
-  or the whole track by race time (`Rank by: Overall`). Hover a track for its
-  rank and time. The choice is remembered in this browser.
+  or the whole track by race time (`Rank by: Overall`). `Highlight: Top 3 /
+  Top 10` greys out everyone else and spreads the colours over just those.
+  Selecting a boat draws it bold whatever its rank. Hover a track for its
+  rank and time. The choices are remembered in this browser.
 - **Findings:** plain-English notes: favoured end, best and worst start, the
   biggest single-leg gain and loss, the quickest boats upwind and downwind,
   places gained or lost, and a wind cross-check.

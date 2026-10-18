@@ -1,9 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
-import { legRanks, overallRanks, raceLegRanks } from '../src/analysis/speedRank';
+import { legRanks, overallRanks, raceLegRanks, type SpeedRank } from '../src/analysis/speedRank';
 import type { BoatResult, LegResult } from '../src/analysis/types';
 import { legColor, trackMap } from '../src/ui/charts';
-import { colourControls, parseRankBy, parseTrackColour, readPref, SPEED_RANGE, speedColor, speedKey, viridis, writePref } from '../src/ui/speed';
+import {
+  casedByDay,
+  colourControls,
+  contrast,
+  luminance,
+  parseRankBy,
+  parseSpeedTop,
+  parseTrackColour,
+  plasma,
+  readPref,
+  SELECTION_DIM,
+  SPEED_BG,
+  SPEED_RANGE,
+  speedColor,
+  speedEmphasis,
+  speedKey,
+  speedStyle,
+  TOP_KEY,
+  topLimit,
+  writePref,
+  type Emphasis,
+  type SpeedStyle,
+} from '../src/ui/speed';
 import { fixtureRace } from './helpers';
 
 const leg = (timeS: number, distGapS: number | null = null): LegResult => ({
@@ -109,45 +131,166 @@ describe('overall ranking', () => {
 });
 
 describe('speed colour scale', () => {
-  it('hits the viridis ends and clamps out-of-range input', () => {
-    expect(viridis(0)).toBe('#440154');
-    expect(viridis(1)).toBe('#fde725');
-    expect(viridis(0.5)).toBe('#21918c');
-    expect(viridis(-3)).toBe('#440154');
-    expect(viridis(9)).toBe('#fde725');
-    expect(viridis(NaN)).toBe('#440154');
+  it('hits the plasma ends and clamps out-of-range input', () => {
+    expect(plasma(0)).toBe('#0d0887');
+    expect(plasma(1)).toBe('#f0f921');
+    expect(plasma(0.5)).toBe('#cc4778');
+    expect(plasma(-3)).toBe('#0d0887');
+    expect(plasma(9)).toBe('#f0f921');
+    expect(plasma(NaN)).toBe('#0d0887');
   });
 
   it('outputs #rrggbb', () => {
     for (let t = 0; t <= 1; t += 0.05) {
-      expect(viridis(t)).toMatch(/^#[0-9a-f]{6}$/);
+      expect(plasma(t)).toMatch(/^#[0-9a-f]{6}$/);
       expect(speedColor(t)).toMatch(/^#[0-9a-f]{6}$/);
       expect(speedColor(t, 'dark')).toMatch(/^#[0-9a-f]{6}$/);
     }
   });
 
   it('puts the fastest at the bright end of each scheme slice', () => {
-    expect(speedColor(0, 'light')).toBe(viridis(SPEED_RANGE.light[1]));
-    expect(speedColor(1, 'light')).toBe(viridis(SPEED_RANGE.light[0]));
-    expect(speedColor(0, 'dark')).toBe('#fde725');
-    expect(speedColor(1, 'dark')).toBe(viridis(0.25));
+    expect(speedColor(0, 'light')).toBe(plasma(SPEED_RANGE.light[1]));
+    expect(speedColor(1, 'light')).toBe('#0d0887');
+    expect(speedColor(0, 'dark')).toBe('#f0f921');
+    expect(speedColor(1, 'dark')).toBe(plasma(SPEED_RANGE.dark[0]));
     expect(speedColor(-1)).toBe(speedColor(0));
     expect(speedColor(2)).toBe(speedColor(1));
+    expect(speedColor(NaN)).toBe(speedColor(1));
   });
 
-  it('gets monotonically darker from fastest to slowest', () => {
-    const lum = (hex: string): number => {
-      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
+  it('gets monotonically darker (relative luminance) from fastest to slowest in both schemes', () => {
     for (const scheme of ['light', 'dark'] as const) {
       let prev = Infinity;
       for (let t = 0; t <= 1.0001; t += 0.02) {
-        const l = lum(speedColor(t, scheme));
+        const l = luminance(speedColor(t, scheme));
         expect(l).toBeLessThanOrEqual(prev + 1e-9);
         prev = l;
       }
     }
+    // and the plasma table itself rises monotonically
+    let prev = -1;
+    for (let v = 0; v <= 1.0001; v += 0.01) {
+      expect(luminance(plasma(v))).toBeGreaterThanOrEqual(prev - 1e-9);
+      prev = luminance(plasma(v));
+    }
+  });
+
+  it('keeps both ends visible: night slowest ≥ 2.5:1 on #171d26, day slowest dark, pale day strokes cased', () => {
+    expect(contrast('#ffffff', '#000000')).toBeCloseTo(21);
+    expect(contrast(speedColor(1, 'dark'), SPEED_BG.dark)).toBeGreaterThanOrEqual(2.5);
+    expect(contrast(speedColor(0, 'dark'), SPEED_BG.dark)).toBeGreaterThan(12);
+    expect(contrast(speedColor(1, 'light'), SPEED_BG.light)).toBeGreaterThan(12);
+    // the day fastest is a deeper yellow-orange than plasma's own end, but still pale, so cased
+    expect(contrast(speedColor(0, 'light'), SPEED_BG.light)).toBeGreaterThan(contrast(plasma(1), SPEED_BG.light));
+    expect(casedByDay(0)).toBe(true);
+    expect(casedByDay(1)).toBe(false);
+    for (let t = 0; t <= 1; t += 0.05) expect(casedByDay(t)).toBe(contrast(speedColor(t), '#ffffff') < 3);
+  });
+});
+
+describe('speed emphasis', () => {
+  const run = (n: number): Emphasis[] => Array.from({ length: n }, (_, i) => speedEmphasis(i + 1, n));
+
+  it('gives the top 3 full opacity and the thickest stroke', () => {
+    const e = run(52);
+    const maxW = Math.max(...e.map((x) => x.width));
+    for (const x of e.slice(0, 3)) expect(x).toEqual({ tier: 'top', opacity: 1, width: maxW });
+    expect(e[3].width).toBeLessThan(maxW);
+  });
+
+  it('keeps the rest of the top quartile strong', () => {
+    const e = run(52);
+    for (const x of e.slice(3, 13)) {
+      expect(x.tier).toBe('strong');
+      expect(x.opacity).toBeGreaterThanOrEqual(0.85);
+      expect(x.opacity).toBeLessThanOrEqual(0.9);
+    }
+    expect(e[13].tier).toBe('rest');
+  });
+
+  it('fades the slower half to 0.15–0.3 and thin', () => {
+    const e = run(52);
+    for (const x of e.slice(26)) {
+      expect(x.opacity).toBeGreaterThanOrEqual(0.15 - 1e-9);
+      expect(x.opacity).toBeLessThanOrEqual(0.3 + 1e-9);
+      expect(x.width).toBeGreaterThanOrEqual(0.9 - 1e-9);
+      expect(x.width).toBeLessThanOrEqual(1 + 1e-9);
+    }
+    expect(e[51].opacity).toBeCloseTo(0.15);
+    // steep: past the quartile it drops fast
+    expect(e[13].opacity).toBeLessThan(0.8);
+    expect(e[19].opacity).toBeLessThan(0.5);
+  });
+
+  it('never increases with rank, for any fleet size', () => {
+    for (const n of [1, 2, 3, 4, 5, 6, 8, 9, 12, 16, 20, 33, 52, 120]) {
+      const e = run(n);
+      for (let i = 1; i < n; i++) {
+        expect(e[i].opacity).toBeLessThanOrEqual(e[i - 1].opacity + 1e-9);
+        expect(e[i].width).toBeLessThanOrEqual(e[i - 1].width + 1e-9);
+      }
+    }
+  });
+
+  it('treats small fleets sensibly: everyone visible, top 3 still emphasised', () => {
+    expect(run(1).map((x) => x.tier)).toEqual(['top']);
+    expect(run(3).every((x) => x.tier === 'top' && x.opacity === 1)).toBe(true);
+    for (const n of [4, 6, 8]) {
+      const e = run(n);
+      expect(e.slice(0, 3).every((x) => x.tier === 'top')).toBe(true);
+      expect(Math.min(...e.map((x) => x.opacity))).toBeGreaterThanOrEqual(0.3);
+    }
+    // out-of-range input clamps rather than exploding
+    expect(speedEmphasis(0, 10)).toEqual(speedEmphasis(1, 10));
+    expect(speedEmphasis(99, 10)).toEqual(speedEmphasis(10, 10));
+    expect(speedEmphasis(NaN, 10)).toEqual(speedEmphasis(10, 10));
+  });
+});
+
+describe('Highlight: Top N and selection', () => {
+  const rank = (r: number, of: number): SpeedRank => ({ rank: r, of, timeS: 100 + r, gapS: null, t: of > 1 ? (r - 1) / (of - 1) : 0 });
+
+  it('parses the stored value, defaulting to All', () => {
+    expect(parseSpeedTop('3')).toBe(3);
+    expect(parseSpeedTop('10')).toBe(10);
+    for (const bad of [null, undefined, '', 'all', '5', 'top3', ' 3']) expect(parseSpeedTop(bad)).toBe('all');
+    expect(TOP_KEY).toBe('recall.speedTop');
+  });
+
+  it('greys boats outside N and stretches the scale over ranks 1..N', () => {
+    const s = (r: number): SpeedStyle => speedStyle(rank(r, 52), 10, 'none');
+    expect(s(1).t).toBe(0);
+    expect(s(10).t).toBe(1);
+    expect(s(5).t).toBeCloseTo(4 / 9);
+    expect(s(10).tier).toBe('strong');
+    expect(s(11)).toMatchObject({ kind: 'out', t: null, tier: null });
+    expect(s(11).opacity).toBeCloseTo(0.2);
+    expect(s(11).width).toBeLessThan(1);
+    expect(speedStyle(rank(3, 52), 3, 'none')).toMatchObject({ t: 1, tier: 'top', opacity: 1 });
+  });
+
+  it('behaves like All when N covers the fleet', () => {
+    for (let r = 1; r <= 8; r++) expect(speedStyle(rank(r, 8), 10, 'none')).toEqual(speedStyle(rank(r, 8), 'all', 'none'));
+    expect(topLimit(10, 10)).toBeNull();
+    expect(topLimit(3, 10)).toBe(3);
+    expect(topLimit('all', 3)).toBeNull();
+    expect(speedStyle(rank(8, 8), 'all', 'none').t).toBe(1);
+  });
+
+  it('draws a selected slow boat at full opacity and thick, in its colour, and dims the rest', () => {
+    const me = speedStyle(rank(50, 52), 'all', 'this');
+    expect(me).toMatchObject({ kind: 'ranked', opacity: 1, selected: true });
+    expect(me.t).toBeCloseTo(49 / 51);
+    expect(me.width).toBeGreaterThanOrEqual(speedEmphasis(1, 52).width);
+    const outside = speedStyle(rank(30, 52), 3, 'this');
+    expect(outside).toMatchObject({ opacity: 1, t: 1 });
+    const other = speedStyle(rank(1, 52), 'all', 'other');
+    expect(other.opacity).toBeCloseTo(1 * SELECTION_DIM);
+    expect(other.width).toBe(speedEmphasis(1, 52).width);
+    expect(speedStyle(undefined, 'all', 'none')).toMatchObject({ kind: 'unranked', t: null });
+    expect(speedStyle(undefined, 'all', 'none').opacity).toBeCloseTo(0.25);
+    expect(speedStyle(undefined, 'all', 'other').opacity).toBeCloseTo(0.25 * SELECTION_DIM);
+    expect(speedStyle(undefined, 'all', 'this').opacity).toBe(1);
   });
 });
 
@@ -185,12 +328,23 @@ describe('colour preference', () => {
     expect(colourControls('speed', 'overall', null)).toContain('data-rank="overall" aria-pressed="true"');
     expect(colourControls('speed', 'leg', 1)).not.toContain('data-rank');
   });
+
+  it('offers Highlight: Top 3 | Top 10 | All only in Speed, defaulting to All', () => {
+    expect(colourControls('leg', 'leg', null, 3)).not.toContain('data-top');
+    const def = colourControls('speed', 'leg', null);
+    expect(def).toContain('aria-label="Highlight the fastest"');
+    expect(def).toContain('data-top="all" aria-pressed="true"');
+    expect(def).toContain('data-top="3" aria-pressed="false"');
+    expect(colourControls('speed', 'leg', 1, 10)).toContain('data-top="10" aria-pressed="true"');
+    expect(colourControls('speed', 'leg', 1, 10)).toMatch(/>Top 3<.*>Top 10<.*>All</);
+  });
 });
 
 describe('track map in Speed', () => {
   const a = analyzeRace(fixtureRace());
   const polylines = (svg: string): string[] => [...svg.matchAll(/<polyline class="trk[^"]*"[^>]*>[\s\S]*?<\/polyline>/g)].map((m) => m[0]);
   const width = (p: string): number => Number(/ stroke-width="([\d.]+)"/.exec(p)![1]);
+  const opacity = (p: string): number => Number(/ stroke-opacity="([\d.]+)"/.exec(p)![1]);
 
   it('leaves the Leg colouring as it was, with a boat · leg tooltip', () => {
     const svg = trackMap(a, null, 1);
@@ -202,7 +356,7 @@ describe('track map in Speed', () => {
     expect(ps[0]).toMatch(/<title>#\S+.* · .+<\/title>/);
   });
 
-  it('colours one leg by rank with viridis, fastest on top, top 3 thicker', () => {
+  it('colours one leg by rank with plasma, fastest on top, top 3 thicker', () => {
     const svg = trackMap(a, null, 1, { colour: 'speed' });
     const ps = polylines(svg).filter((p) => !p.includes('unranked'));
     expect(ps.length).toBeGreaterThan(3);
@@ -249,14 +403,87 @@ describe('track map in Speed', () => {
     expect(speedKey(a, null, 'overall')).toMatch(/race time.*\d+:\d\d → \d+:\d\d/);
   });
 
-  it('puts a selected boat on top with a casing and fades the rest', () => {
-    const id = a.boats[3].id;
-    const svg = trackMap(a, id, 1, { colour: 'speed' });
+  it('puts a selected boat on top, full opacity with an outline, and dims the rest', () => {
+    const plain = trackMap(a, null, 1, { colour: 'speed' });
+    const slowest = [...legRanks(a.boats, 1).entries()].pop()![0];
+    const svg = trackMap(a, slowest, 1, { colour: 'speed' });
     const ps = polylines(svg);
-    expect(ps[ps.length - 1]).toContain(`data-id="${id}"`);
-    expect(ps[ps.length - 1]).toContain(' on');
+    const me = ps[ps.length - 1];
+    expect(me).toContain(`data-id="${slowest}"`);
+    expect(me).toContain(' on');
+    expect(opacity(me)).toBe(1);
+    expect(me).toContain(`stroke="${speedColor(1)}"`);
     expect(svg).toMatch(/<polyline class="spd-sel"[^>]*\/><polyline class="trk spd[^"]* on"/);
-    expect(ps.filter((p) => !p.includes(`data-id="${id}"`)).every((p) => p.includes(' fade'))).toBe(true);
+    // everyone else: their own emphasis × the selection dim
+    const ranks = legRanks(a.boats, 1);
+    expect(polylines(plain).length).toBe(ps.length);
+    for (const p of ps.filter((q) => !q.includes(`data-id="${slowest}"`))) {
+      const r = ranks.get(/data-id="([^"]+)"/.exec(p)![1])!;
+      // written to 2 decimals
+      expect(Math.abs(opacity(p) - speedEmphasis(r.rank, r.of).opacity * SELECTION_DIM)).toBeLessThanOrEqual(0.0051);
+    }
+  });
+
+  it('sets stroke-opacity per stroke by rank, with no group opacity classes', () => {
+    const svg = trackMap(a, null, 1, { colour: 'speed' });
+    const ps = polylines(svg);
+    expect(ps.every((p) => / stroke-opacity="[\d.]+"/.test(p))).toBe(true);
+    const ranks = legRanks(a.boats, 1);
+    for (const p of ps) {
+      const id = /data-id="([^"]+)"/.exec(p)![1];
+      const r = ranks.get(id)!;
+      expect(opacity(p)).toBeCloseTo(speedEmphasis(r.rank, r.of).opacity, 2);
+    }
+    expect(new Set(ps.map(opacity)).size).toBeGreaterThan(1);
+    expect(svg).not.toContain(' fade');
+    // the pale-by-day casing fades with its stroke
+    const cased = [...svg.matchAll(/<polyline class="spd-case"[^>]*stroke-opacity="([\d.]+)"/g)].map((m) => Number(m[1]));
+    expect(cased.length).toBeGreaterThan(0);
+    expect(cased.every((o) => o > 0 && o <= 0.55)).toBe(true);
+  });
+
+  it('with Top 3, greys everyone else (solid, faint, thin) and spans the colours over 1..3', () => {
+    const svg = trackMap(a, null, 1, { colour: 'speed', top: 3 });
+    const ps = polylines(svg);
+    const out = ps.filter((p) => /class="trk spd out"/.test(p));
+    const ranks = legRanks(a.boats, 1);
+    expect(out.length).toBe([...ranks.values()].filter((r) => r.rank > 3).length);
+    for (const p of out) {
+      expect(p).not.toContain('stroke-dasharray');
+      expect(p).not.toMatch(/ stroke="#/);
+      expect(opacity(p)).toBeCloseTo(0.2, 2);
+      expect(p).toMatch(/#[4-9] of \d+/); // tooltip keeps the true rank
+    }
+    const third = ps.find((p) => /<title>[^<]*#3 of/.test(p))!;
+    expect(third).toContain(`stroke="${speedColor(1)}"`);
+    // out-of-N drawn under the coloured ones
+    expect(ps.findIndex((p) => !p.includes(' out'))).toBeGreaterThanOrEqual(out.length);
+    expect(speedKey(a, 1, 'leg', 3)).toMatch(/fastest → #3 on this leg.*\d+:\d\d → \d+:\d\d.*others grey/s);
+  });
+
+  it('treats Top N ≥ fleet as All', () => {
+    expect(trackMap(a, null, 1, { colour: 'speed', top: 10 })).toBe(trackMap(a, null, 1, { colour: 'speed' }));
+    expect(speedKey(a, 1, 'leg', 10)).toBe(speedKey(a, 1, 'leg'));
+    expect(speedKey(a, 1, 'leg')).not.toContain('others grey');
+  });
+
+  it('applies Top N per leg in Each leg mode, by overall rank in Overall', () => {
+    const svg = trackMap(a, null, null, { colour: 'speed', top: 3 });
+    const ps = polylines(svg);
+    const per = raceLegRanks(a.boats, a.legs.length);
+    for (const l of a.legs) {
+      for (const [id, r] of per[l.index]) {
+        const p = ps.find((q) => q.includes(`data-leg="${l.index}"`) && q.includes(`data-id="${id}"`))!;
+        expect(p.includes('class="trk spd out"')).toBe(r.rank > 3);
+      }
+    }
+    expect(speedKey(a, null, 'leg', 3)).toContain('fastest → #3 on each leg');
+    expect(speedKey(a, null, 'leg', 3)).toContain('#1 → #3');
+    const o = overallRanks(a.boats);
+    for (const p of polylines(trackMap(a, null, null, { colour: 'speed', rankBy: 'overall', top: 3 }))) {
+      const r = o.get(/data-id="([^"]+)"/.exec(p)![1]);
+      if (r) expect(p.includes('class="trk spd out"')).toBe(r.rank > 3);
+    }
   });
 
   it('shows the time range for a single leg in the key', () => {
