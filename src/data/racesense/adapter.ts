@@ -4,11 +4,12 @@
  * normalized `RaceData`. Pure functions only; fetching lives in api.ts so
  * the same code runs against the offline fixtures in tests.
  */
-import type { Boat, CourseMark, LatLon, Line, MarkTrack, RaceData, RcStart, Track, WindSample } from '../types';
+import type { Boat, CourseMark, EntryResults, LatLon, Line, MarkTrack, RaceData, RcStart, Track, WindSample } from '../types';
 import type {
   Course,
   Division,
   FeedPoint,
+  Finish,
   Race,
   RegattaDoc,
   RegattaResponse,
@@ -219,6 +220,64 @@ function median(xs: number[]): number {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
+/**
+ * A finish is plausible when the device sailed at least this share of the
+ * race's median distance: the spare and judge trackers that "finish" from a
+ * committee boat log 1–2 km against the fleet's 7–15 km.
+ */
+export const FINISH_MIN_DIST_FRAC = 0.5;
+/** …and its max speed is at most this multiple of the race's median max (a media RIB logged 23 kt vs ~14). */
+export const FINISH_MAX_SPEED_X = 1.6;
+/** Fewer finishes than this with a figure and the race has no usable median for that test. */
+const FINISH_MEDIAN_MIN = 3;
+
+const num = (x: number | null | undefined): number | null => (x != null && Number.isFinite(x) && x > 0 ? x : null);
+
+/** Why a finish looks wrong against its race's medians, or null when it looks like a real one. */
+function implausibleFinish(f: Finish, medDist: number | null, medMax: number | null): string | null {
+  const d = num(f.distanceTraveled);
+  const v = num(f.maxSpeed);
+  if (d != null && medDist != null && d < FINISH_MIN_DIST_FRAC * medDist) {
+    return `the feed has it sailing ${(d / 1000).toFixed(1)} km against the fleet's ${(medDist / 1000).toFixed(1)} km`;
+  }
+  if (v != null && medMax != null && v > FINISH_MAX_SPEED_X * medMax) {
+    return `the feed has a max speed of ${Math.round(v)} kt against the fleet's ${Math.round(medMax)} kt`;
+  }
+  return null;
+}
+
+/** Event-wide results per sail number: every non-practice race of the division that has finishes. */
+export function entryResults(div: Division, race: Race): Map<string, EntryResults> {
+  const out = new Map<string, EntryResults>();
+  const get = (sail: string): EntryResults => {
+    let e = out.get(sail);
+    if (!e) out.set(sail, (e = { racesWithResults: 0, plausibleFinishes: 0, finishPlausible: null }));
+    return e;
+  };
+  const raced = (div.races ?? []).filter((r) => !r.isPractice && r.finishes?.length);
+  for (const p of div.participants ?? []) get(p.sailNumber);
+  for (const r of raced) {
+    const fins = r.finishes;
+    const dists = fins.map((f) => num(f.distanceTraveled)).filter((x): x is number => x != null);
+    const maxes = fins.map((f) => num(f.maxSpeed)).filter((x): x is number => x != null);
+    const medDist = dists.length >= FINISH_MEDIAN_MIN ? median(dists) : null;
+    const medMax = maxes.length >= FINISH_MEDIAN_MIN ? median(maxes) : null;
+    const bySail = new Map(fins.map((f) => [f.sailNumber, f]));
+    for (const [sail, e] of out) {
+      e.racesWithResults++;
+      const f = bySail.get(sail);
+      if (!f) continue;
+      const why = implausibleFinish(f, medDist, medMax);
+      if (!why) e.plausibleFinishes++;
+      if (r === race) {
+        e.finishPlausible = !why;
+        if (why) e.finishNote = why;
+      }
+    }
+  }
+  return out;
+}
+
 function courseAt(div: Division, gunMs: number): Course | null {
   const cs = [...(div.courses ?? [])].sort((a, b) => (a.validFrom ?? 0) - (b.validFrom ?? 0));
   let found: Course | null = cs[0] ?? null;
@@ -410,6 +469,7 @@ export function buildRaceData(
   const finishes = new Map((race.finishes ?? []).map((f) => [f.sailNumber, f]));
   const ocs = new Set((st.ocsParticipants ?? []).filter((s) => !(st.clearedOcs ?? []).includes(s)));
   const defaultBowCm = div.offsetOverrideCm ?? 0;
+  const entries = entryResults(div, race);
 
   const boats: Boat[] = [];
   for (const p of div.participants ?? []) {
@@ -436,6 +496,8 @@ export function buildRaceData(
       ocs: ocs.has(sail),
       rcDtlM: rc.status === 'ok' ? rc.dtlM : null,
       rc,
+      ...(p.bowNumber ? { bowNumber: p.bowNumber } : {}),
+      ...(entries.has(sail) ? { entry: entries.get(sail)! } : {}),
     });
   }
   if (!boats.length) throw new Error('No boat tracks in the telemetry for this race');

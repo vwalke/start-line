@@ -79,6 +79,11 @@ export interface Finish {
   sailNumber: string;
   serialNumber?: string;
   finishingTime: string;
+  /** The device's distance sailed in the race, m. */
+  distanceTraveled?: number | null;
+  /** The device's max speed in the race, kt. */
+  maxSpeed?: number | null;
+  raceNumber?: number | null;
   lineLeftLocation?: { coordinates: [number, number] };
   lineRightLocation?: { coordinates: [number, number] };
 }

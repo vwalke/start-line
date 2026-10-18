@@ -6,7 +6,7 @@
  * at the top and bottom of the course: course.ts), TWD from steady upwind
  * tack headings, VMG from displacement along the wind.
  */
-import type { RaceData } from '../data/types';
+import type { Boat, RaceData } from '../data/types';
 import { pathDistance } from './distance';
 import { buildFindings } from './findings';
 import {
@@ -28,6 +28,7 @@ import {
 } from './geo';
 import { fleetTurns, isOffset, legCourse, legsAgree, snapTurns } from './course';
 import { inferRoundings, splitLegs, type Waypoint } from './legs';
+import { classifyParticipation } from './participation';
 import { projectTrack, rangeIdx, type XYTrack } from './prepare';
 import {
   START_TRAIL_MS,
@@ -71,8 +72,32 @@ function fleetWarning(data: RaceData, courseWps: Waypoint[], turnMarks: (Waypoin
 
 export { START_TRAIL_MS };
 
-export function analyzeRace(data: RaceData): RaceAnalysis {
+export interface AnalyzeOptions {
+  /** Treat every boat as a competitor (`nc=all`): no participation filtering. */
+  allCompetitors?: boolean;
+}
+
+const tagOf = (b: Boat): string => (b.name && b.name !== `#${b.sail}` ? `#${b.sail} (${b.name})` : `#${b.sail}`);
+
+export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAnalysis {
   const warnings: string[] = [];
+  // Who is racing: boats judged not racing are set aside before anything is
+  // measured, so they can't move the legs, the wind, the fleet medians or a rank.
+  const participation = classifyParticipation(input);
+  const flagged = input.boats.filter((b) => participation.get(b.id)?.status === 'non-competitor');
+  // Never set the whole fleet aside (nothing would be left to compare against).
+  const setAside = opts.allCompetitors || flagged.length === input.boats.length ? [] : flagged;
+  const asideIds = new Set(setAside.map((b) => b.id));
+  // A finish the event results show to be implausible (the feed's own distance
+  // or max speed is far off the fleet's) doesn't count for ranking; finishMs stays raw on the input.
+  const competitors = input.boats
+    .filter((b) => !asideIds.has(b.id))
+    .map((b) => {
+      if (b.finishMs == null || b.entry?.finishPlausible !== false) return b;
+      warnings.push(`Not ranking ${tagOf(b)}'s finish: ${b.entry.finishNote ?? 'it looks implausible against the fleet'}.`);
+      return { ...b, finishMs: null };
+    });
+  const data: RaceData = { ...input, boats: competitors };
   const gun = data.gunMs;
   const sl = data.startLine;
   const proj = makeProjection({ lat: (sl.left.lat + sl.right.lat) / 2, lon: (sl.left.lon + sl.right.lon) / 2 });
@@ -304,9 +329,8 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
   const finishOrder = finishers.map((b) => b.id);
   const results: BoatResult[] = [];
   const drawings: BoatDrawing[] = [];
-  for (const b of data.boats) {
-    const tr = tracks.get(b.id)!;
-    const tt = times.get(b.id)!;
+  /** One boat's figures and drawing. Unranked (a boat set aside): start figures only, no legs or finish place. */
+  const measure = (b: Boat, tr: XYTrack, tt: (number | null)[], ranked: boolean): { result: BoatResult; drawing: BoatDrawing } => {
     let start: StartResult | null = null;
     let trail = { x: new Float32Array(0), y: new Float32Array(0) };
     let courseAtGun: number | null = null;
@@ -379,7 +403,7 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
     for (let li = 0; li < nLegs; li++) {
       const a = tt[li];
       const e = tt[li + 1];
-      if (a == null || e == null || e <= a) {
+      if (!ranked || a == null || e == null || e <= a) {
         legResults.push(null);
         continue;
       }
@@ -400,7 +424,7 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
     let sogAvgKn: number | null = null;
     let distNm: number | null = null;
     let distApprox = false;
-    if (b.finishMs != null && b.finishMs > gun) {
+    if (ranked && b.finishMs != null && b.finishMs > gun) {
       raceTimeS = (b.finishMs - gun) / 1000;
       // Gun → finish in one pass; equals the sum of the legs when every leg was split.
       const d = pathDistance(tr.t, tr.x, tr.y, gun, b.finishMs);
@@ -408,12 +432,12 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       distApprox = d.distGapS != null;
       sogAvgKn = d.distNm / (raceTimeS / 3600);
     }
-    const pos = finishOrder.indexOf(b.id);
-    results.push({
+    const pos = ranked ? finishOrder.indexOf(b.id) : -1;
+    const result: BoatResult = {
       id: b.id,
       sail: b.sail,
       name: b.name,
-      colorSlot: sailOrder.indexOf(b),
+      colorSlot: ranked ? sailOrder.indexOf(b) : -1,
       finishPos: pos >= 0 ? pos + 1 : null,
       finishMs: b.finishMs,
       raceTimeS,
@@ -422,7 +446,7 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       distApprox,
       start,
       legs: legResults,
-    });
+    };
 
     const segments: TrackSegment[] = [];
     for (let li = 0; li < nLegs; li++) {
@@ -441,7 +465,7 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       }
       segments.push({ leg: li, x: Float32Array.from(xs), y: Float32Array.from(ys) });
     }
-    drawings.push({
+    const drawing: BoatDrawing = {
       id: b.id,
       trail,
       bow: start?.bow ?? null,
@@ -449,8 +473,27 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       headingAtSample,
       courseAtGun,
       segments,
-    });
+    };
+    return { result, drawing };
+  };
+  for (const b of data.boats) {
+    const m = measure(b, tracks.get(b.id)!, times.get(b.id)!, true);
+    results.push(m.result);
+    drawings.push(m.drawing);
   }
+
+  // Boats set aside: drawn over the fleet's median leg times (their own turns
+  // aren't legs), up to the last competitor's finish or the end of the track.
+  const fleetTimes = Array.from({ length: nLegs + 1 }, (_, k) => {
+    if (k === 0) return gun;
+    const ts = data.boats.map((b) => times.get(b.id)![k]).filter((t): t is number => t != null);
+    if (!ts.length) return null;
+    return k === nLegs ? Math.max(...ts) : median(ts);
+  });
+  const excluded = setAside.map((b) => {
+    const m = measure(b, projectTrack(b.track, proj), fleetTimes, false);
+    return { ...m, reasons: participation.get(b.id)!.reasons };
+  });
 
   // A boat stalled or reaching along the line at the gun has ~0 speed toward it;
   // judge its lateness against half the fleet's typical approach speed instead.
@@ -462,6 +505,12 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
     Object.assign(r.start, assessStart(r.start));
   }
   rankStarts(results);
+  // Set-aside boats keep their figures for the chart label, but no place and no flags (a spare on the committee boat is "OCS").
+  for (const { result: r } of excluded) {
+    if (!r.start) continue;
+    r.start.secsLate = r.start.dtlM / Math.max(r.start.vToLineMs, vFloor);
+    Object.assign(r.start, assessStart(r.start), { ocs: false, over: false, ocsBlind: false, warn: null, startPlace: null });
+  }
 
   // Rank at each mark.
   for (let li = 0; li < nLegs; li++) {
@@ -512,6 +561,12 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
   if (rcDiff.length >= 3 && median(rcDiff) > 3) {
     warnings.push(`Vakaros DTL differs from the GPS tracks by a median ${Math.round(median(rcDiff))} m for this start; treat the DTL columns with caution.`);
   }
+  if (excluded.length) {
+    const n = excluded.length;
+    warnings.push(
+      `${n} boat${n > 1 ? 's' : ''} hidden as not racing (coach boats, spare or second trackers); ${n > 1 ? 'they are' : 'it is'} listed at the foot of the boat list.`,
+    );
+  }
 
   const analysis: RaceAnalysis = {
     meta: {
@@ -533,9 +588,11 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
     wind,
     boats: results,
     drawings,
+    excluded,
     findings: [],
     warnings,
   };
+  if (opts.allCompetitors) analysis.allCompetitors = { flagged: flagged.length };
   analysis.findings = buildFindings(analysis);
   return analysis;
 }

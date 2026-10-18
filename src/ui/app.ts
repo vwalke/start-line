@@ -81,6 +81,10 @@ export function startApp(): void {
   /** Table sort (null = finish order) and the map's leg filter; both reset per race. */
   let sort: SortState | null = null;
   let legSel: number | null = null;
+  /** `nc=all`: keep coach/spare boats as competitors (re-analyses when toggled). */
+  let allCompetitors = !!params.allCompetitors;
+  /** The sidebar's "Not racing" group, kept open across re-renders once opened. */
+  let ncOpen = false;
   /** Map colouring: a viewing preference kept across races and visits (not in the URL). */
   let trackColour = parseTrackColour(readPref(COLOUR_KEY));
   let rankBy = parseRankBy(readPref(RANK_KEY));
@@ -152,7 +156,7 @@ export function startApp(): void {
     els.speedKey.hidden = trackColour !== 'speed';
     els.mapSplit.textContent = legSplitCaption(a);
     els.table.innerHTML = metricsTable(a, highlight, sort);
-    els.boats.innerHTML = boatList(a, highlight);
+    els.boats.innerHTML = boatList(a, highlight, ncOpen);
     els.findings.innerHTML = findingsList(a.findings, highlight);
     els.warnings.innerHTML = a.warnings.map((t) => `<li>${esc(t)}</li>`).join('');
     els.warnings.hidden = !a.warnings.length;
@@ -250,8 +254,22 @@ export function startApp(): void {
       highlight = null;
       // Clear disables itself once nothing is selected; keep keyboard focus in the list.
       renderKeepingFocus(els.boats, hadFocus ? 'button[data-id]' : null);
+    } else if (el.closest('button[data-nc]')) {
+      // Keep everyone as a competitor (`nc=all`), or go back to setting coach/spare boats aside: a fresh analysis.
+      allCompetitors = el.closest('button[data-nc]')!.getAttribute('data-nc') === 'all';
+      setUrl({ nc: allCompetitors ? 'all' : null });
+      const [div, n] = els.race.value.split('|');
+      if (div && n) void loadRace(div, Number(n));
     }
   });
+  // `toggle` doesn't bubble: listen in the capture phase for the "Not racing" group.
+  els.boats.addEventListener(
+    'toggle',
+    (ev) => {
+      if ((ev.target as HTMLElement).matches?.('details.nc-group')) ncOpen = (ev.target as HTMLDetailsElement).open;
+    },
+    true,
+  );
   els.legend.addEventListener('click', (ev) => {
     const btn = (ev.target as HTMLElement).closest('button[data-leg]');
     if (!btn) return;
@@ -293,6 +311,7 @@ export function startApp(): void {
       analysis = await p;
       if (g !== showGen) return;
       highlight = null;
+      ncOpen = false;
       sort = null;
       legSel = null;
       fitBox = startFitBox(analysis);
@@ -308,7 +327,7 @@ export function startApp(): void {
     if (!regatta) return;
     setUrl({ event: eventId, div: division, race: String(raceNumber) });
     try {
-      await show(run({ type: 'live', eventId, regatta, division, raceNumber }));
+      await show(run({ type: 'live', eventId, regatta, division, raceNumber, allCompetitors }));
       setNotice('');
     } catch (e) {
       if (isSuperseded(e)) return;

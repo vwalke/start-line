@@ -166,7 +166,7 @@ npm run lint && npm run typecheck && npm test
   `/api/landing` returns every listed event at once, so this covers the whole
   feed. Typing never loads an event: pick one in the Event list, or press
   Enter when exactly one matches. Esc clears the search; `/` focuses it.
-- Deep links: `?event=<eventId>&div=<division>&race=<n>`.
+- Deep links: `?event=<eventId>&div=<division>&race=<n>`. Add `&nc=all` to keep coach boats and spare trackers as competitors. By default they are set aside, judged from their event results and tracks (`src/analysis/participation.ts`), not from their names.
 
 Tests never touch the network. To regenerate the fixture from raw downloads,
 run `node scripts/make-fixture.mjs <dir-with-raw-json>`. Add `--preset c31` to
