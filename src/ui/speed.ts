@@ -175,15 +175,20 @@ export function speedStyle(r: SpeedRank | undefined, top: SpeedTop, sel: Selecti
 export type TrackColour = 'leg' | 'rank' | 'sog';
 export type RankBy = 'leg' | 'overall';
 
+/** Whole race in Boat speed: colour each leg on its own range (ui/sog.ts), or every leg on the race's. */
+export type SogScale = 'leg' | 'race';
+
 export const COLOUR_KEY = 'recall.trackColour';
 export const RANK_KEY = 'recall.rankBy';
 export const TOP_KEY = 'recall.speedTop';
+export const SOG_SCALE_KEY = 'recall.sogScale';
 
 /** The stored value; 'speed' is what rank colouring was saved as before Boat speed existed. */
 export const parseTrackColour = (raw: string | null | undefined): TrackColour =>
   raw === 'rank' || raw === 'speed' ? 'rank' : raw === 'sog' ? 'sog' : 'leg';
 export const parseRankBy = (raw: string | null | undefined): RankBy => (raw === 'overall' ? 'overall' : 'leg');
 export const parseSpeedTop = (raw: string | null | undefined): SpeedTop => (raw === '3' ? 3 : raw === '10' ? 10 : 'all');
+export const parseSogScale = (raw: string | null | undefined): SogScale => (raw === 'race' ? 'race' : 'leg');
 
 /** localStorage, or null where it's unavailable or throws (private mode, blocked storage). */
 export function readPref(key: string): string | null {
@@ -235,14 +240,30 @@ function seg(label: string, short: string, attr: string, value: string, opts: [s
 
 /**
  * "Colour: Leg | Rank | Boat speed"; in Rank, "Rank by: Each leg | Overall"
- * for the whole race and "Highlight: Top 3 | Top 10 | All".
+ * for the whole race and "Highlight: Top 3 | Top 10 | All"; in Boat speed for
+ * the whole race, "Scale: Per leg | Whole race".
  */
-export function colourControls(colour: TrackColour, rankBy: RankBy, leg: number | null, top: SpeedTop = 'all'): string {
+export function colourControls(
+  colour: TrackColour,
+  rankBy: RankBy,
+  leg: number | null,
+  top: SpeedTop = 'all',
+  sogScale: SogScale = 'leg',
+): string {
   const c = seg('Colour tracks by', 'Colour', 'data-colour', colour, [
     ['leg', 'Leg'],
     ['rank', 'Rank'],
     ['sog', 'Boat speed'],
   ]);
+  if (colour === 'sog') {
+    return leg == null
+      ? c +
+          seg('Scale boat speed colours', 'Scale', 'data-sog-scale', sogScale, [
+            ['leg', 'Per leg'],
+            ['race', 'Whole race'],
+          ])
+      : c;
+  }
   if (colour !== 'rank') return c;
   const rank =
     leg == null

@@ -459,6 +459,7 @@ svg .sog-hover { fill: none; stroke: var(--ink); pointer-events: none; }
   svg .sog-case { display: none; }
 }
 .speed-key .sog-lo, .speed-key .sog-hi { font-variant-numeric: tabular-nums; color: var(--ink); }
+.speed-key .sog-legs { flex-basis: 100%; font-variant-numeric: tabular-nums; }
 .start-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin: 0 0 6px; }
 .start-tools .zoom { margin: 0; }
 .map-wrap { position: relative; }

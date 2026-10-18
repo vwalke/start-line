@@ -20,13 +20,28 @@ import {
   nearestSample,
   segmentTimes,
   parseStartColour,
+  sogHoverLeg,
   sogKey,
+  sogLegKey,
   startColourControls,
   startSogRange,
   trackSogRange,
   type SogIndex,
 } from './sog';
-import { COLOUR_KEY, RANK_KEY, TOP_KEY, colourControls, parseRankBy, parseSpeedTop, parseTrackColour, readPref, speedKey, writePref } from './speed';
+import {
+  COLOUR_KEY,
+  RANK_KEY,
+  SOG_SCALE_KEY,
+  TOP_KEY,
+  colourControls,
+  parseRankBy,
+  parseSogScale,
+  parseSpeedTop,
+  parseTrackColour,
+  readPref,
+  speedKey,
+  writePref,
+} from './speed';
 import { metricsTable, toggleSort, type SortState } from './table';
 import { clampView, clientToChart, fitView, presetActive, type Box, type View } from './view';
 
@@ -105,6 +120,7 @@ export function startApp(): void {
   let rankBy = parseRankBy(readPref(RANK_KEY));
   let speedTop = parseSpeedTop(readPref(TOP_KEY));
   let startColour = parseStartColour(readPref(START_COLOUR_KEY));
+  let sogScale = parseSogScale(readPref(SOG_SCALE_KEY));
   /** Boat speed hover: the map's box and fix lookup, built on first hover after each render. */
   let hover: { box: Box; ix: SogIndex } | null = null;
   let fitBox: Box | null = null;
@@ -171,18 +187,20 @@ export function startApp(): void {
         ? sogKey(startSogRange(a), `Last ${START_TRAIL_MS / 1000} s before the gun; hulls at the gun`, hasGaps(a.drawings.map((d) => d.trail.t)))
         : '';
     els.startKey.hidden = startColour !== 'speed';
-    els.map.innerHTML = trackMap(a, highlight, legSel, { colour: trackColour, rankBy, top: speedTop });
+    els.map.innerHTML = trackMap(a, highlight, legSel, { colour: trackColour, rankBy, top: speedTop, sogScale });
     hover = null;
     els.mapTip.hidden = true;
     els.legend.innerHTML = legLegend(a, legSel);
     // In Rank or Boat speed the leg swatches would read as a colour key for the tracks; the buttons stay, the swatches go.
     els.legend.classList.toggle('speed', trackColour !== 'leg');
-    els.colour.innerHTML = colourControls(trackColour, rankBy, legSel, speedTop);
+    els.colour.innerHTML = colourControls(trackColour, rankBy, legSel, speedTop, sogScale);
     els.speedKey.innerHTML =
       trackColour === 'rank'
         ? speedKey(a, legSel, rankBy, speedTop)
         : trackColour === 'sog'
-          ? sogKey(trackSogRange(a, legSel), legSel == null ? 'Whole race' : `${a.legs[legSel]?.name ?? 'This leg'}`, hasGaps(segmentTimes(a, legSel)))
+          ? legSel == null && sogScale === 'leg'
+            ? sogLegKey(a, hasGaps(segmentTimes(a, null)))
+            : sogKey(trackSogRange(a, legSel), legSel == null ? 'Whole race' : `${a.legs[legSel]?.name ?? 'This leg'}`, hasGaps(segmentTimes(a, legSel)))
           : '';
     els.speedKey.hidden = trackColour === 'leg';
     els.mapSplit.textContent = legSplitCaption(a);
@@ -237,7 +255,7 @@ export function startApp(): void {
     dot.setAttribute('stroke-width', String(1.5 * px));
     const b = a.boats.find((q) => q.id === ix.ids[ix.boat[i]]);
     const who = b ? `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}` : ix.ids[ix.boat[i]];
-    els.mapTip.innerHTML = `<b>${esc(who)}</b><br>${localTime(ix.t[i], a.meta.tzOffsetMs)} <span class="muted">(gun +${duration((ix.t[i] - a.meta.gunMs) / 1000)})</span><br><b>${f1(ix.sog[i])} kn</b> SOG`;
+    els.mapTip.innerHTML = `<b>${esc(who)}</b><br>${localTime(ix.t[i], a.meta.tzOffsetMs)} <span class="muted">(gun +${duration((ix.t[i] - a.meta.gunMs) / 1000)})</span><br><b>${f1(ix.sog[i])} kn</b> SOG<br><span class="muted">${esc(sogHoverLeg(a, ix.leg[i], legSel, sogScale))}</span>`;
     els.mapTip.hidden = false;
     // Beside the pointer, flipped to the left near the right edge.
     const wrap = els.mapTip.parentElement!.getBoundingClientRect();
@@ -373,12 +391,17 @@ export function startApp(): void {
     renderKeepingFocus(els.legend, focusSel(btn, 'data-leg'));
   });
   els.colour.addEventListener('click', (ev) => {
-    const btn = (ev.target as HTMLElement).closest('button[data-colour], button[data-rank], button[data-top]');
+    const btn = (ev.target as HTMLElement).closest('button[data-colour], button[data-rank], button[data-top], button[data-sog-scale]');
     if (!btn) return;
     const colour = btn.getAttribute('data-colour');
     const top = btn.getAttribute('data-top');
+    const scale = btn.getAttribute('data-sog-scale');
     let attr = 'data-rank';
-    if (colour != null) {
+    if (scale != null) {
+      sogScale = parseSogScale(scale);
+      writePref(SOG_SCALE_KEY, sogScale);
+      attr = 'data-sog-scale';
+    } else if (colour != null) {
       trackColour = parseTrackColour(colour);
       writePref(COLOUR_KEY, trackColour);
       attr = 'data-colour';

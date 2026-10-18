@@ -1,23 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import { SOG_GAP_MS, smoothSog } from '../src/analysis/smooth';
-import { START_TRAIL_MS } from '../src/analysis/types';
+import { START_TRAIL_MS, type RaceAnalysis, type TrackSegment } from '../src/analysis/types';
 import { startSnapshot, trackMap, trackSogIndex } from '../src/ui/charts';
 import {
   addSogTrack,
   binPos,
   emptySogPaths,
   hasGaps,
+  legRangeList,
+  legSogRanges,
   nearestSample,
   parseStartColour,
   percentile,
+  scaleLeg,
+  segmentSogRange,
   segmentTimes,
   sogBin,
+  sogHoverLeg,
   SOG_BINS,
   sogCasedByDay,
   sogColor,
   sogIndex,
   sogKey,
+  sogLegKey,
   sogPathsSvg,
   sogRange,
   startColourControls,
@@ -25,7 +31,7 @@ import {
   trackSogRange,
   viridis,
 } from '../src/ui/sog';
-import { contrast, plasma, SPEED_BG } from '../src/ui/speed';
+import { colourControls, contrast, parseSogScale, plasma, SOG_SCALE_KEY, SPEED_BG } from '../src/ui/speed';
 import { fixtureRace, m24Race } from './helpers';
 
 const close = (xs: ArrayLike<number>, ys: number[], d = 5): void => {
@@ -255,8 +261,8 @@ describe('batched SOG paths', () => {
 describe('hover lookup', () => {
   const ix = sogIndex(
     [
-      { id: 'a', x: [0, 10, 20], y: [0, 0, 0], t: [1, 2, 3], sog: [4, 5, 6] },
-      { id: 'b', x: [0, 10], y: [5, 5], t: [7, 8], sog: [1, 2] },
+      { id: 'a', x: [0, 10, 20], y: [0, 0, 0], t: [1, 2, 3], sog: [4, 5, 6], leg: 0 },
+      { id: 'b', x: [0, 10], y: [5, 5], t: [7, 8], sog: [1, 2], leg: 1 },
     ],
     3,
   );
@@ -342,5 +348,141 @@ describe('start chart in Speed', () => {
     expect(startColourControls('speed')).toMatch(/role="group" aria-label="Colour start trails by"/);
     expect(parseStartColour('speed')).toBe('speed');
     for (const bad of [null, undefined, '', 'Speed', 'sog']) expect(parseStartColour(bad)).toBe('boat');
+  });
+});
+
+describe('whole race in Boat speed, scaled per leg', () => {
+  const a = analyzeRace(m24Race());
+  const legs = legSogRanges(a);
+  const beats = a.legs.filter((l) => /^beat/i.test(l.name)).map((l) => trackSogRange(a, l.index)!);
+  const runs = a.legs.filter((l) => /^run/i.test(l.name)).map((l) => trackSogRange(a, l.index)!);
+  const legVals = (leg: number): number[] => a.drawings.flatMap((d) => d.segments.filter((s) => s.leg === leg).flatMap((s) => [...s.sog]));
+  /** The one bin a 2-fix segment of leg `leg` at a steady `kn` lands in. */
+  const binOf = (leg: number, kn: number, scale: 'leg' | 'race'): number => {
+    const acc = emptySogPaths();
+    addSogTrack(acc, [0, 1], [0, 0], [0, 1000], [kn, kn], segmentSogRange(a, leg, null, scale)!);
+    return acc.bins.findIndex(Boolean);
+  };
+
+  it('gives each leg its own fleet range: beats well below runs, each the single-leg range', () => {
+    expect(legs.map((l) => l.name)).toEqual(a.legs.map((l) => l.name));
+    expect(beats.length).toBeGreaterThan(0);
+    expect(runs.length).toBeGreaterThan(0);
+    for (const b of beats) {
+      for (const r of runs) {
+        expect(b.hi).toBeLessThanOrEqual(r.hi - 4);
+        expect(b.lo).toBeLessThan(r.lo);
+      }
+    }
+    a.legs.forEach((l, i) => {
+      expect(legs[i].range).toEqual(sogRange(legVals(l.index)));
+      expect(legs[i].range).toBe(trackSogRange(a, l.index)); // the same cached object
+      expect(segmentSogRange(a, l.index, null, 'leg')).toBe(legs[i].range);
+      expect(segmentSogRange(a, l.index, null, 'race')).toBe(trackSogRange(a, null));
+      // a single-leg view always uses that leg's range, whatever the scale
+      expect(segmentSogRange(a, l.index, l.index, 'race')).toBe(legs[i].range);
+    });
+  });
+
+  it('colours relative to each leg: the top of a beat and of a run share the top bin, unlike on one race range', () => {
+    const beat = a.legs.find((l) => /^beat/i.test(l.name))!.index;
+    const run = a.legs.find((l) => /^run/i.test(l.name))!.index;
+    const [rb, rr] = [trackSogRange(a, beat)!, trackSogRange(a, run)!];
+    expect(binOf(beat, rb.hi, 'leg')).toBe(SOG_BINS - 1);
+    expect(binOf(run, rr.hi, 'leg')).toBe(SOG_BINS - 1);
+    expect(binOf(beat, rb.lo, 'leg')).toBe(0);
+    expect(binOf(run, rr.lo, 'leg')).toBe(0);
+    // Whole race: the beat's top is low on the race-wide scale, the run's at the top.
+    expect(binOf(run, rr.hi, 'race')).toBe(SOG_BINS - 1);
+    expect(binOf(beat, rb.hi, 'race')).toBeLessThan(SOG_BINS / 2);
+    // and the map draws differently under the two scales, Per leg by default
+    const perLeg = trackMap(a, null, null, { colour: 'sog' });
+    expect(trackMap(a, null, null, { colour: 'sog', sogScale: 'leg' })).toBe(perLeg);
+    expect(trackMap(a, null, null, { colour: 'sog', sogScale: 'race' })).not.toBe(perLeg);
+    // A single leg ignores the scale.
+    expect(trackMap(a, null, beat, { colour: 'sog', sogScale: 'race' })).toBe(trackMap(a, null, beat, { colour: 'sog', sogScale: 'leg' }));
+  });
+
+  it('describes the scaling in the map label', () => {
+    const perLeg = trackMap(a, null, null, { colour: 'sog' });
+    const first = legs[0].range!;
+    expect(perLeg).toContain(`aria-label="Tracks coloured by boat speed (SOG), scaled within each leg (${a.legs[0].name} ${first.lo.toFixed(1)}–${first.hi.toFixed(1)}`);
+    expect(perLeg).toContain('dark purple slowest on that leg');
+    const all = trackSogRange(a, null)!;
+    expect(trackMap(a, null, null, { colour: 'sog', sogScale: 'race' })).toContain(
+      `aria-label="Tracks coloured by boat speed (SOG), ${all.lo.toFixed(1)} to ${all.hi.toFixed(1)} kn`,
+    );
+  });
+
+  it('colours any segment before leg 1 on leg 1’s range', () => {
+    const seg = (leg: number, sog: number[]): TrackSegment => ({
+      leg,
+      x: Float32Array.from(sog.map((_, i) => i)),
+      y: new Float32Array(sog.length),
+      t: Float64Array.from(sog.map((_, i) => i * 1000)),
+      sog: Float32Array.from(sog),
+    });
+    const syn = {
+      legs: [
+        { index: 0, name: 'Beat 1' },
+        { index: 1, name: 'Run 1' },
+      ],
+      drawings: [{ id: 'a', segments: [seg(-1, [20, 20, 20]), seg(0, [4, 5, 6, 5, 4]), seg(1, [10, 12, 14, 12])] }],
+    } as unknown as RaceAnalysis;
+    expect(scaleLeg(-1)).toBe(0);
+    expect(scaleLeg(2)).toBe(2);
+    const r1 = trackSogRange(syn, 0)!;
+    expect(r1).toEqual(sogRange([4, 5, 6, 5, 4]));
+    expect(segmentSogRange(syn, -1, null, 'leg')).toBe(r1);
+    expect(segmentSogRange(syn, -1, null, 'race')).toBe(trackSogRange(syn, null));
+    expect(sogHoverLeg(syn, -1, null, 'leg')).toBe(`Before leg 1 · range ${r1.lo.toFixed(1)}–${r1.hi.toFixed(1)} kn`);
+    expect(legRangeList(syn)).toBe(`Beat 1 ${r1.lo.toFixed(1)}–${r1.hi.toFixed(1)} · Run 1 10.0–14.0 kn`);
+  });
+
+  it('stores the scale as recall.sogScale, Per leg unless "race"', () => {
+    expect(SOG_SCALE_KEY).toBe('recall.sogScale');
+    expect(parseSogScale('race')).toBe('race');
+    expect(parseSogScale('leg')).toBe('leg');
+    for (const bad of [null, undefined, '', 'Race', 'whole', 'all']) expect(parseSogScale(bad)).toBe('leg');
+  });
+
+  it('offers Scale only in Boat speed with all legs, and keys Per leg with each leg’s range', () => {
+    const c = colourControls('sog', 'leg', null, 'all', 'leg');
+    expect(c).toMatch(/<div class="seg" role="group" aria-label="Scale boat speed colours"><span class="seg-lbl" aria-hidden="true">Scale<\/span>/);
+    expect(c).toContain('<button type="button" data-sog-scale="leg" aria-pressed="true">Per leg</button>');
+    expect(c).toContain('<button type="button" data-sog-scale="race" aria-pressed="false">Whole race</button>');
+    expect(colourControls('sog', 'leg', null, 'all', 'race')).toContain('data-sog-scale="race" aria-pressed="true"');
+    expect(colourControls('sog', 'leg', null)).toContain('data-sog-scale="leg" aria-pressed="true"'); // default
+    for (const other of [colourControls('sog', 'leg', 1, 'all', 'leg'), colourControls('rank', 'leg', null), colourControls('leg', 'leg', null)]) {
+      expect(other).not.toContain('data-sog-scale');
+    }
+    const key = sogLegKey(a, hasGaps(segmentTimes(a, null)));
+    expect(key).toContain('<span class="sog-lo">slow</span>');
+    expect(key).toContain('<span class="sog-hi">fast</span>');
+    expect(key).toContain('slow → fast within each leg');
+    const list = legs.map((l) => `${l.name} ${l.range!.lo.toFixed(1)}–${l.range!.hi.toFixed(1)}`).join(' · ');
+    expect(key).toContain(`<span class="sog-legs">${list} kn</span>`);
+    expect(key).not.toContain(' kn</span><span class="spd-bar'); // no knots on the shared bar
+    // Gap note is one flex item, before the 100%-width legs list (not a stray "·" after it).
+    expect(hasGaps(segmentTimes(a, null))).toBe(true);
+    expect(key).toContain('<span> · <span class="spd-none" aria-hidden="true"></span> grey dashed = telemetry gap</span><span class="sog-legs">');
+    expect(key.indexOf('grey dashed = telemetry gap')).toBeLessThan(key.indexOf('class="sog-legs"'));
+    // Whole race keeps the kn-labelled key
+    expect(sogKey(trackSogRange(a, null), 'Whole race')).toContain(`<span class="sog-lo">${trackSogRange(a, null)!.lo.toFixed(1)} kn</span>`);
+  });
+
+  it('knows each hovered fix’s leg and its range', () => {
+    const ix = trackSogIndex(a, null);
+    expect(ix.leg.length).toBe(ix.x.length);
+    const leg = a.legs[a.legs.length > 2 ? 2 : 0];
+    const fixes = a.drawings.flatMap((d) => d.segments.filter((s) => s.leg === leg.index)).reduce((n, s) => n + s.x.length, 0);
+    expect(ix.leg.filter((l) => l === leg.index).length).toBe(fixes);
+    const i = ix.leg.findIndex((l) => l === leg.index);
+    expect(nearestSample(ix, ix.x[i], ix.y[i], 0.001)).toBeGreaterThanOrEqual(0);
+    const r = trackSogRange(a, leg.index)!;
+    expect(sogHoverLeg(a, ix.leg[i], null, 'leg')).toBe(`${leg.name} · range ${r.lo.toFixed(1)}–${r.hi.toFixed(1)} kn`);
+    expect(sogHoverLeg(a, ix.leg[i], null, 'race')).toBe(leg.name);
+    expect(sogHoverLeg(a, ix.leg[i], leg.index, 'leg')).toBe(leg.name);
+    expect(trackSogIndex(a, leg.index).leg.every((l) => l === leg.index)).toBe(true);
   });
 });

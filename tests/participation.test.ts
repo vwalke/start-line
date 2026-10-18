@@ -243,6 +243,7 @@ describe('picking a boat that is not racing', () => {
     const data = m24Race();
     const without = analyzeRace({ ...data, boats: data.boats.filter((b) => !NON_COMPETITORS.includes(b.id)) });
     expect(trackSogRange(a, null)).toEqual(trackSogRange(without, null));
+    for (const l of a.legs) expect(trackSogRange(a, l.index)).toEqual(trackSogRange(without, l.index));
     expect(startSogRange(a)).toEqual(startSogRange(without));
     const svg = trackMap(a, '03', null, { colour: 'sog' });
     expect(svg).toMatch(/<polyline class="trk on nc"[^>]*stroke="var\(--ink-3\)" stroke-dasharray/);
