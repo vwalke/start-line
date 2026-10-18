@@ -365,6 +365,8 @@ svg .finishline { stroke: var(--ink-2); stroke-dasharray: 4 3; }
 svg .pin { fill: var(--s4); stroke: var(--ink); }
 svg .rc { fill: var(--ink); }
 svg .mark { fill: var(--s4); stroke: var(--ink); }
+svg .mark.est { fill: none; stroke: var(--ink-2); }
+svg text.lbl.est { fill: var(--ink-2); font-weight: 400; font-style: italic; }
 svg text { fill: var(--ink); font-family: inherit; }
 svg text.lbl { font-weight: 600; }
 svg text.sub, svg text.endlbl { fill: var(--ink-2); }

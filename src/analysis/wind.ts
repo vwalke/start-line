@@ -4,6 +4,7 @@
  * the true wind; their bisector is the TWD estimate.
  */
 import { circMean, gradientAt, median, wrap180 } from './geo';
+import type { LegKind } from './types';
 
 export interface HeadingSeries {
   t: ArrayLike<number>;
@@ -78,6 +79,32 @@ export function estimateTwd(headings: number[]): { twdDeg: number; tackAngleDeg:
   const tackAngleDeg = Math.abs(wrap180(centers[0] - centers[1]));
   if (tackAngleDeg < 45 || tackAngleDeg > 130) return null;
   return { twdDeg: circMean(centers), tackAngleDeg };
+}
+
+/**
+ * Did the fleet sail two steady headings either side of `axisDeg` (tacks
+ * about the wind upwind, gybes about the downwind direction)? Both clusters
+ * need a fair share and must sit on opposite sides, at least 10° off it.
+ */
+export function straddles(headings: number[], axisDeg: number): boolean {
+  if (headings.length < 30) return false;
+  const { centers, counts } = tackModes(headings);
+  if (Math.min(...counts) < 0.15 * headings.length) return false;
+  const a = wrap180(centers[0] - axisDeg);
+  const b = wrap180(centers[1] - axisDeg);
+  return Math.sign(a) !== Math.sign(b) && Math.abs(a) >= 10 && Math.abs(b) >= 10 && Math.abs(wrap180(centers[0] - centers[1])) >= 30;
+}
+
+/**
+ * Beat within 50° of upwind, Run within 50° of downwind; in the next 20°
+ * band only if the fleet tacked (`tacked`) or gybed (`gybed`) on the leg;
+ * anything else is a Reach.
+ */
+export function classifyLeg(courseDeg: number, twdDeg: number, tacked = false, gybed = false): LegKind {
+  const d = Math.abs(wrap180(courseDeg - twdDeg));
+  if (d <= 50 || (d <= 70 && tacked)) return 'upwind';
+  if (d >= 130 || (d >= 110 && gybed)) return 'downwind';
+  return 'reach';
 }
 
 /** Piecewise-linear TWD through (t, twd) estimates, clamped at the ends. */

@@ -61,7 +61,7 @@ async function handle(req: WorkerRequest): Promise<RaceAnalysis> {
   if (data.course.length === 0 && (findRace(doc, ref).div.courses?.[0]?.achievements?.length ?? 0) > 2) {
     progress('Fetching mark positions…');
     const extra = await fetchTelemetry(req.eventId, null, gun, gun + 60_000, { finished });
-    const markOnly = extra.map((p) => ({ Fields: p.Fields, Rows: p.Rows.filter((r) => r[p.Fields.indexOf('role')] === 'mark') }));
+    const markOnly = extra.map((p) => ({ Fields: p.Fields, Rows: p.Rows?.filter((r) => r[p.Fields!.indexOf('role')] === 'mark') ?? null }));
     data = buildRaceData(req.regatta, ref, [...pages, ...markOnly], { eventId: req.eventId, wind });
     extra.length = 0;
   }

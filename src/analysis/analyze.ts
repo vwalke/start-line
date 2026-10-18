@@ -1,8 +1,10 @@
 /**
  * The analysis pipeline: RaceData in, RaceAnalysis out. Ported from the
  * Python prototype (analyze.py): local ENU projection, bow-corrected DTL,
- * secs late from velocity toward the line, legs split at mark approaches,
- * TWD from steady upwind tack headings, VMG from displacement along the wind.
+ * secs late from velocity toward the line, legs split at mark approaches
+ * (or, when the trackers are missing or out of order, where the fleet turned
+ * at the top and bottom of the course: course.ts), TWD from steady upwind
+ * tack headings, VMG from displacement along the wind.
  */
 import type { RaceData } from '../data/types';
 import { pathDistance } from './distance';
@@ -24,6 +26,7 @@ import {
   wrap180,
   type Vec,
 } from './geo';
+import { fleetTurns, isOffset, legCourse, legsAgree, snapTurns } from './course';
 import { inferRoundings, splitLegs, type Waypoint } from './legs';
 import { projectTrack, rangeIdx, type XYTrack } from './prepare';
 import {
@@ -41,16 +44,30 @@ import {
   type WindInfo,
 } from './types';
 import { assessStart, rankStarts, sampleGap } from './validity';
-import { estimateTwd, makeTwdAt, steadyIndices } from './wind';
+import { classifyLeg, estimateTwd, makeTwdAt, steadyIndices, straddles } from './wind';
 
 const centroid = (ps: Vec[]): Vec => scale(ps.reduce((a, b) => add(a, b), [0, 0] as Vec), 1 / ps.length);
 
-function legKind(bearing: number, twd: number): LegKind {
-  const d = Math.abs(wrap180(bearing - twd));
-  return d < 60 ? 'upwind' : d > 120 ? 'downwind' : 'reach';
-}
-
 const KIND_NAME: Record<LegKind, string> = { upwind: 'Beat', downwind: 'Run', reach: 'Reach' };
+
+const listOf = (xs: string[]): string => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+
+/** Why the legs come from the fleet's turns rather than the mark trackers, in plain words. */
+function fleetWarning(data: RaceData, courseWps: Waypoint[], turnMarks: (Waypoint | null)[], legs: LegDef[]): string {
+  const silent = [...new Set(data.courseUntracked ?? [])];
+  const tracked = [...new Set(courseWps.map((w) => w.name))];
+  const why: string[] = [];
+  if (silent.length) why.push(`${listOf(silent)} sent no tracker positions`);
+  if (tracked.length) why.push(`the tracked marks (${listOf(tracked)}) don't give the order the fleet rounded them`);
+  if (!silent.length && !tracked.length) why.push('the feed has no mark trackers for this course');
+  const est = [...new Set(legs.filter((_, i) => i < turnMarks.length && !turnMarks[i]).map((l) => l.to.toLowerCase()))];
+  const offset = courseWps.some(isOffset) || silent.some((n) => /offset/i.test(n));
+  return (
+    `Legs are split where each boat turned at the top and bottom of the course, because ${why.join(' and ')}.` +
+    (est.length ? ` The ${listOf(est)} ${est.length > 1 ? 'are' : 'is'} placed from the tracks (est.).` : '') +
+    (offset ? ' The offset mark is counted as part of the following run.' : '')
+  );
+}
 
 export { START_TRAIL_MS };
 
@@ -86,6 +103,8 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
     return wp;
   });
   const byKey = new Map(courseWps.map((w) => [w.key, w]));
+  // Candidate legs from the mark trackers; their warnings only apply if they are used.
+  const markWarnings: string[] = [];
   let wps = courseWps;
   let legSource: RaceAnalysis['legSource'] = courseWps.length ? 'course' : 'none';
   const finishers = data.boats.filter((b) => b.finishMs != null).sort((a, b) => a.finishMs! - b.finishMs!);
@@ -97,13 +116,13 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
     if (inferred.length >= 2 && inferred.every((s) => s === inferred[0]) && inferred[0] && inferred[0] !== courseSeq) {
       wps = inferred[0].split('|').map((k) => byKey.get(k)!);
       legSource = 'tracks';
-      warnings.push('Leg order inferred from the leaders’ tracks (it differs from the course list in the feed).');
+      markWarnings.push('Leg order inferred from the leaders’ tracks (it differs from the course list in the feed).');
     }
   }
 
   // Split once, then treat a course as shortened if most finishers never
   // completed it (keep the longest prefix that most of them did).
-  const times = new Map<string, (number | null)[]>();
+  let times = new Map<string, (number | null)[]>();
   for (const b of data.boats) times.set(b.id, splitLegs(tracks.get(b.id)!, gun, wps, b.finishMs));
   if (wps.length && finishers.length) {
     const nWp = wps.length;
@@ -119,15 +138,49 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
       const dropped = wps.slice(k).map((w) => w.name);
       wps = wps.slice(0, k);
       for (const [id, tt] of times) times.set(id, k === nWp ? tt : [...tt.slice(0, k + 1), tt[tt.length - 1]]);
-      warnings.push(
+      markWarnings.push(
         `The fleet didn't sail the full course in the feed; treating it as shortened (skipping ${dropped.join(', ')}).`,
       );
     }
   }
 
+  // ---- the fleet's own turns at the top and bottom of the course. The mark
+  // legs stand when they agree with them (or the geometry is unsure).
+  const fleetBoats = data.boats.map((b) => ({ id: b.id, tr: tracks.get(b.id)!, finishMs: b.finishMs }));
+  let fleet = fleetTurns(fleetBoats, gun);
+  if (!fleet.confident) {
+    // Wide one-tack beats can make the positions' principal axis run across the
+    // course; retry along the wind from the first minutes' tacks.
+    const hs: number[] = [];
+    for (const b of data.boats) {
+      const tr = tracks.get(b.id)!;
+      for (const i of steadyIndices(tr, gun + 40_000, gun + 8 * 60_000)) hs.push(tr.heading[i]);
+    }
+    const early = estimateTwd(hs);
+    const retry = early ? fleetTurns(fleetBoats, gun, bearingVec(early.twdDeg)) : null;
+    if (retry?.confident) fleet = retry;
+  }
+  const marksAgree = wps.length > 0 && legsAgree(times, fleet.times, finishers.map((b) => b.id));
+  /** Per consensus turn, the mark tracker it was snapped to; null when the mark legs are used. */
+  let turnMarks: (Waypoint | null)[] | null = null;
+  if (fleet.confident && !marksAgree) {
+    turnMarks = snapTurns(fleet, tracks, courseWps);
+    times = fleet.times;
+    wps = [];
+    legSource = 'fleet';
+  } else {
+    warnings.push(...markWarnings);
+  }
+  const nLegs = turnMarks ? turnMarks.length + 1 : wps.length + 1;
+  const turnXY = (k: number): Vec => {
+    const wp = turnMarks?.[k];
+    if (!turnMarks) return centroid(wps[k].xy);
+    return wp ? centroid(wp.at ? wp.at(fleet.turns[k].tMs) : wp.xy) : fleet.turns[k].xy;
+  };
+
   // Course side: toward the first mark, else where the fleet is a minute after the gun.
   let nrm: Vec = [-ldir[1], ldir[0]];
-  const firstTarget = wps.length ? centroid(wps[0].xy) : null;
+  const firstTarget = nLegs > 1 ? turnXY(0) : null;
   if (firstTarget) {
     if (dot(sub(firstTarget, lineMid), nrm) < 0) nrm = scale(nrm, -1);
   } else {
@@ -137,12 +190,39 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
     if (side < 0) nrm = scale(nrm, -1);
   }
 
-  // Leg geometry: waypoint centres, from the line to the finish.
+  // Leg courses: the fleet's median displacement bearing over each leg, else
+  // the bearing between the leg's ends (line, turns, finish).
   const finishPt = finishLine ? centroid([finishLine.left, finishLine.right]) : lineMid;
-  const pts: Vec[] = [lineMid, ...wps.map((w) => centroid(w.xy)), finishPt];
+  const pts: Vec[] = [lineMid, ...Array.from({ length: nLegs - 1 }, (_, k) => turnXY(k)), finishPt];
   const legBearings = pts.slice(1).map((p, i) => vecBearing(sub(p, pts[i])));
+  // Leg 1 alone: gun → each boat's first turn; with no turns, the first 8 min (at most half the race).
+  const leg1 = new Map<string, (number | null)[]>();
+  for (const b of data.boats) {
+    const tt = times.get(b.id)!;
+    const end = nLegs > 1 ? tt[1] : Math.min(gun + 8 * 60_000, b.finishMs != null ? (gun + b.finishMs) / 2 : gun + 8 * 60_000);
+    leg1.set(b.id, [gun, end]);
+  }
+  const courses = legBearings.map((fb, li) => (li === 0 && nLegs === 1 ? legCourse(tracks, leg1, 0) : legCourse(tracks, times, li)) ?? fb);
 
-  // Prior wind: first leg is nearly always a beat; else the model; else square to the line.
+  /** Steady headings of every boat over leg `li` (of `tm`), and the leg's mean mid-time. */
+  const steady = (tm: Map<string, (number | null)[]>, li: number): { hs: number[]; mid: number | null } => {
+    const hs: number[] = [];
+    const mids: number[] = [];
+    for (const b of data.boats) {
+      const tt = tm.get(b.id)!;
+      const a = tt[li];
+      const e = tt[li + 1];
+      if (a == null || e == null) continue;
+      mids.push((a + e) / 2);
+      const tr = tracks.get(b.id)!;
+      for (const i of steadyIndices(tr, a, e)) hs.push(tr.heading[i]);
+    }
+    return { hs, mid: mids.length ? mids.reduce((x, y) => x + y, 0) / mids.length : null };
+  };
+  const legSteady = Array.from({ length: nLegs }, (_, li) => steady(times, li));
+
+  // Prior wind: the first leg is nearly always a beat, so its tacks (if they
+  // straddle its course); else the model if it roughly agrees; else dead upwind.
   const modelAt = (t: number): number | null => {
     const s = data.windModel?.samples;
     if (!s?.length) return null;
@@ -151,53 +231,59 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
     return interpAngle(ts, s.map((x) => x.dirDeg), t);
   };
   const modelGun = modelAt(gun);
-  const prior = wps.length ? legBearings[0] : modelGun ?? vecBearing(nrm);
-  let kinds = legBearings.map((b) => legKind(b, prior));
+  const c1 = courses[0];
+  const s1 = nLegs > 1 ? legSteady[0] : steady(leg1, 0);
+  const est1 = estimateTwd(s1.hs);
+  const tack1 = est1 && Math.abs(wrap180(est1.twdDeg - c1)) <= 60 ? est1 : null;
+  const modelOk = modelGun != null && Math.abs(wrap180(modelGun - c1)) <= 45;
+  const prior = tack1 ? tack1.twdDeg : modelOk ? modelGun! : c1;
+  const kindAt = (li: number, twd: number): LegKind =>
+    classifyLeg(courses[li], twd, straddles(legSteady[li].hs, twd), straddles(legSteady[li].hs, twd + 180));
+  const priorKinds = courses.map((_, li) => kindAt(li, prior));
 
-  const nLegs = wps.length + 1;
-
-  // ---- wind from upwind tack headings
+  // ---- wind from upwind tack headings, per beat
   const estimates: WindEstimate[] = [];
   for (let li = 0; li < nLegs; li++) {
-    if (kinds[li] !== 'upwind') continue;
-    const hs: number[] = [];
-    const mids: number[] = [];
-    for (const b of data.boats) {
-      const tt = times.get(b.id)!;
-      const a = tt[li];
-      const e = tt[li + 1];
-      if (a == null || e == null) continue;
-      mids.push((a + e) / 2);
-      const tr = tracks.get(b.id)!;
-      for (const i of steadyIndices(tr, a, e)) hs.push(tr.heading[i]);
-    }
+    if (priorKinds[li] !== 'upwind') continue;
+    const { hs, mid } = legSteady[li];
     const est = estimateTwd(hs);
-    if (est && mids.length) {
-      estimates.push({ legIndex: li, tMs: mids.reduce((x, y) => x + y, 0) / mids.length, ...est, samples: hs.length });
-    }
+    if (est && mid != null) estimates.push({ legIndex: li, tMs: mid, ...est, samples: hs.length });
   }
+  // A one-leg race can still have a clean first beat.
+  if (!estimates.length && tack1 && s1.mid != null) estimates.push({ legIndex: 0, tMs: s1.mid, ...tack1, samples: s1.hs.length });
   let method: WindInfo['method'] = 'tacks';
-  let fallback = prior;
   if (!estimates.length) {
-    if (modelGun != null) {
+    if (modelOk) {
       method = 'model';
-      fallback = modelGun;
       warnings.push('Not enough steady upwind sailing to estimate the wind; using the weather model direction.');
     } else {
       method = 'course';
-      warnings.push('Not enough steady upwind sailing to estimate the wind; assuming the first leg is dead upwind.');
+      warnings.push(
+        modelGun != null
+          ? `Not enough steady upwind sailing to estimate the wind, and the weather model (${Math.round(modelGun)}°) is far off the first leg's course; assuming the first leg is dead upwind.`
+          : 'Not enough steady upwind sailing to estimate the wind; assuming the first leg is dead upwind.',
+      );
     }
   }
-  const twdAt = makeTwdAt(estimates, fallback);
+  const twdAt = makeTwdAt(estimates, prior);
   const twdGun = twdAt(gun);
-  kinds = legBearings.map((b) => legKind(b, twdGun));
+  const kinds = courses.map((_, li) => kindAt(li, twdAt(legSteady[li].mid ?? gun)));
+  // Unnamed turns: the top of the axis is windward when it points into the wind.
+  const topIsWindward = dot(fleet.axis, bearingVec(twdGun)) >= 0;
+  const turnName = (k: number): string => {
+    if (!turnMarks) return wps[k].name;
+    const wp = turnMarks[k];
+    if (wp) return wp.name;
+    return (fleet.turns[k].type === 'T') === topIsWindward ? 'Windward mark' : 'Leeward mark';
+  };
   const counters: Record<LegKind, number> = { upwind: 0, downwind: 0, reach: 0 };
   const legs: LegDef[] = kinds.map((k, i) => ({
     index: i,
     kind: k,
     name: `${KIND_NAME[k]} ${++counters[k]}`,
-    to: i < wps.length ? wps[i].name : 'Finish',
+    to: i < nLegs - 1 ? turnName(i) : 'Finish',
   }));
+  if (turnMarks) warnings.push(fleetWarning(data, courseWps, turnMarks, legs));
 
   // ---- line
   const w = bearingVec(twdGun);
@@ -391,15 +477,32 @@ export function analyzeRace(data: RaceData): RaceAnalysis {
     model: modelGun != null && data.windModel ? { label: data.windModel.label, dirAtGunDeg: modelGun } : null,
   };
   // Draw each rounding where the mark was when the fleet rounded it (it may have been moved since).
-  const drawnMarks: { name: string; xy: Vec[] }[] = [];
-  wps.forEach((wp, i) => {
+  const drawnMarks: RaceAnalysis['marks'] = [];
+  const turnWps = turnMarks ?? wps;
+  turnWps.forEach((wp, i) => {
     const ts = data.boats.map((b) => times.get(b.id)![i + 1]).filter((t): t is number => t != null);
+    if (!wp) {
+      // A turn with no tracker: drawn hollow where the fleet turned (one per name unless clearly apart).
+      const xy = fleet.turns[i].xy;
+      const name = legs[i].to;
+      if (!drawnMarks.some((m) => m.estimated && m.name === name && len(sub(m.xy[0], xy)) < 100)) drawnMarks.push({ name, xy: [xy], estimated: true });
+      return;
+    }
     const xy = wp.at && ts.length ? wp.at(median(ts)) : wp.xy;
     const same = drawnMarks.find((m) => m.name === wp.name && m.xy.every((p, k) => xy[k] && len(sub(p, xy[k])) < 15));
     if (!same) drawnMarks.push({ name: wp.name, xy });
   });
-  if (!wps.length) for (const wp of courseWps) drawnMarks.push({ name: wp.name, xy: wp.xy });
-  const moved = drawnMarks.filter((m, i) => drawnMarks.findIndex((o) => o.name === m.name) !== i).map((m) => m.name);
+  // Trackers no leg ends at (an offset, or every mark when there is one leg).
+  if (turnMarks) {
+    const used = new Set(turnMarks.map((w) => w?.key));
+    for (const wp of courseWps) {
+      if (used.has(wp.key)) continue;
+      used.add(wp.key);
+      drawnMarks.push({ name: wp.name, xy: wp.xy });
+    }
+  } else if (!wps.length) for (const wp of courseWps) drawnMarks.push({ name: wp.name, xy: wp.xy });
+  const real = drawnMarks.filter((m) => !m.estimated);
+  const moved = real.filter((m, i) => real.findIndex((o) => o.name === m.name) !== i).map((m) => m.name);
   if (moved.length) warnings.push(`${[...new Set(moved)].join(', ')} moved during the race; legs use the mark's position at the time.`);
 
   // The Vakaros DTL is the primary figure; ours is a check. Flag it when they clearly disagree.

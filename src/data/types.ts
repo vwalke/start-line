@@ -122,6 +122,8 @@ export interface RaceData {
    * re-order this if the tracks clearly disagree.
    */
   course: CourseMark[];
+  /** Course marks the source listed but whose trackers sent no positions (so they are not in `course`). */
+  courseUntracked?: string[];
   boats: Boat[];
   /** Modelled (not measured) wind near the course, if available. */
   windModel?: { label: string; samples: WindSample[] };

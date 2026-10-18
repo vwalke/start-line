@@ -48,6 +48,21 @@ export function circMean(angles: ArrayLike<number>): number {
   return norm360(Math.atan2(s, c) / RAD);
 }
 
+/** Circular median of angles in degrees: the sample with the least summed angular distance to the rest. */
+export function circMedian(angles: ArrayLike<number>): number {
+  let best = NaN;
+  let bestSum = Infinity;
+  for (let i = 0; i < angles.length; i++) {
+    let s = 0;
+    for (let j = 0; j < angles.length; j++) s += Math.abs(wrap180(angles[j] - angles[i]));
+    if (s < bestSum) {
+      bestSum = s;
+      best = angles[i];
+    }
+  }
+  return norm360(best);
+}
+
 /** Unit vector pointing toward compass bearing `deg` (east, north). */
 export function bearingVec(deg: number): Vec {
   return [Math.sin(deg * RAD), Math.cos(deg * RAD)];
