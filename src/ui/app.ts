@@ -10,7 +10,8 @@ import type { WorkerRequest, WorkerResponse } from '../worker';
 import { classDims } from '../data/classes';
 import { boatList, findingsList } from './boats';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
-import { parsePickerParams } from './params';
+import { applyView, clearLastView, isTransientError, pickRace, readLastView, resolveStart, viewForRace, writeLastView, type StartPlan, type ViewState } from './lastView';
+import { NC_ALL } from './params';
 import { legLegend, legSplitCaption, mapBox, startFitBox, startHullScale, startSnapshot, trackMap, trackSogIndex } from './charts';
 import { degLabel, duration, esc, f0, f1, f2, gunTimeLine, localTime } from './format';
 import { attachPanZoom } from './panzoom';
@@ -81,7 +82,9 @@ export function startApp(): void {
     warnings: $('warnings'),
   };
 
-  const params = parsePickerParams(location.search);
+  /** The URL's race, else the last one viewed (recall.lastView), else the latest. */
+  const plan = resolveStart(location.search, readLastView());
+  const params = plan.params;
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   let reqId = 0;
   const pending = new Map<number, { resolve: (a: RaceAnalysis) => void; reject: (e: Error) => void }>();
@@ -131,6 +134,25 @@ export function startApp(): void {
   /** Every listed event, most recent first; the search filters this. */
   let events: LandingEvent[] = [];
   let matchCount = 0;
+  /** The race on screen (null until one loads); what recall.lastView records. */
+  let current: { eventId: string; division: string; raceNumber: number } | null = null;
+
+  /** Record the race on screen and how it's viewed, so a relaunch can come back to it. */
+  function save(): void {
+    if (!current || !analysis) return;
+    // A load that has swapped `analysis` but not yet `current` (or the reverse) must not mix them.
+    if (analysis.meta.division !== current.division || analysis.meta.raceNumber !== current.raceNumber) return;
+    if (analysis.meta.eventId != null && analysis.meta.eventId !== current.eventId) return;
+    writeLastView({ v: 1, ...current, ...(allCompetitors ? { allCompetitors: true } : {}), leg: legSel, boat: highlight, sort, savedAt: Date.now() });
+  }
+
+  /** Forget the saved race and take it out of the URL. */
+  function forget(): void {
+    clearLastView();
+    current = null;
+    allCompetitors = false;
+    setUrl({ event: null, div: null, race: null, nc: null });
+  }
 
   function setStatus(text: string): void {
     els.status.textContent = text;
@@ -331,16 +353,19 @@ export function startApp(): void {
   function toggleHighlight(id: string | null): void {
     highlight = highlight === id ? null : id;
     render();
+    save();
   }
   function toggleRow(tr: Element): void {
     const id = tr.getAttribute('data-id');
     highlight = highlight === id ? null : id;
+    save();
     renderKeepingFocus(els.table, focusSel(tr, 'data-id'));
   }
   els.table.addEventListener('click', (ev) => {
     const btn = (ev.target as HTMLElement).closest('button[data-sort]');
     if (btn && analysis) {
       sort = toggleSort(analysis, sort, btn.getAttribute('data-sort')!);
+      save();
       renderKeepingFocus(els.table, focusSel(btn, 'data-sort'));
       return;
     }
@@ -360,16 +385,19 @@ export function startApp(): void {
     if (item) {
       const id = item.getAttribute('data-id');
       highlight = highlight === id ? null : id;
+      save();
       renderKeepingFocus(els.boats, focusSel(item, 'data-id'));
     } else if (el.closest('button[data-clear]')) {
       const hadFocus = el.closest('button[data-clear]')!.contains(document.activeElement);
       highlight = null;
+      save();
       // Clear disables itself once nothing is selected; keep keyboard focus in the list.
       renderKeepingFocus(els.boats, hadFocus ? 'button[data-id]' : null);
     } else if (el.closest('button[data-nc]')) {
       // Keep everyone as a competitor (`nc=all`), or go back to setting coach/spare boats aside: a fresh analysis.
       allCompetitors = el.closest('button[data-nc]')!.getAttribute('data-nc') === 'all';
-      setUrl({ nc: allCompetitors ? 'all' : null });
+      setUrl({ nc: allCompetitors ? NC_ALL : null });
+      save();
       const [div, n] = els.race.value.split('|');
       if (div && n) void loadRace(div, Number(n));
     }
@@ -388,6 +416,7 @@ export function startApp(): void {
     const key = btn.getAttribute('data-leg');
     const leg = key === 'all' ? null : Number(key);
     legSel = leg == null || leg === legSel ? null : leg;
+    save();
     renderKeepingFocus(els.legend, focusSel(btn, 'data-leg'));
   });
   els.colour.addEventListener('click', (ev) => {
@@ -428,36 +457,50 @@ export function startApp(): void {
   });
 
   let showGen = 0;
-  async function show(p: Promise<RaceAnalysis>): Promise<void> {
+  /** Show an analysis with leg/boat/sort reset, or set from `restore` (dropping what this race lacks). False if superseded. */
+  async function show(p: Promise<RaceAnalysis>, restore?: ViewState): Promise<boolean> {
     const g = ++showGen;
     els.digest.classList.add('loading');
     try {
-      analysis = await p;
-      if (g !== showGen) return;
-      highlight = null;
+      const a = await p;
+      if (g !== showGen) return false;
+      analysis = a;
+      const v = restore ? applyView(a, restore) : null;
+      highlight = v?.boat ?? null;
       ncOpen = false;
-      sort = null;
-      legSel = null;
-      fitBox = startFitBox(analysis);
+      sort = v?.sort ?? null;
+      legSel = v?.leg ?? null;
+      fitBox = startFitBox(a);
       setView(fitView(fitBox));
       render();
       setStatus('');
+      return true;
     } finally {
       if (g === showGen) els.digest.classList.remove('loading');
     }
   }
 
-  async function loadRace(division: string, raceNumber: number): Promise<void> {
-    if (!regatta) return;
-    setUrl({ event: eventId, div: division, race: String(raceNumber) });
+  type RaceLoad = 'ok' | 'superseded' | Error;
+  /** Analyse and show a race of the loaded event; on failure the notice says so (the picker stays usable). */
+  async function loadRace(division: string, raceNumber: number, restore?: ViewState): Promise<RaceLoad> {
+    if (!regatta) return new Error('no event loaded');
+    const id = eventId;
+    // Don't replaceState until this race is on screen: a kill mid-switch keeps the last
+    // successful race in both the URL and recall.lastView (and not the half-switched one).
+    const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: legSel, boat: highlight, sort }, restore);
     try {
-      await show(run({ type: 'live', eventId, regatta, division, raceNumber, allCompetitors }));
+      if (!(await show(run({ type: 'live', eventId: id, regatta, division, raceNumber, allCompetitors }), view))) return 'superseded';
+      current = { eventId: id, division, raceNumber };
+      setUrl({ event: id, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
+      save();
       setNotice('');
+      return 'ok';
     } catch (e) {
-      if (isSuperseded(e)) return;
+      if (isSuperseded(e)) return 'superseded';
       setStatus('');
       // Keep the event/race picker so another race can be tried.
       setNotice(`Couldn't load that race (${(e as Error).message}).`);
+      return e as Error;
     }
   }
 
@@ -475,30 +518,39 @@ export function startApp(): void {
   }
 
   let eventReq = 0;
-  /** Load an event and its default (or wanted) race. False if it has no finished races. */
-  async function loadEvent(id: string, want?: { division: string; raceNumber: number }): Promise<boolean> {
+  /** 'empty': no finished races; 'missing': a strict (restore) `want` isn't listed; an Error: the race failed to load. */
+  type EventLoad = RaceLoad | 'empty' | 'missing';
+  /**
+   * Load an event and its default (or wanted) race. With `opts.strict` (a restore) a missing wanted
+   * race is reported, never swapped for another; `opts.view` applies only if the wanted race opens.
+   */
+  async function loadEvent(
+    id: string,
+    want?: { division: string; raceNumber: number },
+    opts: { strict?: boolean; view?: ViewState } = {},
+  ): Promise<EventLoad> {
     const req = ++eventReq;
     setStatus('Loading event…');
     try {
       const next = await fetchRegatta(id);
-      if (req !== eventReq) return true; // superseded by a newer pick
+      if (req !== eventReq) return 'superseded'; // a newer pick
       const doc = currentDoc(next);
       const races = listRaces(doc).filter((r) => r.finishers > 0);
-      if (!races.length) return false;
+      if (!races.length) return 'empty';
+      const pick = pickRace(races, want, defaultRace(doc), opts.strict);
+      if (!pick) return 'missing';
       regatta = next;
       eventId = id;
       renderEventOptions();
       els.race.innerHTML = races
         .map((r) => `<option value="${esc(r.division)}|${r.raceNumber}">${esc(r.division)} · Race ${r.raceNumber}</option>`)
         .join('');
-      const pick =
-        (want && races.find((r) => r.division === want.division && r.raceNumber === want.raceNumber)) ?? defaultRace(doc) ?? races[0];
       els.race.value = `${pick.division}|${pick.raceNumber}`;
       els.race.disabled = false;
-      await loadRace(pick.division, pick.raceNumber);
-      return true;
+      const wanted = want && pick.division === want.division && pick.raceNumber === want.raceNumber;
+      return await loadRace(pick.division, pick.raceNumber, wanted ? opts.view : undefined);
     } catch (e) {
-      if (req !== eventReq) return true;
+      if (req !== eventReq) return 'superseded';
       throw e;
     }
   }
@@ -509,8 +561,8 @@ export function startApp(): void {
   function pickEvent(id: string): void {
     if (!id || id === eventId) return;
     loadEvent(id).then(
-      (ok) => {
-        if (ok) return;
+      (r) => {
+        if (r !== 'empty') return;
         setStatus(`${titleOf(id)} has no finished races yet.`);
         renderEventOptions();
       },
@@ -583,10 +635,12 @@ export function startApp(): void {
     if (matchMedia('(pointer: fine)').matches && (!ae || ae === document.body || ae === document.documentElement)) {
       els.search.focus();
     }
+    if (plan.source === 'saved') return reopenSaved(plan);
     if (explicit) {
       els.event.value = explicit;
       try {
-        if (await loadEvent(explicit, params.want)) return;
+        // Reloading the saved race's own URL keeps its leg/boat/sort too.
+        if ((await loadEvent(explicit, params.want, { view: plan.source === 'url' ? plan.view : undefined })) !== 'empty') return;
         setStatus('');
         setNotice(`${titleOf(explicit)} has no finished races yet. Pick another event.`);
       } catch (e) {
@@ -595,11 +649,15 @@ export function startApp(): void {
       }
       return;
     }
-    // Otherwise the most recent event that has a finished race (polite: at most 4 tries).
+    return openLatest(params.want);
+  }
+
+  /** The most recent event that has a finished race (polite: at most 4 tries). */
+  async function openLatest(want?: { division: string; raceNumber: number }): Promise<void> {
     for (const e of events.slice(0, 4)) {
       els.event.value = e.eventId;
       try {
-        if (await loadEvent(e.eventId, params.want)) return;
+        if ((await loadEvent(e.eventId, want)) !== 'empty') return;
       } catch {
         // try the next one
       }
@@ -608,6 +666,67 @@ export function startApp(): void {
     setStatus('');
     setNotice('No finished race found in the most recent events. Search or pick an event above.');
   }
+
+  /**
+   * Boot with no race in the URL: reopen the last race viewed, with its leg/boat/sort. If it can't be
+   * reopened (gone, no longer listed, analysis fails) forget it and show the latest race; a network
+   * failure keeps it, with Retry, so a flaky connection doesn't lose it.
+   */
+  async function reopenSaved(p: Extract<StartPlan, { source: 'saved' }>): Promise<void> {
+    const { eventId: id, want } = p.params;
+    els.event.value = id;
+    let r: EventLoad;
+    try {
+      r = await loadEvent(id, want, { strict: true, view: p.view });
+    } catch (e) {
+      r = e as Error;
+    }
+    if (r === 'superseded') return;
+    if (r === 'ok') {
+      setNotice('Reopened your last race.', {
+        label: 'Latest race',
+        run: () => {
+          forget();
+          setNotice('');
+          void openLatest();
+        },
+      });
+      return;
+    }
+    setStatus('');
+    if (r instanceof Error && (isTransientError(r.message) || navigator.onLine === false)) {
+      setNotice(`Couldn't reopen your last race (${r.message}).`, {
+        label: 'Retry',
+        run: () => {
+          setNotice('');
+          void reopenSaved(p);
+        },
+      });
+      return;
+    }
+    const why =
+      r === 'empty'
+        ? 'that event has no finished races'
+        : r === 'missing'
+          ? `${want.division} race ${want.raceNumber} is no longer listed`
+          : r.message;
+    forget();
+    await openLatest();
+    // Unless the latest race had its own trouble to report.
+    if (els.notice.hidden) setNotice(`Couldn't reopen your last race (${why}). Showing the latest race.`);
+  }
+
+  // Leaving the app: make sure the last state is on disk (iOS may evict a backgrounded web app).
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') save();
+  });
+  addEventListener('pagehide', save);
+  // Back from the bfcache: the page (and its state) is intact; just re-sync the URL and the record.
+  addEventListener('pageshow', (ev: PageTransitionEvent) => {
+    if (!ev.persisted || !current) return;
+    setUrl({ event: current.eventId, div: current.division, race: String(current.raceNumber), nc: allCompetitors ? NC_ALL : null });
+    save();
+  });
 
   // `?demo=` is retired (live data only); drop it from old links and open the normal list.
   if (new URLSearchParams(location.search).has('demo')) setUrl({ demo: null });
