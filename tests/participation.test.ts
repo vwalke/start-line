@@ -250,7 +250,8 @@ describe('picking a boat that is not racing', () => {
     expect(svg).not.toMatch(/<g class="sog-trk[^"]*" data-id="03"/);
     const start = startSnapshot(a, '03', undefined, 'speed');
     expect(start).toMatch(/<g class="boat[^"]* nc" data-id="03">/);
-    expect(start).toMatch(/<polyline class="trail[^"]*nc"[^>]*stroke="var\(--ink-3\)" stroke-dasharray/);
+    expect(start).toMatch(/<polyline class="trail nc"[^>]*stroke="var\(--ink-3\)"/);
+    expect(start).toMatch(/<polyline class="trail nc"[^>]*stroke-dasharray="/);
     expect(start).not.toMatch(/data-id="03"[^>]*sog-fill/);
     const g = start.match(/<g class="boat[^"]* nc" data-id="03">[\s\S]*?<\/g><\/g>/)?.[0] ?? '';
     expect(g).toContain('(not racing)');
