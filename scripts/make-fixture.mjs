@@ -7,7 +7,9 @@
 //   benelux (default): Benelux Sailing League Act III, J70 race 8 → tests/fixtures/benelux_r8.json
 //   c31: C31 Gold Cup race 10, four boats, regatta races 9–10 only → tests/fixtures/c31_r10.json
 //   m24: Melges 24 Worlds race 4 (only the Gate is tracked), 12 boats spread over the results,
-//        competitors every 2 s away from the gun → tests/fixtures/m24_r4.json
+//        competitors every 2 s away from the gun, plus coaches 03/07/10, SPARE 1 and 619 Hot Water
+//        (SPARE 1 is a second tracker on 619 in this race) every 4 s; the other races keep only
+//        their finishes (for the event-wide results) → tests/fixtures/m24_r4.json
 //   j88: J/88 North Americans race 5 (no mark trackers), 8 boats, every 3 s away from the gun → tests/fixtures/j88_r5.json
 // m24 and j88 read the survey downloads (regatta_<event>.json, tele_<event>_<div>_<race>.json
 // as an array of telemetry pages, wind_<event>_<YYYY-MM-DD>.json), e.g. from /workspace/legsplit-data.
@@ -43,10 +45,13 @@ const PRESETS = {
     tele: 'tele_i6WfokvPgVWlOVwyaaer_M24_4.json',
     wind: (gun) => `wind_i6WfokvPgVWlOVwyaaer_${new Date(gun).toISOString().slice(0, 10)}.json`,
     out: 'tests/fixtures/m24_r4.json',
-    note: 'Trimmed from public RaceSense data: Melges 24 Worlds, race 4 (12 boats across the results; regatta race 4 only). See scripts/make-fixture.mjs --preset m24.',
+    note: 'Trimmed from public RaceSense data: Melges 24 Worlds, race 4 (12 boats across the results, plus three coaches, SPARE 1 and 619; other races reduced to their finishes). See scripts/make-fixture.mjs --preset m24.',
     event_: (doc) => ({ classLabel: 'Melges 24', startMs: doc.startDate, endMs: doc.endDate }),
     pick: 12,
-    races: [4],
+    // Non-competitors (coach motorboats, a spare tracker) and the boat that spare rode on in race 4.
+    extra: ['03', '07', '10', 'SPARE 1', '619'],
+    extraStep: 4_000,
+    slimOthers: true,
     step: 2_000,
     lastRevision: true,
   },
@@ -89,6 +94,20 @@ const lastFinish = Math.max(...race.finishes.map((f) => Date.parse(f.finishingTi
 const t0 = gun - 120_000;
 const t1 = lastFinish + 30_000;
 if (preset.races) div.races = div.races.filter((r) => preset.races.includes(r.raceNumber));
+// Other races: just enough for the event-wide results (who finished, how far, how fast).
+const FINISH_KEEP = ['sailNumber', 'serialNumber', 'finishingTime', 'distanceTraveled', 'maxSpeed', 'raceNumber'];
+if (preset.slimOthers) {
+  div.races = div.races.map((r) =>
+    r.raceNumber === RACE
+      ? r
+      : {
+          raceNumber: r.raceNumber,
+          isPractice: r.isPractice,
+          starts: [],
+          finishes: (r.finishes ?? []).map((f) => Object.fromEntries(FINISH_KEEP.filter((k) => k in f).map((k) => [k, f[k]]))),
+        },
+  );
+}
 
 const wind = JSON.parse(readFileSync(join(dir, typeof preset.wind === 'function' ? preset.wind(gun) : preset.wind), 'utf8'));
 // A single telemetry page, or the array of pages fetchTelemetry returns (null pages skipped).
@@ -106,6 +125,8 @@ if (preset.pick) {
   const n = Math.min(preset.pick, order.length);
   preset.sails = [...new Set(Array.from({ length: n }, (_, k) => order[Math.round((k * (order.length - 1)) / Math.max(1, n - 1))]))];
 }
+const extra = new Set((preset.extra ?? []).filter((s) => !preset.sails?.includes(s)));
+if (preset.sails) preset.sails = [...preset.sails, ...extra];
 const STEP = preset.step ?? 1_000;
 
 const keep = ['ts', 'sn', 'division', 'sail_number', 'race_number', 'role', 'latitude', 'longitude', 'heading', 'sog'];
@@ -119,7 +140,7 @@ for (const r of rows) {
   const isMark = r[idx.role] === 'mark';
   if (preset.sails && !isMark && !preset.sails.includes(r[idx.sail_number])) continue;
   const near = Math.abs(ts - gun) <= 60_000;
-  const step = isMark ? 20_000 : near ? 0 : STEP;
+  const step = isMark ? 20_000 : near ? 0 : extra.has(r[idx.sail_number]) ? (preset.extraStep ?? STEP) : STEP;
   const key = `${r[idx.role]}:${r[idx.sn]}`;
   const prev = lastKept.get(key);
   if (prev !== undefined && ts - prev < step) continue;

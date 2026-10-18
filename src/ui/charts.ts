@@ -6,7 +6,7 @@
  */
 import { primaryDtlM } from '../analysis/findings';
 import { add, bearingVec, scale, type Vec } from '../analysis/geo';
-import type { BoatResult, RaceAnalysis } from '../analysis/types';
+import type { BoatDrawing, BoatResult, ExcludedBoat, RaceAnalysis } from '../analysis/types';
 import { classDims, type ClassDims } from '../data/classes';
 import type { SpeedRank } from '../analysis/speedRank';
 import { duration, esc, f1 } from './format';
@@ -15,8 +15,16 @@ import { clampView, fitView, viewBox, type Box, type View } from './view';
 
 const SLOTS = 8;
 
+/** Boats set aside as not racing are always neutral grey (colorSlot -1). */
+export const NC_COLOR = 'var(--ink-3)';
+
 export const boatColor = (b: BoatResult, fleet: number): string =>
-  fleet <= SLOTS ? `var(--s${b.colorSlot + 1})` : 'var(--ink-2)';
+  b.colorSlot < 0 ? NC_COLOR : fleet <= SLOTS ? `var(--s${b.colorSlot + 1})` : 'var(--ink-2)';
+
+/** The picked boat when it is one set aside as not racing (drawn only then), else null. */
+export function pickedExcluded(a: RaceAnalysis, highlight: string | null): ExcludedBoat | null {
+  return (highlight != null && a.excluded.find((e) => e.result.id === highlight)) || null;
+}
 export const legColor = (i: number): string => `var(--s${(i % SLOTS) + 1})`;
 
 /** Rotation that puts the wind direction (FROM) at the top; y flipped for SVG. */
@@ -183,10 +191,14 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
 
   const trails: string[] = [];
   const boats: string[] = [];
-  for (const d of a.drawings) {
-    const b = byId.get(d.id)!;
+  // A picked boat that isn't racing is drawn on top, grey and dashed; otherwise it isn't drawn at all.
+  const nc = pickedExcluded(a, highlight);
+  const items: { d: BoatDrawing; b: BoatResult; nc: boolean }[] = a.drawings.map((d) => ({ d, b: byId.get(d.id)!, nc: false }));
+  if (nc) items.push({ d: nc.drawing, b: nc.result, nc: true });
+  for (const { d, b, nc: isNc } of items) {
     const col = boatColor(b, fleet);
-    const dim = highlight && highlight !== d.id ? ' dim' : '';
+    const dim = (highlight && highlight !== d.id ? ' dim' : '') + (isNc ? ' nc' : '');
+    const dash = isNc ? ` stroke-dasharray="${(4 * k).toFixed(2)} ${(3 * k).toFixed(2)}"` : '';
     // Only the parts inside the fit box; a trail that leaves and re-enters is drawn as separate runs.
     const runs: Vec[][] = [[]];
     for (let i = 0; i < d.trail.x.length; i++) {
@@ -195,7 +207,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
       else if (runs[runs.length - 1].length) runs.push([]);
     }
     for (const tr of runs) {
-      if (tr.length > 1) trails.push(`<polyline class="trail${dim}" points="${pts(tr)}" stroke="${col}" stroke-width="${1.5 * k}"/>`);
+      if (tr.length > 1) trails.push(`<polyline class="trail${dim}" points="${pts(tr)}" stroke="${col}" stroke-width="${1.5 * k}"${dash}/>`);
     }
     if (!d.bow || d.courseAtGun == null || !b.start) continue;
     const [x, y] = rot(d.bow);
@@ -204,17 +216,21 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     if (dims && d.headingAtSample != null) {
       // True scale, along heading (not COG): the bow tip is the DTL bow point.
       const hull = hullOutline(d.bow, d.headingAtSample, dims).map(rot);
-      shape = `<path class="hull" d="${hullPathD(hull)}" fill="${col}" stroke="var(--surface)" stroke-width="${0.75 * k}"/>`;
+      shape = isNc
+        ? `<path class="hull" d="${hullPathD(hull)}" fill="none" stroke="${col}" stroke-width="${1.2 * k}"${dash}/>`
+        : `<path class="hull" d="${hullPathD(hull)}" fill="${col}" stroke="var(--surface)" stroke-width="${0.75 * k}"/>`;
     } else {
       const ang = d.courseAtGun - a.wind.twdAtGunDeg; // screen angle, 0 = up the page (into the wind)
       const s = 10 * unit;
       const tip = `0,${-s * 1.3}`;
-      const tri = `<polygon points="${tip} ${s * 0.7},${s * 0.9} 0,${s * 0.4} ${-s * 0.7},${s * 0.9}" fill="${col}" stroke="var(--surface)" stroke-width="${1.5 * k}"/>`;
+      const tri = `<polygon points="${tip} ${s * 0.7},${s * 0.9} 0,${s * 0.4} ${-s * 0.7},${s * 0.9}" ${
+        isNc ? `fill="none" stroke="${col}"${dash}` : `fill="${col}" stroke="var(--surface)"`
+      } stroke-width="${1.5 * k}"/>`;
       const ring = minCls ? `<circle class="min-ring" r="${13 * unit}" stroke="${col}" stroke-width="${k}" stroke-dasharray="${2 * k} ${2 * k}"/>` : '';
       shape = `<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">${ring}<g transform="rotate(${ang.toFixed(1)})">${tri}</g></g>`;
     }
     boats.push(`<g class="boat${minCls}${dim}" data-id="${esc(b.id)}">
-      <title>#${esc(b.sail)}: ${st.rank ? `${f1(st.rank.m)} m behind (${st.rank.source === 'vakaros' ? `Vakaros; ours ${st.dtlGapS != null ? '~' : ''}${f1(st.dtlM)} m` : 'our track check'})` : `no reliable distance (ours ~${f1(st.dtlM)} m)`}${st.lateS != null ? `, ${f1(st.lateS)} s late` : ''}, ${f1(st.speedKn)} kn</title>
+      <title>#${esc(b.sail)}${isNc ? ' (not racing)' : ''}: ${st.rank ? `${f1(st.rank.m)} m behind (${st.rank.source === 'vakaros' ? `Vakaros; ours ${st.dtlGapS != null ? '~' : ''}${f1(st.dtlM)} m` : 'our track check'})` : `no reliable distance (ours ~${f1(st.dtlM)} m)`}${st.lateS != null ? `, ${f1(st.lateS)} s late` : ''}, ${f1(st.speedKn)} kn</title>
       <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${16 * unit}" fill="transparent"/>
       ${shape}
       <g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
@@ -298,12 +314,18 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   const byId = new Map(a.boats.map((b) => [b.id, b]));
   const legName = (i: number): string => a.legs[i]?.name ?? `Leg ${i + 1}`;
   const speed = opts.colour === 'speed' ? speedRanking(a, leg, opts.rankBy ?? 'leg') : null;
+  // A picked boat that isn't racing: grey and dashed on top, split at the fleet's
+  // leg times. It never moves the fit, and Speed never ranks it.
+  const nc = pickedExcluded(a, highlight);
+  if (nc) byId.set(nc.result.id, nc.result);
+  const drawings = nc ? [...a.drawings, nc.drawing] : a.drawings;
 
   const paths: string[] = [];
   const hi: string[] = [];
   /** Speed mode: [draw order, svg]; unranked first, then slowest → fastest, the selection last. */
   const ordered: [number, string][] = [];
-  for (const d of a.drawings) {
+  for (const d of drawings) {
+    const isNc = d === nc?.drawing;
     const who = esc(boatLabel(byId.get(d.id), d.id));
     for (const seg of d.segments) {
       if (leg != null && seg.leg !== leg) continue;
@@ -311,6 +333,14 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
       for (let i = 0; i < seg.x.length; i++) ps.push(rot([seg.x[i], seg.y[i]]));
       if (ps.length < 2) continue;
       const p = pts(ps);
+      if (isNc) {
+        const dash = ` stroke-dasharray="${(5 * k).toFixed(2)} ${(4 * k).toFixed(2)}"`;
+        const title = `<title>${who} · ${esc(legName(seg.leg))} · not racing</title>`;
+        const svg = `<polyline class="trk on nc" data-leg="${seg.leg}" data-id="${esc(d.id)}" points="${p}" stroke="${NC_COLOR}" ${sw(2.6)}${dash}>${title}</polyline>`;
+        if (speed) ordered.push([2, svg]);
+        else hi.push(svg);
+        continue;
+      }
       if (!speed) {
         const cls = highlight ? (highlight === d.id ? 'trk on' : 'trk dim') : 'trk';
         const width = highlight === d.id ? 2.6 : 1.2;

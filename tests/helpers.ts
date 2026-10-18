@@ -50,7 +50,7 @@ function trimmedRace(file: string, division: string, raceNumber: number): RaceDa
   });
 }
 
-/** Melges 24 Worlds race 4: only the Gate is tracked (the start boats, which motor up to lay it); 12 boats incl. the winner 870. */
+/** Melges 24 Worlds race 4: only the Gate is tracked (the start boats, which motor up to lay it); 12 boats incl. the winner 870, plus coaches 03/07/10, SPARE 1 and 619. */
 export const m24Race = (): RaceData => trimmedRace('./fixtures/m24_r4.json', 'M24', 4);
 
 /** J/88 North Americans race 5: no mark trackers at all; 8 boats. */

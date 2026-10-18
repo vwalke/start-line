@@ -40,6 +40,25 @@ export interface Boat {
   rcDtlM?: number | null;
   /** Whether the Vakaros start fix can be used, and why not. */
   rc?: RcStart;
+  /** The entry's bow number, if the source has one (used only as a name hint). */
+  bowNumber?: string;
+  /** Event-wide results, when the source has them (RaceSense: the regatta doc's finishes for every race). */
+  entry?: EntryResults;
+}
+
+/**
+ * How the entry did over the whole event. A finish is plausible when the
+ * feed's own distance sailed and max speed look like the fleet's in that race
+ * (spare trackers sitting on the committee boat "finish" after ~1 km).
+ */
+export interface EntryResults {
+  /** The division's non-practice races that have any finishes (this one included). */
+  racesWithResults: number;
+  plausibleFinishes: number;
+  /** This race's finish: plausible or not; null when the boat has none. */
+  finishPlausible: boolean | null;
+  /** Why this race's finish is implausible, if it is. */
+  finishNote?: string;
 }
 
 /**

@@ -4,7 +4,7 @@
  */
 import type { BoatResult, LegResult, RaceAnalysis } from '../analysis/types';
 import { SPAN_MS, startNotes } from '../analysis/validity';
-import { boatColor } from './charts';
+import { boatColor, pickedExcluded } from './charts';
 import { duration, esc, f0, f1, f2, localTime, twaLabel } from './format';
 
 const ordinal = (n: number): string => {
@@ -380,5 +380,25 @@ export function metricsTable(a: RaceAnalysis, highlight: string | null, sort: So
       return `<tr data-id="${esc(b.id)}" class="${highlight === b.id ? 'sel' : ''}" tabindex="0">${tds}</tr>`;
     })
     .join('');
-  return `<table class="metrics"><thead>${header(cols, sort)}</thead><tbody>${rows}</tbody></table>${notesList(a)}`;
+  return `<table class="metrics"><thead>${header(cols, sort)}</thead><tbody>${rows}${excludedRow(a, cols, highlight)}</tbody></table>${notesList(a)}`;
+}
+
+/** A picked boat that isn't racing: one unranked row at the foot, whatever the sort; no ▲/▼ marks. */
+function excludedRow(a: RaceAnalysis, cols: Col[], highlight: string | null): string {
+  const nc = pickedExcluded(a, highlight);
+  if (!nc) return '';
+  const b = nc.result;
+  const why = nc.reasons.join('; ');
+  const tds = cols
+    .map((c) => {
+      const body =
+        c.key === 'fin'
+          ? '—'
+          : c.key === 'boat'
+            ? `${c.cell(b)} <span class="flag nc" title="${esc(why)}">not racing</span>`
+            : c.cell(b);
+      return `<td class="${c.cls ?? 'num'}">${body}</td>`;
+    })
+    .join('');
+  return `<tr data-id="${esc(b.id)}" class="sel nc" tabindex="0" title="${esc(`Not racing: ${why}`)}">${tds}</tr>`;
 }

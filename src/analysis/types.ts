@@ -75,7 +75,7 @@ export interface BoatResult {
   id: string;
   sail: string;
   name: string;
-  /** Stable colour slot (by sail order), independent of result. */
+  /** Stable colour slot (by sail order), independent of result; -1 when set aside as not racing. */
   colorSlot: number;
   finishPos: number | null;
   finishMs: number | null;
@@ -168,8 +168,25 @@ export interface RaceAnalysis {
    */
   legSource: 'course' | 'tracks' | 'fleet' | 'none';
   wind: WindInfo;
+  /** The competitors, ranked. Boats judged not racing are never in here (see `excluded`). */
   boats: BoatResult[];
   drawings: BoatDrawing[];
+  /**
+   * Boats judged not racing (coach boats, spare or second trackers; see
+   * participation.ts). They affect nothing above; the UI draws one, unranked,
+   * only when it is picked.
+   */
+  excluded: ExcludedBoat[];
+  /** Set when everyone was kept as a competitor on request (`nc=all`): how many would otherwise be excluded. */
+  allCompetitors?: { flagged: number };
   findings: Finding[];
   warnings: string[];
+}
+
+export interface ExcludedBoat {
+  /** Start figures and the finish time only: `colorSlot` -1, no ranks, no leg results. */
+  result: BoatResult;
+  /** Track split at the fleet's median leg times (an approximation for drawing only). */
+  drawing: BoatDrawing;
+  reasons: string[];
 }

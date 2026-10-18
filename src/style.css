@@ -321,6 +321,15 @@ input[type='search']:disabled, select:disabled { opacity: 0.6; }
 .boat-item .sail { font-weight: 600; white-space: nowrap; }
 .boat-item .bname { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .boat-item .pos { color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: 0.75rem; }
+/* Boats judged not racing: a collapsed group under the competitors. */
+.nc-group { margin-top: 8px; border-top: 1px solid var(--rule); padding-top: 6px; }
+.nc-group summary { font-size: 0.78rem; color: var(--ink-2); cursor: pointer; padding: 2px 4px; }
+.boat-item.nc { color: var(--ink-2); }
+.boat-item.nc .sw { background: none !important; border: 1px dashed var(--ink-3); }
+.nc-note { font-size: 0.72rem; color: var(--ink-3); margin: 6px 4px 0; }
+.linkish { font: inherit; padding: 0; border: 0; background: none; color: var(--accent); text-decoration: underline; cursor: pointer; }
+.metrics .flag.nc { background: none; color: var(--ink-3); border: 1px dashed var(--ink-3); }
+tr.nc td { color: var(--ink-2); }
 /* Narrow screens: a sticky strip across the top that scrolls sideways; charts keep the full width. */
 @media (max-width: 900px) {
   /* Block, not a one-column grid: a grid item can only stick within its own row. */
@@ -346,6 +355,9 @@ input[type='search']:disabled, select:disabled { opacity: 0.6; }
   .boat-items li { flex: none; }
   .boat-item { grid-template-columns: 10px auto auto; background: var(--surface); border-color: var(--rule); }
   .boat-item .bname { display: none; }
+  .nc-group { flex: none; margin: 0; border: 0; padding: 0; }
+  .nc-group[open] { position: absolute; top: 100%; right: 16px; z-index: 4; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 6px; max-width: 70vw; }
+  .nc-group[open] .boat-items { flex-wrap: wrap; }
 }
 
 svg.chart { width: 100%; height: auto; display: block; max-height: 70vh; }
@@ -356,6 +368,7 @@ svg .hull { stroke-linejoin: round; stroke-linecap: round; }
 svg .trail { fill: none; opacity: 0.55; stroke-linejoin: round; }
 svg .trk { fill: none; opacity: 0.8; stroke-linejoin: round; stroke-linecap: round; }
 svg .trk.dim, svg .trail.dim { opacity: 0.12; }
+svg .trk.nc, svg .trail.nc { opacity: 0.9; }
 svg .boat { cursor: pointer; }
 svg .boat.dim { opacity: 0.3; }
 svg .boat-min .min-ring { fill: none; }

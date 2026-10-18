@@ -8,7 +8,16 @@ import { buildRaceData, currentDoc, findRace, listRaces, telemetryWindow } from 
 import { fetchTelemetry, fetchWind } from './data/racesense/api';
 import type { RegattaResponse } from './data/racesense/types';
 
-export type WorkerRequest = { id: number; type: 'live'; eventId: string; regatta: RegattaResponse; division: string; raceNumber: number };
+export type WorkerRequest = {
+  id: number;
+  type: 'live';
+  eventId: string;
+  regatta: RegattaResponse;
+  division: string;
+  raceNumber: number;
+  /** `nc=all`: keep coach/spare boats as competitors. */
+  allCompetitors?: boolean;
+};
 
 export type WorkerResponse =
   | { id: number; type: 'progress'; message: string }
@@ -50,7 +59,7 @@ async function handle(req: WorkerRequest): Promise<RaceAnalysis> {
     extra.length = 0;
   }
   pages.length = 0;
-  return analyzeRace(data);
+  return analyzeRace(data, { allCompetitors: req.allCompetitors });
 }
 
 ctx.onmessage = (ev) => {
