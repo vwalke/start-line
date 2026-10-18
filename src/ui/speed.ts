@@ -207,6 +207,14 @@ export function writePref(key: string, value: string): void {
   }
 }
 
+export function removePref(key: string): void {
+  try {
+    globalThis.localStorage?.removeItem(key);
+  } catch {
+    // blocked storage: nothing was kept anyway
+  }
+}
+
 // ---- ranking for the map ----------------------------------------------------
 
 /** What the map is coloured by: one ranking per leg, or the overall one for every leg. */

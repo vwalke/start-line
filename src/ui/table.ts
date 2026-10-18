@@ -64,6 +64,11 @@ export function nextSort(cur: SortState | null, key: string, first: SortDir): So
   return { key, dir: first };
 }
 
+/** Whether this race's table has a column `key` (a saved sort may name a leg another race lacks). */
+export function hasSortKey(a: RaceAnalysis, key: string): boolean {
+  return columns(a).some((c) => c.key === key);
+}
+
 /** `nextSort` for a column of this race's table (unknown keys leave the sort as it is). */
 export function toggleSort(a: RaceAnalysis, cur: SortState | null, key: string): SortState | null {
   const col = columns(a).find((c) => c.key === key);
