@@ -4,25 +4,16 @@
  */
 import { analyzeRace } from './analysis/analyze';
 import type { RaceAnalysis } from './analysis/types';
-import { buildRaceData, currentDoc, defaultRace, findRace, listRaces, telemetryWindow } from './data/racesense/adapter';
+import { buildRaceData, currentDoc, findRace, listRaces, telemetryWindow } from './data/racesense/adapter';
 import { fetchTelemetry, fetchWind } from './data/racesense/api';
-import type { RegattaResponse, TelemetryPage, WindResponse } from './data/racesense/types';
+import type { RegattaResponse } from './data/racesense/types';
 
-export type WorkerRequest =
-  | { id: number; type: 'live'; eventId: string; regatta: RegattaResponse; division: string; raceNumber: number }
-  | { id: number; type: 'fixture'; url: string };
+export type WorkerRequest = { id: number; type: 'live'; eventId: string; regatta: RegattaResponse; division: string; raceNumber: number };
 
 export type WorkerResponse =
   | { id: number; type: 'progress'; message: string }
   | { id: number; type: 'done'; analysis: RaceAnalysis }
   | { id: number; type: 'error'; message: string };
-
-interface FixtureFile {
-  eventId: string;
-  regatta: RegattaResponse;
-  wind?: WindResponse;
-  telemetry: TelemetryPage;
-}
 
 const ctx = self as unknown as {
   postMessage(msg: WorkerResponse): void;
@@ -31,17 +22,6 @@ const ctx = self as unknown as {
 
 async function handle(req: WorkerRequest): Promise<RaceAnalysis> {
   const progress = (message: string): void => ctx.postMessage({ id: req.id, type: 'progress', message });
-  if (req.type === 'fixture') {
-    progress('Loading the bundled demo race…');
-    const res = await fetch(req.url);
-    if (!res.ok) throw new Error(`Demo data unavailable (${res.status})`);
-    const f = (await res.json()) as FixtureFile;
-    const ref = defaultRace(currentDoc(f.regatta));
-    if (!ref) throw new Error('Demo data has no finished race');
-    progress('Crunching…');
-    return analyzeRace(buildRaceData(f.regatta, ref, [f.telemetry], { eventId: f.eventId, kind: 'fixture', wind: f.wind }));
-  }
-
   const doc = currentDoc(req.regatta);
   const ref = { division: req.division, raceNumber: req.raceNumber };
   const win = telemetryWindow(doc, ref);

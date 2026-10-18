@@ -1,4 +1,4 @@
-// Builds the small offline fixtures used by tests and the ?demo=1 mode from
+// Builds the small offline fixtures used by tests from
 // the raw RaceSense downloads (not committed). Usage:
 //   node scripts/make-fixture.mjs <racesense-dir> [out.json] [--preset benelux|c31|m24|j88]
 // Keeps only the race window, competitors at full rate within ±60 s of the

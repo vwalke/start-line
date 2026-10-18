@@ -136,24 +136,8 @@ a { color: var(--accent); }
   line-height: 1.1;
 }
 .masthead .tag { margin: 2px 0 0; color: var(--on-carbon-muted); font-size: 0.8rem; line-height: 1.3; }
-.masthead nav { margin-left: auto; display: flex; gap: 8px; }
-.masthead nav a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 36px;
-  padding: 6px 12px;
-  border: 1px solid var(--on-carbon-line);
-  border-radius: 999px;
-  color: var(--on-carbon);
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
-}
-.masthead nav a:hover { border-color: var(--on-carbon); }
 @media (max-width: 420px) {
   .masthead .tag { display: none; }
-  .masthead nav a { padding: 5px 10px; font-size: 0.8rem; }
 }
 
 /* 44 px hit target: the 40 px tile plus the switcher affordance beside it. */
@@ -247,10 +231,41 @@ a.switcher-row:hover .switcher-name { text-decoration: underline; text-decoratio
 .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
 .controls label { font-size: 0.8rem; color: var(--ink-2); display: flex; flex-direction: column; gap: 2px; flex: 1 1 260px; }
 .controls label.race { flex: 0 1 200px; }
-select { font: inherit; padding: 7px 8px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); width: 100%; }
+/* Search | Event | Race on one row on desktop; the count sits on the caption line so the row stays level. */
+.controls .search { position: relative; flex: 1 1 240px; min-width: 0; }
+.controls .search label { width: 100%; }
+.controls label.event { flex: 2 1 300px; min-width: 0; }
+.search .count {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 4.5em;
+  font-size: 0.75rem;
+  line-height: calc(0.8rem * 1.45);
+  color: var(--ink-3);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.search .count.none { color: var(--bad); font-weight: 600; }
+@media (max-width: 600px) {
+  .controls .search, .controls label.event, .controls label.race { flex-basis: 100%; }
+}
+select, input[type='search'] { font: inherit; padding: 7px 8px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); width: 100%; }
+input[type='search'] { -webkit-appearance: none; appearance: none; margin: 0; }
+input[type='search']::placeholder { color: var(--ink-3); opacity: 1; }
+input[type='search']:disabled, select:disabled { opacity: 0.6; }
+/* 16 px keeps iOS from zooming the page when the field takes focus. */
+@media (pointer: coarse) {
+  input[type='search'] { font-size: 16px; }
+}
 
 .notice { background: var(--notice-bg); border-radius: 6px; padding: 8px 12px; margin: 8px 0; font-size: 0.9rem; }
 .notice::before { content: '⚠ '; }
+.notice button { font: inherit; font-size: 0.85rem; font-weight: 600; margin-left: 4px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
+.notice button:hover { border-color: var(--ink); }
 .status { color: var(--ink-2); font-size: 0.9rem; margin: 6px 0; }
 
 #digest.loading { opacity: 0.45; transition: opacity 0.2s; }

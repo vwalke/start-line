@@ -144,10 +144,18 @@ npm run build && npm run preview   # production build; preview proxies /api too
 npm run lint && npm run typecheck && npm test
 ```
 
-- `?demo=1` loads the bundled Benelux race and works fully offline.
-- With no query, the app tries live data: the most recent finished race of
-  the most recent event. If the network or proxy fails, it falls back to the
-  demo race and shows a notice.
+- The app uses live data only. With no query it opens the most recent
+  finished race of the most recent event (trying at most four events). If the
+  race list can't be fetched it says so and offers a Retry button; if an
+  event or race fails to load, the picker stays usable and a notice names
+  the failure. Old `?demo=` links are ignored (the parameter is dropped).
+- **Search:** the box above the picker filters the event list as you type,
+  by title, venue, class, division, dates (including year and month names),
+  fleet size or event id. Every word must match; case, accents and
+  punctuation don't matter (`j70` finds `J/70`, `malmo` finds `Malmö`).
+  `/api/landing` returns every listed event at once, so this covers the whole
+  feed. Typing never loads an event: pick one in the Event list, or press
+  Enter when exactly one matches. Esc clears the search; `/` focuses it.
 - Deep links: `?event=<eventId>&div=<division>&race=<n>`.
 
 Tests never touch the network. To regenerate the fixture from raw downloads,
