@@ -115,16 +115,24 @@ export interface LineInfo {
   favoredByM: number;
 }
 
-export interface TrackSegment {
-  leg: number;
+/** A drawn run of track: positions with, per point, the fix time and SOG for Colour: Boat speed. */
+export interface DrawnTrack {
   x: Float32Array;
   y: Float32Array;
+  /** Fix time, ms since epoch. */
+  t: Float64Array;
+  /** SOG, kn, smoothed over SOG_SMOOTH_MS (analysis/smooth.ts) on the full-rate track. */
+  sog: Float32Array;
+}
+
+export interface TrackSegment extends DrawnTrack {
+  leg: number;
 }
 
 export interface BoatDrawing {
   id: string;
   /** START_TRAIL_MS (60 s) of track up to the DTL sample, shifted so the last point is the bow. */
-  trail: { x: Float32Array; y: Float32Array };
+  trail: DrawnTrack;
   bow: Vec | null;
   /** Compass heading at the gun (TWA). */
   headingAtGun: number | null;

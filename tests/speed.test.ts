@@ -296,9 +296,10 @@ describe('Highlight: Top N and selection', () => {
 
 describe('colour preference', () => {
   it('parses stored values, defaulting to Leg / Each leg', () => {
-    expect(parseTrackColour('speed')).toBe('speed');
+    expect(parseTrackColour('rank')).toBe('rank');
+    expect(parseTrackColour('sog')).toBe('sog');
     expect(parseTrackColour('leg')).toBe('leg');
-    for (const bad of [null, undefined, '', 'Speed', 'rainbow', '{}']) expect(parseTrackColour(bad)).toBe('leg');
+    for (const bad of [null, undefined, '', 'Speed', 'SOG', 'rainbow', '{}']) expect(parseTrackColour(bad)).toBe('leg');
     expect(parseRankBy('overall')).toBe('overall');
     for (const bad of [null, undefined, '', 'OVERALL', 'x']) expect(parseRankBy(bad)).toBe('leg');
   });
@@ -320,27 +321,37 @@ describe('colour preference', () => {
     }
   });
 
-  it('renders accessible toggle buttons; Rank by only for the whole race in Speed', () => {
-    const leg = colourControls('leg', 'leg', null);
-    expect(leg).toContain('data-colour="leg" aria-pressed="true"');
-    expect(leg).toContain('data-colour="speed" aria-pressed="false"');
-    expect(leg).not.toContain('data-rank');
-    expect(colourControls('speed', 'overall', null)).toContain('data-rank="overall" aria-pressed="true"');
-    expect(colourControls('speed', 'leg', 1)).not.toContain('data-rank');
+  it('maps the legacy stored "speed" (rank colouring before Boat speed) to Rank', () => {
+    expect(parseTrackColour('speed')).toBe('rank');
   });
 
-  it('offers Highlight: Top 3 | Top 10 | All only in Speed, defaulting to All', () => {
+  it('renders accessible toggle buttons; Rank by only for the whole race in Rank', () => {
+    const leg = colourControls('leg', 'leg', null);
+    expect(leg).toContain('data-colour="leg" aria-pressed="true"');
+    expect(leg).toContain('data-colour="rank" aria-pressed="false"');
+    expect(leg).toContain('data-colour="sog" aria-pressed="false"');
+    expect(leg).toMatch(/>Leg<.*>Rank<.*>Boat speed</);
+    expect(leg).not.toContain('data-rank');
+    const sog = colourControls('sog', 'leg', null, 3);
+    expect(sog).toContain('data-colour="sog" aria-pressed="true"');
+    expect(sog).not.toContain('data-rank');
+    expect(sog).not.toContain('data-top');
+    expect(colourControls('rank', 'overall', null)).toContain('data-rank="overall" aria-pressed="true"');
+    expect(colourControls('rank', 'leg', 1)).not.toContain('data-rank');
+  });
+
+  it('offers Highlight: Top 3 | Top 10 | All only in Rank, defaulting to All', () => {
     expect(colourControls('leg', 'leg', null, 3)).not.toContain('data-top');
-    const def = colourControls('speed', 'leg', null);
+    const def = colourControls('rank', 'leg', null);
     expect(def).toContain('aria-label="Highlight the fastest"');
     expect(def).toContain('data-top="all" aria-pressed="true"');
     expect(def).toContain('data-top="3" aria-pressed="false"');
-    expect(colourControls('speed', 'leg', 1, 10)).toContain('data-top="10" aria-pressed="true"');
-    expect(colourControls('speed', 'leg', 1, 10)).toMatch(/>Top 3<.*>Top 10<.*>All</);
+    expect(colourControls('rank', 'leg', 1, 10)).toContain('data-top="10" aria-pressed="true"');
+    expect(colourControls('rank', 'leg', 1, 10)).toMatch(/>Top 3<.*>Top 10<.*>All</);
   });
 });
 
-describe('track map in Speed', () => {
+describe('track map in Rank', () => {
   const a = analyzeRace(fixtureRace());
   const polylines = (svg: string): string[] => [...svg.matchAll(/<polyline class="trk[^"]*"[^>]*>[\s\S]*?<\/polyline>/g)].map((m) => m[0]);
   const width = (p: string): number => Number(/ stroke-width="([\d.]+)"/.exec(p)![1]);
@@ -357,7 +368,7 @@ describe('track map in Speed', () => {
   });
 
   it('colours one leg by rank with plasma, fastest on top, top 3 thicker', () => {
-    const svg = trackMap(a, null, 1, { colour: 'speed' });
+    const svg = trackMap(a, null, 1, { colour: 'rank' });
     const ps = polylines(svg).filter((p) => !p.includes('unranked'));
     expect(ps.length).toBeGreaterThan(3);
     expect(svg).not.toMatch(/stroke="var\(--s\d\)"/);
@@ -376,7 +387,7 @@ describe('track map in Speed', () => {
   it('draws boats that did not complete a leg grey, dashed and underneath', () => {
     const victim = a.boats[0].id;
     const cut = { ...a, boats: a.boats.map((b) => (b.id === victim ? { ...b, legs: b.legs.map((l, i) => (i === 1 ? null : l)) } : b)) };
-    const svg = trackMap(cut, null, 1, { colour: 'speed' });
+    const svg = trackMap(cut, null, 1, { colour: 'rank' });
     const ps = polylines(svg);
     const un = ps.filter((p) => p.includes(`data-id="${victim}"`));
     expect(un.length).toBeGreaterThan(0);
@@ -386,7 +397,7 @@ describe('track map in Speed', () => {
   });
 
   it('ranks every segment on its own leg for the whole race', () => {
-    const svg = trackMap(a, null, null, { colour: 'speed' });
+    const svg = trackMap(a, null, null, { colour: 'rank' });
     const ps = polylines(svg);
     for (const l of a.legs) {
       expect(ps.some((p) => p.includes(`data-leg="${l.index}"`) && new RegExp(`${l.name} · #1 of`).test(p))).toBe(true);
@@ -395,7 +406,7 @@ describe('track map in Speed', () => {
   });
 
   it('colours the whole track by race time with Rank by: Overall', () => {
-    const svg = trackMap(a, null, null, { colour: 'speed', rankBy: 'overall' });
+    const svg = trackMap(a, null, null, { colour: 'rank', rankBy: 'overall' });
     const winner = a.boats.reduce((p, q) => ((q.raceTimeS ?? Infinity) < (p.raceTimeS ?? Infinity) ? q : p));
     const mine = polylines(svg).filter((p) => p.includes(`data-id="${winner.id}"`));
     expect(mine.length).toBe(a.legs.length);
@@ -404,9 +415,9 @@ describe('track map in Speed', () => {
   });
 
   it('puts a selected boat on top, full opacity with an outline, and dims the rest', () => {
-    const plain = trackMap(a, null, 1, { colour: 'speed' });
+    const plain = trackMap(a, null, 1, { colour: 'rank' });
     const slowest = [...legRanks(a.boats, 1).entries()].pop()![0];
-    const svg = trackMap(a, slowest, 1, { colour: 'speed' });
+    const svg = trackMap(a, slowest, 1, { colour: 'rank' });
     const ps = polylines(svg);
     const me = ps[ps.length - 1];
     expect(me).toContain(`data-id="${slowest}"`);
@@ -425,7 +436,7 @@ describe('track map in Speed', () => {
   });
 
   it('sets stroke-opacity per stroke by rank, with no group opacity classes', () => {
-    const svg = trackMap(a, null, 1, { colour: 'speed' });
+    const svg = trackMap(a, null, 1, { colour: 'rank' });
     const ps = polylines(svg);
     expect(ps.every((p) => / stroke-opacity="[\d.]+"/.test(p))).toBe(true);
     const ranks = legRanks(a.boats, 1);
@@ -443,7 +454,7 @@ describe('track map in Speed', () => {
   });
 
   it('with Top 3, greys everyone else (solid, faint, thin) and spans the colours over 1..3', () => {
-    const svg = trackMap(a, null, 1, { colour: 'speed', top: 3 });
+    const svg = trackMap(a, null, 1, { colour: 'rank', top: 3 });
     const ps = polylines(svg);
     const out = ps.filter((p) => /class="trk spd out"/.test(p));
     const ranks = legRanks(a.boats, 1);
@@ -462,13 +473,13 @@ describe('track map in Speed', () => {
   });
 
   it('treats Top N ≥ fleet as All', () => {
-    expect(trackMap(a, null, 1, { colour: 'speed', top: 10 })).toBe(trackMap(a, null, 1, { colour: 'speed' }));
+    expect(trackMap(a, null, 1, { colour: 'rank', top: 10 })).toBe(trackMap(a, null, 1, { colour: 'rank' }));
     expect(speedKey(a, 1, 'leg', 10)).toBe(speedKey(a, 1, 'leg'));
     expect(speedKey(a, 1, 'leg')).not.toContain('others grey');
   });
 
   it('applies Top N per leg in Each leg mode, by overall rank in Overall', () => {
-    const svg = trackMap(a, null, null, { colour: 'speed', top: 3 });
+    const svg = trackMap(a, null, null, { colour: 'rank', top: 3 });
     const ps = polylines(svg);
     const per = raceLegRanks(a.boats, a.legs.length);
     for (const l of a.legs) {
@@ -480,7 +491,7 @@ describe('track map in Speed', () => {
     expect(speedKey(a, null, 'leg', 3)).toContain('fastest → #3 on each leg');
     expect(speedKey(a, null, 'leg', 3)).toContain('#1 → #3');
     const o = overallRanks(a.boats);
-    for (const p of polylines(trackMap(a, null, null, { colour: 'speed', rankBy: 'overall', top: 3 }))) {
+    for (const p of polylines(trackMap(a, null, null, { colour: 'rank', rankBy: 'overall', top: 3 }))) {
       const r = o.get(/data-id="([^"]+)"/.exec(p)![1]);
       if (r) expect(p.includes('class="trk spd out"')).toBe(r.rank > 3);
     }

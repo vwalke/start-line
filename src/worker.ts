@@ -25,7 +25,7 @@ export type WorkerResponse =
   | { id: number; type: 'error'; message: string };
 
 const ctx = self as unknown as {
-  postMessage(msg: WorkerResponse): void;
+  postMessage(msg: WorkerResponse, transfer?: Transferable[]): void;
   onmessage: ((ev: MessageEvent<WorkerRequest>) => void) | null;
 };
 
@@ -62,10 +62,20 @@ async function handle(req: WorkerRequest): Promise<RaceAnalysis> {
   return analyzeRace(data, { allCompetitors: req.allCompetitors });
 }
 
+/** Each drawn track's typed-array buffers, once each (analyze.ts gives every array its own). */
+function drawingBuffers(a: RaceAnalysis): Transferable[] {
+  const out = new Set<ArrayBuffer>();
+  for (const d of [...a.drawings, ...a.excluded.map((e) => e.drawing)]) {
+    for (const tk of [d.trail, ...d.segments]) for (const arr of [tk.x, tk.y, tk.t, tk.sog]) out.add(arr.buffer as ArrayBuffer);
+  }
+  return [...out];
+}
+
 ctx.onmessage = (ev) => {
   const req = ev.data;
   handle(req).then(
-    (analysis) => ctx.postMessage({ id: req.id, type: 'done', analysis }),
+    // The drawn tracks (x, y, t, SOG per fix) are most of the payload: move their buffers rather than copy them.
+    (analysis) => ctx.postMessage({ id: req.id, type: 'done', analysis }, drawingBuffers(analysis)),
     (err: unknown) => ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) }),
   );
 };

@@ -30,10 +30,12 @@ import { fleetTurns, isOffset, legCourse, legsAgree, snapTurns } from './course'
 import { inferRoundings, splitLegs, type Waypoint } from './legs';
 import { classifyParticipation } from './participation';
 import { projectTrack, rangeIdx, type XYTrack } from './prepare';
+import { smoothSog } from './smooth';
 import {
   START_TRAIL_MS,
   type BoatDrawing,
   type BoatResult,
+  type DrawnTrack,
   type LegDef,
   type LegKind,
   type LegResult,
@@ -332,7 +334,9 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   /** One boat's figures and drawing. Unranked (a boat set aside): start figures only, no legs or finish place. */
   const measure = (b: Boat, tr: XYTrack, tt: (number | null)[], ranked: boolean): { result: BoatResult; drawing: BoatDrawing } => {
     let start: StartResult | null = null;
-    let trail = { x: new Float32Array(0), y: new Float32Array(0) };
+    let trail: DrawnTrack = { x: new Float32Array(0), y: new Float32Array(0), t: new Float64Array(0), sog: new Float32Array(0) };
+    // Smoothed at the full rate, before the drawn tracks are thinned to ~1 Hz.
+    const sogSm = smoothSog(tr.t, tr.sog);
     let courseAtGun: number | null = null;
     let headingAtSample: number | null = null;
     if (tr.t.length > 1 && tr.t[0] <= gun && tr.t[tr.t.length - 1] >= gun) {
@@ -390,13 +394,21 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       const n = t1 - t0 + (needTip ? 1 : 0);
       const xs = new Float32Array(n);
       const ys = new Float32Array(n);
+      const tk = new Float64Array(n);
+      const sk = new Float32Array(n);
       for (let k = 0; k < t1 - t0; k++) {
         xs[k] = tr.x[t0 + k] + dx;
         ys[k] = tr.y[t0 + k] + dy;
+        tk[k] = tr.t[t0 + k];
+        sk[k] = sogSm[t0 + k];
       }
       xs[n - 1] = bow[0];
       ys[n - 1] = bow[1];
-      trail = { x: xs, y: ys };
+      if (needTip) {
+        tk[n - 1] = ts;
+        sk[n - 1] = interp(tr.t, sogSm, ts);
+      }
+      trail = { x: xs, y: ys, t: tk, sog: sk };
     }
 
     const legResults: (LegResult | null)[] = [];
@@ -456,14 +468,18 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       const [i0, i1] = rangeIdx(tr.t, a, e);
       const xs: number[] = [];
       const ys: number[] = [];
+      const ts: number[] = [];
+      const ss: number[] = [];
       let last = -Infinity;
       for (let k = i0; k < i1; k++) {
         if (tr.t[k] - last < 1000 && k !== i1 - 1) continue;
         last = tr.t[k];
         xs.push(tr.x[k]);
         ys.push(tr.y[k]);
+        ts.push(tr.t[k]);
+        ss.push(sogSm[k]);
       }
-      segments.push({ leg: li, x: Float32Array.from(xs), y: Float32Array.from(ys) });
+      segments.push({ leg: li, x: Float32Array.from(xs), y: Float32Array.from(ys), t: Float64Array.from(ts), sog: Float32Array.from(ss) });
     }
     const drawing: BoatDrawing = {
       id: b.id,
