@@ -13,6 +13,8 @@ import { duration, esc, f1 } from './format';
 import {
   addSogTrack,
   emptySogPaths,
+  legRangeList,
+  segmentSogRange,
   sogFill,
   sogIndex,
   sogPathsSvg,
@@ -23,7 +25,7 @@ import {
   type SogPaths,
   type StartColour,
 } from './sog';
-import { casedByDay, speedColor, speedRanking, speedStyle, type RankBy, type SpeedTop, type TrackColour } from './speed';
+import { casedByDay, speedColor, speedRanking, speedStyle, type RankBy, type SogScale, type SpeedTop, type TrackColour } from './speed';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
 
 const SLOTS = 8;
@@ -340,6 +342,8 @@ export interface TrackMapOptions {
   rankBy?: RankBy;
   /** Rank: colour only the top N (per leg when ranking each leg); the rest faint grey. Default all. */
   top?: SpeedTop;
+  /** Whole race in Boat speed: bin each leg on its own fleet range (default) or all on the race's. */
+  sogScale?: SogScale;
 }
 
 /** "#851 Name", as the boat list labels boats. */
@@ -364,7 +368,7 @@ function mapTracks(a: RaceAnalysis, leg: number | null): IndexedTrack[] {
       const x = new Float64Array(n);
       const y = new Float64Array(n);
       for (let i = 0; i < n; i++) [x[i], y[i]] = rot([seg.x[i], seg.y[i]]);
-      out.push({ id: d.id, x, y, t: seg.t, sog: seg.sog });
+      out.push({ id: d.id, x, y, t: seg.t, sog: seg.sog, leg: seg.leg });
     }
   }
   return out;
@@ -375,17 +379,17 @@ const SOG_W = 1.4;
 const SOG_W_ON = 2.6;
 
 /**
- * Colour: Boat speed. Per boat, a group of batched paths (ui/sog.ts); with a
- * selection, everyone else dimmed and the selected boat last, thicker, over
- * an ink outline.
+ * Colour: Boat speed. Per boat, a group of batched paths (ui/sog.ts), each
+ * segment binned on its range (its leg's, or the race's: `segmentSogRange`);
+ * with a selection, everyone else dimmed and the selected boat last, thicker,
+ * over an ink outline.
  */
-function sogLayer(a: RaceAnalysis, highlight: string | null, leg: number | null, k: number): string {
-  const r = trackSogRange(a, leg) ?? { lo: 0, hi: 1 };
+function sogLayer(a: RaceAnalysis, highlight: string | null, leg: number | null, k: number, scale: SogScale): string {
   const byBoat = new Map<string, SogPaths>();
   for (const tk of mapTracks(a, leg)) {
     let acc = byBoat.get(tk.id);
     if (!acc) byBoat.set(tk.id, (acc = emptySogPaths()));
-    addSogTrack(acc, tk.x, tk.y, tk.t, tk.sog, r);
+    addSogTrack(acc, tk.x, tk.y, tk.t, tk.sog, segmentSogRange(a, tk.leg, leg, scale) ?? { lo: 0, hi: 1 });
   }
   const out: string[] = [];
   let sel = '';
@@ -420,6 +424,8 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   const byId = new Map(a.boats.map((b) => [b.id, b]));
   const legName = (i: number): string => a.legs[i]?.name ?? `Leg ${i + 1}`;
   const speed = opts.colour === 'rank' ? speedRanking(a, leg, opts.rankBy ?? 'leg') : null;
+  const sogScale = opts.sogScale ?? 'leg';
+  const perLeg = opts.colour === 'sog' && leg == null && sogScale === 'leg';
   const sog = opts.colour === 'sog' ? trackSogRange(a, leg) : null;
   // A picked boat that isn't racing: grey and dashed on top, split at the fleet's
   // leg times. It never moves the fit, and Rank / Boat speed never colour it.
@@ -427,7 +433,7 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   if (nc) byId.set(nc.result.id, nc.result);
   const drawings = nc ? [...a.drawings, nc.drawing] : a.drawings;
 
-  const paths: string[] = opts.colour === 'sog' ? [sogLayer(a, highlight, leg, k)] : [];
+  const paths: string[] = opts.colour === 'sog' ? [sogLayer(a, highlight, leg, k, sogScale)] : [];
   const hi: string[] = [];
   /** Rank mode: [draw order, svg]; unranked first, then slowest → fastest, the selection last. */
   const ordered: [number, string][] = [];
@@ -509,7 +515,13 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
         })()
       : '';
 
-  const sogLabel = opts.colour === 'sog' ? `coloured by boat speed (SOG)${sog ? `, ${f1(sog.lo)} to ${f1(sog.hi)} kn` : ''}: dark purple slowest, through teal, to yellow-green fastest` : '';
+  const legRanges = perLeg ? legRangeList(a) : '';
+  const sogLabel =
+    opts.colour !== 'sog'
+      ? ''
+      : perLeg
+        ? `coloured by boat speed (SOG), scaled within each leg${legRanges ? ` (${legRanges})` : ''}: dark purple slowest on that leg, through teal, to yellow-green fastest`
+        : `coloured by boat speed (SOG)${sog ? `, ${f1(sog.lo)} to ${f1(sog.hi)} kn` : ''}: dark purple slowest, through teal, to yellow-green fastest`;
   const label =
     leg == null
       ? speed

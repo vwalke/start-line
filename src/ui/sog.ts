@@ -26,7 +26,7 @@
 import { SOG_GAP_MS, SOG_SMOOTH_MS } from '../analysis/smooth';
 import type { RaceAnalysis } from '../analysis/types';
 import { esc, f1 } from './format';
-import { contrast, SPEED_BG } from './speed';
+import { contrast, SPEED_BG, type SogScale } from './speed';
 
 /** Viridis at 0, 0.1, … 1 (matplotlib). */
 const VIRIDIS = [
@@ -148,6 +148,45 @@ export function trackSogRange(a: RaceAnalysis, leg: number | null): SogRange | n
   );
 }
 
+// ---- per-leg scale ----------------------------------------------------------
+//
+// Whole race, "Scale: Per leg": a planing class does 13 kn downwind and 6 up,
+// so one race-wide range leaves every beat in the bottom bins. Instead each
+// segment is binned on its own leg's fleet range (trackSogRange(a, leg)), so a
+// bin means "this far between the leg's 5th and 95th percentile". The bins
+// stay shared, so a path per bin per boat still covers every leg.
+
+/** The leg whose range colours a segment of leg `leg`: anything before leg 1 borrows leg 1's. */
+export const scaleLeg = (leg: number): number => Math.max(0, leg);
+
+/** The range a segment of leg `segLeg` is binned on, for the map showing `view` (one leg, or all) under `scale`. */
+export function segmentSogRange(a: RaceAnalysis, segLeg: number, view: number | null, scale: SogScale): SogRange | null {
+  if (view != null) return trackSogRange(a, view);
+  if (scale === 'race') return trackSogRange(a, null);
+  return trackSogRange(a, scaleLeg(segLeg)) ?? trackSogRange(a, null);
+}
+
+/** Each leg's fleet range, in leg order (null where the leg has no speed data). */
+export const legSogRanges = (a: RaceAnalysis): { name: string; range: SogRange | null }[] =>
+  a.legs.map((l) => ({ name: l.name, range: trackSogRange(a, l.index) }));
+
+const legName = (a: RaceAnalysis, leg: number): string => a.legs[leg]?.name ?? (leg < 0 ? 'Before leg 1' : `Leg ${leg + 1}`);
+const span = (r: SogRange): string => `${f1(r.lo)}–${f1(r.hi)}`;
+
+/** "Beat 1 5.0–7.0 · Run 1 6.0–13.5 · … kn": every leg's range, for the key and the map's label. */
+export function legRangeList(a: RaceAnalysis): string {
+  const parts = legSogRanges(a)
+    .filter((l) => l.range)
+    .map((l) => `${l.name} ${span(l.range!)}`);
+  return parts.length ? `${parts.join(' · ')} kn` : '';
+}
+
+/** The hover's leg line: "Beat 2 · range 4.5–7.0 kn" when scaled per leg, else just the leg. */
+export function sogHoverLeg(a: RaceAnalysis, leg: number, view: number | null, scale: SogScale): string {
+  const r = view == null && scale === 'leg' ? segmentSogRange(a, leg, null, 'leg') : null;
+  return `${legName(a, leg)}${r ? ` · range ${span(r)} kn` : ''}`;
+}
+
 /** The start chart's range: racing boats' trail SOG over the START_TRAIL_MS before the gun. */
 export function startSogRange(a: RaceAnalysis): SogRange | null {
   return cached(a, 'start', () =>
@@ -249,6 +288,8 @@ export interface SogIndex {
   y: Float64Array;
   t: Float64Array;
   sog: Float32Array;
+  /** The leg each fix was drawn in (TrackSegment.leg). */
+  leg: Int16Array;
   /** Index into `ids`, per fix. */
   boat: Uint16Array;
   ids: string[];
@@ -270,6 +311,7 @@ export interface IndexedTrack {
   y: ArrayLike<number>;
   t: ArrayLike<number>;
   sog: ArrayLike<number>;
+  leg: number;
 }
 
 /** Build the lookup over `tracks` (already in chart coordinates); a boat's tracks must be consecutive. */
@@ -280,6 +322,7 @@ export function sogIndex(tracks: IndexedTrack[], cell: number): SogIndex {
     y: new Float64Array(n),
     t: new Float64Array(n),
     sog: new Float32Array(n),
+    leg: new Int16Array(n),
     boat: new Uint16Array(n),
     ids: [],
     span: [],
@@ -306,6 +349,7 @@ export function sogIndex(tracks: IndexedTrack[], cell: number): SogIndex {
       ix.y[j] = tk.y[i];
       ix.t[j] = tk.t[i];
       ix.sog[j] = tk.sog[i];
+      ix.leg[j] = tk.leg;
       ix.boat[j] = b;
       ix.x0 = Math.min(ix.x0, tk.x[i]);
       ix.y0 = Math.min(ix.y0, tk.y[i]);
@@ -383,10 +427,29 @@ export function startColourControls(colour: StartColour): string {
 const gradient = (scheme: 'light' | 'dark'): string =>
   `linear-gradient(to right, ${[0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1].map((s) => sogColor(s, scheme)).join(', ')})`;
 
+const bar = (lo: string, hi: string): string =>
+  `<span class="sog-lo">${lo}</span><span class="spd-bar sog-bar" style="--g:${gradient('light')};--gd:${gradient('dark')}" aria-hidden="true"></span><span class="sog-hi">${hi}</span>`;
+// One flex item (speed-key wraps): a leading " · " as its own node sat on a
+// new line after .sog-legs (flex-basis: 100%), looking like a stray bullet.
+const gapNote = (gaps: boolean): string =>
+  gaps ? `<span> · <span class="spd-none" aria-hidden="true"></span> grey dashed = telemetry gap</span>` : '';
+
 /** "4.0 kn [bar] 8.0 kn" and what it spans; the gaps note when the drawing has any. */
 export function sogKey(r: SogRange | null, what: string, gaps = false): string {
   if (!r) return `<span class="muted">No speed data to colour by.</span>`;
-  const gap = gaps ? ` · <span class="spd-none" aria-hidden="true"></span> grey dashed = telemetry gap` : '';
-  return `<span class="sog-lo">${f1(r.lo)} kn</span><span class="spd-bar sog-bar" style="--g:${gradient('light')};--gd:${gradient('dark')}" aria-hidden="true"></span><span class="sog-hi">${f1(r.hi)} kn</span>
-    <span class="muted">${esc(what)} (SOG, ${SOG_SMOOTH_MS / 1000} s mean; 5th–95th percentile)</span>${gap}`;
+  return `${bar(`${f1(r.lo)} kn`, `${f1(r.hi)} kn`)}
+    <span class="muted">${esc(what)} (SOG, ${SOG_SMOOTH_MS / 1000} s mean; 5th–95th percentile)</span>${gapNote(gaps)}`;
+}
+
+/**
+ * Whole race, Per leg: one bar with no knots on it (its ends mean something
+ * different on each leg), "slow → fast within each leg", then each leg's range.
+ * The gap note stays on the first line with the description; .sog-legs wraps
+ * below (flex-basis: 100%).
+ */
+export function sogLegKey(a: RaceAnalysis, gaps = false): string {
+  const list = legRangeList(a);
+  if (!list) return `<span class="muted">No speed data to colour by.</span>`;
+  return `${bar('slow', 'fast')}
+    <span>slow → fast within each leg</span> <span class="muted">(SOG, ${SOG_SMOOTH_MS / 1000} s mean; each leg's 5th–95th percentile)</span>${gapNote(gaps)}<span class="sog-legs">${esc(list)}</span>`;
 }

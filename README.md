@@ -35,12 +35,14 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   everyone else and spreads the colours over just those. Boat speed shades
   every stretch of track by that boat's own speed over ground (4 s mean,
   viridis: dark purple slow, through teal, to yellow-green fast; grey dashed
-  = telemetry gap). The scale is the fleet's 5th–95th percentile on the
-  visible legs. Hover a track for the boat, local time and SOG. The start
-  chart has its own `Colour: Boat | Speed`: Speed paints the 60 s trails and
-  the hulls (SOG at the gun). Selecting a boat draws it bold. A picked
-  coach or spare stays grey and dashed and is left out of the scale. The
-  choices are remembered in this browser.
+  = telemetry gap). The scale is the fleet's 5th–95th percentile. On the
+  whole race, `Scale: Per leg` (the default) stretches colours over each
+  leg's own spread so beats aren't all dark next to planing runs; `Whole
+  race` uses one knot range for every leg. Hover a track for the boat, local
+  time, SOG and leg. The start chart has its own `Colour: Boat | Speed`:
+  Speed paints the 60 s trails and the hulls (SOG at the gun). Selecting a
+  boat draws it bold. A picked coach or spare stays grey and dashed and is
+  left out of the scale. The choices are remembered in this browser.
 - **Findings:** plain-English notes: favoured end, best and worst start, the
   biggest single-leg gain and loss, the quickest boats upwind and downwind,
   places gained or lost, and a wind cross-check.
