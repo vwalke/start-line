@@ -50,7 +50,7 @@ export function parseLastView(raw: string | null | undefined): LastView | null {
   const { eventId, division, raceNumber, leg, boat, savedAt } = x;
   if (typeof eventId !== 'string' || !EVENT_ID.test(eventId)) return null;
   if (typeof division !== 'string' || !division) return null;
-  if (typeof raceNumber !== 'number' || !Number.isFinite(raceNumber)) return null;
+  if (typeof raceNumber !== 'number' || !Number.isInteger(raceNumber) || raceNumber < 1) return null;
   if (leg !== null && !(typeof leg === 'number' && Number.isInteger(leg) && leg >= 0)) return null;
   if (boat !== null && (typeof boat !== 'string' || !boat)) return null;
   if (typeof savedAt !== 'number' || !Number.isFinite(savedAt)) return null;
@@ -72,6 +72,24 @@ export const writeLastView = (r: LastView): void => writePref(LAST_VIEW_KEY, ser
 export const clearLastView = (): void => removePref(LAST_VIEW_KEY);
 
 export const viewOf = (r: ViewState): ViewState => ({ leg: r.leg, boat: r.boat, sort: r.sort });
+
+/**
+ * View to apply for this load: an explicit restore (boot / matching URL) wins;
+ * else keep what's on screen when this is the race already showing (nc toggle,
+ * or a race switch that never landed). A different race starts clean.
+ */
+export function viewForRace(
+  current: { eventId: string; division: string; raceNumber: number } | null,
+  next: { eventId: string; division: string; raceNumber: number },
+  showing: ViewState,
+  explicit?: ViewState,
+): ViewState | undefined {
+  if (explicit !== undefined) return explicit;
+  if (current && current.eventId === next.eventId && current.division === next.division && current.raceNumber === next.raceNumber) {
+    return showing;
+  }
+  return undefined;
+}
 
 /** How to boot: the URL's race, the saved one, or the latest (no explicit or saved race). */
 export type StartPlan =

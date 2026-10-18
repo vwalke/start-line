@@ -10,7 +10,7 @@ import type { WorkerRequest, WorkerResponse } from '../worker';
 import { classDims } from '../data/classes';
 import { boatList, findingsList } from './boats';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
-import { applyView, clearLastView, isTransientError, pickRace, readLastView, resolveStart, writeLastView, type StartPlan, type ViewState } from './lastView';
+import { applyView, clearLastView, isTransientError, pickRace, readLastView, resolveStart, viewForRace, writeLastView, type StartPlan, type ViewState } from './lastView';
 import { NC_ALL } from './params';
 import { legLegend, legSplitCaption, mapBox, startFitBox, startHullScale, startSnapshot, trackMap, trackSogIndex } from './charts';
 import { degLabel, duration, esc, f0, f1, f2, gunTimeLine, localTime } from './format';
@@ -140,6 +140,9 @@ export function startApp(): void {
   /** Record the race on screen and how it's viewed, so a relaunch can come back to it. */
   function save(): void {
     if (!current || !analysis) return;
+    // A load that has swapped `analysis` but not yet `current` (or the reverse) must not mix them.
+    if (analysis.meta.division !== current.division || analysis.meta.raceNumber !== current.raceNumber) return;
+    if (analysis.meta.eventId != null && analysis.meta.eventId !== current.eventId) return;
     writeLastView({ v: 1, ...current, ...(allCompetitors ? { allCompetitors: true } : {}), leg: legSel, boat: highlight, sort, savedAt: Date.now() });
   }
 
@@ -482,10 +485,13 @@ export function startApp(): void {
   async function loadRace(division: string, raceNumber: number, restore?: ViewState): Promise<RaceLoad> {
     if (!regatta) return new Error('no event loaded');
     const id = eventId;
-    setUrl({ event: id, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
+    // Don't replaceState until this race is on screen: a kill mid-switch keeps the last
+    // successful race in both the URL and recall.lastView (and not the half-switched one).
+    const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: legSel, boat: highlight, sort }, restore);
     try {
-      if (!(await show(run({ type: 'live', eventId: id, regatta, division, raceNumber, allCompetitors }), restore))) return 'superseded';
+      if (!(await show(run({ type: 'live', eventId: id, regatta, division, raceNumber, allCompetitors }), view))) return 'superseded';
       current = { eventId: id, division, raceNumber };
+      setUrl({ event: id, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
       save();
       setNotice('');
       return 'ok';

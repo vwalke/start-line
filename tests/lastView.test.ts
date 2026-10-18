@@ -12,6 +12,7 @@ import {
   readLastView,
   resolveStart,
   serializeLastView,
+  viewForRace,
   writeLastView,
   type LastView,
 } from '../src/ui/lastView';
@@ -56,6 +57,9 @@ describe('parseLastView / serializeLastView', () => {
       bad({ division: '' }),
       bad({ division: 3 }),
       bad({ raceNumber: '4' }),
+      bad({ raceNumber: 4.5 }),
+      bad({ raceNumber: 0 }),
+      bad({ raceNumber: -1 }),
       bad({ raceNumber: null }),
       bad({ leg: -1 }),
       bad({ leg: 1.5 }),
@@ -107,6 +111,28 @@ describe('resolveStart', () => {
   it('nothing saved: the latest race, as before', () => {
     expect(resolveStart('', null)).toEqual({ source: 'latest', params: { eventId: '' } });
     expect(resolveStart('?nc=all', null)).toEqual({ source: 'latest', params: { eventId: '', allCompetitors: true } });
+  });
+});
+
+describe('viewForRace', () => {
+  const showing = { leg: 2, boat: 'b870', sort: { key: 'fin', dir: 'asc' as const } };
+  const race4 = { eventId: rec.eventId, division: 'M24', raceNumber: 4 };
+  const race5 = { eventId: rec.eventId, division: 'M24', raceNumber: 5 };
+
+  it('an explicit restore wins, including a reset view', () => {
+    const reset = { leg: null, boat: null, sort: null };
+    expect(viewForRace(race4, race4, showing, reset)).toEqual(reset);
+    expect(viewForRace(null, race5, showing, showing)).toEqual(showing);
+  });
+
+  it('keeps the on-screen view when this is the race already showing', () => {
+    expect(viewForRace(race4, race4, showing)).toEqual(showing);
+  });
+
+  it('starts clean when switching races, or when nothing is on screen yet', () => {
+    expect(viewForRace(race4, race5, showing)).toBeUndefined();
+    expect(viewForRace(race4, { eventId: 'other-event', division: 'M24', raceNumber: 4 }, showing)).toBeUndefined();
+    expect(viewForRace(null, race4, showing)).toBeUndefined();
   });
 });
 
@@ -234,6 +260,12 @@ describe('app wiring', () => {
     expect(app).toContain('pickRace(races, want, defaultRace(doc), opts.strict)');
     expect(app).toMatch(/loadEvent\(id, want, \{ strict: true, view: p\.view \}\)/);
     expect(app).not.toMatch(/\?\? defaultRace\(doc\) \?\? races\[0\]/);
+  });
+
+  it('does not replaceState the URL until the race is on screen', () => {
+    expect(app).toContain('viewForRace(current, { eventId: id, division, raceNumber }');
+    const load = app.slice(app.indexOf('async function loadRace'), app.indexOf('function renderEventOptions'));
+    expect(load.indexOf('await show(')).toBeLessThan(load.indexOf('setUrl({ event: id'));
   });
 
   it('offers a way back to the latest race and a retry', () => {
