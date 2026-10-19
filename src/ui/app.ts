@@ -2,6 +2,7 @@
  * The page: search/pick an event → race, run the worker, render the digest.
  * Live data only: if the feed or proxy fails we say so, with a way to retry.
  */
+import { splitFindings } from '../analysis/findings';
 import { START_TRAIL_MS, type RaceAnalysis } from '../analysis/types';
 import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchRegatta } from '../data/racesense/api';
@@ -78,7 +79,10 @@ export function startApp(): void {
     speedKey: $('map-speed-key'),
     mapSplit: $('map-split'),
     table: $('table'),
+    startFindings: $('start-findings'),
+    startFindingsBox: $('start-findings-box'),
     findings: $('findings'),
+    raceFindings: $('race-findings-card'),
     boats: $('boat-list'),
     warnings: $('warnings'),
   };
@@ -226,9 +230,14 @@ export function startApp(): void {
     els.mapSplit.textContent = legSplitCaption(a);
     els.table.innerHTML = metricsTable(a, highlight, sort);
     els.boats.innerHTML = boatList(a, highlight, ncOpen);
-    els.findings.innerHTML = findingsList(a.findings, highlight);
+    const found = splitFindings(a.findings);
+    els.startFindings.innerHTML = findingsList(found.start, highlight);
+    els.startFindingsBox.hidden = !found.start.length;
+    els.findings.innerHTML = findingsList(found.race, highlight);
+    els.findings.hidden = !found.race.length;
     els.warnings.innerHTML = a.warnings.map((t) => `<li>${esc(t)}</li>`).join('');
     els.warnings.hidden = !a.warnings.length;
+    els.raceFindings.hidden = !found.race.length && !a.warnings.length;
     els.digest.hidden = false;
   }
 

@@ -563,6 +563,9 @@ table.metrics {
 .metrics .flag { font-size: 0.7rem; background: var(--bad-bg); color: var(--bad); border-radius: 3px; padding: 0 4px; }
 
 ul.findings { margin: 0; padding-left: 18px; }
+/* Start findings: under the start chart, set off from its caption by a rule. */
+.findings-box { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rule); }
+.findings-box h4 { font-size: 0.9rem; margin: 0 0 4px; }
 ul.findings li { margin: 4px 0; transition: opacity 0.15s; }
 ul.findings li.dim { opacity: 0.45; }
 ul.findings li.hl { font-weight: 600; }

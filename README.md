@@ -56,12 +56,16 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   boat draws it bold. A picked coach or spare stays grey and dashed and is
   left out of the scale. The choices (and the start chart's `Names`) are
   remembered in this browser.
-- **Findings:** plain-English notes: favoured end, best and worst start, the
-  biggest single-leg gain and loss, the quickest boats upwind and downwind,
-  places gained or lost, and a wind cross-check.
+- **Findings:** plain-English notes, split in two. **Start findings** sit
+  under the start chart: the favoured end (in degrees and metres), best and
+  worst start, boats over the line or that race control couldn't check.
+  **Race findings** follow the track map: the biggest single-leg gain and
+  loss, the quickest boats upwind and downwind, places gained or lost, and a
+  wind cross-check, with the data warnings below them. An empty list is
+  hidden.
 - **Highlights:** ▲ best and ▼ worst in each column. Select a boat in the boat
   list, the start chart or a table row to highlight it in both charts, the
-  table and the findings.
+  table and both findings lists.
 
 ## Data sources & caveats
 
