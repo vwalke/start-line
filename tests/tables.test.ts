@@ -178,6 +178,10 @@ describe('attachTopScroll', () => {
         for (const f of fns) f(); // the browser fires scroll on a change
       },
       addEventListener: (_t: 'scroll', f: () => void) => void fns.push(f),
+      removeEventListener: (_t: 'scroll', f: () => void) => {
+        const i = fns.indexOf(f);
+        if (i >= 0) fns.splice(i, 1);
+      },
     };
     return e as ScrollEl & { _left: number };
   }
@@ -202,5 +206,17 @@ describe('attachTopScroll', () => {
     expect(mirror.scrollLeft).toBe(300);
     mirror.scrollLeft = 120;
     expect(wrap.scrollLeft).toBe(120);
+  });
+
+  it('disconnect drops the scroll listeners so the two sides stop following', () => {
+    const mirror = el(1500, 400);
+    const wrap = el(1500, 400);
+    const bar = attachTopScroll(mirror, { style: { width: '' } }, wrap);
+    bar.update();
+    bar.disconnect();
+    wrap.scrollLeft = 300;
+    expect(mirror.scrollLeft).toBe(0);
+    mirror.scrollLeft = 120;
+    expect(wrap.scrollLeft).toBe(300);
   });
 });

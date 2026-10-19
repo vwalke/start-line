@@ -12,11 +12,14 @@ export interface ScrollEl {
   readonly clientWidth: number;
   hidden: boolean;
   addEventListener(type: 'scroll', fn: () => void, opts?: AddEventListenerOptions): void;
+  removeEventListener(type: 'scroll', fn: () => void, opts?: EventListenerOptions): void;
 }
 
 export interface TopScroll {
   /** Re-measure after the table is re-rendered or resized. */
   update(): void;
+  /** Drop the scroll listeners and ResizeObserver. The page-lifetime attach does not need this. */
+  disconnect(): void;
 }
 
 /** Sync `mirror` (with spacer `spacer`) to `wrap`; returns `update` for re-renders. Observes resizes where it can. */
@@ -25,14 +28,25 @@ export function attachTopScroll(mirror: ScrollEl, spacer: { style: { width: stri
   const follow = (from: ScrollEl, to: ScrollEl): void => {
     if (Math.abs(to.scrollLeft - from.scrollLeft) >= 1) to.scrollLeft = from.scrollLeft;
   };
-  wrap.addEventListener('scroll', () => follow(wrap, mirror), { passive: true });
-  mirror.addEventListener('scroll', () => follow(mirror, wrap), { passive: true });
+  const onWrap = (): void => follow(wrap, mirror);
+  const onMirror = (): void => follow(mirror, wrap);
+  wrap.addEventListener('scroll', onWrap, { passive: true });
+  mirror.addEventListener('scroll', onMirror, { passive: true });
   const update = (): void => {
     const over = wrap.scrollWidth - wrap.clientWidth > 1;
     mirror.hidden = !over;
     spacer.style.width = `${wrap.scrollWidth}px`;
     if (over) mirror.scrollLeft = wrap.scrollLeft;
   };
-  if (typeof ResizeObserver !== 'undefined' && typeof Element !== 'undefined' && wrap instanceof Element) new ResizeObserver(update).observe(wrap);
-  return { update };
+  const ro =
+    typeof ResizeObserver !== 'undefined' && typeof Element !== 'undefined' && wrap instanceof Element ? new ResizeObserver(update) : null;
+  ro?.observe(wrap);
+  return {
+    update,
+    disconnect(): void {
+      wrap.removeEventListener('scroll', onWrap);
+      mirror.removeEventListener('scroll', onMirror);
+      ro?.disconnect();
+    },
+  };
 }
