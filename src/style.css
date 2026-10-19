@@ -546,7 +546,7 @@ svg .ss-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 
 /* Place changes (bump chart): drawn at the card's pixel width, so no letterboxing; tall fleets scroll the page. */
 .places-wrap { position: relative; }
-svg.chart.places { max-height: none; overflow: visible; }
+svg.chart.places { max-height: none; overflow: visible; touch-action: pan-y; }
 svg .pc-grid { stroke: var(--rule); stroke-width: 1; }
 svg .pc-col { stroke: var(--rule); stroke-width: 1; stroke-dasharray: 2 3; }
 svg .pc-axis, svg .pc-head { fill: var(--ink-3); font-variant-numeric: tabular-nums; }

@@ -16,6 +16,31 @@ import { textWidth } from './labels';
 const SLOTS = 8;
 /** Below this width the right-hand labels are sail numbers only. */
 export const PLACES_NARROW_PX = 520;
+/** Reach for a pointer on a place-chart dot, chart px (the drawn radius is 3.5–4.5). */
+export const PLACE_TIP_MOUSE_REACH = 16;
+/** Finger slop: a tap often lands on the 14 px hit-stroke, not the circle. */
+export const PLACE_TIP_TOUCH_REACH = 28;
+
+/** A place-chart dot's chart position and readout (from the SVG, or a test stand-in). */
+export interface PlaceDot {
+  cx: number;
+  cy: number;
+  tip: string;
+}
+
+/** The nearest dot within `reach`, or null. Ties go to the later (on-top) boat. */
+export function nearestPlaceDot<T extends PlaceDot>(dots: readonly T[], x: number, y: number, reach: number): T | null {
+  let best: T | null = null;
+  let bestD = reach;
+  for (const d of dots) {
+    const dist = Math.hypot(d.cx - x, d.cy - y);
+    if (dist <= bestD) {
+      bestD = dist;
+      best = d;
+    }
+  }
+  return best;
+}
 
 /** The boat's line colour: its usual colour, or its slot cycled when the fleet is too big for one each. */
 export const placeColor = (b: BoatResult, fleet: number): string => (fleet <= SLOTS ? boatColor(b, fleet) : `var(--s${(b.colorSlot % SLOTS) + 1})`);

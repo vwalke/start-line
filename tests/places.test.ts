@@ -4,7 +4,16 @@ import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import { placeChanges, placeColumns, roundingMs } from '../src/analysis/places';
 import type { BoatResult, LegDef, LegResult, RaceAnalysis } from '../src/analysis/types';
-import { gainLabel, placeTip, placesCaption, placesChart, shortName } from '../src/ui/places';
+import {
+  PLACE_TIP_MOUSE_REACH,
+  PLACE_TIP_TOUCH_REACH,
+  gainLabel,
+  nearestPlaceDot,
+  placeTip,
+  placesCaption,
+  placesChart,
+  shortName,
+} from '../src/ui/places';
 import { c31Race, fixtureRace, j88Race, m24Race } from './helpers';
 
 const races = { j70: analyzeRace(fixtureRace()), c31: analyzeRace(c31Race()), m24: analyzeRace(m24Race()), j88: analyzeRace(j88Race()) };
@@ -177,6 +186,23 @@ describe('placesChart SVG', () => {
     expect(svg.match(/<path class="pc-gap"/g)).toHaveLength(1);
     expect(svg).toContain('class="pc-lbl dnf"');
     expect(svg).toContain('>DNF #d</text>');
+  });
+
+  it('a tap within finger reach of a dot hits it, even when it misses the circle', () => {
+    const syn = { ...a, legs, boats: synth.boats } as RaceAnalysis;
+    const svg = placesChart(syn, null, { widthPx: 390 });
+    const dots = [...svg.matchAll(/<circle class="pc-dot" cx="([-\d.]+)" cy="([-\d.]+)"[^>]*data-tip="([^"]*)"/g)].map((m) => ({
+      cx: Number(m[1]),
+      cy: Number(m[2]),
+      tip: m[3],
+    }));
+    expect(dots.length).toBeGreaterThan(3);
+    const d = dots[1];
+    // 20 px off the centre: on a phone that's still the same dot (circle r is 3.5); a mouse hover that tight does not count.
+    expect(nearestPlaceDot(dots, d.cx + 20, d.cy + 4, PLACE_TIP_TOUCH_REACH)?.tip).toBe(d.tip);
+    expect(nearestPlaceDot(dots, d.cx + 20, d.cy + 4, PLACE_TIP_MOUSE_REACH)).toBeNull();
+    expect(nearestPlaceDot(dots, d.cx + 40, d.cy, PLACE_TIP_TOUCH_REACH)).toBeNull();
+    expect(PLACE_TIP_TOUCH_REACH).toBeGreaterThan(PLACE_TIP_MOUSE_REACH);
   });
 
   it('narrow screens: sail numbers only, rotated mark names, labels inside the width', () => {

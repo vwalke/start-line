@@ -30,7 +30,7 @@ import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
 import { biasCaption } from './startLine';
 import { attachTopScroll } from './hscroll';
 import { attachPanZoom } from './panzoom';
-import { placesCaption, placesChart } from './places';
+import { PLACE_TIP_MOUSE_REACH, PLACE_TIP_TOUCH_REACH, nearestPlaceDot, placesCaption, placesChart } from './places';
 import { DEFAULT_TAB, TABS, parseTab, tabForKey, tabFromHash, withTabHash, type Tab } from './tabs';
 import { startSogSeries, type StartSogSeries } from '../analysis/startSog';
 import {
@@ -572,16 +572,35 @@ export function startApp(): void {
   });
 
   // Place changes: a dot's place on hover or tap (beside it, as the map's tip); a click on a line, dot or name selects the boat.
+  // The boat a nearby-dot readout belongs to, so a sloppy tap still selects it after the redraw.
+  let placeTipId: string | null = null;
   function showPlaceTip(ev: PointerEvent): void {
-    const dot = (ev.target as Element).closest?.('circle.pc-dot[data-tip]');
-    if (!dot) {
+    const svg = els.places.querySelector('svg');
+    if (!svg) {
       els.placesTip.hidden = true;
+      placeTipId = null;
       return;
     }
-    els.placesTip.textContent = dot.getAttribute('data-tip');
+    const rect = svg.getBoundingClientRect();
+    const vb = svg.viewBox.baseVal;
+    const k = (vb.width || rect.width) / (rect.width || 1);
+    const dots = [...svg.querySelectorAll<SVGCircleElement>('circle.pc-dot[data-tip]')].map((el) => ({
+      el,
+      cx: Number(el.getAttribute('cx')),
+      cy: Number(el.getAttribute('cy')),
+      tip: el.getAttribute('data-tip') ?? '',
+    }));
+    const hit = nearestPlaceDot(dots, (ev.clientX - rect.left) * k, (ev.clientY - rect.top) * k, ev.pointerType === 'mouse' ? PLACE_TIP_MOUSE_REACH : PLACE_TIP_TOUCH_REACH);
+    if (!hit) {
+      els.placesTip.hidden = true;
+      placeTipId = null;
+      return;
+    }
+    placeTipId = hit.el.closest('g.pc-boat[data-id]')?.getAttribute('data-id') ?? null;
+    els.placesTip.textContent = hit.tip;
     els.placesTip.hidden = false;
     const wrap = els.placesTip.parentElement!.getBoundingClientRect();
-    const r = dot.getBoundingClientRect();
+    const r = hit.el.getBoundingClientRect();
     const left = r.left + r.width / 2 - wrap.left;
     const flip = left + 12 + els.placesTip.offsetWidth > wrap.width;
     els.placesTip.style.left = `${Math.max(0, flip ? left - 12 - els.placesTip.offsetWidth : left + 12)}px`;
@@ -590,15 +609,20 @@ export function startApp(): void {
   els.places.addEventListener('pointermove', showPlaceTip);
   els.places.addEventListener('pointerdown', showPlaceTip);
   els.places.addEventListener('pointerleave', (ev) => {
-    if (ev.pointerType === 'mouse') els.placesTip.hidden = true;
+    if (ev.pointerType === 'mouse') {
+      els.placesTip.hidden = true;
+      placeTipId = null;
+    }
   });
   els.places.addEventListener('click', (ev) => {
     const g = (ev.target as Element).closest('g.pc-boat[data-id]');
     const tip = !els.placesTip.hidden ? els.placesTip.textContent : null;
+    // A tap near a dot (missed circle, hit the line or the chart) still selects that boat.
+    const id = g?.getAttribute('data-id') ?? (tip ? placeTipId : null);
     // Tapping empty chart clears the selection, as on the start chart.
-    toggleHighlight(g ? g.getAttribute('data-id') : null);
-    // A tap on a dot keeps its tip up after the redraw.
-    if (tip && g && (ev.target as Element).closest('circle.pc-dot')) {
+    toggleHighlight(id);
+    // A tap that showed a readout keeps it up after the redraw (the SVG is replaced).
+    if (tip) {
       els.placesTip.textContent = tip;
       els.placesTip.hidden = false;
     }
