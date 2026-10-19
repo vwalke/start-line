@@ -15,6 +15,18 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   against the line with a 60 s trail (`START_TRAIL_MS`) shifted so it ends on
   that bow, arrows along course over ground, plus the line length and bias and
   which end was favoured. Wind bearings display as 0° rather than 360°.
+  Hulls are drawn to scale when the class is known (division `boatClass`,
+  then division name, then the event's class label; e.g. Cape 31 = C31,
+  9.55 m); otherwise the caption says there are no dimensions for the class.
+  The line continues dashed past each end, and the favoured end is labelled
+  with its bias in degrees and metres (and boat lengths when the class is
+  known), e.g. `Pin favoured 7° · 18 m (1.9 lengths)`, or `Square line`
+  within 2 m. The caption and the label's tooltip give the wind source
+  (tacks, weather model, or first leg assumed upwind), a confidence, and how
+  far a 5° wind error moves the figure. `Names: Auto | All | Off` sets the
+  boat labels: Auto places them greedily (selected boat, then by start place)
+  and leaves out any that would overlap another label or the line, so
+  zooming in reveals more; hover or tap a boat for its name either way.
 - **Per boat:** distance off the line at the gun (bow-corrected), seconds late,
   line position (0% pin … 100% RC), speed at the gun, and TWA at the gun.
 - **Per leg:** VMG, SOG, TWA, distance sailed (nm), and leg time with the
@@ -42,7 +54,8 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   time, SOG and leg. The start chart has its own `Colour: Boat | Speed`:
   Speed paints the 60 s trails and the hulls (SOG at the gun). Selecting a
   boat draws it bold. A picked coach or spare stays grey and dashed and is
-  left out of the scale. The choices are remembered in this browser.
+  left out of the scale. The choices (and the start chart's `Names`) are
+  remembered in this browser.
 - **Findings:** plain-English notes: favoured end, best and worst start, the
   biggest single-leg gain and loss, the quickest boats upwind and downwind,
   places gained or lost, and a wind cross-check.

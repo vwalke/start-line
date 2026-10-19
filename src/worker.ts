@@ -17,6 +17,8 @@ export type WorkerRequest = {
   raceNumber: number;
   /** `nc=all`: keep coach/spare boats as competitors. */
   allCompetitors?: boolean;
+  /** The event's class label from the landing list, for the class dimensions. */
+  classLabel?: string;
 };
 
 export type WorkerResponse =
@@ -45,7 +47,7 @@ async function handle(req: WorkerRequest): Promise<RaceAnalysis> {
   const gun = race.starts.at(-1)?.startTime ?? win.after;
   const wind = line ? await fetchWind((line.leftEnd[0] + line.rightEnd[0]) / 2, (line.leftEnd[1] + line.rightEnd[1]) / 2, gun) : undefined;
   progress('Crunching…');
-  let data = buildRaceData(req.regatta, ref, pages, { eventId: req.eventId, wind });
+  let data = buildRaceData(req.regatta, ref, pages, { eventId: req.eventId, wind, classLabel: req.classLabel });
   // Marks shared across divisions may not carry this division's tag: top up from a 1-minute unfiltered window.
   if (data.course.length === 0 && (findRace(doc, ref).div.courses?.[0]?.achievements?.length ?? 0) > 2) {
     progress('Fetching mark positions…');
@@ -55,7 +57,7 @@ async function handle(req: WorkerRequest): Promise<RaceAnalysis> {
       const role = p.Fields.indexOf('role');
       return { Fields: p.Fields, Rows: role < 0 ? p.Rows : p.Rows.filter((r) => r[role] === 'mark') };
     });
-    data = buildRaceData(req.regatta, ref, [...pages, ...markOnly], { eventId: req.eventId, wind });
+    data = buildRaceData(req.regatta, ref, [...pages, ...markOnly], { eventId: req.eventId, wind, classLabel: req.classLabel });
     extra.length = 0;
   }
   pages.length = 0;

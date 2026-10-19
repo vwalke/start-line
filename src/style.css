@@ -398,6 +398,11 @@ svg text.lbl.est { fill: var(--ink-2); font-weight: 400; font-style: italic; }
 svg text { fill: var(--ink); font-family: inherit; }
 svg text.lbl { font-weight: 600; }
 svg text.sub, svg text.endlbl { fill: var(--ink-2); }
+/* Start chart names: a surface halo keeps them readable over trails; never a tap target of their own beyond the boat's group. */
+svg .blbl text { stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; }
+/* The line continued past each end, under everything; the favoured-end label above it. */
+svg .line-ext { stroke: var(--ink-3); stroke-linecap: butt; fill: none; pointer-events: none; }
+svg text.fav-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; font-weight: 600; }
 svg .wind line, svg .wind path { stroke: var(--accent); }
 svg .wind text { fill: var(--accent); }
 svg .scalebar line { stroke: var(--ink-2); }

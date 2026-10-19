@@ -7,13 +7,14 @@ import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import type { WorkerRequest, WorkerResponse } from '../worker';
-import { classDims } from '../data/classes';
 import { boatList, findingsList } from './boats';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
 import { applyView, clearLastView, isTransientError, pickRace, readLastView, resolveStart, viewForRace, writeLastView, type StartPlan, type ViewState } from './lastView';
 import { NC_ALL } from './params';
-import { legLegend, legSplitCaption, mapBox, startFitBox, startHullScale, startSnapshot, trackMap, trackSogIndex } from './charts';
-import { degLabel, duration, esc, f0, f1, f2, gunTimeLine, localTime } from './format';
+import { legLegend, legSplitCaption, mapBox, startFitBox, startScaleCaption, startSnapshot, trackMap, trackSogIndex } from './charts';
+import { degLabel, duration, esc, f0, f1, gunTimeLine, localTime } from './format';
+import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
+import { biasCaption } from './startLine';
 import { attachPanZoom } from './panzoom';
 import {
   START_COLOUR_KEY,
@@ -123,6 +124,7 @@ export function startApp(): void {
   let rankBy = parseRankBy(readPref(RANK_KEY));
   let speedTop = parseSpeedTop(readPref(TOP_KEY));
   let startColour = parseStartColour(readPref(START_COLOUR_KEY));
+  let startNames = parseStartNames(readPref(START_NAMES_KEY));
   let sogScale = parseSogScale(readPref(SOG_SCALE_KEY));
   /** Boat speed hover: the map's box and fix lookup, built on first hover after each render. */
   let hover: { box: Box; ix: SogIndex } | null = null;
@@ -197,13 +199,9 @@ export function startApp(): void {
       ${a.boats.length} boats · ${a.legs.map((l) => esc(l.name)).join(', ')} ·
       <span title="No wind sensor on the boats: estimated from the fleet's steady upwind headings">${windText}${model}</span> ·
       <span class="muted">${esc(m.sourceLabel)}</span></p>`;
-    const fav =
-      a.line.favored === 'square'
-        ? 'about square to the wind'
-        : `${a.line.favored === 'left' ? 'pin' : 'RC'} end favoured by ≈${f0(a.line.favoredByM)} m`;
-    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (Vakaros timing) with the last ${START_TRAIL_MS / 1000} s of track shifted to the bow. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.${startColour === 'speed' ? ' Colour: Speed shades each trail by speed over ground (4 s mean) and each hull by its SOG at the gun; hover a boat for the figure.' : ''}`;
+    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${biasCaption(a)}; dashed: the line continued past each end. Bows at the gun (Vakaros timing) with the last ${START_TRAIL_MS / 1000} s of track shifted to the bow. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.${startColour === 'speed' ? ' Colour: Speed shades each trail by speed over ground (4 s mean) and each hull by its SOG at the gun; hover a boat for the figure.' : ''}`;
     renderStart();
-    els.startColour.innerHTML = startColourControls(startColour);
+    els.startColour.innerHTML = startColourControls(startColour) + startNamesControls(startNames);
     els.startKey.innerHTML =
       startColour === 'speed'
         ? sogKey(startSogRange(a), `Last ${START_TRAIL_MS / 1000} s before the gun; hulls at the gun`, hasGaps(a.drawings.map((d) => d.trail.t)))
@@ -238,12 +236,9 @@ export function startApp(): void {
   function renderStart(): void {
     const a = analysis;
     if (!a) return;
-    const dims = startHullScale(a, view);
-    const cls = classDims(a.meta.boatClass) ? a.meta.boatClass : a.meta.division;
-    els.startScale.textContent = dims
-      ? `Hulls drawn to scale (${cls} ${f2(dims.loaM)} m). Hulls point along heading.`
-      : 'Markers not to scale. Arrows follow course over ground.';
-    els.start.innerHTML = startSnapshot(a, highlight, view, startColour);
+    els.startScale.textContent = startScaleCaption(a, view);
+    // Names are placed for this zoom (zooming in spreads the boats and reveals more) and sized for this width.
+    els.start.innerHTML = startSnapshot(a, highlight, view, startColour, { names: startNames, widthPx: els.start.clientWidth || undefined });
   }
 
   /** Boat speed: the nearest drawn fix under the pointer (the selected boat's, within 40 px; else anyone's within 8 px). */
@@ -340,6 +335,15 @@ export function startApp(): void {
     getView: () => view,
     setView,
     getRect: () => (els.start.querySelector('svg') ?? els.start).getBoundingClientRect(),
+  });
+
+  // Names are sized for the chart's width: redraw when it changes (rotation, window resize).
+  let startW = 0;
+  addEventListener('resize', () => {
+    const w = els.start.clientWidth;
+    if (w === startW || !analysis) return;
+    startW = w;
+    setView(view);
   });
 
   /** Re-render, then put keyboard focus back on the rebuilt control matching `selector` (if focus was in it). */
@@ -451,6 +455,13 @@ export function startApp(): void {
     writePref(START_COLOUR_KEY, startColour);
     renderKeepingFocus(els.startColour, focusSel(btn, 'data-start-colour'));
   });
+  els.startColour.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement).closest('button[data-start-names]');
+    if (!btn) return;
+    startNames = parseStartNames(btn.getAttribute('data-start-names'));
+    writePref(START_NAMES_KEY, startNames);
+    renderKeepingFocus(els.startColour, focusSel(btn, 'data-start-names'));
+  });
   els.start.addEventListener('click', (ev) => {
     const g = (ev.target as Element).closest('g.boat[data-id]');
     toggleHighlight(g ? g.getAttribute('data-id') : null);
@@ -489,7 +500,8 @@ export function startApp(): void {
     // successful race in both the URL and recall.lastView (and not the half-switched one).
     const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: legSel, boat: highlight, sort }, restore);
     try {
-      if (!(await show(run({ type: 'live', eventId: id, regatta, division, raceNumber, allCompetitors }), view))) return 'superseded';
+      const classLabel = events.find((e) => e.eventId === id)?.classLabel;
+      if (!(await show(run({ type: 'live', eventId: id, regatta, division, raceNumber, allCompetitors, classLabel }), view))) return 'superseded';
       current = { eventId: id, division, raceNumber };
       setUrl({ event: id, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
       save();

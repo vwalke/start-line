@@ -3,7 +3,7 @@ import { analyzeRace } from '../src/analysis/analyze';
 import { primaryDtlM } from '../src/analysis/findings';
 import { OCS_BLIND_NOTE } from '../src/analysis/validity';
 import { currentDoc } from '../src/data/racesense/adapter';
-import { startSnapshot } from '../src/ui/charts';
+import { startClass, startHullScale, startScaleCaption, startSnapshot } from '../src/ui/charts';
 import { metricsTable } from '../src/ui/table';
 import { c31Fixture, c31Race } from './helpers';
 
@@ -183,7 +183,7 @@ describe('C31 race 10: findings and chart', () => {
   });
 
   it('labels the chart with the ranking value, ~ for gap-only, never a bogus 0.0', () => {
-    const svg = startSnapshot(analysis, null);
+    const svg = startSnapshot(analysis, null, undefined, 'boat', { names: 'all' });
     const label = (sail: string): string => new RegExp(`>${sail}</text>\\s*<text[^>]*class="sub">([^<]*)</text>`).exec(svg)![1];
     expect(label('ITA 78')).toBe('0.4 m');
     expect(label('GER42')).toBe('~-3.1 m');
@@ -191,5 +191,31 @@ describe('C31 race 10: findings and chart', () => {
     expect(label('FRA 901')).toBe('12.6 m');
     expect(svg).toMatch(/<title>#GER42: no reliable distance \(ours ~-3\.1 m\), SOG 6\.\d kn at the gun<\/title>/);
     expect(svg).toMatch(/<title>#ITA 78: 0\.4 m behind \(Vakaros; ours ~-6\.0 m\), SOG 5\.6 kn at the gun<\/title>/);
+  });
+});
+
+describe('C31 race 10: Cape 31 hulls to scale', () => {
+  it('reads the class from the feed: division boatClass "Cape 31", name "C31", boatShapeId 65', () => {
+    const div = currentDoc(c31Fixture().regatta).divisions.find((d) => d.name === 'C31')! as { boatClass?: string; boatShapeId?: number };
+    expect(div.boatClass).toBe('Cape 31');
+    expect(div.boatShapeId).toBe(65);
+    expect(analysis.meta.boatClass).toBe('Cape 31');
+    expect(analysis.meta.division).toBe('C31');
+  });
+
+  it('draws every boat as a 9.55 m hull at Fit, captioned with the class', () => {
+    expect(startClass(analysis)).toEqual({ name: 'Cape 31', dims: { loaM: 9.55, beamM: 3.05 } });
+    expect(startHullScale(analysis)?.loaM).toBe(9.55);
+    const svg = startSnapshot(analysis, null);
+    expect((svg.match(/<path class="hull" d="M/g) ?? []).length).toBe(analysis.drawings.length);
+    expect(svg).not.toContain('boat-min');
+    expect(startScaleCaption(analysis)).toBe('Hulls to scale (Cape 31, 9.55 m); they point along heading.');
+  });
+
+  it('falls back to the division name, then the event class label', () => {
+    const byDiv = { ...analysis, meta: { ...analysis.meta, boatClass: 'Unknown' } };
+    expect(startClass(byDiv)?.name).toBe('C31');
+    const byLabel = { ...analysis, meta: { ...analysis.meta, boatClass: 'Unknown', division: 'Gold', classLabel: 'C 31' } };
+    expect(startHullScale(byLabel)?.loaM).toBe(9.55);
   });
 });

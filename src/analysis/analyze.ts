@@ -28,6 +28,7 @@ import {
 } from './geo';
 import { fleetTurns, isOffset, legCourse, legsAgree, snapTurns } from './course';
 import { inferRoundings, splitLegs, type Waypoint } from './legs';
+import { SQUARE_LINE_M } from './line';
 import { classifyParticipation } from './participation';
 import { projectTrack, rangeIdx, type XYTrack } from './prepare';
 import { smoothSog } from './smooth';
@@ -322,7 +323,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     right: R,
     lengthM: lineLen,
     bearingDeg: vecBearing(lineVec),
-    favored: favoredByM < 2 ? 'square' : uL > uR ? 'left' : 'right',
+    favored: favoredByM < SQUARE_LINE_M ? 'square' : uL > uR ? 'left' : 'right',
     favoredByM,
   };
 
@@ -589,6 +590,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       eventName: data.eventName,
       division: data.division,
       boatClass: data.boatClass,
+      ...(data.classLabel ? { classLabel: data.classLabel } : {}),
       raceNumber: data.raceNumber,
       gunMs: gun,
       tzOffsetMs: data.tzOffsetMs,

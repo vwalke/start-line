@@ -156,6 +156,8 @@ export interface RaceAnalysis {
     eventName: string;
     division: string;
     boatClass: string;
+    /** The event's class label (landing list), when known. */
+    classLabel?: string;
     raceNumber: number;
     gunMs: number;
     tzOffsetMs: number;
