@@ -3,6 +3,10 @@ import type { Vec } from './geo';
 
 /** How much track before the start fix the start chart draws behind each boat. */
 export const START_TRAIL_MS = 60_000;
+/** Speed through the start: full-rate smoothed SOG kept from this long before the gun… */
+export const START_SOG_PRE_MS = 120_000;
+/** …to this long after it. */
+export const START_SOG_POST_MS = 20_000;
 
 export type LegKind = 'upwind' | 'downwind' | 'reach';
 
@@ -202,6 +206,8 @@ export interface BoatDrawing {
   courseAtGun: number | null;
   /** Gun → finish, ~1 Hz, split by leg. */
   segments: TrackSegment[];
+  /** Every fix from START_SOG_PRE_MS before the gun to START_SOG_POST_MS after: time and smoothed SOG (gaps left as they are). */
+  startSog: { t: Float64Array; sog: Float32Array };
 }
 
 export interface Finding {

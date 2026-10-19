@@ -27,6 +27,22 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   boat labels: Auto places them greedily (selected boat, then by start place)
   and leaves out any that would overlap another label or the line, so
   zooming in reveals more; hover or tap a boat for its name either way.
+- **Speed through the start** (a card after the start chart;
+  `analysis/startSog.ts`, `ui/startSog.ts`): each racing boat's speed over
+  ground (the same 4 s mean the speed-coloured tracks use) against seconds
+  from the gun, with the gun as a dashed line. `Window: 30 s | 60 s | 120 s`
+  sets how far before the gun it starts (it always runs to +20 s; remembered
+  in `recall.startSogWindow`, default 60). The analysis keeps every fix from
+  120 s before the gun to 20 s after, and the live feed is fetched from 130 s
+  before the gun to allow for it; if no boat's track goes back as far as the
+  window, the chart starts at the earliest data and the caption says so.
+  A line breaks wherever a boat's fixes are more than 5 s apart (the same
+  threshold as the distance `~` and Data %), with a grey dashed join, so a
+  hole is never drawn as a speed; hovering inside one shows nothing. A dot
+  marks where each boat crossed the line (the start table's Late) and its
+  speed then ("crossed +2.6 s at 5.3 kn"). Hover or tap for the speed under
+  the pointer (the selected boat's, else the nearest line's) with a
+  crosshair; tap a line to select the boat. Not racing boats are left out.
 - **Start by boat** (a table under the start chart and its findings): finish
   place, start place, distance off the line at the gun (Vakaros and our
   check, bow-corrected), seconds late, line position (0% pin … 100% RC),

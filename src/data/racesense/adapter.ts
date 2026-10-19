@@ -87,8 +87,12 @@ export function findRace(doc: RegattaDoc, ref: RaceRef): { div: Division; race: 
   return { div, race };
 }
 
-/** Pre-start telemetry fetched for the start-chart trails: covers START_TRAIL_MS (analyze.ts) with margin. */
-export const PRE_START_FETCH_MS = 90_000;
+/**
+ * Pre-start telemetry fetched: covers the start-chart trails (START_TRAIL_MS) and the
+ * speed-through-the-start chart's longest window (START_SOG_PRE_MS, 120 s) plus its
+ * smoothing, as the test fixtures (which start 120 s before the gun) already do.
+ */
+export const PRE_START_FETCH_MS = 130_000;
 
 /** Telemetry time window worth fetching for a race: a short pre-start (for trails) to just past the last finish. */
 export function telemetryWindow(doc: RegattaDoc, ref: RaceRef): { after: number; before: number } {

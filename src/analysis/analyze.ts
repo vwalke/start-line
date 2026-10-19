@@ -37,6 +37,8 @@ import { projectTrack, rangeIdx, type XYTrack } from './prepare';
 import { smoothSog } from './smooth';
 import { kindSummary, placeSummaries } from './summary';
 import {
+  START_SOG_POST_MS,
+  START_SOG_PRE_MS,
   START_TRAIL_MS,
   type BoatDrawing,
   type BoatResult,
@@ -522,9 +524,12 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       }
       segments.push({ leg: li, x: Float32Array.from(xs), y: Float32Array.from(ys), t: Float64Array.from(ts), sog: Float32Array.from(ss) });
     }
+    // Speed through the start: every fix around the gun, smoothed SOG (the chart breaks lines at gaps).
+    const [s0, s1] = rangeIdx(tr.t, gun - START_SOG_PRE_MS, gun + START_SOG_POST_MS);
     const drawing: BoatDrawing = {
       id: b.id,
       trail,
+      startSog: { t: tr.t.slice(s0, s1), sog: sogSm.slice(s0, s1) },
       bow: start?.bow ?? null,
       headingAtGun: start?.headingDeg ?? null,
       headingAtSample,

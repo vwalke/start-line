@@ -13,12 +13,23 @@ import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
 import { applyView, clearLastView, isTransientError, pickRace, readLastView, resolveStart, viewForRace, writeLastView, type StartPlan, type ViewState } from './lastView';
 import { NC_ALL } from './params';
 import { legLegend, legSplitCaption, mapBox, startFitBox, startScaleCaption, startSnapshot, trackMap, trackSogIndex } from './charts';
-import { degLabel, duration, esc, f0, f1, gunTimeLine, localTime } from './format';
+import { boatLabel, degLabel, duration, esc, f0, f1, gunTimeLine, localTime } from './format';
 import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
 import { biasCaption } from './startLine';
 import { attachTopScroll } from './hscroll';
 import { attachPanZoom } from './panzoom';
 import { placesCaption, placesChart } from './places';
+import { startSogSeries, type StartSogSeries } from '../analysis/startSog';
+import {
+  START_SOG_WINDOW_KEY,
+  parseStartSogWindow,
+  secsLabel,
+  startSogCaption,
+  startSogChart,
+  startSogControls,
+  startSogHover,
+  startSogLayout,
+} from './startSog';
 import {
   START_COLOUR_KEY,
   hasGaps,
@@ -80,6 +91,10 @@ export function startApp(): void {
     colour: $('map-colour'),
     speedKey: $('map-speed-key'),
     mapSplit: $('map-split'),
+    startSog: $('start-sog-chart'),
+    startSogTip: $('start-sog-tip'),
+    startSogWindow: $('start-sog-window'),
+    startSogCaption: $('start-sog-caption'),
     places: $('places-chart'),
     placesTip: $('places-tip'),
     placesCaption: $('places-caption'),
@@ -146,6 +161,9 @@ export function startApp(): void {
   let startColour = parseStartColour(readPref(START_COLOUR_KEY));
   let startNames = parseStartNames(readPref(START_NAMES_KEY));
   let sogScale = parseSogScale(readPref(SOG_SCALE_KEY));
+  let sogWindow = parseStartSogWindow(readPref(START_SOG_WINDOW_KEY));
+  /** The speed-through-the-start series drawn last, for the hover. */
+  let sogSeries: StartSogSeries | null = null;
   /** Boat speed hover: the map's box and fix lookup, built on first hover after each render. */
   let hover: { box: Box; ix: SogIndex } | null = null;
   let fitBox: Box | null = null;
@@ -262,6 +280,18 @@ export function startApp(): void {
     // Measured once the digest is showing (a hidden table has no width).
     for (const t of topScrolls) t.update();
     renderPlaces();
+    renderStartSog();
+  }
+
+  /** Speed through the start, sized for its card's width (re-run on resize). */
+  function renderStartSog(): void {
+    const a = analysis;
+    if (!a) return;
+    sogSeries = startSogSeries(a, sogWindow);
+    els.startSogWindow.innerHTML = startSogControls(sogWindow);
+    els.startSog.innerHTML = startSogChart(a, highlight, sogWindow, { widthPx: els.startSog.clientWidth || undefined }, sogSeries);
+    els.startSogCaption.textContent = startSogCaption(sogSeries, sogWindow);
+    els.startSogTip.hidden = true;
   }
 
   /** The bump chart, sized for its card's width (re-run on resize). */
@@ -386,11 +416,63 @@ export function startApp(): void {
     if (pw !== placesW) {
       placesW = pw;
       renderPlaces();
+      renderStartSog();
     }
     const w = els.start.clientWidth;
     if (w === startW) return;
     startW = w;
     setView(view);
+  });
+
+  // Speed through the start: a crosshair and the speed under the pointer (the selected boat's, else the nearest line's).
+  function showSogTip(ev: PointerEvent): void {
+    const a = analysis;
+    const svg = els.startSog.querySelector('svg');
+    const hair = svg?.querySelector<SVGLineElement>('line.ss-hair');
+    if (!a || !svg || !hair || !sogSeries) return;
+    const L = startSogLayout(sogSeries, els.startSog.clientWidth || undefined);
+    const rect = svg.getBoundingClientRect();
+    const k = L.W / (rect.width || L.W);
+    const px = (ev.clientX - rect.left) * k;
+    const py = (ev.clientY - rect.top) * k;
+    const h = startSogHover(sogSeries, L, px, py, highlight, ev.pointerType === 'mouse' ? 16 : 28);
+    if (px < L.padL || px > L.W - L.padR || !h) {
+      hair.setAttribute('visibility', 'hidden');
+      els.startSogTip.hidden = true;
+      return;
+    }
+    const x = L.x(h.tS).toFixed(1);
+    hair.setAttribute('x1', x);
+    hair.setAttribute('x2', x);
+    hair.setAttribute('visibility', 'visible');
+    els.startSogTip.innerHTML = `<b>${esc(boatLabel(a.boats.find((b) => b.id === h.id), h.id))}</b><br>${esc(secsLabel(h.tS))} from the gun: <b>${f1(h.sogKn)} kn</b>`;
+    els.startSogTip.hidden = false;
+    const wrap = els.startSogTip.parentElement!.getBoundingClientRect();
+    const left = ev.clientX - wrap.left;
+    const flip = left + 12 + els.startSogTip.offsetWidth > wrap.width;
+    els.startSogTip.style.left = `${Math.max(0, flip ? left - 12 - els.startSogTip.offsetWidth : left + 12)}px`;
+    els.startSogTip.style.top = `${Math.max(0, ev.clientY - wrap.top - els.startSogTip.offsetHeight - 10)}px`;
+  }
+  els.startSog.addEventListener('pointermove', showSogTip);
+  els.startSog.addEventListener('pointerdown', showSogTip);
+  els.startSog.addEventListener('pointerleave', (ev) => {
+    if (ev.pointerType !== 'mouse') return;
+    els.startSogTip.hidden = true;
+    els.startSog.querySelector('line.ss-hair')?.setAttribute('visibility', 'hidden');
+  });
+  els.startSog.addEventListener('click', (ev) => {
+    const g = (ev.target as Element).closest('g.ss-boat[data-id]');
+    // Only a line selects (a tap elsewhere reads the speed under it without changing the selection).
+    if (g) toggleHighlight(g.getAttribute('data-id'));
+  });
+  els.startSogWindow.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement).closest('button[data-sog-window]');
+    if (!btn) return;
+    sogWindow = parseStartSogWindow(btn.getAttribute('data-sog-window'));
+    writePref(START_SOG_WINDOW_KEY, String(sogWindow));
+    const focus = focusSel(btn, 'data-sog-window');
+    renderStartSog();
+    if (focus) els.startSogWindow.querySelector<HTMLElement>(focus)?.focus();
   });
 
   // Place changes: a dot's place on hover or tap (beside it, as the map's tip); a click on a line, dot or name selects the boat.
