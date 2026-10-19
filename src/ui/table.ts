@@ -1,6 +1,7 @@
 /**
  * The two metrics tables, with best/worst highlights per column (▲ best, ▼ worst — never colour alone).
- * Start: how each boat started. Legs: each leg's VMG / SOG / TWA / Dist / Time / tacks or gybes / Data,
+ * Start: how each boat started (and its heel at the gun). Legs: each leg's VMG / SOG / TWA / Heel / Dist / Time / tacks or gybes / Data,
+ * (Heel columns only when the feed carries roll),
  * the upwind and downwind legs added up, and the race. Every column sorts from its header (↑/↓); the
  * tables sort independently, and their column keys are unique across both.
  */
@@ -8,13 +9,7 @@ import { LOW_COVERAGE } from '../analysis/coverage';
 import type { BoatResult, KindSummary, LegKind, LegResult, RaceAnalysis } from '../analysis/types';
 import { SPAN_MS, startNotes } from '../analysis/validity';
 import { boatColor, pickedExcluded } from './charts';
-import { duration, esc, f0, f1, f2, fM, localTime, pct, twaLabel } from './format';
-
-const ordinal = (n: number): string => {
-  const m = n % 100;
-  const suf = m > 10 && m < 14 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th');
-  return `${n}${suf}`;
-};
+import { duration, esc, f0, f1, f2, fM, localTime, ordinal, pct, twaLabel } from './format';
 
 export type SortDir = 'asc' | 'desc';
 /** Which column the rows are sorted by (null = finish order, as analysed). */
@@ -146,6 +141,23 @@ export function dqCell(coverage: number | null | undefined, maxGapS: number | nu
   return `<span class="dq-low" title="${esc(title)}" aria-label="${esc(`Low data: ${title}`)}">⚠ ${pct(coverage)}</span>`;
 }
 
+const HEEL_TITLE = 'average leeward heel, time-weighted; excludes manoeuvres (± 5 s of each tack or gybe). Negative = heeled to windward';
+
+/** Mean leeward heel "15.3°"; heel readings for under LOW_COVERAGE of the time flagged ⚠ (class dq-low), as Data %. */
+export function heelCell(heelDeg: number | null | undefined, cover: number | null | undefined, what: string): string {
+  if (heelDeg == null || !Number.isFinite(heelDeg)) return '—';
+  const body = `${f1(heelDeg)}°`;
+  if (cover == null || cover >= LOW_COVERAGE) return `<span class="heel">${body}</span>`;
+  const title = `Heel data for ${pct(cover)} of the ${what}`;
+  return `<span class="heel dq-low" title="${esc(title)}" aria-label="${esc(`Low data: ${title}`)}">⚠ ${body}</span>`;
+}
+
+/** One line for a table's key: what Heel is, or that this feed has none (the columns are hidden). */
+export const heelNote = (a: RaceAnalysis): string =>
+  a.hasHeel
+    ? `Heel: leeward heel from each tracker's motion sensor, + to leeward, − to windward. Per leg and upwind / downwind it is the time-weighted average, leaving out 5 s either side of each tack or gybe; at the gun, the fix nearest the gun (within 2 s). ⚠ = heel data for under ${Math.round(LOW_COVERAGE * 100)}% of the time.`
+    : 'Heel: not in this feed (older events send no roll from the trackers), so the heel columns are hidden.';
+
 /** One boat's caveats about its start, so they're readable without hover. */
 export function startNotesHtml(a: RaceAnalysis): string {
   const items = a.boats
@@ -155,18 +167,19 @@ export function startNotesHtml(a: RaceAnalysis): string {
       return `<li><b>#${esc(b.sail)}</b>${b.name !== `#${b.sail}` ? ` ${esc(b.name)}` : ''} — ${esc(text)}</li>`;
     });
   const key = 'Start: place among clean starters; V = Vakaros device, ours = our track check. ~ = interpolated across a data gap; ⚠ = Vakaros and ours disagree.';
-  return `<div class="table-notes"><p>${esc(key)}</p>${items.length ? `<p>Notes:</p><ul>${items.join('')}</ul>` : ''}</div>`;
+  return `<div class="table-notes"><p>${esc(key)}</p><p class="heel-note">${esc(heelNote(a))}</p>${items.length ? `<p>Notes:</p><ul>${items.join('')}</ul>` : ''}</div>`;
 }
 
-/** The legs table's key: Data % and the threshold, the ~ marks, partial summaries. */
-export function legsNotesHtml(): string {
+/** The legs table's key: Data % and the threshold, the ~ marks, partial summaries, and Heel when the race is given. */
+export function legsNotesHtml(a?: RaceAnalysis): string {
   const lines = [
     `Data: the share of the leg (or of the race) where this boat's GPS fixes are at most ${SPAN_MS / 1000} s apart. ⚠ below ${Math.round(LOW_COVERAGE * 100)}%: distance, speed and tack/gybe counts there rest on less of the track, and turns inside a long hole can't be seen.`,
     `~ on a distance: bridges a telemetry gap over ${SPAN_MS / 1000} s (a straight line across it). ~ on a tack or gybe count: one of them bridges a gap.`,
     'Upwind / Downwind: every beat (run) added up; reaches are in neither. Place is by total time among boats that sailed every leg of that kind; partial = a leg is missing, so no place.',
     'Tacks are counted on beats and gybes on runs (both on reaches): a change of side through head-to-wind or dead downwind held for 10 s, from the GPS track.',
   ];
-  return `<div class="table-notes">${lines.map((l) => `<p>${esc(l)}</p>`).join('')}</div>`;
+  const heel = a ? `<p class="heel-note">${esc(heelNote(a))}</p>` : '';
+  return `<div class="table-notes">${lines.map((l) => `<p>${esc(l)}</p>`).join('')}${heel}</div>`;
 }
 
 function finCol(key: string, sticky = 'sticky0'): Col {
@@ -288,6 +301,19 @@ function startColumns(a: RaceAnalysis): Col[] {
       cell: (b) => twaLabel(b.start?.twaDeg),
       cls: 'num muted',
     },
+    ...(a.hasHeel
+      ? [
+          {
+            key: 's.heel',
+            head: 'Heel<br><small>@gun °</small>',
+            title: 'Leeward heel at the gun (the fix nearest the gun, within 2 s): + = heeled to leeward, − = to windward. — = none, or head to wind',
+            sort: (b: BoatResult) => b.start?.heelAtGunDeg,
+            first: 'desc' as const,
+            cell: (b: BoatResult) => (b.start?.heelAtGunDeg != null ? `<span class="heel">${f0(b.start.heelAtGunDeg)}°</span>` : '—'),
+            cls: 'num muted',
+          },
+        ]
+      : []),
   ];
 }
 
@@ -298,7 +324,7 @@ const showsGybes = (kind: LegKind): boolean => kind !== 'upwind';
 const KIND_LABEL = { upwind: 'Upwind', downwind: 'Downwind' } as const;
 
 /** An upwind / downwind summary's columns, as a leg's; a partial summary is marked and never ▲/▼ or placed. */
-function summaryCols(kind: 'upwind' | 'downwind'): Col[] {
+function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
   const id = kind === 'upwind' ? 'up' : 'dn';
   const label = KIND_LABEL[kind];
   const group = { id, label, title: `Every ${kind === 'upwind' ? 'beat' : 'run'} added up (reaches excluded)` };
@@ -339,6 +365,19 @@ function summaryCols(kind: 'upwind' | 'downwind'): Col[] {
       cell: val((s) => `${f0(s.twaDeg)}°`),
       cls: 'num muted',
     },
+    ...(hasHeel
+      ? [
+          {
+            key: `${id}.heel`,
+            head: 'Heel<br><small>°</small>',
+            title: `${label}: ${HEEL_TITLE}; over every ${kind} leg. ⚠ = heel data for under ${Math.round(LOW_COVERAGE * 100)}% of the time`,
+            group,
+            sort: (b: BoatResult) => S(b)?.heelDeg,
+            first: 'desc' as const,
+            cell: val((s) => heelCell(s.heelDeg, s.heelCoverage, `${kind} legs`)),
+          },
+        ]
+      : []),
     {
       key: `${id}.dist`,
       head: 'Dist<br><small>m</small>',
@@ -437,6 +476,19 @@ function legColumns(a: RaceAnalysis): Col[] {
         cell: (b) => (L(b) ? `${f0(L(b)!.twaDeg)}°` : '—'),
         cls: 'num muted',
       },
+    );
+    if (a.hasHeel) {
+      cols.push({
+        key: `L${i}.heel`,
+        head: 'Heel<br><small>°</small>',
+        title: `${leg.name}: ${HEEL_TITLE}. ⚠ = heel data for under ${Math.round(LOW_COVERAGE * 100)}% of the leg`,
+        group,
+        sort: (b) => L(b)?.heelDeg,
+        first: 'desc',
+        cell: (b) => (L(b) ? heelCell(L(b)!.heelDeg, L(b)!.heelCoverage, 'leg') : '—'),
+      });
+    }
+    cols.push(
       {
         key: `L${i}.dist`,
         head: 'Dist<br><small>m</small>',
@@ -492,7 +544,7 @@ function legColumns(a: RaceAnalysis): Col[] {
       cell: (b) => (L(b) ? dqCell(L(b)!.coverage, L(b)!.maxGapS, 'leg') : '—'),
     });
   }
-  for (const kind of ['upwind', 'downwind'] as const) if (a.legs.some((l) => l.kind === kind)) cols.push(...summaryCols(kind));
+  for (const kind of ['upwind', 'downwind'] as const) if (a.legs.some((l) => l.kind === kind)) cols.push(...summaryCols(kind, a.hasHeel));
   const race = { id: 'race', label: 'Race', title: 'Gun to finish' };
   const tacks = (b: BoatResult) => raceCount(b, (l) => l.tacks);
   const gybes = (b: BoatResult) => raceCount(b, (l) => l.gybes);

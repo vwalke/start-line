@@ -3,6 +3,10 @@ import type { Vec } from './geo';
 
 /** How much track before the start fix the start chart draws behind each boat. */
 export const START_TRAIL_MS = 60_000;
+/** Speed through the start: full-rate smoothed SOG kept from this long before the gun… */
+export const START_SOG_PRE_MS = 120_000;
+/** …to this long after it. */
+export const START_SOG_POST_MS = 20_000;
 
 export type LegKind = 'upwind' | 'downwind' | 'reach';
 
@@ -40,12 +44,21 @@ export interface LegResult {
   coverage: number;
   /** Longest interval between fixes on the leg, s. */
   maxGapS: number;
+  /** Time-weighted mean leeward heel (analysis/heel.ts), ° (+ = to leeward), manoeuvres left out; null with no usable heel. */
+  heelDeg: number | null;
+  /** Time the heel mean rests on, s. */
+  heelS: number;
+  /** Time-weighted mean trim (feed `pitch`), °; null with none. */
+  trimDeg: number | null;
+  /** Share of the leg with heel readings, 0–1; null when the track has no heel at all. */
+  heelCoverage: number | null;
 }
 
 /**
  * One boat's legs of one kind (upwind or downwind; reaches are in neither)
  * added up: sums of time, distance and manoeuvres; SOG = distance ÷ time;
- * VMG, |TWA| and coverage time-weighted over the legs.
+ * VMG, |TWA|, coverage and trim time-weighted over the legs; heel over every
+ * fix it rests on (each leg weighted by its heel time).
  */
 export interface KindSummary {
   /** Legs of this kind the boat completed, of `of` in the race. */
@@ -66,6 +79,11 @@ export interface KindSummary {
   manoeuvreApprox: boolean;
   coverage: number;
   maxGapS: number;
+  /** Leeward heel, °; null when no leg has any. */
+  heelDeg: number | null;
+  trimDeg: number | null;
+  /** Share of the legs' time with heel readings (leg-time weighted); null when the track has no heel. */
+  heelCoverage: number | null;
   /** Place by total time among boats with every leg of the kind (competition ranking); null when incomplete. */
   place: number | null;
 }
@@ -83,6 +101,8 @@ export interface StartResult {
   headingDeg: number;
   /** Signed TWA vs estimated wind: + = starboard tack, - = port. */
   twaDeg: number;
+  /** Leeward heel at the gun (nearest fix within HEEL_AT_GUN_MS, analysis/heel.ts), °; null without one. */
+  heelAtGunDeg: number | null;
   bow: Vec;
   ocs: boolean;
   /** The boat's Vakaros device's own DTL (feed `dtlMm`), m; null unless `rcStatus` is 'ok'. */
@@ -186,6 +206,8 @@ export interface BoatDrawing {
   courseAtGun: number | null;
   /** Gun → finish, ~1 Hz, split by leg. */
   segments: TrackSegment[];
+  /** Every fix from START_SOG_PRE_MS before the gun to START_SOG_POST_MS after: time and smoothed SOG (gaps left as they are). */
+  startSog: { t: Float64Array; sog: Float32Array };
 }
 
 export interface Finding {
@@ -235,6 +257,8 @@ export interface RaceAnalysis {
   allCompetitors?: { flagged: number };
   findings: Finding[];
   warnings: string[];
+  /** Some competitor has heel figures (the feed carries roll); false for older feeds, and the heel columns are hidden. */
+  hasHeel: boolean;
 }
 
 export interface ExcludedBoat {

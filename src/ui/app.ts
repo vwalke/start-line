@@ -10,14 +10,39 @@ import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { boatList, findingsList } from './boats';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
-import { applyView, clearLastView, isTransientError, pickRace, readLastView, resolveStart, viewForRace, writeLastView, type StartPlan, type ViewState } from './lastView';
+import {
+  applyView,
+  clearLastView,
+  isTransientError,
+  pickRace,
+  readLastView,
+  resolveStart,
+  startTab,
+  viewForRace,
+  writeLastView,
+  type StartPlan,
+  type ViewState,
+} from './lastView';
 import { NC_ALL } from './params';
-import { legLegend, legSplitCaption, mapBox, startFitBox, startScaleCaption, startSnapshot, trackMap, trackSogIndex } from './charts';
-import { degLabel, duration, esc, f0, f1, gunTimeLine, localTime } from './format';
+import { isNarrowStart, legLegend, legSplitCaption, mapBox, startFitBox, startScaleCaption, startSnapshot, trackMap, trackSogIndex } from './charts';
+import { boatLabel, degLabel, duration, esc, f0, f1, gunTimeLine, localTime } from './format';
 import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
 import { biasCaption } from './startLine';
 import { attachTopScroll } from './hscroll';
 import { attachPanZoom } from './panzoom';
+import { PLACE_TIP_MOUSE_REACH, PLACE_TIP_TOUCH_REACH, nearestPlaceDot, placesCaption, placesChart } from './places';
+import { DEFAULT_TAB, TABS, parseTab, tabForKey, tabFromHash, withTabHash, type Tab } from './tabs';
+import { startSogSeries, type StartSogSeries } from '../analysis/startSog';
+import {
+  START_SOG_WINDOW_KEY,
+  parseStartSogWindow,
+  secsLabel,
+  startSogCaption,
+  startSogChart,
+  startSogControls,
+  startSogHover,
+  startSogLayout,
+} from './startSog';
 import {
   START_COLOUR_KEY,
   hasGaps,
@@ -79,6 +104,13 @@ export function startApp(): void {
     colour: $('map-colour'),
     speedKey: $('map-speed-key'),
     mapSplit: $('map-split'),
+    startSog: $('start-sog-chart'),
+    startSogTip: $('start-sog-tip'),
+    startSogWindow: $('start-sog-window'),
+    startSogCaption: $('start-sog-caption'),
+    places: $('places-chart'),
+    placesTip: $('places-tip'),
+    placesCaption: $('places-caption'),
     startTable: $('start-table'),
     startTableTop: $('start-table-top'),
     startNotes: $('start-notes'),
@@ -91,10 +123,16 @@ export function startApp(): void {
     raceFindings: $('race-findings-card'),
     boats: $('boat-list'),
     warnings: $('warnings'),
+    tabs: $('tabs'),
+    tabBtn: { start: $('tab-start'), race: $('tab-race') } as Record<Tab, HTMLElement>,
+    panel: { start: $('panel-start'), race: $('panel-race') } as Record<Tab, HTMLElement>,
   };
 
   /** The URL's race, else the last one viewed (recall.lastView), else the latest. */
-  const plan = resolveStart(location.search, readLastView());
+  const saved = readLastView();
+  const plan = resolveStart(location.search, saved);
+  /** Start | Race: the URL hash, else the saved tab when restoring the saved view, else Start. */
+  let tab: Tab = startTab(location.hash, plan, saved);
   const params = plan.params;
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   let reqId = 0;
@@ -142,6 +180,9 @@ export function startApp(): void {
   let startColour = parseStartColour(readPref(START_COLOUR_KEY));
   let startNames = parseStartNames(readPref(START_NAMES_KEY));
   let sogScale = parseSogScale(readPref(SOG_SCALE_KEY));
+  let sogWindow = parseStartSogWindow(readPref(START_SOG_WINDOW_KEY));
+  /** The speed-through-the-start series drawn last, for the hover. */
+  let sogSeries: StartSogSeries | null = null;
   /** Boat speed hover: the map's box and fix lookup, built on first hover after each render. */
   let hover: { box: Box; ix: SogIndex } | null = null;
   let fitBox: Box | null = null;
@@ -161,7 +202,7 @@ export function startApp(): void {
     // A load that has swapped `analysis` but not yet `current` (or the reverse) must not mix them.
     if (analysis.meta.division !== current.division || analysis.meta.raceNumber !== current.raceNumber) return;
     if (analysis.meta.eventId != null && analysis.meta.eventId !== current.eventId) return;
-    writeLastView({ v: 1, ...current, ...(allCompetitors ? { allCompetitors: true } : {}), leg: legSel, boat: highlight, sort, startSort, savedAt: Date.now() });
+    writeLastView({ v: 1, ...current, ...(allCompetitors ? { allCompetitors: true } : {}), leg: legSel, boat: highlight, sort, startSort, tab, savedAt: Date.now() });
   }
 
   /** Forget the saved race and take it out of the URL. */
@@ -240,10 +281,11 @@ export function startApp(): void {
           : '';
     els.speedKey.hidden = trackColour === 'leg';
     els.mapSplit.textContent = legSplitCaption(a);
+    els.placesCaption.textContent = placesCaption(a);
     els.startTable.innerHTML = startTable(a, highlight, startSort);
     els.startNotes.innerHTML = startNotesHtml(a);
     els.table.innerHTML = legsTable(a, highlight, sort);
-    els.legsNotes.innerHTML = legsNotesHtml();
+    els.legsNotes.innerHTML = legsNotesHtml(a);
     els.boats.innerHTML = boatList(a, highlight, ncOpen);
     const found = splitFindings(a.findings);
     els.startFindings.innerHTML = findingsList(found.start, highlight);
@@ -256,15 +298,51 @@ export function startApp(): void {
     els.digest.hidden = false;
     // Measured once the digest is showing (a hidden table has no width).
     for (const t of topScrolls) t.update();
+    renderPlaces();
+    renderStartSog();
+  }
+
+  /** Speed through the start, sized for its card's width (re-run on resize). */
+  function renderStartSog(): void {
+    const a = analysis;
+    if (!a) return;
+    sogSeries = startSogSeries(a, sogWindow);
+    els.startSogWindow.innerHTML = startSogControls(sogWindow);
+    els.startSog.innerHTML = startSogChart(a, highlight, sogWindow, { widthPx: els.startSog.clientWidth || undefined }, sogSeries);
+    els.startSogCaption.textContent = startSogCaption(sogSeries, sogWindow);
+    els.startSogTip.hidden = true;
+  }
+
+  /** The bump chart, sized for its card's width (re-run on resize). */
+  function renderPlaces(): void {
+    const a = analysis;
+    if (!a) return;
+    els.places.innerHTML = placesChart(a, highlight, { widthPx: els.places.clientWidth || undefined });
+    els.placesTip.hidden = true;
   }
 
   /** Start chart + its scale note; re-run on pan/zoom without redrawing the rest. */
   function renderStart(): void {
     const a = analysis;
     if (!a) return;
-    els.startScale.textContent = startScaleCaption(a, view);
+    const widthPx = els.start.clientWidth || undefined;
+    els.startScale.textContent = startScaleCaption(a, view, widthPx);
     // Names are placed for this zoom (zooming in spreads the boats and reveals more) and sized for this width.
-    els.start.innerHTML = startSnapshot(a, highlight, view, startColour, { names: startNames, widthPx: els.start.clientWidth || undefined });
+    els.start.innerHTML = startSnapshot(a, highlight, view, startColour, { names: startNames, widthPx });
+  }
+
+  /** The Fit frame for the start chart's width class (narrow charts leave more room for the favoured-end label). */
+  let fitNarrow = false;
+  function fitStart(a: RaceAnalysis): void {
+    const w = els.start.clientWidth;
+    fitNarrow = isNarrowStart(w);
+    fitBox = startFitBox(a, w || undefined);
+    setView(fitView(fitBox));
+  }
+  /** Refit (back to Fit) when the visible chart has crossed into the other width class. */
+  function refitStart(): void {
+    const w = els.start.clientWidth;
+    if (analysis && w && isNarrowStart(w) !== fitNarrow) fitStart(analysis);
   }
 
   /** Boat speed: the nearest drawn fix under the pointer (the selected boat's, within 40 px; else anyone's within 8 px). */
@@ -364,12 +442,190 @@ export function startApp(): void {
   });
 
   // Names are sized for the chart's width: redraw when it changes (rotation, window resize).
+  // Widths of the measured charts on the visible tab (a hidden panel measures 0: it is redrawn when shown).
   let startW = 0;
+  let contentW = 0;
   addEventListener('resize', () => {
+    if (!analysis) return;
+    const pw = els.panel[tab].clientWidth;
+    if (pw && pw !== contentW) {
+      contentW = pw;
+      if (tab === 'race') renderPlaces();
+      else renderStartSog();
+    }
     const w = els.start.clientWidth;
-    if (w === startW || !analysis) return;
+    if (!w || w === startW) return;
     startW = w;
+    refitStart();
     setView(view);
+  });
+
+  /** Redraw what measures its width on tab `t` (now visible), and its table's top scrollbar. */
+  function remeasure(t: Tab): void {
+    if (!analysis) return;
+    contentW = els.panel[t].clientWidth;
+    if (t === 'start') {
+      startW = els.start.clientWidth;
+      refitStart();
+      renderStart();
+      renderStartSog();
+      topScrolls[0].update();
+    } else {
+      renderPlaces();
+      topScrolls[1].update();
+    }
+  }
+
+  /** Show tab `t`: tab and panel state, the URL hash (replaced, not pushed), the saved view; redraw its charts. */
+  function setTab(t: Tab, opts: { focus?: boolean; scroll?: boolean; boot?: boolean } = {}): void {
+    const changed = t !== tab;
+    tab = t;
+    for (const k of TABS) {
+      const on = k === t;
+      els.tabBtn[k].setAttribute('aria-selected', String(on));
+      els.tabBtn[k].tabIndex = on ? 0 : -1;
+      els.panel[k].hidden = !on;
+    }
+    // At boot a link without a hash stays as it is on Start (a restored Race tab gets its hash).
+    const keep = opts.boot && !location.hash && t === DEFAULT_TAB;
+    if (!keep && tabFromHash(location.hash) !== t) history.replaceState(history.state, '', withTabHash(location.href, t));
+    if (opts.focus) els.tabBtn[t].focus();
+    remeasure(t);
+    // Scrolled down past the panel's top: bring it to just under the (sticky) tabs.
+    if (changed && opts.scroll !== false) {
+      const top = els.panel[t].getBoundingClientRect().top;
+      const under = els.tabs.getBoundingClientRect().bottom;
+      if (top < under) scrollBy({ top: top - under - 4 });
+    }
+    if (changed) save();
+  }
+  els.tabs.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement).closest('[role="tab"]');
+    const t = parseTab(btn?.id.replace(/^tab-/, ''));
+    if (t) setTab(t);
+  });
+  els.tabs.addEventListener('keydown', (ev) => {
+    const t = tabForKey(tab, ev.key);
+    if (!t) return;
+    ev.preventDefault();
+    setTab(t, { focus: true });
+  });
+  addEventListener('hashchange', () => {
+    const t = tabFromHash(location.hash);
+    if (t && t !== tab) setTab(t);
+  });
+  setTab(tab, { scroll: false, boot: true });
+  // On a phone the boat strip sticks to the top; the tabs stick just under it.
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => els.digest.style.setProperty('--boatbar-h', `${els.boats.offsetHeight}px`)).observe(els.boats);
+  }
+
+  // Speed through the start: a crosshair and the speed under the pointer (the selected boat's, else the nearest line's).
+  function showSogTip(ev: PointerEvent): void {
+    const a = analysis;
+    const svg = els.startSog.querySelector('svg');
+    const hair = svg?.querySelector<SVGLineElement>('line.ss-hair');
+    if (!a || !svg || !hair || !sogSeries) return;
+    const L = startSogLayout(sogSeries, els.startSog.clientWidth || undefined);
+    const rect = svg.getBoundingClientRect();
+    const k = L.W / (rect.width || L.W);
+    const px = (ev.clientX - rect.left) * k;
+    const py = (ev.clientY - rect.top) * k;
+    const h = startSogHover(sogSeries, L, px, py, highlight, ev.pointerType === 'mouse' ? 16 : 28);
+    if (px < L.padL || px > L.W - L.padR || !h) {
+      hair.setAttribute('visibility', 'hidden');
+      els.startSogTip.hidden = true;
+      return;
+    }
+    const x = L.x(h.tS).toFixed(1);
+    hair.setAttribute('x1', x);
+    hair.setAttribute('x2', x);
+    hair.setAttribute('visibility', 'visible');
+    els.startSogTip.innerHTML = `<b>${esc(boatLabel(a.boats.find((b) => b.id === h.id), h.id))}</b><br>${esc(secsLabel(h.tS))} from the gun: <b>${f1(h.sogKn)} kn</b>`;
+    els.startSogTip.hidden = false;
+    const wrap = els.startSogTip.parentElement!.getBoundingClientRect();
+    const left = ev.clientX - wrap.left;
+    const flip = left + 12 + els.startSogTip.offsetWidth > wrap.width;
+    els.startSogTip.style.left = `${Math.max(0, flip ? left - 12 - els.startSogTip.offsetWidth : left + 12)}px`;
+    els.startSogTip.style.top = `${Math.max(0, ev.clientY - wrap.top - els.startSogTip.offsetHeight - 10)}px`;
+  }
+  els.startSog.addEventListener('pointermove', showSogTip);
+  els.startSog.addEventListener('pointerdown', showSogTip);
+  els.startSog.addEventListener('pointerleave', (ev) => {
+    if (ev.pointerType !== 'mouse') return;
+    els.startSogTip.hidden = true;
+    els.startSog.querySelector('line.ss-hair')?.setAttribute('visibility', 'hidden');
+  });
+  els.startSog.addEventListener('click', (ev) => {
+    const g = (ev.target as Element).closest('g.ss-boat[data-id]');
+    // Only a line selects (a tap elsewhere reads the speed under it without changing the selection).
+    if (g) toggleHighlight(g.getAttribute('data-id'));
+  });
+  els.startSogWindow.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement).closest('button[data-sog-window]');
+    if (!btn) return;
+    sogWindow = parseStartSogWindow(btn.getAttribute('data-sog-window'));
+    writePref(START_SOG_WINDOW_KEY, String(sogWindow));
+    const focus = focusSel(btn, 'data-sog-window');
+    renderStartSog();
+    if (focus) els.startSogWindow.querySelector<HTMLElement>(focus)?.focus();
+  });
+
+  // Place changes: a dot's place on hover or tap (beside it, as the map's tip); a click on a line, dot or name selects the boat.
+  // The boat a nearby-dot readout belongs to, so a sloppy tap still selects it after the redraw.
+  let placeTipId: string | null = null;
+  function showPlaceTip(ev: PointerEvent): void {
+    const svg = els.places.querySelector('svg');
+    if (!svg) {
+      els.placesTip.hidden = true;
+      placeTipId = null;
+      return;
+    }
+    const rect = svg.getBoundingClientRect();
+    const vb = svg.viewBox.baseVal;
+    const k = (vb.width || rect.width) / (rect.width || 1);
+    const dots = [...svg.querySelectorAll<SVGCircleElement>('circle.pc-dot[data-tip]')].map((el) => ({
+      el,
+      cx: Number(el.getAttribute('cx')),
+      cy: Number(el.getAttribute('cy')),
+      tip: el.getAttribute('data-tip') ?? '',
+    }));
+    const hit = nearestPlaceDot(dots, (ev.clientX - rect.left) * k, (ev.clientY - rect.top) * k, ev.pointerType === 'mouse' ? PLACE_TIP_MOUSE_REACH : PLACE_TIP_TOUCH_REACH);
+    if (!hit) {
+      els.placesTip.hidden = true;
+      placeTipId = null;
+      return;
+    }
+    placeTipId = hit.el.closest('g.pc-boat[data-id]')?.getAttribute('data-id') ?? null;
+    els.placesTip.textContent = hit.tip;
+    els.placesTip.hidden = false;
+    const wrap = els.placesTip.parentElement!.getBoundingClientRect();
+    const r = hit.el.getBoundingClientRect();
+    const left = r.left + r.width / 2 - wrap.left;
+    const flip = left + 12 + els.placesTip.offsetWidth > wrap.width;
+    els.placesTip.style.left = `${Math.max(0, flip ? left - 12 - els.placesTip.offsetWidth : left + 12)}px`;
+    els.placesTip.style.top = `${Math.max(0, r.top - wrap.top - els.placesTip.offsetHeight - 6)}px`;
+  }
+  els.places.addEventListener('pointermove', showPlaceTip);
+  els.places.addEventListener('pointerdown', showPlaceTip);
+  els.places.addEventListener('pointerleave', (ev) => {
+    if (ev.pointerType === 'mouse') {
+      els.placesTip.hidden = true;
+      placeTipId = null;
+    }
+  });
+  els.places.addEventListener('click', (ev) => {
+    const g = (ev.target as Element).closest('g.pc-boat[data-id]');
+    const tip = !els.placesTip.hidden ? els.placesTip.textContent : null;
+    // A tap near a dot (missed circle, hit the line or the chart) still selects that boat.
+    const id = g?.getAttribute('data-id') ?? (tip ? placeTipId : null);
+    // Tapping empty chart clears the selection, as on the start chart.
+    toggleHighlight(id);
+    // A tap that showed a readout keeps it up after the redraw (the SVG is replaced).
+    if (tip) {
+      els.placesTip.textContent = tip;
+      els.placesTip.hidden = false;
+    }
   });
 
   /** Re-render, then put keyboard focus back on the rebuilt control matching `selector` (if focus was in it). */
@@ -516,8 +772,7 @@ export function startApp(): void {
       sort = v?.sort ?? null;
       startSort = v?.startSort ?? null;
       legSel = v?.leg ?? null;
-      fitBox = startFitBox(a);
-      setView(fitView(fitBox));
+      fitStart(a);
       render();
       setStatus('');
       return true;

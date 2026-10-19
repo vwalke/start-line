@@ -21,6 +21,10 @@ const leg = (timeS: number, o: Partial<LegResult> = {}): LegResult => ({
   manoeuvreGap: false,
   coverage: 1,
   maxGapS: 1,
+  heelDeg: null,
+  heelS: 0,
+  trimDeg: null,
+  heelCoverage: null,
   ...o,
 });
 const defs = [def(0, 'upwind'), def(1, 'downwind'), def(2, 'reach'), def(3, 'upwind')];
@@ -39,6 +43,23 @@ describe('kindSummary', () => {
     expect(s.twaDeg).toBeCloseTo((40 * 600 + 48 * 200) / 800, 9);
     expect(s.coverage).toBeCloseTo((600 + 0.5 * 200) / 800, 9);
     expect(s.sogKn).toBeCloseTo(2800 / M_PER_NM / (800 / 3600), 9);
+  });
+
+  it('pools heel over the fixes it rests on, and weights trim and heel coverage by leg time', () => {
+    const legs = [
+      leg(600, { heelDeg: 10, heelS: 500, trimDeg: 2, heelCoverage: 1 }),
+      leg(300, { heelDeg: -3, heelS: 300 }),
+      leg(100),
+      leg(200, { heelDeg: 20, heelS: 100, trimDeg: 4, heelCoverage: 0.5 }),
+    ];
+    const s = kindSummary(legs, defs, 'upwind')!;
+    expect(s.heelDeg).toBeCloseTo((10 * 500 + 20 * 100) / 600, 9); // 11.67, not the leg-time mean 12.5
+    expect(s.trimDeg).toBeCloseTo((2 * 600 + 4 * 200) / 800, 9);
+    expect(s.heelCoverage).toBeCloseTo((600 + 0.5 * 200) / 800, 9);
+    expect(kindSummary(legs, defs, 'downwind')!.heelDeg).toBe(-3);
+    // A leg with no heel is left out, not counted as 0; with none at all, null.
+    expect(kindSummary([leg(600, { heelDeg: 12, heelS: 400, heelCoverage: 0.8 }), null, null, leg(200)], defs, 'upwind')).toMatchObject({ heelDeg: 12, heelCoverage: 0.8 });
+    expect(kindSummary([leg(600), null, null, leg(200)], defs, 'upwind')).toMatchObject({ heelDeg: null, trimDeg: null, heelCoverage: null });
   });
 
   it('leaves reaches out of both', () => {

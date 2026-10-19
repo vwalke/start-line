@@ -3,7 +3,10 @@
  * beat-and-run race reads as "how did I go upwind, how did I go downwind".
  * Reaches are in neither. Times, distances and manoeuvres add; SOG is total
  * distance ÷ total time; VMG, |TWA| and coverage are weighted by leg time
- * (VMG weighted so equals total distance made good ÷ total time).
+ * (VMG weighted so equals total distance made good ÷ total time). Heel pools
+ * every fix it rests on (each leg weighted by its heel time), so it equals the
+ * time-weighted mean over all the legs; trim and heel coverage are weighted by
+ * leg time over the legs that have them.
  */
 import { M_PER_NM } from './distance';
 import { competitionRanks } from './speedRank';
@@ -19,6 +22,12 @@ export function kindSummary(legs: (LegResult | null)[], defs: LegDef[], kind: Su
   const timeS = done.reduce((s, l) => s + l.timeS, 0);
   const distM = done.reduce((s, l) => s + l.distM, 0);
   const wmean = (f: (l: LegResult) => number): number => done.reduce((s, l) => s + f(l) * l.timeS, 0) / timeS;
+  /** Mean of `f` over the legs that have it, each weighted by `w`; null when none does. */
+  const pooled = (f: (l: LegResult) => number | null, w: (l: LegResult) => number): number | null => {
+    const has = done.filter((l) => f(l) != null && w(l) > 0);
+    const W = has.reduce((s, l) => s + w(l), 0);
+    return W > 0 ? has.reduce((s, l) => s + f(l)! * w(l), 0) / W : null;
+  };
   return {
     legs: done.length,
     of: idx.length,
@@ -34,6 +43,9 @@ export function kindSummary(legs: (LegResult | null)[], defs: LegDef[], kind: Su
     manoeuvreApprox: done.some((l) => l.manoeuvreGap),
     coverage: wmean((l) => l.coverage),
     maxGapS: Math.max(...done.map((l) => l.maxGapS)),
+    heelDeg: pooled((l) => l.heelDeg, (l) => l.heelS),
+    trimDeg: pooled((l) => l.trimDeg, (l) => l.timeS),
+    heelCoverage: pooled((l) => l.heelCoverage, (l) => l.timeS),
     place: null,
   };
 }

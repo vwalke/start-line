@@ -8,7 +8,14 @@ export const esc = (s: string): string =>
 export const boatLabel = (b: BoatResult | undefined, id: string): string =>
   b ? `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}` : id;
 
-export const f0 = (x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : Math.round(x).toString());
+/** 1st, 2nd, 3rd, 4th … 11th, 12th, 13th, 21st. */
+export const ordinal = (n: number): string => {
+  const m = n % 100;
+  const suf = m > 10 && m < 14 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th');
+  return `${n}${suf}`;
+};
+
+export const f0 =(x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : Math.round(x).toString());
 export const f1 = (x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : x.toFixed(1));
 export const f2 = (x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : x.toFixed(2));
 

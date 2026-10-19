@@ -37,7 +37,7 @@ describe('RaceSense adapter', () => {
   it('asks only for the race window', () => {
     const doc = currentDoc(loadFixture().regatta);
     const w = telemetryWindow(doc, { division: 'J70', raceNumber: 8 });
-    expect(w.after).toBe(1792237201000 - 90_000);
+    expect(w.after).toBe(1792237201000 - 130_000);
     expect(w.before - w.after).toBeLessThan(25 * 60_000);
   });
 

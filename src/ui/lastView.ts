@@ -1,5 +1,5 @@
 /**
- * The last race viewed and how it was viewed (leg, picked boat, table sort),
+ * The last race viewed and how it was viewed (leg, picked boat, table sorts, tab),
  * kept in localStorage so a home-screen launch, an evicted-and-relaunched
  * web app or a bare `/` link comes back to it. An explicit `?event=` wins.
  */
@@ -8,6 +8,7 @@ import type { RaceListItem } from '../data/racesense/adapter';
 import { parsePickerParams, type PickerParams } from './params';
 import { readPref, removePref, writePref } from './speed';
 import { sortTable, type SortState } from './table';
+import { initialTab, parseTab, type Tab } from './tabs';
 
 export const LAST_VIEW_KEY = 'recall.lastView';
 /** As the /api proxy accepts (functions/_lib.ts). */
@@ -29,6 +30,8 @@ export interface LastView extends ViewState {
   division: string;
   raceNumber: number;
   allCompetitors?: true;
+  /** The digest tab on screen (absent in records from before the tabs: Start). */
+  tab?: Tab;
   savedAt: number;
 }
 
@@ -65,12 +68,27 @@ export function parseLastView(raw: string | null | undefined): LastView | null {
   const startSort = parseSort(x.startSort);
   if (startSort) out.startSort = startSort;
   if (x.allCompetitors) out.allCompetitors = true;
+  // Added with the tabs: optional, and an unknown one is just dropped.
+  const tab = parseTab(x.tab);
+  if (tab) out.tab = tab;
   return out;
 }
 
 export function serializeLastView(r: LastView): string {
-  const { v, eventId, division, raceNumber, allCompetitors, leg, boat, sort, startSort, savedAt } = r;
-  return JSON.stringify({ v, eventId, division, raceNumber, ...(allCompetitors ? { allCompetitors } : {}), leg, boat, sort, ...(startSort ? { startSort } : {}), savedAt });
+  const { v, eventId, division, raceNumber, allCompetitors, leg, boat, sort, startSort, tab, savedAt } = r;
+  return JSON.stringify({
+    v,
+    eventId,
+    division,
+    raceNumber,
+    ...(allCompetitors ? { allCompetitors } : {}),
+    leg,
+    boat,
+    sort,
+    ...(startSort ? { startSort } : {}),
+    ...(tab ? { tab } : {}),
+    savedAt,
+  });
 }
 
 export const readLastView = (): LastView | null => parseLastView(readPref(LAST_VIEW_KEY));
@@ -119,6 +137,13 @@ export function resolveStart(search: string, saved: LastView | null): StartPlan 
   }
   return { source: 'latest', params };
 }
+
+/**
+ * The tab to boot on: the URL hash wins; else the saved tab when the plan restores the saved view
+ * (the saved race, or a link to that same race); else Start (a link to another race, or nothing saved).
+ */
+export const startTab = (hash: string, plan: StartPlan, saved: LastView | null): Tab =>
+  initialTab(hash, saved?.tab, plan.source === 'saved' || (plan.source === 'url' && plan.view !== undefined));
 
 /** The race to open: the wanted one if listed; else (unless `strict`, for a restore) the fallback. */
 export function pickRace(

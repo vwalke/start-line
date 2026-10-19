@@ -6,6 +6,7 @@
  */
 import { primaryDtlM } from '../analysis/findings';
 import { add, bearingVec, scale, type Vec } from '../analysis/geo';
+import { lineBias } from '../analysis/line';
 import type { BoatDrawing, BoatResult, ExcludedBoat, RaceAnalysis } from '../analysis/types';
 import { matchClass, type ClassDims } from '../data/classes';
 import type { SpeedRank } from '../analysis/speedRank';
@@ -27,7 +28,7 @@ import {
   type StartColour,
 } from './sog';
 import { casedByDay, speedColor, speedRanking, speedStyle, type RankBy, type SogScale, type SpeedTop, type TrackColour } from './speed';
-import { lineBiasSvg } from './startLine';
+import { FAV_GAP_PX, favouredTexts, lineBiasSvg } from './startLine';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
 
 const SLOTS = 8;
@@ -147,12 +148,20 @@ export function hullOutline(bow: Vec, headingDeg: number, dims: ClassDims): Vec[
   return HULL.map(([x, y]) => add(bow, add(scale(fwd, -y * dims.loaM), scale(stbd, x * dims.beamM))));
 }
 
-/** The start chart's Fit box: the line, bows and nearby trails, padded. */
-export function startFitBox(a: RaceAnalysis): Box {
-  return startFrame(a).box;
+/**
+ * The start chart's Fit box: the line, bows and nearby trails, padded, with room for the
+ * favoured-end label. `widthPx` (the chart's width on screen) only matters below NAME_MIN_W,
+ * where the text is larger: the box is then sized for a FIT_NARROW_PX phone, so it changes
+ * only when the chart crosses that width, not with every resize.
+ */
+export function startFitBox(a: RaceAnalysis, widthPx?: number): Box {
+  return startFrame(a, widthPx).box;
 }
 
-function startFrame(a: RaceAnalysis) {
+/** Whether a chart this wide gets the narrow (larger-text) layout. */
+export const isNarrowStart = (widthPx?: number): boolean => widthPx != null && widthPx > 0 && widthPx < NAME_MIN_W;
+
+function startFrame(a: RaceAnalysis, widthPx?: number) {
   const rot = rotator(a.wind.twdAtGunDeg);
   const L = rot(a.line.left);
   const R = rot(a.line.right);
@@ -174,11 +183,58 @@ function startFrame(a: RaceAnalysis) {
   box.x1 += pad;
   box.y0 -= pad * 1.4;
   box.y1 += pad;
+  roomForFavLabel(a, L, R, box, isNarrowStart(widthPx));
   return { rot, L, R, box };
 }
 
-function startView(a: RaceAnalysis, v?: View) {
-  const { rot, L, R, box } = startFrame(a);
+/** The Fit frame may grow at most this share of its width to fit the favoured-end label on its extension (more on a phone). */
+const FAV_ROOM_MAX = 0.25;
+const FAV_ROOM_MAX_NARROW = 0.35;
+/** The phone width the narrow Fit frame is sized for (the label's text is largest there). */
+const FIT_NARROW_PX = 360;
+
+/** The label's font size in chart px (×unit), as `startSnapshot` sizes it: 85% of a boat name, larger when narrow. */
+const favFs = (narrow: boolean): number => 0.85 * NAME_FS * (narrow ? NAME_MIN_W / FIT_NARROW_PX : 1);
+
+/**
+ * Grow `box` past the favoured end so the extension there holds a wording
+ * with the metres at Fit: "Pin favoured 7° · 18 m"; on a narrow chart, the
+ * longest of that, "Pin fav. 7° · 18 m" and "Pin 7° · 18 m" that fits within
+ * the larger cap. The label's size in chart units follows the frame's width
+ * (~600 css px across, as `startView`'s unit). When none fits, the box is
+ * left alone and the label runs along the line instead.
+ */
+function roomForFavLabel(a: RaceAnalysis, L: Vec, R: Vec, box: Box, narrow: boolean): void {
+  const fav = lineBias(a.line, a.wind.twdAtGunDeg).favored;
+  if (fav === 'square') return;
+  const [end, other] = fav === 'left' ? [L, R] : [R, L];
+  const len = Math.hypot(end[0] - other[0], end[1] - other[1]);
+  if (!(len > 0)) return;
+  const u: Vec = [(end[0] - other[0]) / len, (end[1] - other[1]) / len];
+  const withMetres = favouredTexts(a, startDims(a)).filter((t) => /· \d+ m$/.test(t));
+  const fs = favFs(narrow);
+  const cap = 1 + (narrow ? FAV_ROOM_MAX_NARROW : FAV_ROOM_MAX);
+  const w0 = box.x1 - box.x0;
+  for (const text of narrow ? withMetres : withMetres.slice(0, 1)) {
+    const needPx = FAV_GAP_PX + textWidth(text, fs) + 6;
+    const b = { ...box };
+    // The unit grows with the box, so settle it in a few passes.
+    let ok = true;
+    for (let pass = 0; pass < 4 && ok; pass++) {
+      const unit = (b.x1 - b.x0) / 600;
+      const tip: Vec = [end[0] + u[0] * needPx * unit, end[1] + u[1] * needPx * unit];
+      Object.assign(b, { x0: Math.min(b.x0, tip[0]), y0: Math.min(b.y0, tip[1]), x1: Math.max(b.x1, tip[0]), y1: Math.max(b.y1, tip[1]) });
+      ok = b.x1 - b.x0 <= w0 * cap;
+    }
+    if (ok) {
+      Object.assign(box, b);
+      return;
+    }
+  }
+}
+
+function startView(a: RaceAnalysis, v?: View, widthPx?: number) {
+  const { rot, L, R, box } = startFrame(a, widthPx);
   // A window onto the fit box with the same aspect.
   const vb = viewBox(box, clampView(box, v ?? fitView(box)));
   const view: Box = { x0: vb.x0, y0: vb.y0, x1: vb.x0 + vb.w, y1: vb.y0 + vb.h };
@@ -192,17 +248,17 @@ export const startClass = (a: RaceAnalysis): { name: string; dims: ClassDims } |
 const startDims = (a: RaceAnalysis): ClassDims | null => startClass(a)?.dims ?? null;
 
 /** The class dims when hulls are drawn to scale in this view (default Fit), else null (markers). */
-export function startHullScale(a: RaceAnalysis, v?: View): ClassDims | null {
+export function startHullScale(a: RaceAnalysis, v?: View, widthPx?: number): ClassDims | null {
   const dims = startDims(a);
-  return dims && dims.loaM / startView(a, v).unit >= MIN_HULL_PX ? dims : null;
+  return dims && dims.loaM / startView(a, v, widthPx).unit >= MIN_HULL_PX ? dims : null;
 }
 
 /** The start caption's scale note: hulls to scale (class, LOA), markers at this zoom, or no dimensions for the class. */
-export function startScaleCaption(a: RaceAnalysis, v?: View): string {
+export function startScaleCaption(a: RaceAnalysis, v?: View, widthPx?: number): string {
   const cls = startClass(a);
   if (!cls) return `Hulls not to scale: no dimensions for class "${a.meta.boatClass}". Arrows follow course over ground.`;
   const spec = `${cls.name}, ${f2(cls.dims.loaM)} m`;
-  return startHullScale(a, v)
+  return startHullScale(a, v, widthPx)
     ? `Hulls to scale (${spec}); they point along heading.`
     : `Markers not to scale at this zoom (${spec} hulls would be under ${MIN_HULL_PX} px; zoom in to draw them). Arrows follow course over ground.`;
 }
@@ -226,7 +282,7 @@ export interface StartOptions {
  * dashed past each end with the favoured end labelled (ui/startLine.ts); names per `opts.names`.
  */
 export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: View, colour: StartColour = 'boat', opts: StartOptions = {}): string {
-  const { rot, L, R, box, view, unit } = startView(a, v);
+  const { rot, L, R, box, view, unit } = startView(a, v, opts.widthPx);
   const fleet = a.boats.length;
   const byId = new Map(a.boats.map((b) => [b.id, b]));
   const w = view.x1 - view.x0;
@@ -236,7 +292,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
   const tk = k * (opts.widthPx ? Math.max(1, NAME_MIN_W / opts.widthPx) : 1);
   const nameFs = NAME_FS * tk;
   const dtlFs = DTL_FS * tk;
-  const dims = startHullScale(a, v);
+  const dims = startHullScale(a, v, opts.widthPx);
   const minCls = startDims(a) && !dims ? ' boat-min' : '';
   const range = colour === 'speed' ? (startSogRange(a) ?? { lo: 0, hi: 1 }) : null;
   /** Speed: the whole fleet's trails batched by bin, the dimmed boats in their own group. */
@@ -345,7 +401,8 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     const half = textWidth(s, endFs) / 2;
     return { x0: p[0] - half, y0: p[1] - 11 * unit - endFs, x1: p[0] + half, y1: p[1] + 6 * unit };
   };
-  const bias = lineBiasSvg(a, L, R, box, unit, nameFs, startDims(a));
+  // Small text (85% of a boat name), sized as the names are: with the view and up on narrow screens.
+  const bias = lineBiasSvg(a, L, R, box, unit, 0.85 * nameFs, startDims(a));
 
   // Names: the selected boat first, then by start place, then by distance off the line, then the rest.
   const order = (id: string): [number, number, number] => {

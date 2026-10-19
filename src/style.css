@@ -282,6 +282,38 @@ input[type='search']:disabled, select:disabled { opacity: 0.6; }
 .card .cap { font-size: 0.8rem; color: var(--ink-2); margin: 6px 0 0; }
 .card + .card { margin-top: 16px; }
 
+/* Start | Race tabs under the race header; they stick to the top while a panel scrolls
+   (on a phone, under the sticky boat strip: --boatbar-h is set from its height). */
+.tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 6px 0;
+  background: var(--page);
+  border-bottom: 1px solid var(--rule);
+}
+.tabs [role='tab'] {
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  min-height: 40px;
+  min-width: 96px;
+  padding: 6px 18px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.tabs [role='tab']:hover { border-color: var(--ink-3); color: var(--ink); }
+.tabs [role='tab'][aria-selected='true'] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.tabs [role='tab'][aria-selected='true']:focus-visible { outline-color: var(--ink); }
+.panel[hidden] { display: none; }
+.panel:focus { outline: none; }
+
 .boatbar {
   position: sticky;
   top: 12px;
@@ -335,6 +367,9 @@ tr.nc td { color: var(--ink-2); }
   /* Block, not a one-column grid: a grid item can only stick within its own row. */
   .digest { display: block; }
   .content { margin-top: 4px; }
+  /* Compact under the boat strip (~41 px with its rule): full-width halves, still ≥ 36 px to tap. */
+  .tabs { top: var(--boatbar-h, 0px); padding: 2px 0; margin-bottom: 8px; }
+  .tabs [role='tab'] { flex: 1 1 0; min-width: 0; min-height: 36px; padding: 4px 12px; font-size: 0.85rem; }
   .boatbar {
     top: 0;
     z-index: 3;
@@ -402,7 +437,8 @@ svg text.sub, svg text.endlbl { fill: var(--ink-2); }
 svg .blbl text { stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; }
 /* The line continued past each end, under everything; the favoured-end label above it. */
 svg .line-ext { stroke: var(--ink-3); stroke-linecap: butt; fill: none; pointer-events: none; }
-svg text.fav-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; font-weight: 600; }
+/* Upright (never italic); it only looks slanted by following the line's rotation. */
+svg text.fav-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; font-weight: 600; font-style: normal; }
 svg .wind line, svg .wind path { stroke: var(--accent); }
 svg .wind text { fill: var(--accent); }
 svg .scalebar line { stroke: var(--ink-2); }
@@ -490,6 +526,44 @@ svg .sog-hover { fill: none; stroke: var(--ink); pointer-events: none; }
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
 .map-tip[hidden] { display: none; }
+
+/* Speed through the start: drawn at the card's width, like the bump chart. */
+#start-sog-window { margin: 0 0 6px; }
+svg.chart.start-sog { max-height: none; touch-action: pan-y; }
+svg .ss-grid { stroke: var(--rule); stroke-width: 1; }
+svg .ss-tick { stroke: var(--rule); stroke-width: 1; stroke-dasharray: 2 3; }
+svg .ss-axis, svg .ss-unit { fill: var(--ink-3); font-variant-numeric: tabular-nums; }
+svg .ss-gun { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 3; }
+svg .ss-gun-lbl { fill: var(--ink); font-weight: 600; }
+svg .ss-boat { cursor: pointer; }
+svg .ss-line { fill: none; stroke-linejoin: round; stroke-linecap: round; opacity: 0.9; }
+svg .ss-gap { fill: none; stroke: var(--ink-3); stroke-width: 1.2; stroke-dasharray: 4 4; }
+svg .ss-hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; }
+svg .ss-cross { stroke: var(--surface); stroke-width: 1.2; }
+svg .ss-boat.dim .ss-line, svg .ss-boat.dim .ss-gap, svg .ss-boat.dim .ss-cross { opacity: 0.18; }
+svg .ss-boat.on .ss-line { opacity: 1; }
+svg .ss-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
+
+/* Place changes (bump chart): drawn at the card's pixel width, so no letterboxing; tall fleets scroll the page. */
+.places-wrap { position: relative; }
+svg.chart.places { max-height: none; overflow: visible; touch-action: pan-y; }
+svg .pc-grid { stroke: var(--rule); stroke-width: 1; }
+svg .pc-col { stroke: var(--rule); stroke-width: 1; stroke-dasharray: 2 3; }
+svg .pc-axis, svg .pc-head { fill: var(--ink-3); font-variant-numeric: tabular-nums; }
+svg .pc-head { fill: var(--ink-2); }
+svg .pc-boat { cursor: pointer; }
+svg .pc-line { fill: none; stroke-linejoin: round; stroke-linecap: round; opacity: 0.9; }
+svg .pc-gap { fill: none; stroke: var(--ink-3); stroke-dasharray: 4 4; stroke-linecap: butt; }
+/* A wide invisible stroke makes a thin line easy to hit with a finger. */
+svg .pc-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
+svg .pc-dot { stroke: var(--surface); stroke-width: 1.2; }
+svg .pc-lbl { font-weight: 500; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+svg .pc-lbl.dnf { font-style: italic; }
+/* With a selection the others fade, their names less than their lines so they stay readable. */
+svg .pc-boat.dim .pc-line, svg .pc-boat.dim .pc-dot, svg .pc-boat.dim .pc-gap { opacity: 0.2; }
+svg .pc-boat.dim .pc-lbl { opacity: 0.55; }
+svg .pc-boat.on .pc-line { opacity: 1; }
+svg .pc-boat.on .pc-lbl { font-weight: 700; }
 
 .tablewrap {
   overflow-x: auto;

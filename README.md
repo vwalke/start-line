@@ -11,6 +11,24 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 
 ## What it shows
 
+Under the race header the digest has two tabs, **Start** and **Race**; the
+boat list beside (on a phone, above) them and the selected boat are shared by
+both.
+
+- **Start tab:** the start chart with its start findings, speed through the
+  start, and the Start by boat table.
+- **Race tab:** the tracks-by-leg map, place changes, the race findings and
+  warnings, and the Legs by boat table with the Upwind / Downwind summaries.
+
+Each table stays on the tab with the charts it's read against, because
+picking a boat in a chart and finding its row (or the reverse) is the main
+way they're used; a separate Tables tab would split every such pair. The tabs
+are a tablist (arrow keys, Home / End) that sticks under the boat strip on a
+phone. The tab is in the URL hash (`#start`, `#race`; replaced, never added to
+history) and kept with the last race viewed. A hash on the URL wins; a link
+without one opens Start, or the saved tab when it reopens the saved race.
+Switching races keeps the tab.
+
 - **Start at the gun:** each boat's bow (GPS tracker + class bow offset)
   against the line with a 60 s trail (`START_TRAIL_MS`) shifted so it ends on
   that bow, arrows along course over ground, plus the line length and bias and
@@ -21,19 +39,50 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   The line continues dashed past each end, and the favoured end is labelled
   with its bias in degrees and metres (and boat lengths when the class is
   known), e.g. `Pin favoured 7° · 18 m (1.9 lengths)`, or `Square line`
-  within 2 m. The caption and the label's tooltip give the wind source
+  within 2 m. The label is small text running along the favoured end's
+  dashed extension, starting a clear gap past the pin or RC mark and sitting
+  just above the line: "above" is screen-up once the text is turned upright
+  (it flips 180° rather than read upside down), which with the wind at the
+  top is the course side, away from the boats. It scales with the view like
+  the boat names, so it reads the same at every zoom. It always takes the
+  longest wording that fits on the extension and keeps the metres:
+  `Pin favoured 7° · 18 m (1.9 lengths)`, then `Pin favoured 7° · 18 m`,
+  `Pin fav. 7° · 18 m`, `Pin 7° · 18 m`. The Fit view leaves room past the
+  favoured end for one of those: `Pin favoured 7° · 18 m` on a wide chart
+  (the frame grows up to 25%), and on a chart under 480 px wide, where the
+  text is larger, the longest that fits with the frame grown up to 35% (that
+  frame changes only when the chart crosses 480 px). The lengths join when
+  zoomed in. Only if none fits does the label run along the line inward from
+  that end (as `Pin 7°` at worst). `Square line` sits centred along the line.
+  The caption and the label's tooltip give the wind source
   (tacks, weather model, or first leg assumed upwind), a confidence, and how
   far a 5° wind error moves the figure. `Names: Auto | All | Off` sets the
   boat labels: Auto places them greedily (selected boat, then by start place)
   and leaves out any that would overlap another label or the line, so
   zooming in reveals more; hover or tap a boat for its name either way.
-- **Start by boat** (a table under the start chart and its findings): finish
+- **Speed through the start** (Start tab, after the start chart;
+  `analysis/startSog.ts`, `ui/startSog.ts`): each racing boat's speed over
+  ground (the same 4 s mean the speed-coloured tracks use) against seconds
+  from the gun, with the gun as a dashed line. `Window: 30 s | 60 s | 120 s`
+  sets how far before the gun it starts (it always runs to +20 s; remembered
+  in `recall.startSogWindow`, default 60). The analysis keeps every fix from
+  120 s before the gun to 20 s after, and the live feed is fetched from 130 s
+  before the gun to allow for it; if no boat's track goes back as far as the
+  window, the chart starts at the earliest data and the caption says so.
+  A line breaks wherever a boat's fixes are more than 5 s apart (the same
+  threshold as the distance `~` and Data %), with a grey dashed join, so a
+  hole is never drawn as a speed; hovering inside one shows nothing. A dot
+  marks where each boat crossed the line (the start table's Late) and its
+  speed then ("crossed +2.6 s at 5.3 kn"). Hover or tap for the speed under
+  the pointer (the selected boat's, else the nearest line's) with a
+  crosshair; tap a line to select the boat. Not racing boats are left out.
+- **Start by boat** (Start tab, a table after the start charts): finish
   place, start place, distance off the line at the gun (Vakaros and our
   check, bow-corrected), seconds late, line position (0% pin … 100% RC),
-  speed at the gun and TWA at the gun, with each boat's start caveats listed
-  under it.
-- **Legs by boat** (a table after the map and race findings): finish place,
-  start place, then per leg VMG, SOG, TWA, distance sailed (metres), leg time
+  speed at the gun, TWA at the gun and heel at the gun, with each boat's start
+  caveats listed under it.
+- **Legs by boat** (Race tab, a table after the map, place changes and race findings): finish place,
+  start place, then per leg VMG, SOG, TWA, heel, distance sailed (metres), leg time
   with the place at the mark, tacks (on beats) or gybes (on runs; both on
   reaches) and Data %; then the same for **Upwind** and **Downwind**, then the
   race: distance, race and finish time, average SOG, tacks, gybes and Data %.
@@ -42,13 +91,34 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   more than 5 s apart it's shown as `~` (approximate), and so is a tack or
   gybe count where one bridges a gap. Data % below 90% is flagged ⚠ with how
   much of the leg had data and the longest gap.
+- **Place changes** (Race tab, after the track map; `analysis/places.ts`,
+  `ui/places.ts`): a bump chart of each boat's place at the start, at every
+  mark rounding (named as the legs name them; a repeat is "M1 (2)") and at
+  the finish, 1 at the top. Start is the start table's place among clean
+  starters (an OCS boat, or one with no reliable figure, has no start
+  point); each mark is the order of the rounding times from the leg splits
+  (a leg's end, or the next leg's start when that leg broke), among the boats
+  with a time there, with equal times kept in the legs table's order; Finish
+  is the finish order. A boat with no rounding time at a mark (a telemetry
+  gap) is left out of that mark's order, so the others close up, and its line
+  is dashed grey across it; nothing is guessed. A DNF's line stops at the
+  last mark reached and is labelled "DNF" there. Boats set aside as not
+  racing are not drawn. When the legs come from where the fleet turned (no
+  mark trackers) the marks are those turns; a one-leg race is Start → Finish.
+  Lines use the boat colours (past eight boats the colours repeat; the
+  labels at the right, "1 Savasana", name them). Hover or tap a dot for
+  "#GER42 · Gate: 3rd (+2)": the place there and the places gained (+) or
+  lost (−) since the boat's last place. Tap a line, dot or name to select the
+  boat everywhere; the others fade. On a narrow screen the labels are sail
+  numbers and the mark names are turned.
 - **Wide tables:** each has a second scrollbar above it, kept in step with
   its own (which sits directly under the table, with the notes below that).
   Fin and Boat stay put while the rest scrolls; on a phone long boat names
   are cut short (the sidebar has them).
 - **Upwind / downwind summaries:** per boat, the beats added up and the runs
   added up (reaches are in neither): total time and distance, SOG = distance ÷
-  time, VMG, |TWA| and coverage weighted by leg time, tacks and gybes summed,
+  time, VMG, |TWA| and coverage weighted by leg time, heel time-weighted over
+  every fix it rests on across those legs, tacks and gybes summed,
   and a place by total time among boats that sailed every leg of that kind
   (ties share a place). A boat missing one gets a partial sum, shown in grey
   italics as "partial 1/2", and no place.
@@ -65,6 +135,25 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   a tack around a mark is, and within 15 s of the rounding it is counted on
   the leg it belongs to (a gybe on the run, a tack on the beat). A side change
   across a telemetry hole (> 5 s) is counted but marked approximate (`~`).
+- **Heel** (`analysis/heel.ts`): from each tracker's motion sensor (the feed's
+  `roll`, integer degrees; `roll` < 0 is heeled to port, which is what every
+  fleet shows upwind on starboard tack). Shown as *leeward heel* =
+  −roll × sign(TWA), using the signed TWA above: + heeled to leeward, −
+  heeled to windward (roll-tacking, light-air windward heel, a run sailed
+  heeled to weather). Head to wind and dead downwind (|TWA| under 20° or over
+  160°) the side is unclear and a fix has no leeward heel. Per leg and per
+  Upwind / Downwind summary it is time-weighted (each fix holds until the
+  next; never across a gap over 5 s), leaving out 5 s either side of each
+  tack or gybe, where heel swings through zero. Heel at the gun is the fix
+  nearest the gun within 2 s. A heel cell is flagged ⚠ when the leg had heel
+  readings for under 90% of its time. Readings of ±90° or more (a sensor
+  clamp on coach and spare trackers) and runs of exactly 0° roll and 0° pitch
+  lasting 10 s or more while moving (a device sending no IMU) count as
+  missing; brief 0/0 readings are real and kept. Feeds without `roll` (older
+  events) hide the heel columns and say so under the tables. Trim (`pitch`)
+  is read and averaged per leg but not shown: it carries each tracker's own
+  mounting angle (boats in one fleet sit 13° apart on every leg), so it
+  doesn't compare between boats.
   With no fixes for minutes at a time, manoeuvres inside the hole can't be
   seen at all; the coverage figure says when that is likely.
 - **Data coverage:** the share of each leg (and of the race) where the boat's
@@ -99,7 +188,7 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 - **Findings:** plain-English notes, split in two. **Start findings** sit
   under the start chart: the favoured end (in degrees and metres), best and
   worst start, boats over the line or that race control couldn't check.
-  **Race findings** follow the track map: the biggest single-leg gain and
+  **Race findings** (Race tab) follow the place changes: the biggest single-leg gain and
   loss, the quickest boats upwind and downwind, places gained or lost, and a
   wind cross-check, with the data warnings below them. An empty list is
   hidden.
@@ -114,7 +203,7 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 | `racesense.vakaros.com/api/landing` | event list | via our `/api` proxy (no CORS upstream) |
 | `racesense.vakaros.com/api/regatta?event=` | divisions, entries, course & mark trackers, gun time, start line at the gun, OCS, race-control DTL, finishes | via `/api` proxy |
 | `racesense.vakaros.com/api/wind?v=3&…` | modelled wind, used only to cross-check | via `/api` proxy |
-| `teleapi.regatta.app/telemetry/event/{id}` | ~5 Hz GPS tracks for boats and marks | via `/api/telemetry/event/{id}` (same-origin proxy; one race window, paginated with `after`) |
+| `teleapi.regatta.app/telemetry/event/{id}` | ~5 Hz GPS tracks for boats and marks, with heel (`roll`) and trim (`pitch`) | via `/api/telemetry/event/{id}` (same-origin proxy; one race window, paginated with `after`) |
 
 - **Unofficial.** These are public but undocumented feeds, read anonymously,
   and they may change without notice. Recall is not affiliated with
@@ -187,13 +276,13 @@ src/
   data/racesense/            RaceSense source adapter (pure) + fetch/pagination
   data/vkx.ts                documented stub for a future .vkx upload source
   data/cache.ts              memory + Cache API caching
-  analysis/                  RaceData -> RaceAnalysis (geometry, legs, wind, tacks/gybes, coverage, upwind/downwind summaries, findings)
+  analysis/                  RaceData -> RaceAnalysis (geometry, legs, wind, tacks/gybes, heel, coverage, upwind/downwind summaries, place changes, findings)
   worker.ts                  fetch + normalize + analyze, off the main thread
   ui/                        plain TS + SVG rendering
 functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing/regatta/wind/telemetry
 functions/_lib.ts            allowlist, query validation and cache TTL (not a route)
-tests/                       vitest; offline, using tests/fixtures/benelux_r8.json and c31_r10.json
-scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31)
+tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5)
+scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88)
 ```
 
 The analysis only ever sees `RaceData`. A future `.vkx` upload
@@ -231,11 +320,13 @@ npm run lint && npm run typecheck && npm test
   `/api/landing` returns every listed event at once, so this covers the whole
   feed. Typing never loads an event: pick one in the Event list, or press
   Enter when exactly one matches. Esc clears the search; `/` focuses it.
-- Deep links: `?event=<eventId>&div=<division>&race=<n>`. Add `&nc=all` to keep coach boats and spare trackers as competitors. By default they are set aside, judged from their event results and tracks (`src/analysis/participation.ts`), not from their names.
+- Deep links: `?event=<eventId>&div=<division>&race=<n>`, optionally with `#start` or `#race` for the tab. Add `&nc=all` to keep coach boats and spare trackers as competitors. By default they are set aside, judged from their event results and tracks (`src/analysis/participation.ts`), not from their names.
 
 Tests never touch the network. To regenerate the fixture from raw downloads,
 run `node scripts/make-fixture.mjs <dir-with-raw-json>`. Add `--preset c31` to
-rebuild the C31 Gold Cup race 10 fixture (the data-quality cases).
+rebuild the C31 Gold Cup race 10 fixture (the data-quality cases), `--preset m24`
+or `--preset j88` for the Melges 24 and J/88 ones. The fixtures keep `roll` and
+`pitch` (heel and trim) alongside the position columns.
 
 ## Cloudflare Pages setup
 
