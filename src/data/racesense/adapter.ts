@@ -294,6 +294,44 @@ interface Row {
   lon: number;
   heading: number;
   sog: number;
+  /** Heel / trim, degrees; null when the page has no such column or the value is missing or implausible. */
+  roll: number | null;
+  pitch: number | null;
+}
+
+/** |roll| or |pitch| at or beyond this is no reading: coach and spare trackers sit at a ±90 clamp, and a few glitches read 94–127. */
+export const IMU_MAX_DEG = 90;
+
+/** An IMU angle, or null when absent, non-numeric or ≥ IMU_MAX_DEG. */
+export function imuAngle(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const x = Number(v);
+  return Number.isFinite(x) && Math.abs(x) < IMU_MAX_DEG ? x : null;
+}
+
+/**
+ * Exactly 0 roll and 0 pitch while moving (SOG > IMU_ZERO_MIN_SOG_KN) for at
+ * least this long is a device sending no IMU, not a boat sailing level. In the
+ * public feed 0/0 is rare and brief (≤ 6 s in a row over four events, mostly
+ * mid-tack on boats that trim near 0°), so those readings are kept.
+ */
+export const IMU_ZERO_RUN_MS = 10_000;
+export const IMU_ZERO_MIN_SOG_KN = 2;
+
+/** Null out roll and pitch over runs of exact 0/0 while moving lasting ≥ IMU_ZERO_RUN_MS (rows sorted by time, one device). */
+export function dropImuZeroRuns(rows: { ts: number; sog: number; roll: number | null; pitch: number | null }[]): void {
+  let i = 0;
+  while (i < rows.length) {
+    const z = (r: (typeof rows)[number]): boolean => r.roll === 0 && r.pitch === 0 && r.sog > IMU_ZERO_MIN_SOG_KN;
+    if (!z(rows[i])) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j + 1 < rows.length && z(rows[j + 1])) j++;
+    if (rows[j].ts - rows[i].ts >= IMU_ZERO_RUN_MS) for (let k = i; k <= j; k++) rows[k].roll = rows[k].pitch = null;
+    i = j + 1;
+  }
 }
 
 /** Concatenate pages into typed rows, sorted by time, de-duplicated on (sn, role, ts). */
@@ -325,27 +363,35 @@ export function parseTelemetry(pages: TelemetryPage[]): Row[] {
         lon,
         heading: f.heading === undefined ? NaN : Number(r[f.heading]),
         sog: f.sog === undefined ? NaN : Number(r[f.sog]),
+        roll: f.roll === undefined ? null : imuAngle(r[f.roll]),
+        pitch: f.pitch === undefined ? null : imuAngle(r[f.pitch]),
       });
     }
   }
   return rows.sort((a, b) => a.ts - b.ts);
 }
 
-function toTrack(rows: Row[]): Track {
+/** One device's rows as a Track; roll / pitch only when the feed carried them (`imu`), NaN where missing. */
+function toTrack(rows: Row[], imu: boolean): Track {
   const n = rows.length;
   const t = new Float64Array(n);
   const lat = new Float64Array(n);
   const lon = new Float64Array(n);
   const sog = new Float32Array(n);
   const heading = new Float32Array(n);
+  if (imu) dropImuZeroRuns(rows);
+  const roll = imu ? new Float32Array(n) : null;
+  const pitch = imu ? new Float32Array(n) : null;
   rows.forEach((r, i) => {
     t[i] = r.ts;
     lat[i] = r.lat;
     lon[i] = r.lon;
     sog[i] = r.sog;
     heading[i] = r.heading;
+    if (roll) roll[i] = r.roll ?? NaN;
+    if (pitch) pitch[i] = r.pitch ?? NaN;
   });
-  return { t, lat, lon, sog, heading };
+  return { t, lat, lon, sog, heading, ...(roll && pitch ? { roll, pitch } : {}) };
 }
 
 function windSamples(wind: WindResponse | undefined, at: LatLon): WindSample[] | null {
@@ -385,6 +431,8 @@ export function buildRaceData(
   if (!st.startLine) throw new Error('Race has no recorded start line');
   const gunMs = st.startTime;
   const rows = parseTelemetry(pages);
+  // Older feeds (and some fixtures) have no roll / pitch columns at all.
+  const imu = pages.some((p) => !!p?.Fields && (p.Fields.includes('roll') || p.Fields.includes('pitch')));
   const fins = finishMs(race);
   const tEnd = fins.length ? Math.max(...fins) : gunMs + 90 * 60_000;
 
@@ -493,7 +541,7 @@ export function buildRaceData(
       name: p.boatName?.trim() || `#${sail}`,
       // RaceSense uses -1 (any negative) for "not set".
       bowOffsetM: (p.bowOffsetCm != null && p.bowOffsetCm >= 0 ? p.bowOffsetCm : defaultBowCm) / 100,
-      track: toTrack(trackRows),
+      track: toTrack(trackRows, imu),
       finishMs: Number.isFinite(fms) ? fms : null,
       ocs: ocs.has(sail),
       rcDtlM: rc.status === 'ok' ? rc.dtlM : null,

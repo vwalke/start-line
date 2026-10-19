@@ -30,10 +30,10 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 - **Start by boat** (a table under the start chart and its findings): finish
   place, start place, distance off the line at the gun (Vakaros and our
   check, bow-corrected), seconds late, line position (0% pin … 100% RC),
-  speed at the gun and TWA at the gun, with each boat's start caveats listed
-  under it.
+  speed at the gun, TWA at the gun and heel at the gun, with each boat's start
+  caveats listed under it.
 - **Legs by boat** (a table after the map and race findings): finish place,
-  start place, then per leg VMG, SOG, TWA, distance sailed (metres), leg time
+  start place, then per leg VMG, SOG, TWA, heel, distance sailed (metres), leg time
   with the place at the mark, tacks (on beats) or gybes (on runs; both on
   reaches) and Data %; then the same for **Upwind** and **Downwind**, then the
   race: distance, race and finish time, average SOG, tacks, gybes and Data %.
@@ -48,7 +48,8 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   are cut short (the sidebar has them).
 - **Upwind / downwind summaries:** per boat, the beats added up and the runs
   added up (reaches are in neither): total time and distance, SOG = distance ÷
-  time, VMG, |TWA| and coverage weighted by leg time, tacks and gybes summed,
+  time, VMG, |TWA| and coverage weighted by leg time, heel time-weighted over
+  every fix it rests on across those legs, tacks and gybes summed,
   and a place by total time among boats that sailed every leg of that kind
   (ties share a place). A boat missing one gets a partial sum, shown in grey
   italics as "partial 1/2", and no place.
@@ -65,6 +66,25 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   a tack around a mark is, and within 15 s of the rounding it is counted on
   the leg it belongs to (a gybe on the run, a tack on the beat). A side change
   across a telemetry hole (> 5 s) is counted but marked approximate (`~`).
+- **Heel** (`analysis/heel.ts`): from each tracker's motion sensor (the feed's
+  `roll`, integer degrees; `roll` < 0 is heeled to port, which is what every
+  fleet shows upwind on starboard tack). Shown as *leeward heel* =
+  −roll × sign(TWA), using the signed TWA above: + heeled to leeward, −
+  heeled to windward (roll-tacking, light-air windward heel, a run sailed
+  heeled to weather). Head to wind and dead downwind (|TWA| under 20° or over
+  160°) the side is unclear and a fix has no leeward heel. Per leg and per
+  Upwind / Downwind summary it is time-weighted (each fix holds until the
+  next; never across a gap over 5 s), leaving out 5 s either side of each
+  tack or gybe, where heel swings through zero. Heel at the gun is the fix
+  nearest the gun within 2 s. A heel cell is flagged ⚠ when the leg had heel
+  readings for under 90% of its time. Readings of ±90° or more (a sensor
+  clamp on coach and spare trackers) and runs of exactly 0° roll and 0° pitch
+  lasting 10 s or more while moving (a device sending no IMU) count as
+  missing; brief 0/0 readings are real and kept. Feeds without `roll` (older
+  events) hide the heel columns and say so under the tables. Trim (`pitch`)
+  is read and averaged per leg but not shown: it carries each tracker's own
+  mounting angle (boats in one fleet sit 13° apart on every leg), so it
+  doesn't compare between boats.
   With no fixes for minutes at a time, manoeuvres inside the hole can't be
   seen at all; the coverage figure says when that is likely.
 - **Data coverage:** the share of each leg (and of the race) where the boat's
@@ -114,7 +134,7 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 | `racesense.vakaros.com/api/landing` | event list | via our `/api` proxy (no CORS upstream) |
 | `racesense.vakaros.com/api/regatta?event=` | divisions, entries, course & mark trackers, gun time, start line at the gun, OCS, race-control DTL, finishes | via `/api` proxy |
 | `racesense.vakaros.com/api/wind?v=3&…` | modelled wind, used only to cross-check | via `/api` proxy |
-| `teleapi.regatta.app/telemetry/event/{id}` | ~5 Hz GPS tracks for boats and marks | via `/api/telemetry/event/{id}` (same-origin proxy; one race window, paginated with `after`) |
+| `teleapi.regatta.app/telemetry/event/{id}` | ~5 Hz GPS tracks for boats and marks, with heel (`roll`) and trim (`pitch`) | via `/api/telemetry/event/{id}` (same-origin proxy; one race window, paginated with `after`) |
 
 - **Unofficial.** These are public but undocumented feeds, read anonymously,
   and they may change without notice. Recall is not affiliated with
@@ -192,8 +212,8 @@ src/
   ui/                        plain TS + SVG rendering
 functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing/regatta/wind/telemetry
 functions/_lib.ts            allowlist, query validation and cache TTL (not a route)
-tests/                       vitest; offline, using tests/fixtures/benelux_r8.json and c31_r10.json
-scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31)
+tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5)
+scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88)
 ```
 
 The analysis only ever sees `RaceData`. A future `.vkx` upload
@@ -235,7 +255,9 @@ npm run lint && npm run typecheck && npm test
 
 Tests never touch the network. To regenerate the fixture from raw downloads,
 run `node scripts/make-fixture.mjs <dir-with-raw-json>`. Add `--preset c31` to
-rebuild the C31 Gold Cup race 10 fixture (the data-quality cases).
+rebuild the C31 Gold Cup race 10 fixture (the data-quality cases), `--preset m24`
+or `--preset j88` for the Melges 24 and J/88 ones. The fixtures keep `roll` and
+`pitch` (heel and trim) alongside the position columns.
 
 ## Cloudflare Pages setup
 

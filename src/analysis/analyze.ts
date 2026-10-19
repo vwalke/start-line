@@ -30,7 +30,8 @@ import {
 import { fleetTurns, isOffset, legCourse, legsAgree, snapTurns } from './course';
 import { inferRoundings, splitLegs, type Waypoint } from './legs';
 import { SQUARE_LINE_M } from './line';
-import { detectManoeuvres, manoeuvresByLeg } from './manoeuvres';
+import { heelAt, heelSeries, heelStats } from './heel';
+import { detectManoeuvres, manoeuvresByLeg, signedTwa } from './manoeuvres';
 import { classifyParticipation } from './participation';
 import { projectTrack, rangeIdx, type XYTrack } from './prepare';
 import { smoothSog } from './smooth';
@@ -343,6 +344,12 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     const sogSm = smoothSog(tr.t, tr.sog);
     let courseAtGun: number | null = null;
     let headingAtSample: number | null = null;
+    // Tacks and gybes from the gun to the last leg end this boat reached (split by leg below).
+    const ends = tt.filter((x): x is number => x != null);
+    const lastEnd = ends.length > 1 ? ends[ends.length - 1] : null;
+    const manoeuvres = ranked && lastEnd != null ? detectManoeuvres(tr, twdAt, gun, lastEnd) : [];
+    // Leeward heel per fix (analysis/heel.ts), blanked around those manoeuvres; null when the feed has no roll.
+    const heel = tr.roll ? heelSeries(tr.t, tr.roll, signedTwa(tr, twdAt).twa, manoeuvres, tr.pitch) : null;
     if (tr.t.length > 1 && tr.t[0] <= gun && tr.t[tr.t.length - 1] >= gun) {
       // DTL, line position and the bow are sampled where the source takes its
       // start fix (RaceSense: ~0.9 s before the gun), so ours checks against the
@@ -374,6 +381,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
         speedKn: interp(tr.t, tr.sog, gun),
         headingDeg: hdg,
         twaDeg: wrap180(twdGun - hdg),
+        heelAtGunDeg: heel ? heelAt(heel, gun) : null,
         bow,
         ocs: !!b.ocs,
         rcDtlM: b.rc ? b.rc.dtlM : (b.rcDtlM ?? null),
@@ -415,13 +423,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       trail = { x: xs, y: ys, t: tk, sog: sk };
     }
 
-    // Tacks and gybes from the gun to the last leg end this boat reached, then split by leg.
-    const ends = tt.filter((x): x is number => x != null);
-    const lastEnd = ends.length > 1 ? ends[ends.length - 1] : null;
-    const moves =
-      ranked && lastEnd != null
-        ? manoeuvresByLeg(detectManoeuvres(tr, twdAt, gun, lastEnd), tt, legs.map((l) => l.kind))
-        : [];
+    const moves = ranked && lastEnd != null ? manoeuvresByLeg(manoeuvres, tt, legs.map((l) => l.kind)) : [];
     const legResults: (LegResult | null)[] = [];
     for (let li = 0; li < nLegs; li++) {
       const a = tt[li];
@@ -441,6 +443,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       const dist = pathDistance(tr.t, tr.x, tr.y, a, e);
       const mv = moves[li];
       const cov = coverage(tr.t, a, e);
+      const hs = heel ? heelStats(heel, a, e) : null;
       // SOG is Dist (the interpolated path) ÷ time, in knots.
       legResults.push({
         startMs: a,
@@ -456,6 +459,10 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
         manoeuvreGap: mv?.gap ?? false,
         coverage: cov.coverage,
         maxGapS: cov.maxGapS,
+        heelDeg: hs?.heelDeg ?? null,
+        heelS: hs?.heelS ?? 0,
+        trimDeg: hs?.trimDeg ?? null,
+        heelCoverage: hs ? hs.coverage : null,
       });
     }
 
@@ -644,6 +651,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     excluded,
     findings: [],
     warnings,
+    hasHeel: results.some((r) => r.start?.heelAtGunDeg != null || r.legs.some((l) => l?.heelDeg != null)),
   };
   if (opts.allCompetitors) analysis.allCompetitors = { flagged: flagged.length };
   analysis.findings = buildFindings(analysis);

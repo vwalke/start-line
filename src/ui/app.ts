@@ -243,7 +243,7 @@ export function startApp(): void {
     els.startTable.innerHTML = startTable(a, highlight, startSort);
     els.startNotes.innerHTML = startNotesHtml(a);
     els.table.innerHTML = legsTable(a, highlight, sort);
-    els.legsNotes.innerHTML = legsNotesHtml();
+    els.legsNotes.innerHTML = legsNotesHtml(a);
     els.boats.innerHTML = boatList(a, highlight, ncOpen);
     const found = splitFindings(a.findings);
     els.startFindings.innerHTML = findingsList(found.start, highlight);

@@ -38,7 +38,7 @@ describe('C31 race 10: the start and legs tables', () => {
   const legs = legsTable(a, null);
 
   it('the start table has the start columns only', () => {
-    expect(keysOf(start)).toEqual(['s.fin', 's.boat', 'start', 'rc', 'ours', 'late', 'line', 'speed', 'twa']);
+    expect(keysOf(start)).toEqual(['s.fin', 's.boat', 'start', 'rc', 'ours', 'late', 'line', 'speed', 'twa', 's.heel']);
     expect(start).not.toMatch(/data-sort="L\d/);
     expect(start).toContain('data-table="start"');
     // One header row: no groups.

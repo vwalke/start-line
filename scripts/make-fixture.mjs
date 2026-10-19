@@ -129,7 +129,10 @@ const extra = new Set((preset.extra ?? []).filter((s) => !preset.sails?.includes
 if (preset.sails) preset.sails = [...preset.sails, ...extra];
 const STEP = preset.step ?? 1_000;
 
-const keep = ['ts', 'sn', 'division', 'sail_number', 'race_number', 'role', 'latitude', 'longitude', 'heading', 'sog'];
+// roll (heel) and pitch (trim) are kept where the source has them.
+const keep = ['ts', 'sn', 'division', 'sail_number', 'race_number', 'role', 'latitude', 'longitude', 'heading', 'sog', 'roll', 'pitch'].filter(
+  (f) => tele.Fields.includes(f),
+);
 const idx = Object.fromEntries(tele.Fields.map((f, i) => [f, i]));
 const rows = [...tele.Rows].sort((a, b) => a[idx.ts] - b[idx.ts]);
 const lastKept = new Map();

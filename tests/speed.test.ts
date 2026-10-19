@@ -43,6 +43,10 @@ const leg = (timeS: number, distGapS: number | null = null): LegResult => ({
   manoeuvreGap: false,
   coverage: 1,
   maxGapS: 1,
+  heelDeg: null,
+  heelS: 0,
+  trimDeg: null,
+  heelCoverage: null,
   distGapS,
 });
 

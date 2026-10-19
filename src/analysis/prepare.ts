@@ -8,6 +8,9 @@ export interface XYTrack {
   y: Float64Array;
   sog: Float64Array;
   heading: Float64Array;
+  /** As `Track.roll` / `Track.pitch` (NaN = no reading); absent when the source has none. */
+  roll?: Float64Array;
+  pitch?: Float64Array;
 }
 
 export function projectTrack(track: Track, proj: Projection): XYTrack {
@@ -23,6 +26,8 @@ export function projectTrack(track: Track, proj: Projection): XYTrack {
     sog: new Float64Array(n),
     heading: new Float64Array(n),
   };
+  if (track.roll) out.roll = new Float64Array(n);
+  if (track.pitch) out.pitch = new Float64Array(n);
   keep.forEach((i, k) => {
     const [x, y] = proj.toXY(track.lat[i], track.lon[i]);
     out.t[k] = track.t[i];
@@ -30,6 +35,8 @@ export function projectTrack(track: Track, proj: Projection): XYTrack {
     out.y[k] = y;
     out.sog[k] = track.sog[i];
     out.heading[k] = track.heading[i];
+    if (out.roll) out.roll[k] = track.roll![i];
+    if (out.pitch) out.pitch[k] = track.pitch![i];
   });
   for (let k = 0; k < n; k++) {
     if (Number.isFinite(out.heading[k]) && Number.isFinite(out.sog[k])) continue;

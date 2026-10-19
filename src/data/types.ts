@@ -21,6 +21,14 @@ export interface Track {
   sog: Float32Array;
   /** Heading (or course over ground if that is all the source has), degrees. */
   heading: Float32Array;
+  /**
+   * Heel from the device's IMU (RaceSense `roll`), degrees; positive = heeled
+   * to port (see analysis/heel.ts). NaN where a fix has none; absent when the
+   * source has no such column.
+   */
+  roll?: Float32Array;
+  /** Trim (RaceSense `pitch`), degrees; NaN / absent as `roll`. */
+  pitch?: Float32Array;
 }
 
 export interface Boat {
