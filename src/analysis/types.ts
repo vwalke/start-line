@@ -27,10 +27,47 @@ export interface LegResult {
   twaDeg: number;
   /** Rank at the end of this leg among boats that completed it. */
   rankAtEnd: number | null;
-  /** Distance sailed along the GPS track, nm. */
-  distNm: number;
+  /** Distance sailed along the GPS track, m. */
+  distM: number;
   /** Longest telemetry hole (> SPAN_MS) the distance bridges with a straight line, s; null = none. */
   distGapS: number | null;
+  /** Tacks and gybes on the leg (analysis/manoeuvres.ts). */
+  tacks: number;
+  gybes: number;
+  /** Some tack or gybe on the leg bridges a telemetry gap: the counts are approximate. */
+  manoeuvreGap: boolean;
+  /** Fraction of the leg's time covered by fixes ≤ COVERAGE_GAP_S apart (analysis/coverage.ts), 0–1. */
+  coverage: number;
+  /** Longest interval between fixes on the leg, s. */
+  maxGapS: number;
+}
+
+/**
+ * One boat's legs of one kind (upwind or downwind; reaches are in neither)
+ * added up: sums of time, distance and manoeuvres; SOG = distance ÷ time;
+ * VMG, |TWA| and coverage time-weighted over the legs.
+ */
+export interface KindSummary {
+  /** Legs of this kind the boat completed, of `of` in the race. */
+  legs: number;
+  of: number;
+  /** Every leg of the kind completed; otherwise a partial sum with no place. */
+  complete: boolean;
+  timeS: number;
+  distM: number;
+  /** Some leg's distance bridges a telemetry gap. */
+  distApprox: boolean;
+  sogKn: number;
+  vmgKn: number;
+  twaDeg: number;
+  tacks: number;
+  gybes: number;
+  /** Some tack or gybe bridges a telemetry gap. */
+  manoeuvreApprox: boolean;
+  coverage: number;
+  maxGapS: number;
+  /** Place by total time among boats with every leg of the kind (competition ranking); null when incomplete. */
+  place: number | null;
 }
 
 export interface StartResult {
@@ -81,12 +118,19 @@ export interface BoatResult {
   finishMs: number | null;
   raceTimeS: number | null;
   sogAvgKn: number | null;
-  /** Distance sailed gun → finish, nm (the sum of the legs); null without a finish. */
-  distNm: number | null;
+  /** Distance sailed gun → finish, m (the sum of the legs); null without a finish. */
+  distM: number | null;
   /** Some leg's distance bridges a telemetry gap (see `LegResult.distGapS`). */
   distApprox: boolean;
+  /** Fraction of the race (gun → finish, else gun → the last leg completed) covered by fixes; null with no legs. */
+  coverage: number | null;
+  /** Longest interval between fixes over that span, s; null with no legs. */
+  maxGapS: number | null;
   start: StartResult | null;
   legs: (LegResult | null)[];
+  /** The upwind and downwind legs added up; null when the race has none of that kind or the boat completed none. */
+  upwind: KindSummary | null;
+  downwind: KindSummary | null;
 }
 
 export interface WindEstimate {
@@ -156,6 +200,8 @@ export interface RaceAnalysis {
     eventName: string;
     division: string;
     boatClass: string;
+    /** The event's class label (landing list), when known. */
+    classLabel?: string;
     raceNumber: number;
     gunMs: number;
     tzOffsetMs: number;

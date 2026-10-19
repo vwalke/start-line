@@ -368,6 +368,8 @@ export interface BuildOptions {
   eventId?: string;
   kind?: 'racesense' | 'fixture';
   wind?: WindResponse;
+  /** The landing list's class label for the event (a fallback for the class dimensions). */
+  classLabel?: string;
 }
 
 export function buildRaceData(
@@ -526,6 +528,7 @@ export function buildRaceData(
     course: marks,
     boats,
   };
+  if (opts.classLabel) data.classLabel = opts.classLabel;
   if (untracked.length) data.courseUntracked = untracked;
   if (ws?.length) {
     data.windModel = { label: opts.wind?.modelLabel ?? opts.wind?.model ?? 'weather model', samples: ws };

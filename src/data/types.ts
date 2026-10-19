@@ -122,6 +122,8 @@ export interface RaceData {
   eventName: string;
   division: string;
   boatClass: string;
+  /** The event's class label from the landing list (e.g. "C31"), when known. */
+  classLabel?: string;
   raceNumber: number;
   /** Starting signal. */
   gunMs: number;

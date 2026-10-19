@@ -7,7 +7,7 @@ import type { RaceAnalysis } from '../analysis/types';
 import type { RaceListItem } from '../data/racesense/adapter';
 import { parsePickerParams, type PickerParams } from './params';
 import { readPref, removePref, writePref } from './speed';
-import { hasSortKey, type SortState } from './table';
+import { sortTable, type SortState } from './table';
 
 export const LAST_VIEW_KEY = 'recall.lastView';
 /** As the /api proxy accepts (functions/_lib.ts). */
@@ -17,7 +17,10 @@ const EVENT_ID = /^[A-Za-z0-9_-]{4,64}$/;
 export interface ViewState {
   leg: number | null;
   boat: string | null;
+  /** The legs table's sort. A record from before the split may hold a start-table column here; `applyView` moves it. */
   sort: SortState | null;
+  /** The start table's sort (absent in records from before the split). */
+  startSort?: SortState | null;
 }
 
 export interface LastView extends ViewState {
@@ -58,20 +61,23 @@ export function parseLastView(raw: string | null | undefined): LastView | null {
   const sort = parseSort(x.sort);
   if (sort === undefined) return null;
   const out: LastView = { v: 1, eventId, division, raceNumber, leg, boat, sort, savedAt };
+  // Added with the start table: optional, and a malformed one is just dropped.
+  const startSort = parseSort(x.startSort);
+  if (startSort) out.startSort = startSort;
   if (x.allCompetitors) out.allCompetitors = true;
   return out;
 }
 
 export function serializeLastView(r: LastView): string {
-  const { v, eventId, division, raceNumber, allCompetitors, leg, boat, sort, savedAt } = r;
-  return JSON.stringify({ v, eventId, division, raceNumber, ...(allCompetitors ? { allCompetitors } : {}), leg, boat, sort, savedAt });
+  const { v, eventId, division, raceNumber, allCompetitors, leg, boat, sort, startSort, savedAt } = r;
+  return JSON.stringify({ v, eventId, division, raceNumber, ...(allCompetitors ? { allCompetitors } : {}), leg, boat, sort, ...(startSort ? { startSort } : {}), savedAt });
 }
 
 export const readLastView = (): LastView | null => parseLastView(readPref(LAST_VIEW_KEY));
 export const writeLastView = (r: LastView): void => writePref(LAST_VIEW_KEY, serializeLastView(r));
 export const clearLastView = (): void => removePref(LAST_VIEW_KEY);
 
-export const viewOf = (r: ViewState): ViewState => ({ leg: r.leg, boat: r.boat, sort: r.sort });
+export const viewOf = (r: ViewState): ViewState => ({ leg: r.leg, boat: r.boat, sort: r.sort, ...(r.startSort ? { startSort: r.startSort } : {}) });
 
 /**
  * View to apply for this load: an explicit restore (boot / matching URL) wins;
@@ -126,11 +132,22 @@ export function pickRace(
   return strict ? null : (fallback ?? races[0] ?? null);
 }
 
-/** Saved view state that still fits this analysis: unknown legs, boats and sort columns are dropped. */
-export function applyView(a: RaceAnalysis, v: ViewState): ViewState {
+/**
+ * Saved view state that still fits this analysis: unknown legs, boats and sort columns are dropped,
+ * and each saved sort goes to the table that has its column (so a record from before the split,
+ * sorted by a start column, restores onto the start table).
+ */
+export function applyView(a: RaceAnalysis, v: ViewState): Required<ViewState> {
   const leg = v.leg != null && Number.isInteger(v.leg) && v.leg >= 0 && v.leg < a.legs.length ? v.leg : null;
   const known = v.boat != null && (a.boats.some((b) => b.id === v.boat) || a.excluded.some((e) => e.result.id === v.boat));
-  return { leg, boat: known ? v.boat : null, sort: v.sort && hasSortKey(a, v.sort.key) ? v.sort : null };
+  let sort: SortState | null = null;
+  let startSort: SortState | null = null;
+  for (const s of [v.startSort, v.sort]) {
+    const t = s ? sortTable(a, s.key) : null;
+    if (t === 'start' && !startSort) startSort = s!;
+    if (t === 'legs' && !sort) sort = s!;
+  }
+  return { leg, boat: known ? v.boat : null, sort, startSort };
 }
 
 /** A failure worth retrying (offline, timeout, 5xx), as opposed to one that will recur (4xx, missing race, bad data). */

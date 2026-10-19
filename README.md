@@ -15,14 +15,66 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   against the line with a 60 s trail (`START_TRAIL_MS`) shifted so it ends on
   that bow, arrows along course over ground, plus the line length and bias and
   which end was favoured. Wind bearings display as 0° rather than 360°.
-- **Per boat:** distance off the line at the gun (bow-corrected), seconds late,
-  line position (0% pin … 100% RC), speed at the gun, and TWA at the gun.
-- **Per leg:** VMG, SOG, TWA, distance sailed (nm), and leg time with the
-  boat's place at the mark, each in its own column under the leg's name.
-  Race distance, finish time and race time. Distance sums the GPS track point
-  to point; where fixes are more than 5 s apart it's shown as `~` (approximate).
-- **Sorting:** every column header sorts the table, best end first; click
-  again to reverse. Missing values always sort last.
+  Hulls are drawn to scale when the class is known (division `boatClass`,
+  then division name, then the event's class label; e.g. Cape 31 = C31,
+  9.55 m); otherwise the caption says there are no dimensions for the class.
+  The line continues dashed past each end, and the favoured end is labelled
+  with its bias in degrees and metres (and boat lengths when the class is
+  known), e.g. `Pin favoured 7° · 18 m (1.9 lengths)`, or `Square line`
+  within 2 m. The caption and the label's tooltip give the wind source
+  (tacks, weather model, or first leg assumed upwind), a confidence, and how
+  far a 5° wind error moves the figure. `Names: Auto | All | Off` sets the
+  boat labels: Auto places them greedily (selected boat, then by start place)
+  and leaves out any that would overlap another label or the line, so
+  zooming in reveals more; hover or tap a boat for its name either way.
+- **Start by boat** (a table under the start chart and its findings): finish
+  place, start place, distance off the line at the gun (Vakaros and our
+  check, bow-corrected), seconds late, line position (0% pin … 100% RC),
+  speed at the gun and TWA at the gun, with each boat's start caveats listed
+  under it.
+- **Legs by boat** (a table after the map and race findings): finish place,
+  start place, then per leg VMG, SOG, TWA, distance sailed (metres), leg time
+  with the place at the mark, tacks (on beats) or gybes (on runs; both on
+  reaches) and Data %; then the same for **Upwind** and **Downwind**, then the
+  race: distance, race and finish time, average SOG, tacks, gybes and Data %.
+  Distances are whole metres with a thin-space thousands separator
+  (`12 345`). Distance sums the GPS track point to point; where fixes are
+  more than 5 s apart it's shown as `~` (approximate), and so is a tack or
+  gybe count where one bridges a gap. Data % below 90% is flagged ⚠ with how
+  much of the leg had data and the longest gap.
+- **Wide tables:** each has a second scrollbar above it, kept in step with
+  its own (which sits directly under the table, with the notes below that).
+  Fin and Boat stay put while the rest scrolls; on a phone long boat names
+  are cut short (the sidebar has them).
+- **Upwind / downwind summaries:** per boat, the beats added up and the runs
+  added up (reaches are in neither): total time and distance, SOG = distance ÷
+  time, VMG, |TWA| and coverage weighted by leg time, tacks and gybes summed,
+  and a place by total time among boats that sailed every leg of that kind
+  (ties share a place). A boat missing one gets a partial sum, shown in grey
+  italics as "partial 1/2", and no place.
+- **Tacks and gybes** (`analysis/manoeuvres.ts`): from the GPS track gun →
+  finish (plus 30 s before the gun, to know the side held at the start).
+  Course over ground comes from the position change over 5 s (never across a
+  telemetry gap), against the estimated wind at each moment, giving a signed
+  TWA (+ starboard). A side only counts once held for 10 s with |TWA| between
+  20° and 160° at 1.5 kn or more, so luffing head-to-wind, sailing by the lee,
+  GPS jitter and drifting never count. A change of side is a tack if the TWA
+  went through head-to-wind and a gybe if it went through dead downwind; a
+  full circle back to the same side (a penalty turn) is neither. Bearing away
+  or rounding up at a mark on the same side is not a manoeuvre; a gybe-set or
+  a tack around a mark is, and within 15 s of the rounding it is counted on
+  the leg it belongs to (a gybe on the run, a tack on the beat). A side change
+  across a telemetry hole (> 5 s) is counted but marked approximate (`~`).
+  With no fixes for minutes at a time, manoeuvres inside the hole can't be
+  seen at all; the coverage figure says when that is likely.
+- **Data coverage:** the share of each leg (and of the race) where the boat's
+  fixes are at most 5 s apart, and the longest interval between fixes. Below
+  90% is flagged as low. The public feed is lossy: some events have holes of
+  several minutes.
+- **Sorting:** every column header sorts its table, best end first; click
+  again to reverse. Missing values always sort last. The two tables sort
+  independently, and both sorts are kept with the last race viewed (a sort
+  saved before the split goes back onto whichever table has that column).
 - **Tracks by leg:** a map in local metres (no map tiles), rotated so the wind
   comes from the top. The legend picks one leg and zooms the map to it.
 - **Colour tracks:** `Colour: Leg | Rank | Boat speed` beside the legend.
@@ -42,13 +94,18 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   time, SOG and leg. The start chart has its own `Colour: Boat | Speed`:
   Speed paints the 60 s trails and the hulls (SOG at the gun). Selecting a
   boat draws it bold. A picked coach or spare stays grey and dashed and is
-  left out of the scale. The choices are remembered in this browser.
-- **Findings:** plain-English notes: favoured end, best and worst start, the
-  biggest single-leg gain and loss, the quickest boats upwind and downwind,
-  places gained or lost, and a wind cross-check.
+  left out of the scale. The choices (and the start chart's `Names`) are
+  remembered in this browser.
+- **Findings:** plain-English notes, split in two. **Start findings** sit
+  under the start chart: the favoured end (in degrees and metres), best and
+  worst start, boats over the line or that race control couldn't check.
+  **Race findings** follow the track map: the biggest single-leg gain and
+  loss, the quickest boats upwind and downwind, places gained or lost, and a
+  wind cross-check, with the data warnings below them. An empty list is
+  hidden.
 - **Highlights:** ▲ best and ▼ worst in each column. Select a boat in the boat
-  list, the start chart or a table row to highlight it in both charts, the
-  table and the findings.
+  list, the start chart or a table row to highlight it in both charts, both
+  tables and both findings lists.
 
 ## Data sources & caveats
 
@@ -130,7 +187,7 @@ src/
   data/racesense/            RaceSense source adapter (pure) + fetch/pagination
   data/vkx.ts                documented stub for a future .vkx upload source
   data/cache.ts              memory + Cache API caching
-  analysis/                  RaceData -> RaceAnalysis (geometry, legs, wind, findings)
+  analysis/                  RaceData -> RaceAnalysis (geometry, legs, wind, tacks/gybes, coverage, upwind/downwind summaries, findings)
   worker.ts                  fetch + normalize + analyze, off the main thread
   ui/                        plain TS + SVG rendering
 functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing/regatta/wind/telemetry

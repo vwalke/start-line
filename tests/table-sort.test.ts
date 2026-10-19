@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import type { BoatResult } from '../src/analysis/types';
-import { compareValues, metricsTable, nextSort, sortBoats, toggleSort, type SortVal } from '../src/ui/table';
+import { compareValues, legsTable, nextSort, sortBoats, toggleSort, type SortVal } from '../src/ui/table';
 import { fixtureRace } from './helpers';
 
 const a = analyzeRace(fixtureRace());
@@ -70,7 +70,7 @@ const th = (html: string, key: string): string => new RegExp(`<th[^>]*>(?:(?!<th
 describe('sorted metrics table (Benelux race 8)', () => {
   it('sorts by a leg SOG column, fastest first, with aria-sort and ↓ on that header only', () => {
     const sort = toggleSort(a, null, 'L0.sog')!;
-    const html = metricsTable(a, null, sort);
+    const html = legsTable(a, null, sort);
     const want = [...a.boats].sort((x, y) => y.legs[0]!.sogKn - x.legs[0]!.sogKn).map((b) => b.id);
     expect(want).not.toEqual(a.boats.map((b) => b.id)); // a real reorder, not finish order
     expect(rowIds(html)).toEqual(want);
@@ -78,26 +78,26 @@ describe('sorted metrics table (Benelux race 8)', () => {
     expect(html.match(/aria-sort=/g)).toHaveLength(1);
     expect(html).toMatch(/data-sort="L0\.sog">SOG<br><small>kn<\/small><span class="si" aria-hidden="true">↓<\/span><\/button>/);
 
-    const again = metricsTable(a, null, toggleSort(a, sort, 'L0.sog'));
+    const again = legsTable(a, null, toggleSort(a, sort, 'L0.sog'));
     expect(rowIds(again)).toEqual([...want].reverse());
     expect(th(again, 'L0.sog')).toContain('aria-sort="ascending"');
     expect(again).toContain('<span class="si" aria-hidden="true">↑</span>');
   });
 
   it('defaults to finish order with no sort indicator', () => {
-    const html = metricsTable(a, null);
+    const html = legsTable(a, null);
     expect(rowIds(html)).toEqual(a.boats.map((b) => b.id));
     expect(html).not.toContain('aria-sort');
   });
 
   it('sorts Boat by sail and Fin by place', () => {
-    expect(rowIds(metricsTable(a, null, { key: 'boat', dir: 'asc' }))).toEqual(['1', '2', '3', '4', '5', '6']);
-    expect(rowIds(metricsTable(a, null, { key: 'fin', dir: 'desc' }))).toEqual(a.boats.map((b) => b.id).reverse());
+    expect(rowIds(legsTable(a, null, { key: 'boat', dir: 'asc' }))).toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(rowIds(legsTable(a, null, { key: 'fin', dir: 'desc' }))).toEqual(a.boats.map((b) => b.id).reverse());
   });
 
   it('keeps sorted rows selectable and the best/worst marks on the same boats', () => {
-    const plain = metricsTable(a, '3');
-    const sorted = metricsTable(a, '3', { key: 'L0.sog', dir: 'desc' });
+    const plain = legsTable(a, '3');
+    const sorted = legsTable(a, '3', { key: 'L0.sog', dir: 'desc' });
     expect(sorted).toContain('<tr data-id="3" class="sel" tabindex="0">');
     const marks = (html: string) => [...html.matchAll(/<tr data-id="([^"]+)"[^>]*>(.*?)<\/tr>/g)].map((m) => `${m[1]}:${(m[2].match(/aria-label="(best|worst)"/g) ?? []).join()}`).sort();
     expect(marks(sorted)).toEqual(marks(plain));
@@ -106,16 +106,22 @@ describe('sorted metrics table (Benelux race 8)', () => {
     expect(head).not.toMatch(/[▲▼]/);
   });
 
-  it('groups each leg under a spanning header with VMG, SOG, TWA, Dist and Time sub-columns', () => {
-    const html = metricsTable(a, null);
+  it('groups each leg under a spanning header: VMG, SOG, TWA, Dist, Time, Tacks or Gybes, Data', () => {
+    const html = legsTable(a, null);
     const [top, sub] = [...html.matchAll(/<tr>(.*?)<\/tr>/g)].map((m) => m[1]);
     expect(top).toContain('<th class="num sticky0" scope="col" rowspan="2"');
     expect(top).toContain('<th class="boat sticky1" scope="col" rowspan="2"');
-    for (const l of a.legs) expect(top).toContain(`colspan="5" title="${l.name} to ${l.to}">${l.name}</th>`);
-    expect(top).toContain('colspan="2" title="Gun to finish">Race</th>');
+    for (const l of a.legs) expect(top).toContain(`colspan="7" title="${l.name} to ${l.to}">${l.name}</th>`);
+    expect(top).toContain('colspan="7" title="Every beat added up (reaches excluded)">Upwind</th>');
+    expect(top).toContain('colspan="7" title="Every run added up (reaches excluded)">Downwind</th>');
+    expect(top).toContain('colspan="6" title="Gun to finish">Race</th>');
     const keys = [...sub.matchAll(/data-sort="([^"]+)"/g)].map((m) => m[1]);
-    expect(keys.slice(0, 5)).toEqual(['L0.vmg', 'L0.sog', 'L0.twa', 'L0.dist', 'L0.time']);
-    expect(keys.slice(-2)).toEqual(['dist', 'race']);
+    // Beat 1 shows tacks, Run 1 gybes.
+    expect(keys.slice(0, 7)).toEqual(['L0.vmg', 'L0.sog', 'L0.twa', 'L0.dist', 'L0.time', 'L0.tacks', 'L0.dq']);
+    expect(keys.slice(7, 14)).toEqual(['L1.vmg', 'L1.sog', 'L1.twa', 'L1.dist', 'L1.time', 'L1.gybes', 'L1.dq']);
+    expect(keys.filter((k) => k.startsWith('up.'))).toEqual(['up.vmg', 'up.sog', 'up.twa', 'up.dist', 'up.time', 'up.tacks', 'up.dq']);
+    expect(keys.filter((k) => k.startsWith('dn.'))).toEqual(['dn.vmg', 'dn.sog', 'dn.twa', 'dn.dist', 'dn.time', 'dn.gybes', 'dn.dq']);
+    expect(keys.slice(-6)).toEqual(['dist', 'race', 'sog', 'tacks', 'gybes', 'dq']);
     // Every column header is a button.
     const nCols = (/<tr data-id[^>]*>(.*?)<\/tr>/.exec(html)![1].match(/<td/g) ?? []).length;
     expect(html.match(/<button type="button" class="sort"/g)).toHaveLength(nCols);

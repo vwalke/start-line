@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
+import { M_PER_NM } from '../src/analysis/distance';
 import { fixtureRace, loadExpected } from './helpers';
 
 // Reproduces the Python prototype's benelux_act3_race8_metrics.csv from the
@@ -84,6 +85,10 @@ describe('Benelux Act III race 8 vs prototype CSV', () => {
         expect(Math.abs(leg.sogKn - +r[`L${i + 1}_sog_kn`]), `L${i + 1} sog`).toBeLessThan(0.3);
         expect(Math.abs(leg.vmgKn - +r[`L${i + 1}_vmg_kn`]), `L${i + 1} vmg`).toBeLessThan(0.3);
         expect(Math.abs(leg.twaDeg - +r[`L${i + 1}_twa`]), `L${i + 1} twa`).toBeLessThan(6);
+        // Distance in metres against the prototype's SOG × time (kn → m), to the same 0.3 kn.
+        const T = +r[`L${i + 1}_time_s`];
+        const kn = (m: number): number => m / M_PER_NM / (T / 3600);
+        expect(Math.abs(kn(leg.distM) - +r[`L${i + 1}_sog_kn`]), `L${i + 1} dist m`).toBeLessThan(0.3);
       }
       expect(Math.abs(b.raceTimeS! - +r.race_time_s)).toBeLessThan(2);
       expect(Math.abs(b.sogAvgKn! - +r.sog_avg_kn)).toBeLessThan(0.3);

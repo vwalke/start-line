@@ -24,6 +24,13 @@ const DIMS: Record<string, ClassDims> = {
   vxone: { loaM: 5.79, beamM: 2.19 }, // https://www.vxone.com/specs
   star: { loaM: 6.922, beamM: 1.734 }, // nominal dimensions, https://starclass.org/classic/rules_items/specifications.htm
   etchells: { loaM: 9.3, beamM: 2.12 }, // hull 9300 mm, beam 2105-2125 mm at section 6, https://etchells.org/class/technical/rules-and-plans
+  // International Cape 31 Class, https://www.cape31class.com/the-boat (builder CPS lists 9.56 x 3.10; ORC certificates measure 9.573 x 3.054).
+  cape31: { loaM: 9.55, beamM: 3.05 },
+};
+
+/** Other names a feed uses for a class (normalized) → its DIMS key. */
+const ALIASES: Record<string, string> = {
+  c31: 'cape31', // RaceSense division name / event classLabel for the C31 Gold Cup ("C31", "C 31")
 };
 
 /** "J/70", "J70", "j-70" → "j70". */
@@ -31,5 +38,15 @@ export const normalizeClass = (name: string): string => name.toLowerCase().repla
 
 /** Class dimensions, or null for an unknown class. */
 export function classDims(name: string): ClassDims | null {
-  return DIMS[normalizeClass(name)] ?? null;
+  const key = normalizeClass(name);
+  return DIMS[ALIASES[key] ?? key] ?? null;
+}
+
+/** The first of `names` (in order) with known dimensions, and that name as given; null if none. */
+export function matchClass(names: (string | null | undefined)[]): { name: string; dims: ClassDims } | null {
+  for (const name of names) {
+    const dims = name ? classDims(name) : null;
+    if (name && dims) return { name: name.trim(), dims };
+  }
+  return null;
 }

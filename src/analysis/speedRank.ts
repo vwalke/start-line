@@ -29,11 +29,17 @@ interface Entry {
 
 const valid = (x: number | null | undefined): x is number => x != null && Number.isFinite(x) && x > 0;
 
+/** Competition ranks (1, 2, 2, 4) for keys already sorted ascending. */
+export function competitionRanks(sortedKeys: number[]): number[] {
+  const ranks: number[] = [];
+  sortedKeys.forEach((k, i) => ranks.push(i > 0 && k === sortedKeys[i - 1] ? ranks[i - 1] : i + 1));
+  return ranks;
+}
+
 function rankEntries(entries: Entry[]): Map<string, SpeedRank> {
   const sorted = [...entries].sort((p, q) => p.key - q.key || (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
   const out = new Map<string, SpeedRank>();
-  const ranks: number[] = [];
-  sorted.forEach((e, i) => ranks.push(i > 0 && e.key === sorted[i - 1].key ? ranks[i - 1] : i + 1));
+  const ranks = competitionRanks(sorted.map((e) => e.key));
   const worst = ranks.length ? ranks[ranks.length - 1] : 1;
   sorted.forEach((e, i) => {
     out.set(e.id, { rank: ranks[i], of: sorted.length, timeS: e.timeS, gapS: e.gapS, t: worst > 1 ? (ranks[i] - 1) / (worst - 1) : 0 });

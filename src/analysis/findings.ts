@@ -1,6 +1,13 @@
 /** Plain-English findings from a finished analysis. Short, specific, hedged where the wind is estimated. */
 import { compassRound, median, wrap180 } from './geo';
+import { biasAngle, lineBias } from './line';
 import type { BoatResult, Finding, RaceAnalysis, StartResult } from './types';
+
+/** Findings about the start (the line and the starts), shown under the start chart, and the rest (legs, results, wind), shown with the race. */
+export function splitFindings(findings: Finding[]): { start: Finding[]; race: Finding[] } {
+  const isStart = (f: Finding): boolean => f.kind === 'start' || f.kind === 'line';
+  return { start: findings.filter(isStart), race: findings.filter((f) => !isStart(f)) };
+}
 
 /** The DTL to show and rank by (see `StartResult.rank`): Vakaros when valid, else ours when valid, else null. */
 export const primaryDtlM = (s: StartResult): number | null => s.rank?.m ?? null;
@@ -28,7 +35,8 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
     out.push({ kind: 'line', text: `The line was close to square to the ${est} wind (${rDeg(wind.twdAtGunDeg)}°).` });
   } else {
     const end = line.favored === 'left' ? 'pin (left)' : 'RC (right)';
-    let text = `The ${end} end was favoured by ≈${r0(line.favoredByM)} m against the ${est} wind of ${rDeg(wind.twdAtGunDeg)}°.`;
+    const deg = biasAngle(lineBias(line, wind.twdAtGunDeg));
+    let text = `The ${end} end was favoured by ${r0(deg)}° ≈ ${r0(line.favoredByM)} m against the ${est} wind of ${rDeg(wind.twdAtGunDeg)}°.`;
     let boatIds: string[] | undefined;
     if (winner?.start) {
       boatIds = [winner.id];

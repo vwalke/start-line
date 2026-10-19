@@ -2,18 +2,21 @@
  * The page: search/pick an event → race, run the worker, render the digest.
  * Live data only: if the feed or proxy fails we say so, with a way to retry.
  */
+import { splitFindings } from '../analysis/findings';
 import { START_TRAIL_MS, type RaceAnalysis } from '../analysis/types';
 import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import type { WorkerRequest, WorkerResponse } from '../worker';
-import { classDims } from '../data/classes';
 import { boatList, findingsList } from './boats';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
 import { applyView, clearLastView, isTransientError, pickRace, readLastView, resolveStart, viewForRace, writeLastView, type StartPlan, type ViewState } from './lastView';
 import { NC_ALL } from './params';
-import { legLegend, legSplitCaption, mapBox, startFitBox, startHullScale, startSnapshot, trackMap, trackSogIndex } from './charts';
-import { degLabel, duration, esc, f0, f1, f2, gunTimeLine, localTime } from './format';
+import { legLegend, legSplitCaption, mapBox, startFitBox, startScaleCaption, startSnapshot, trackMap, trackSogIndex } from './charts';
+import { degLabel, duration, esc, f0, f1, gunTimeLine, localTime } from './format';
+import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
+import { biasCaption } from './startLine';
+import { attachTopScroll } from './hscroll';
 import { attachPanZoom } from './panzoom';
 import {
   START_COLOUR_KEY,
@@ -43,7 +46,7 @@ import {
   speedKey,
   writePref,
 } from './speed';
-import { metricsTable, toggleSort, type SortState } from './table';
+import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
 import { clampView, clientToChart, fitView, presetActive, type Box, type View } from './view';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -76,8 +79,16 @@ export function startApp(): void {
     colour: $('map-colour'),
     speedKey: $('map-speed-key'),
     mapSplit: $('map-split'),
+    startTable: $('start-table'),
+    startTableTop: $('start-table-top'),
+    startNotes: $('start-notes'),
     table: $('table'),
+    tableTop: $('table-top'),
+    legsNotes: $('legs-notes'),
+    startFindings: $('start-findings'),
+    startFindingsBox: $('start-findings-box'),
     findings: $('findings'),
+    raceFindings: $('race-findings-card'),
     boats: $('boat-list'),
     warnings: $('warnings'),
   };
@@ -111,8 +122,14 @@ export function startApp(): void {
   let analysis: RaceAnalysis | null = null;
   /** The one selected boat, shared by the boat list, both charts, the table and the findings. */
   let highlight: string | null = null;
-  /** Table sort (null = finish order) and the map's leg filter; both reset per race. */
+  /** The legs and start tables' sorts (null = finish order) and the map's leg filter; all reset per race. */
   let sort: SortState | null = null;
+  let startSort: SortState | null = null;
+  /** A scrollbar above each table, in step with the table's own. */
+  const topScrolls = [
+    attachTopScroll(els.startTableTop, els.startTableTop.firstElementChild as HTMLElement, els.startTable),
+    attachTopScroll(els.tableTop, els.tableTop.firstElementChild as HTMLElement, els.table),
+  ];
   let legSel: number | null = null;
   /** `nc=all`: keep coach/spare boats as competitors (re-analyses when toggled). */
   let allCompetitors = !!params.allCompetitors;
@@ -123,6 +140,7 @@ export function startApp(): void {
   let rankBy = parseRankBy(readPref(RANK_KEY));
   let speedTop = parseSpeedTop(readPref(TOP_KEY));
   let startColour = parseStartColour(readPref(START_COLOUR_KEY));
+  let startNames = parseStartNames(readPref(START_NAMES_KEY));
   let sogScale = parseSogScale(readPref(SOG_SCALE_KEY));
   /** Boat speed hover: the map's box and fix lookup, built on first hover after each render. */
   let hover: { box: Box; ix: SogIndex } | null = null;
@@ -143,7 +161,7 @@ export function startApp(): void {
     // A load that has swapped `analysis` but not yet `current` (or the reverse) must not mix them.
     if (analysis.meta.division !== current.division || analysis.meta.raceNumber !== current.raceNumber) return;
     if (analysis.meta.eventId != null && analysis.meta.eventId !== current.eventId) return;
-    writeLastView({ v: 1, ...current, ...(allCompetitors ? { allCompetitors: true } : {}), leg: legSel, boat: highlight, sort, savedAt: Date.now() });
+    writeLastView({ v: 1, ...current, ...(allCompetitors ? { allCompetitors: true } : {}), leg: legSel, boat: highlight, sort, startSort, savedAt: Date.now() });
   }
 
   /** Forget the saved race and take it out of the URL. */
@@ -197,13 +215,9 @@ export function startApp(): void {
       ${a.boats.length} boats · ${a.legs.map((l) => esc(l.name)).join(', ')} ·
       <span title="No wind sensor on the boats: estimated from the fleet's steady upwind headings">${windText}${model}</span> ·
       <span class="muted">${esc(m.sourceLabel)}</span></p>`;
-    const fav =
-      a.line.favored === 'square'
-        ? 'about square to the wind'
-        : `${a.line.favored === 'left' ? 'pin' : 'RC'} end favoured by ≈${f0(a.line.favoredByM)} m`;
-    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${fav} (est. wind). Bows at the gun (Vakaros timing) with the last ${START_TRAIL_MS / 1000} s of track shifted to the bow. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.${startColour === 'speed' ? ' Colour: Speed shades each trail by speed over ground (4 s mean) and each hull by its SOG at the gun; hover a boat for the figure.' : ''}`;
+    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${biasCaption(a)}; dashed: the line continued past each end. Bows at the gun (Vakaros timing) with the last ${START_TRAIL_MS / 1000} s of track shifted to the bow. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.${startColour === 'speed' ? ' Colour: Speed shades each trail by speed over ground (4 s mean) and each hull by its SOG at the gun; hover a boat for the figure.' : ''}`;
     renderStart();
-    els.startColour.innerHTML = startColourControls(startColour);
+    els.startColour.innerHTML = startColourControls(startColour) + startNamesControls(startNames);
     els.startKey.innerHTML =
       startColour === 'speed'
         ? sogKey(startSogRange(a), `Last ${START_TRAIL_MS / 1000} s before the gun; hulls at the gun`, hasGaps(a.drawings.map((d) => d.trail.t)))
@@ -226,24 +240,31 @@ export function startApp(): void {
           : '';
     els.speedKey.hidden = trackColour === 'leg';
     els.mapSplit.textContent = legSplitCaption(a);
-    els.table.innerHTML = metricsTable(a, highlight, sort);
+    els.startTable.innerHTML = startTable(a, highlight, startSort);
+    els.startNotes.innerHTML = startNotesHtml(a);
+    els.table.innerHTML = legsTable(a, highlight, sort);
+    els.legsNotes.innerHTML = legsNotesHtml();
     els.boats.innerHTML = boatList(a, highlight, ncOpen);
-    els.findings.innerHTML = findingsList(a.findings, highlight);
+    const found = splitFindings(a.findings);
+    els.startFindings.innerHTML = findingsList(found.start, highlight);
+    els.startFindingsBox.hidden = !found.start.length;
+    els.findings.innerHTML = findingsList(found.race, highlight);
+    els.findings.hidden = !found.race.length;
     els.warnings.innerHTML = a.warnings.map((t) => `<li>${esc(t)}</li>`).join('');
     els.warnings.hidden = !a.warnings.length;
+    els.raceFindings.hidden = !found.race.length && !a.warnings.length;
     els.digest.hidden = false;
+    // Measured once the digest is showing (a hidden table has no width).
+    for (const t of topScrolls) t.update();
   }
 
   /** Start chart + its scale note; re-run on pan/zoom without redrawing the rest. */
   function renderStart(): void {
     const a = analysis;
     if (!a) return;
-    const dims = startHullScale(a, view);
-    const cls = classDims(a.meta.boatClass) ? a.meta.boatClass : a.meta.division;
-    els.startScale.textContent = dims
-      ? `Hulls drawn to scale (${cls} ${f2(dims.loaM)} m). Hulls point along heading.`
-      : 'Markers not to scale. Arrows follow course over ground.';
-    els.start.innerHTML = startSnapshot(a, highlight, view, startColour);
+    els.startScale.textContent = startScaleCaption(a, view);
+    // Names are placed for this zoom (zooming in spreads the boats and reveals more) and sized for this width.
+    els.start.innerHTML = startSnapshot(a, highlight, view, startColour, { names: startNames, widthPx: els.start.clientWidth || undefined });
   }
 
   /** Boat speed: the nearest drawn fix under the pointer (the selected boat's, within 40 px; else anyone's within 8 px). */
@@ -342,6 +363,15 @@ export function startApp(): void {
     getRect: () => (els.start.querySelector('svg') ?? els.start).getBoundingClientRect(),
   });
 
+  // Names are sized for the chart's width: redraw when it changes (rotation, window resize).
+  let startW = 0;
+  addEventListener('resize', () => {
+    const w = els.start.clientWidth;
+    if (w === startW || !analysis) return;
+    startW = w;
+    setView(view);
+  });
+
   /** Re-render, then put keyboard focus back on the rebuilt control matching `selector` (if focus was in it). */
   function renderKeepingFocus(container: HTMLElement, selector: string | null): void {
     render();
@@ -355,30 +385,38 @@ export function startApp(): void {
     render();
     save();
   }
-  function toggleRow(tr: Element): void {
-    const id = tr.getAttribute('data-id');
-    highlight = highlight === id ? null : id;
-    save();
-    renderKeepingFocus(els.table, focusSel(tr, 'data-id'));
-  }
-  els.table.addEventListener('click', (ev) => {
-    const btn = (ev.target as HTMLElement).closest('button[data-sort]');
-    if (btn && analysis) {
-      sort = toggleSort(analysis, sort, btn.getAttribute('data-sort')!);
+  // The two tables: each sorts on its own; a row selects the boat everywhere.
+  for (const [wrap, which] of [
+    [els.startTable, 'start'],
+    [els.table, 'legs'],
+  ] as const) {
+    const toggleRow = (tr: Element): void => {
+      const id = tr.getAttribute('data-id');
+      highlight = highlight === id ? null : id;
       save();
-      renderKeepingFocus(els.table, focusSel(btn, 'data-sort'));
-      return;
-    }
-    const tr = (ev.target as HTMLElement).closest('tr[data-id]');
-    if (tr) toggleRow(tr);
-  });
-  els.table.addEventListener('keydown', (ev) => {
-    const tr = (ev.target as HTMLElement).closest('tr[data-id]');
-    if (tr && (ev.key === 'Enter' || ev.key === ' ')) {
-      ev.preventDefault();
-      toggleRow(tr);
-    }
-  });
+      renderKeepingFocus(wrap, focusSel(tr, 'data-id'));
+    };
+    wrap.addEventListener('click', (ev) => {
+      const btn = (ev.target as HTMLElement).closest('button[data-sort]');
+      if (btn && analysis) {
+        const key = btn.getAttribute('data-sort')!;
+        if (which === 'start') startSort = toggleSort(analysis, startSort, key);
+        else sort = toggleSort(analysis, sort, key);
+        save();
+        renderKeepingFocus(wrap, focusSel(btn, 'data-sort'));
+        return;
+      }
+      const tr = (ev.target as HTMLElement).closest('tr[data-id]');
+      if (tr) toggleRow(tr);
+    });
+    wrap.addEventListener('keydown', (ev) => {
+      const tr = (ev.target as HTMLElement).closest('tr[data-id]');
+      if (tr && (ev.key === 'Enter' || ev.key === ' ')) {
+        ev.preventDefault();
+        toggleRow(tr);
+      }
+    });
+  }
   els.boats.addEventListener('click', (ev) => {
     const el = ev.target as HTMLElement;
     const item = el.closest('button[data-id]');
@@ -451,6 +489,13 @@ export function startApp(): void {
     writePref(START_COLOUR_KEY, startColour);
     renderKeepingFocus(els.startColour, focusSel(btn, 'data-start-colour'));
   });
+  els.startColour.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement).closest('button[data-start-names]');
+    if (!btn) return;
+    startNames = parseStartNames(btn.getAttribute('data-start-names'));
+    writePref(START_NAMES_KEY, startNames);
+    renderKeepingFocus(els.startColour, focusSel(btn, 'data-start-names'));
+  });
   els.start.addEventListener('click', (ev) => {
     const g = (ev.target as Element).closest('g.boat[data-id]');
     toggleHighlight(g ? g.getAttribute('data-id') : null);
@@ -469,6 +514,7 @@ export function startApp(): void {
       highlight = v?.boat ?? null;
       ncOpen = false;
       sort = v?.sort ?? null;
+      startSort = v?.startSort ?? null;
       legSel = v?.leg ?? null;
       fitBox = startFitBox(a);
       setView(fitView(fitBox));
@@ -487,9 +533,10 @@ export function startApp(): void {
     const id = eventId;
     // Don't replaceState until this race is on screen: a kill mid-switch keeps the last
     // successful race in both the URL and recall.lastView (and not the half-switched one).
-    const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: legSel, boat: highlight, sort }, restore);
+    const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: legSel, boat: highlight, sort, startSort }, restore);
     try {
-      if (!(await show(run({ type: 'live', eventId: id, regatta, division, raceNumber, allCompetitors }), view))) return 'superseded';
+      const classLabel = events.find((e) => e.eventId === id)?.classLabel;
+      if (!(await show(run({ type: 'live', eventId: id, regatta, division, raceNumber, allCompetitors, classLabel }), view))) return 'superseded';
       current = { eventId: id, division, raceNumber };
       setUrl({ event: id, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
       save();

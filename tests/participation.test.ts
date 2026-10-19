@@ -9,7 +9,7 @@ import { boatList } from '../src/ui/boats';
 import { pickedExcluded, startSnapshot, trackMap } from '../src/ui/charts';
 import { parsePickerParams } from '../src/ui/params';
 import { startSogRange, trackSogRange } from '../src/ui/sog';
-import { metricsTable } from '../src/ui/table';
+import { legsTable, startTable } from '../src/ui/table';
 import { c31Race, fixtureRace, j88Race, m24Race, type Fixture } from './helpers';
 
 const NON_COMPETITORS = ['03', '07', '10', 'SPARE 1'];
@@ -93,7 +93,7 @@ describe('Melges 24 Worlds race 4: coaches and the spare tracker', () => {
     expect(b.excluded).toEqual([]);
     expect(ids(a)).toEqual(ids(b));
     const ranks = (x: RaceAnalysis) =>
-      x.boats.map((r) => [r.id, r.finishPos, r.colorSlot, r.start?.startPlace, r.start?.dtlM, r.legs.map((l) => l?.rankAtEnd ?? null), r.distNm]);
+      x.boats.map((r) => [r.id, r.finishPos, r.colorSlot, r.start?.startPlace, r.start?.dtlM, r.legs.map((l) => l?.rankAtEnd ?? null), r.distM]);
     expect(ranks(a)).toEqual(ranks(b));
     expect(a.legs).toEqual(b.legs);
     expect(a.legSource).toBe(b.legSource);
@@ -259,9 +259,12 @@ describe('picking a boat that is not racing', () => {
     expect(g).not.toContain('sog-fill');
   });
 
-  it('adds one unranked row at the foot of the table, leaving the rest as they were', () => {
-    const plain = metricsTable(a, null);
-    const picked = metricsTable(a, spare);
+  it.each([
+    ['start', startTable, 's.boat'],
+    ['legs', legsTable, 'boat'],
+  ] as const)('adds one unranked row at the foot of the %s table, leaving the rest as they were', (_n, table, boatKey) => {
+    const plain = table(a, null);
+    const picked = table(a, spare);
     const rows = picked.match(/<tr data-id="[^"]*"/g)!;
     expect(rows).toHaveLength(a.boats.length + 1);
     expect(rows.at(-1)).toBe(`<tr data-id="${spare}"`);
@@ -270,9 +273,11 @@ describe('picking a boat that is not racing', () => {
     const row = picked.slice(picked.indexOf('<tr data-id="SPARE 1"'));
     expect(row).not.toMatch(/class="ic"/);
     expect(row).not.toContain('>OCS<');
+    // Its Fin cell is "—", whatever the table.
+    expect(row).toMatch(/^<tr[^>]*><td class="num sticky0">—<\/td>/);
     expect(picked.replace(/<tr data-id="SPARE 1"[\s\S]*?<\/tr>/, '')).toBe(plain);
     // Sorting doesn't move it off the foot.
-    const sorted = metricsTable(a, spare, { key: 'boat', dir: 'desc' });
+    const sorted = table(a, spare, { key: boatKey, dir: 'desc' });
     expect(sorted.match(/<tr data-id="[^"]*"/g)!.at(-1)).toBe(`<tr data-id="${spare}"`);
   });
 });

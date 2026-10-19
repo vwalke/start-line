@@ -63,7 +63,21 @@
             <p id="start-speed-key" class="speed-key" hidden></p>
             <div id="start-chart" class="panzoom" tabindex="0" role="group" aria-label="Start chart. Arrow keys pan, plus and minus zoom, 0 resets." aria-describedby="start-hint"></div>
             <p class="hint" id="start-hint"><span class="hint-touch">Pinch to zoom · drag to pan when zoomed · double-tap to zoom in</span><span class="hint-fine">Drag to pan · Ctrl/⌘ + scroll or trackpad pinch to zoom · double-click to zoom in</span></p>
-            <p class="cap"><span id="start-caption"></span> <span id="start-scale"></span></p>
+            <p class="cap"><span id="start-caption"></span> <span id="start-scale"></span> Names: Auto leaves out a name that would overlap another or the line (hover or tap the boat for it; zoom in to see more), All shows every name, Off only the selected boat's. The favoured end is measured against the estimated wind at the gun; hover its label for the wind source.</p>
+            <div id="start-findings-box" class="findings-box" hidden>
+              <h4 id="start-findings-title">Start findings</h4>
+              <ul id="start-findings" class="findings" aria-labelledby="start-findings-title"></ul>
+            </div>
+          </section>
+          <section id="start-table-card" class="card">
+            <h3>Start by boat</h3>
+            <div class="hscroll" id="start-table-top" aria-hidden="true" hidden><div></div></div>
+            <div id="start-table" class="tablewrap"></div>
+            <p class="table-hint">Swipe the table sideways for more →</p>
+            <div id="start-notes"></div>
+            <div class="key-notes">
+              <p><b>Start</b>: place among clean starters (V = Vakaros, ours = our check). <b>DTL (Vakaros)</b>: the boat's own device figure from the feed, bow-corrected; the primary number (— = no usable fix). <b>Check</b>: our estimate from the GPS track (bow offset along heading, at the device's start fix ~0.9 s before the gun; ~ = interpolated across a telemetry gap). <b>Late</b>: our DTL ÷ speed toward the line (blank when our check is interpolated). <b>Line pos</b>: 0% pin, 100% RC. ▲ best / ▼ worst in column. Click a column heading to sort (↑/↓); click again to reverse.</p>
+            </div>
           </section>
           <section class="card">
             <h3>Tracks by leg</h3>
@@ -78,18 +92,19 @@
             </div>
             <p class="cap">GPS tracker tracks (bow offset is a few metres and omitted at this scale). <span id="map-split">Legs split at each boat's closest approach to the mark trackers.</span> Pick a leg above to show only it. Colour: Rank shades each boat by its elapsed-time rank (yellow and boldest fastest, fading to faint purple; Highlight greys all but the top 3 or 10, and a picked boat outside them is drawn in white (dark by day) with its rank; hover a track for its time). Colour: Boat speed shades every stretch of track by that boat's speed over ground at the time (4 s average; dark purple slow, through teal, to yellow-green fast; grey dashed = telemetry gap; hover a track for the boat, time, speed and leg). For the whole race, Scale: Per leg stretches the colours over each leg's own spread of fleet speeds, so beats and runs both show who was quick; Whole race uses one knot range for every leg. Select a boat in the list, the start chart or a table row to highlight it.</p>
           </section>
-          <section class="card">
-            <h3>Findings</h3>
-            <ul id="findings" class="findings"></ul>
+          <section id="race-findings-card" class="card">
+            <h3 id="race-findings-title">Race findings</h3>
+            <ul id="findings" class="findings" aria-labelledby="race-findings-title"></ul>
             <ul id="warnings" class="warnings" hidden></ul>
           </section>
-          <section class="card">
-            <h3>Per boat</h3>
+          <section id="legs-table-card" class="card">
+            <h3>Legs by boat</h3>
+            <div class="hscroll" id="table-top" aria-hidden="true" hidden><div></div></div>
             <div id="table" class="tablewrap"></div>
             <p class="table-hint">Swipe the table sideways to see later legs →</p>
+            <div id="legs-notes"></div>
             <div class="key-notes">
-              <p><b>Start</b>: place among clean starters (V = Vakaros, ours = our check). <b>DTL (Vakaros)</b>: the boat's own device figure from the feed, bow-corrected; the primary number (— = no usable fix). <b>Check</b>: our estimate from the GPS track (bow offset along heading, at the device's start fix ~0.9 s before the gun; ~ = interpolated across a telemetry gap). <b>Late</b>: our DTL ÷ speed toward the line (blank when our check is interpolated). <b>Line pos</b>: 0% pin, 100% RC.</p>
-              <p><b>TWA / VMG are estimates.</b> The boats carry no wind sensor; wind direction comes from the fleet's steady upwind tack headings (cross-checked against a weather model). VMG = distance made good along the wind ÷ leg time. Leg TWA = median |TWA| while sailing steadily. <b>Dist</b>: distance sailed along the GPS track, nm (~ = bridges a telemetry gap of more than 5 s). <b>Time</b>: leg time and place at the mark. ▲ best / ▼ worst in column. Click a column heading to sort (↑/↓); click again to reverse.</p>
+              <p><b>Start</b>: place among clean starters (the Start by boat table has the detail). <b>TWA / VMG are estimates.</b> The boats carry no wind sensor; wind direction comes from the fleet's steady upwind tack headings (cross-checked against a weather model). VMG = distance made good along the wind ÷ leg time. Leg TWA = median |TWA| while sailing steadily. <b>Dist</b>: distance sailed along the GPS track, metres (~ = bridges a telemetry gap of more than 5 s). <b>Time</b>: leg time and place at the mark. <b>Tacks / Gybes</b> and <b>Data %</b>: see above. ▲ best / ▼ worst in column. Click a column heading to sort (↑/↓); click again to reverse.</p>
             </div>
           </section>
         </div>

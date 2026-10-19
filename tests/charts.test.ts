@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import type { Vec } from '../src/analysis/geo';
-import { classDims } from '../src/data/classes';
-import { hullOutline, hullPathD, rotator, startFitBox, startHullScale, startSnapshot } from '../src/ui/charts';
+import { classDims, matchClass } from '../src/data/classes';
+import { hullOutline, hullPathD, rotator, startClass, startFitBox, startHullScale, startScaleCaption, startSnapshot } from '../src/ui/charts';
 import { clampView, fitView, type View } from '../src/ui/view';
 import { fixtureRace } from './helpers';
 
@@ -18,6 +18,34 @@ describe('class dimensions', () => {
   it('returns null for unknown classes', () => {
     expect(classDims('Optimist')).toBeNull();
     expect(classDims('')).toBeNull();
+  });
+
+  it('knows the Cape 31 by every name the feeds use', () => {
+    for (const n of ['Cape 31', 'Cape31', 'C31', 'C 31', 'cape-31']) expect(classDims(n)).toEqual({ loaM: 9.55, beamM: 3.05 });
+  });
+
+  it('matches the first known name, in order, and says which', () => {
+    expect(matchClass(['Mystery', 'C31', 'J/70'])).toEqual({ name: 'C31', dims: { loaM: 9.55, beamM: 3.05 } });
+    expect(matchClass([undefined, '', 'Mystery'])).toBeNull();
+  });
+});
+
+describe('start chart class and scale caption', () => {
+  it('looks up boat class, then division, then the event class label', () => {
+    const m = analysis.meta;
+    expect(startClass({ ...analysis, meta: { ...m, boatClass: 'Cape 31', division: 'J70' } })?.name).toBe('Cape 31');
+    expect(startClass({ ...analysis, meta: { ...m, boatClass: 'Mystery', division: 'J70' } })?.name).toBe('J70');
+    expect(startClass({ ...analysis, meta: { ...m, boatClass: 'Mystery', division: 'Gold', classLabel: 'C31' } })?.dims.loaM).toBe(9.55);
+    expect(startClass({ ...analysis, meta: { ...m, boatClass: 'Mystery', division: 'Gold' } })).toBeNull();
+  });
+
+  it('names the class and LOA when hulls are to scale', () => {
+    expect(startScaleCaption(analysis, at(8))).toBe('Hulls to scale (J/70, 6.93 m); they point along heading.');
+  });
+
+  it('says so when the class has no dimensions', () => {
+    const meta = { ...analysis.meta, boatClass: 'Mystery', division: 'Mystery' };
+    expect(startScaleCaption({ ...analysis, meta })).toBe('Hulls not to scale: no dimensions for class "Mystery". Arrows follow course over ground.');
   });
 });
 

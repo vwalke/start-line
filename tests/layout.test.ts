@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { START_TRAIL_MS, analyzeRace } from '../src/analysis/analyze';
 import { currentDoc, PRE_START_FETCH_MS, RACESENSE_DTL_SAMPLE_OFFSET_MS, telemetryWindow } from '../src/data/racesense/adapter';
+import { splitFindings } from '../src/analysis/findings';
 import { boatList, findingsList } from '../src/ui/boats';
 import { legLegend, mapBox, rotator, trackMap } from '../src/ui/charts';
 import { fixtureRace, loadFixture } from './helpers';
@@ -116,5 +117,36 @@ describe('boat list and findings share the selection', () => {
     expect(items).toHaveLength(a.findings.length);
     for (const [i, it] of items.entries()) expect(it.cls.endsWith(a.findings[i].boatIds?.includes('3') ? ' hl' : ' dim')).toBe(true);
     expect(items.find((x) => x.text.includes('#3 lost'))!.cls).toBe('leg hl');
+  });
+});
+
+describe('findings split between the start and the race', () => {
+  const { start, race } = splitFindings(a.findings);
+
+  it('puts the line and the starts under the start chart, the rest with the race, in order', () => {
+    expect(start.map((f) => f.kind)).toEqual(['line', 'start', 'start']);
+    expect(start[0].text).toMatch(/^The pin \(left\) end was favoured by 10° ≈ 17 m against the estimated wind of 12°\./);
+    expect(start[1].text).toMatch(/^Best start: #6 and #4/);
+    expect(start[2].text).toMatch(/^Furthest back: #5/);
+    expect(race.every((f) => f.kind === 'leg' || f.kind === 'result' || f.kind === 'wind')).toBe(true);
+    expect(race.some((f) => /#3 lost/.test(f.text))).toBe(true);
+    expect(race.at(-1)!.kind).toBe('wind');
+    // Every finding lands in exactly one list, each list keeping the original order.
+    const idx = (fs: typeof start): number[] => fs.map((f) => a.findings.indexOf(f));
+    expect([...idx(start), ...idx(race)].sort((x, y) => x - y)).toEqual(a.findings.map((_, i) => i));
+    for (const fs of [start, race]) expect(idx(fs)).toEqual([...idx(fs)].sort((x, y) => x - y));
+  });
+
+  it('highlights the selected boat in both lists', () => {
+    // #6 started best; #3 lost the most on a leg.
+    expect(findingsList(start, '6')).toMatch(/<li class="start hl">Best start/);
+    expect(findingsList(start, '6')).toMatch(/<li class="line (hl|dim)">/);
+    expect(findingsList(race, '3')).toMatch(/<li class="leg hl">#3 lost/);
+    expect(findingsList(race, '3')).toMatch(/<li class="wind dim">/);
+  });
+
+  it('is empty-safe', () => {
+    expect(splitFindings([])).toEqual({ start: [], race: [] });
+    expect(findingsList([], null)).toBe('');
   });
 });
