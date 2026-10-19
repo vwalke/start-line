@@ -10,7 +10,19 @@ import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { boatList, findingsList } from './boats';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
-import { applyView, clearLastView, isTransientError, pickRace, readLastView, resolveStart, viewForRace, writeLastView, type StartPlan, type ViewState } from './lastView';
+import {
+  applyView,
+  clearLastView,
+  isTransientError,
+  pickRace,
+  readLastView,
+  resolveStart,
+  startTab,
+  viewForRace,
+  writeLastView,
+  type StartPlan,
+  type ViewState,
+} from './lastView';
 import { NC_ALL } from './params';
 import { legLegend, legSplitCaption, mapBox, startFitBox, startScaleCaption, startSnapshot, trackMap, trackSogIndex } from './charts';
 import { boatLabel, degLabel, duration, esc, f0, f1, gunTimeLine, localTime } from './format';
@@ -19,6 +31,7 @@ import { biasCaption } from './startLine';
 import { attachTopScroll } from './hscroll';
 import { attachPanZoom } from './panzoom';
 import { placesCaption, placesChart } from './places';
+import { DEFAULT_TAB, TABS, parseTab, tabForKey, tabFromHash, withTabHash, type Tab } from './tabs';
 import { startSogSeries, type StartSogSeries } from '../analysis/startSog';
 import {
   START_SOG_WINDOW_KEY,
@@ -110,10 +123,16 @@ export function startApp(): void {
     raceFindings: $('race-findings-card'),
     boats: $('boat-list'),
     warnings: $('warnings'),
+    tabs: $('tabs'),
+    tabBtn: { start: $('tab-start'), race: $('tab-race') } as Record<Tab, HTMLElement>,
+    panel: { start: $('panel-start'), race: $('panel-race') } as Record<Tab, HTMLElement>,
   };
 
   /** The URL's race, else the last one viewed (recall.lastView), else the latest. */
-  const plan = resolveStart(location.search, readLastView());
+  const saved = readLastView();
+  const plan = resolveStart(location.search, saved);
+  /** Start | Race: the URL hash, else the saved tab when restoring the saved view, else Start. */
+  let tab: Tab = startTab(location.hash, plan, saved);
   const params = plan.params;
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   let reqId = 0;
@@ -183,7 +202,7 @@ export function startApp(): void {
     // A load that has swapped `analysis` but not yet `current` (or the reverse) must not mix them.
     if (analysis.meta.division !== current.division || analysis.meta.raceNumber !== current.raceNumber) return;
     if (analysis.meta.eventId != null && analysis.meta.eventId !== current.eventId) return;
-    writeLastView({ v: 1, ...current, ...(allCompetitors ? { allCompetitors: true } : {}), leg: legSel, boat: highlight, sort, startSort, savedAt: Date.now() });
+    writeLastView({ v: 1, ...current, ...(allCompetitors ? { allCompetitors: true } : {}), leg: legSel, boat: highlight, sort, startSort, tab, savedAt: Date.now() });
   }
 
   /** Forget the saved race and take it out of the URL. */
@@ -408,21 +427,81 @@ export function startApp(): void {
   });
 
   // Names are sized for the chart's width: redraw when it changes (rotation, window resize).
+  // Widths of the measured charts on the visible tab (a hidden panel measures 0: it is redrawn when shown).
   let startW = 0;
-  let placesW = 0;
+  let contentW = 0;
   addEventListener('resize', () => {
     if (!analysis) return;
-    const pw = els.places.clientWidth;
-    if (pw !== placesW) {
-      placesW = pw;
-      renderPlaces();
-      renderStartSog();
+    const pw = els.panel[tab].clientWidth;
+    if (pw && pw !== contentW) {
+      contentW = pw;
+      if (tab === 'race') renderPlaces();
+      else renderStartSog();
     }
     const w = els.start.clientWidth;
-    if (w === startW) return;
+    if (!w || w === startW) return;
     startW = w;
     setView(view);
   });
+
+  /** Redraw what measures its width on tab `t` (now visible), and its table's top scrollbar. */
+  function remeasure(t: Tab): void {
+    if (!analysis) return;
+    contentW = els.panel[t].clientWidth;
+    if (t === 'start') {
+      startW = els.start.clientWidth;
+      renderStart();
+      renderStartSog();
+      topScrolls[0].update();
+    } else {
+      renderPlaces();
+      topScrolls[1].update();
+    }
+  }
+
+  /** Show tab `t`: tab and panel state, the URL hash (replaced, not pushed), the saved view; redraw its charts. */
+  function setTab(t: Tab, opts: { focus?: boolean; scroll?: boolean; boot?: boolean } = {}): void {
+    const changed = t !== tab;
+    tab = t;
+    for (const k of TABS) {
+      const on = k === t;
+      els.tabBtn[k].setAttribute('aria-selected', String(on));
+      els.tabBtn[k].tabIndex = on ? 0 : -1;
+      els.panel[k].hidden = !on;
+    }
+    // At boot a link without a hash stays as it is on Start (a restored Race tab gets its hash).
+    const keep = opts.boot && !location.hash && t === DEFAULT_TAB;
+    if (!keep && tabFromHash(location.hash) !== t) history.replaceState(history.state, '', withTabHash(location.href, t));
+    if (opts.focus) els.tabBtn[t].focus();
+    remeasure(t);
+    // Scrolled down past the panel's top: bring it to just under the (sticky) tabs.
+    if (changed && opts.scroll !== false) {
+      const top = els.panel[t].getBoundingClientRect().top;
+      const under = els.tabs.getBoundingClientRect().bottom;
+      if (top < under) scrollBy({ top: top - under - 4 });
+    }
+    if (changed) save();
+  }
+  els.tabs.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement).closest('[role="tab"]');
+    const t = parseTab(btn?.id.replace(/^tab-/, ''));
+    if (t) setTab(t);
+  });
+  els.tabs.addEventListener('keydown', (ev) => {
+    const t = tabForKey(tab, ev.key);
+    if (!t) return;
+    ev.preventDefault();
+    setTab(t, { focus: true });
+  });
+  addEventListener('hashchange', () => {
+    const t = tabFromHash(location.hash);
+    if (t && t !== tab) setTab(t);
+  });
+  setTab(tab, { scroll: false, boot: true });
+  // On a phone the boat strip sticks to the top; the tabs stick just under it.
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => els.digest.style.setProperty('--boatbar-h', `${els.boats.offsetHeight}px`)).observe(els.boats);
+  }
 
   // Speed through the start: a crosshair and the speed under the pointer (the selected boat's, else the nearest line's).
   function showSogTip(ev: PointerEvent): void {

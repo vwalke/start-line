@@ -11,6 +11,24 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 
 ## What it shows
 
+Under the race header the digest has two tabs, **Start** and **Race**; the
+boat list beside (on a phone, above) them and the selected boat are shared by
+both.
+
+- **Start tab:** the start chart with its start findings, speed through the
+  start, and the Start by boat table.
+- **Race tab:** the tracks-by-leg map, place changes, the race findings and
+  warnings, and the Legs by boat table with the Upwind / Downwind summaries.
+
+Each table stays on the tab with the charts it's read against, because
+picking a boat in a chart and finding its row (or the reverse) is the main
+way they're used; a separate Tables tab would split every such pair. The tabs
+are a tablist (arrow keys, Home / End) that sticks under the boat strip on a
+phone. The tab is in the URL hash (`#start`, `#race`; replaced, never added to
+history) and kept with the last race viewed. A hash on the URL wins; a link
+without one opens Start, or the saved tab when it reopens the saved race.
+Switching races keeps the tab.
+
 - **Start at the gun:** each boat's bow (GPS tracker + class bow offset)
   against the line with a 60 s trail (`START_TRAIL_MS`) shifted so it ends on
   that bow, arrows along course over ground, plus the line length and bias and
@@ -27,7 +45,7 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   boat labels: Auto places them greedily (selected boat, then by start place)
   and leaves out any that would overlap another label or the line, so
   zooming in reveals more; hover or tap a boat for its name either way.
-- **Speed through the start** (a card after the start chart;
+- **Speed through the start** (Start tab, after the start chart;
   `analysis/startSog.ts`, `ui/startSog.ts`): each racing boat's speed over
   ground (the same 4 s mean the speed-coloured tracks use) against seconds
   from the gun, with the gun as a dashed line. `Window: 30 s | 60 s | 120 s`
@@ -43,12 +61,12 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   speed then ("crossed +2.6 s at 5.3 kn"). Hover or tap for the speed under
   the pointer (the selected boat's, else the nearest line's) with a
   crosshair; tap a line to select the boat. Not racing boats are left out.
-- **Start by boat** (a table under the start chart and its findings): finish
+- **Start by boat** (Start tab, a table after the start charts): finish
   place, start place, distance off the line at the gun (Vakaros and our
   check, bow-corrected), seconds late, line position (0% pin … 100% RC),
   speed at the gun, TWA at the gun and heel at the gun, with each boat's start
   caveats listed under it.
-- **Legs by boat** (a table after the map and race findings): finish place,
+- **Legs by boat** (Race tab, a table after the map, place changes and race findings): finish place,
   start place, then per leg VMG, SOG, TWA, heel, distance sailed (metres), leg time
   with the place at the mark, tacks (on beats) or gybes (on runs; both on
   reaches) and Data %; then the same for **Upwind** and **Downwind**, then the
@@ -58,7 +76,7 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   more than 5 s apart it's shown as `~` (approximate), and so is a tack or
   gybe count where one bridges a gap. Data % below 90% is flagged ⚠ with how
   much of the leg had data and the longest gap.
-- **Place changes** (a card after the track map; `analysis/places.ts`,
+- **Place changes** (Race tab, after the track map; `analysis/places.ts`,
   `ui/places.ts`): a bump chart of each boat's place at the start, at every
   mark rounding (named as the legs name them; a repeat is "M1 (2)") and at
   the finish, 1 at the top. Start is the start table's place among clean
@@ -155,7 +173,7 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 - **Findings:** plain-English notes, split in two. **Start findings** sit
   under the start chart: the favoured end (in degrees and metres), best and
   worst start, boats over the line or that race control couldn't check.
-  **Race findings** follow the track map: the biggest single-leg gain and
+  **Race findings** (Race tab) follow the place changes: the biggest single-leg gain and
   loss, the quickest boats upwind and downwind, places gained or lost, and a
   wind cross-check, with the data warnings below them. An empty list is
   hidden.
@@ -287,7 +305,7 @@ npm run lint && npm run typecheck && npm test
   `/api/landing` returns every listed event at once, so this covers the whole
   feed. Typing never loads an event: pick one in the Event list, or press
   Enter when exactly one matches. Esc clears the search; `/` focuses it.
-- Deep links: `?event=<eventId>&div=<division>&race=<n>`. Add `&nc=all` to keep coach boats and spare trackers as competitors. By default they are set aside, judged from their event results and tracks (`src/analysis/participation.ts`), not from their names.
+- Deep links: `?event=<eventId>&div=<division>&race=<n>`, optionally with `#start` or `#race` for the tab. Add `&nc=all` to keep coach boats and spare trackers as competitors. By default they are set aside, judged from their event results and tracks (`src/analysis/participation.ts`), not from their names.
 
 Tests never touch the network. To regenerate the fixture from raw downloads,
 run `node scripts/make-fixture.mjs <dir-with-raw-json>`. Add `--preset c31` to

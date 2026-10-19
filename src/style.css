@@ -282,6 +282,38 @@ input[type='search']:disabled, select:disabled { opacity: 0.6; }
 .card .cap { font-size: 0.8rem; color: var(--ink-2); margin: 6px 0 0; }
 .card + .card { margin-top: 16px; }
 
+/* Start | Race tabs under the race header; they stick to the top while a panel scrolls
+   (on a phone, under the sticky boat strip: --boatbar-h is set from its height). */
+.tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 6px 0;
+  background: var(--page);
+  border-bottom: 1px solid var(--rule);
+}
+.tabs [role='tab'] {
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  min-height: 40px;
+  min-width: 96px;
+  padding: 6px 18px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.tabs [role='tab']:hover { border-color: var(--ink-3); color: var(--ink); }
+.tabs [role='tab'][aria-selected='true'] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.tabs [role='tab'][aria-selected='true']:focus-visible { outline-color: var(--ink); }
+.panel[hidden] { display: none; }
+.panel:focus { outline: none; }
+
 .boatbar {
   position: sticky;
   top: 12px;
@@ -335,6 +367,8 @@ tr.nc td { color: var(--ink-2); }
   /* Block, not a one-column grid: a grid item can only stick within its own row. */
   .digest { display: block; }
   .content { margin-top: 4px; }
+  .tabs { top: var(--boatbar-h, 0px); }
+  .tabs [role='tab'] { flex: 1 1 0; min-height: 44px; }
   .boatbar {
     top: 0;
     z-index: 3;
