@@ -93,7 +93,7 @@ describe('Melges 24 Worlds race 4: coaches and the spare tracker', () => {
     expect(b.excluded).toEqual([]);
     expect(ids(a)).toEqual(ids(b));
     const ranks = (x: RaceAnalysis) =>
-      x.boats.map((r) => [r.id, r.finishPos, r.colorSlot, r.start?.startPlace, r.start?.dtlM, r.legs.map((l) => l?.rankAtEnd ?? null), r.distNm]);
+      x.boats.map((r) => [r.id, r.finishPos, r.colorSlot, r.start?.startPlace, r.start?.dtlM, r.legs.map((l) => l?.rankAtEnd ?? null), r.distM]);
     expect(ranks(a)).toEqual(ranks(b));
     expect(a.legs).toEqual(b.legs);
     expect(a.legSource).toBe(b.legSource);

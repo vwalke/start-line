@@ -7,7 +7,8 @@
  * tack headings, VMG from displacement along the wind.
  */
 import type { Boat, RaceData } from '../data/types';
-import { pathDistance } from './distance';
+import { coverage } from './coverage';
+import { M_PER_NM, pathDistance } from './distance';
 import { buildFindings } from './findings';
 import {
   MS_TO_KN,
@@ -29,9 +30,11 @@ import {
 import { fleetTurns, isOffset, legCourse, legsAgree, snapTurns } from './course';
 import { inferRoundings, splitLegs, type Waypoint } from './legs';
 import { SQUARE_LINE_M } from './line';
+import { detectManoeuvres, manoeuvresByLeg } from './manoeuvres';
 import { classifyParticipation } from './participation';
 import { projectTrack, rangeIdx, type XYTrack } from './prepare';
 import { smoothSog } from './smooth';
+import { kindSummary, placeSummaries } from './summary';
 import {
   START_TRAIL_MS,
   type BoatDrawing,
@@ -412,6 +415,13 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       trail = { x: xs, y: ys, t: tk, sog: sk };
     }
 
+    // Tacks and gybes from the gun to the last leg end this boat reached, then split by leg.
+    const ends = tt.filter((x): x is number => x != null);
+    const lastEnd = ends.length > 1 ? ends[ends.length - 1] : null;
+    const moves =
+      ranked && lastEnd != null
+        ? manoeuvresByLeg(detectManoeuvres(tr, twdAt, gun, lastEnd), tt, legs.map((l) => l.kind))
+        : [];
     const legResults: (LegResult | null)[] = [];
     for (let li = 0; li < nLegs; li++) {
       const a = tt[li];
@@ -429,22 +439,41 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       if (!idx.length) idx = Array.from({ length: i1 - i0 }, (_, k) => i0 + k);
       const twa = median(idx.map((k) => Math.abs(wrap180(twdl - tr.heading[k]))));
       const dist = pathDistance(tr.t, tr.x, tr.y, a, e);
+      const mv = moves[li];
+      const cov = coverage(tr.t, a, e);
       // SOG is Dist (the interpolated path) ÷ time, in knots.
-      legResults.push({ startMs: a, endMs: e, timeS: T, sogKn: dist.distNm / (T / 3600), vmgKn: vmg, twaDeg: twa, rankAtEnd: null, ...dist });
+      legResults.push({
+        startMs: a,
+        endMs: e,
+        timeS: T,
+        sogKn: dist.distM / M_PER_NM / (T / 3600),
+        vmgKn: vmg,
+        twaDeg: twa,
+        rankAtEnd: null,
+        ...dist,
+        tacks: mv?.tacks ?? 0,
+        gybes: mv?.gybes ?? 0,
+        manoeuvreGap: mv?.gap ?? false,
+        coverage: cov.coverage,
+        maxGapS: cov.maxGapS,
+      });
     }
 
     let raceTimeS: number | null = null;
     let sogAvgKn: number | null = null;
-    let distNm: number | null = null;
+    let distM: number | null = null;
     let distApprox = false;
     if (ranked && b.finishMs != null && b.finishMs > gun) {
       raceTimeS = (b.finishMs - gun) / 1000;
       // Gun → finish in one pass; equals the sum of the legs when every leg was split.
       const d = pathDistance(tr.t, tr.x, tr.y, gun, b.finishMs);
-      distNm = d.distNm;
+      distM = d.distM;
       distApprox = d.distGapS != null;
-      sogAvgKn = d.distNm / (raceTimeS / 3600);
+      sogAvgKn = d.distM / M_PER_NM / (raceTimeS / 3600);
     }
+    // Coverage over the race: gun → finish, else gun → the last leg end reached.
+    const covEnd = ranked ? (b.finishMs != null && b.finishMs > gun ? b.finishMs : lastEnd) : null;
+    const raceCov = covEnd != null && covEnd > gun ? coverage(tr.t, gun, covEnd) : null;
     const pos = ranked ? finishOrder.indexOf(b.id) : -1;
     const result: BoatResult = {
       id: b.id,
@@ -455,10 +484,14 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       finishMs: b.finishMs,
       raceTimeS,
       sogAvgKn,
-      distNm,
+      distM,
       distApprox,
+      coverage: raceCov?.coverage ?? null,
+      maxGapS: raceCov?.maxGapS ?? null,
       start,
       legs: legResults,
+      upwind: ranked ? kindSummary(legResults, legs, 'upwind') : null,
+      downwind: ranked ? kindSummary(legResults, legs, 'downwind') : null,
     };
 
     const segments: TrackSegment[] = [];
@@ -534,6 +567,8 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     const done = results.filter((r) => r.legs[li]).sort((a, b) => a.legs[li]!.endMs - b.legs[li]!.endMs);
     done.forEach((r, k) => (r.legs[li]!.rankAtEnd = k + 1));
   }
+  placeSummaries(results, 'upwind');
+  placeSummaries(results, 'downwind');
   results.sort((a, b) => (a.finishPos ?? 1e9) - (b.finishPos ?? 1e9) || a.colorSlot - b.colorSlot);
 
   const wind: WindInfo = {

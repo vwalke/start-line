@@ -105,17 +105,17 @@ function oursCell(b: BoatResult): string {
 const APPROX = `More than ${SPAN_MS / 1000} s between GPS fixes; that stretch counts as a straight line`;
 
 function legDistCell(l: LegResult): string {
-  if (l.distGapS == null) return f2(l.distNm);
+  if (l.distGapS == null) return f0(l.distM);
   const t = `Approximate: a ${Math.round(l.distGapS)} s telemetry gap in this leg. ${APPROX}.`;
-  return `<span class="gap" title="${esc(t)}" aria-label="${esc(t)}">~${f2(l.distNm)}</span>`;
+  return `<span class="gap" title="${esc(t)}" aria-label="${esc(t)}">~${f0(l.distM)}</span>`;
 }
 
 function raceDistCell(b: BoatResult): string {
-  if (b.distNm == null) return '—';
-  if (!b.distApprox) return f2(b.distNm);
+  if (b.distM == null) return '—';
+  if (!b.distApprox) return f0(b.distM);
   const gaps = b.legs.map((l) => l?.distGapS).filter((g): g is number => g != null);
   const t = `Approximate: ${gaps.length ? `telemetry gaps in the track (longest ${Math.round(Math.max(...gaps))} s)` : 'a telemetry gap in the track'}. ${APPROX}.`;
-  return `<span class="gap" title="${esc(t)}" aria-label="${esc(t)}">~${f2(b.distNm)}</span>`;
+  return `<span class="gap" title="${esc(t)}" aria-label="${esc(t)}">~${f0(b.distM)}</span>`;
 }
 
 /** The key, then one line per boat with caveats, so the notes are readable without hover. */
@@ -283,10 +283,10 @@ function columns(a: RaceAnalysis): Col[] {
       },
       {
         key: `L${i}.dist`,
-        head: 'Dist<br><small>nm</small>',
-        title: `${leg.name}: distance sailed along the GPS track. ~ = bridges a telemetry gap over ${SPAN_MS / 1000} s`,
+        head: 'Dist<br><small>m</small>',
+        title: `${leg.name}: distance sailed along the GPS track, metres. ~ = bridges a telemetry gap over ${SPAN_MS / 1000} s`,
         group,
-        sort: (b) => L(b)?.distNm,
+        sort: (b) => L(b)?.distM,
         first: 'asc',
         cell: (b) => (L(b) ? legDistCell(L(b)!) : '—'),
       },
@@ -309,10 +309,10 @@ function columns(a: RaceAnalysis): Col[] {
   cols.push(
     {
       key: 'dist',
-      head: 'Dist<br><small>nm</small>',
-      title: `Distance sailed gun → finish along the GPS track (the sum of the legs). ~ = some leg bridges a telemetry gap over ${SPAN_MS / 1000} s`,
+      head: 'Dist<br><small>m</small>',
+      title: `Distance sailed gun → finish along the GPS track, metres (the sum of the legs). ~ = some leg bridges a telemetry gap over ${SPAN_MS / 1000} s`,
       group: race,
-      sort: (b) => b.distNm,
+      sort: (b) => b.distM,
       first: 'asc',
       cell: raceDistCell,
       cls: 'num g0',

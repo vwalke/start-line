@@ -37,7 +37,12 @@ const leg = (timeS: number, distGapS: number | null = null): LegResult => ({
   vmgKn: 5,
   twaDeg: 40,
   rankAtEnd: null,
-  distNm: 1,
+  distM: 1852,
+  tacks: 0,
+  gybes: 0,
+  manoeuvreGap: false,
+  coverage: 1,
+  maxGapS: 1,
   distGapS,
 });
 
@@ -50,10 +55,14 @@ const boat = (id: string, legs: (LegResult | null)[], raceTimeS: number | null =
   finishMs: null,
   raceTimeS,
   sogAvgKn: null,
-  distNm: null,
+  distM: null,
   distApprox: false,
+  coverage: null,
+  maxGapS: null,
   start: null,
   legs,
+  upwind: null,
+  downwind: null,
 });
 
 describe('leg ranking', () => {

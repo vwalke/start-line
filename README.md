@@ -29,10 +29,36 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   zooming in reveals more; hover or tap a boat for its name either way.
 - **Per boat:** distance off the line at the gun (bow-corrected), seconds late,
   line position (0% pin … 100% RC), speed at the gun, and TWA at the gun.
-- **Per leg:** VMG, SOG, TWA, distance sailed (nm), and leg time with the
+- **Per leg:** VMG, SOG, TWA, distance sailed (metres), and leg time with the
   boat's place at the mark, each in its own column under the leg's name.
   Race distance, finish time and race time. Distance sums the GPS track point
   to point; where fixes are more than 5 s apart it's shown as `~` (approximate).
+  The analysis also counts each leg's tacks and gybes and its data coverage
+  (below), and adds up each boat's upwind and downwind legs (below).
+- **Upwind / downwind summaries:** per boat, the beats added up and the runs
+  added up (reaches are in neither): total time and distance, SOG = distance ÷
+  time, VMG, |TWA| and coverage weighted by leg time, tacks and gybes summed,
+  and a place by total time among boats that sailed every leg of that kind
+  (ties share a place). A boat missing one gets a partial sum and no place.
+- **Tacks and gybes** (`analysis/manoeuvres.ts`): from the GPS track gun →
+  finish (plus 30 s before the gun, to know the side held at the start).
+  Course over ground comes from the position change over 5 s (never across a
+  telemetry gap), against the estimated wind at each moment, giving a signed
+  TWA (+ starboard). A side only counts once held for 10 s with |TWA| between
+  20° and 160° at 1.5 kn or more, so luffing head-to-wind, sailing by the lee,
+  GPS jitter and drifting never count. A change of side is a tack if the TWA
+  went through head-to-wind and a gybe if it went through dead downwind; a
+  full circle back to the same side (a penalty turn) is neither. Bearing away
+  or rounding up at a mark on the same side is not a manoeuvre; a gybe-set or
+  a tack around a mark is, and within 15 s of the rounding it is counted on
+  the leg it belongs to (a gybe on the run, a tack on the beat). A side change
+  across a telemetry hole (> 5 s) is counted but marked approximate (`~`).
+  With no fixes for minutes at a time, manoeuvres inside the hole can't be
+  seen at all; the coverage figure says when that is likely.
+- **Data coverage:** the share of each leg (and of the race) where the boat's
+  fixes are at most 5 s apart, and the longest interval between fixes. Below
+  90% is flagged as low. The public feed is lossy: some events have holes of
+  several minutes.
 - **Sorting:** every column header sorts the table, best end first; click
   again to reverse. Missing values always sort last.
 - **Tracks by leg:** a map in local metres (no map tiles), rotated so the wind
@@ -147,7 +173,7 @@ src/
   data/racesense/            RaceSense source adapter (pure) + fetch/pagination
   data/vkx.ts                documented stub for a future .vkx upload source
   data/cache.ts              memory + Cache API caching
-  analysis/                  RaceData -> RaceAnalysis (geometry, legs, wind, findings)
+  analysis/                  RaceData -> RaceAnalysis (geometry, legs, wind, tacks/gybes, coverage, upwind/downwind summaries, findings)
   worker.ts                  fetch + normalize + analyze, off the main thread
   ui/                        plain TS + SVG rendering
 functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing/regatta/wind/telemetry

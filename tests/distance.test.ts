@@ -12,24 +12,23 @@ function line(ts: number[], v = 5) {
 const every = (from: number, to: number, step: number): number[] => Array.from({ length: (to - from) / step + 1 }, (_, i) => from + i * step);
 
 describe('pathDistance', () => {
-  it('measures a straight line of known length in nm', () => {
+  it('measures a straight line of known length in metres', () => {
     const { t, x, y } = line(every(0, 60_000, 1000));
     const d = pathDistance(t, x, y, 0, 60_000);
-    expect(d.distNm).toBeCloseTo(300 / M_PER_NM, 9);
-    expect(d.distNm).toBeCloseTo(0.162, 3);
+    expect(d.distM).toBeCloseTo(300, 9);
     expect(d.distGapS).toBeNull();
   });
 
   it('interpolates the end points between fixes', () => {
     const { t, x, y } = line(every(0, 60_000, 1000));
-    expect(pathDistance(t, x, y, 500, 10_500).distNm * M_PER_NM).toBeCloseTo(50, 9);
+    expect(pathDistance(t, x, y, 500, 10_500).distM).toBeCloseTo(50, 9);
   });
 
   it('counts a zig-zag point to point, not end to end', () => {
     const t = Float64Array.from([0, 1000, 2000]);
     const x = Float64Array.from([0, 30, 60]);
     const y = Float64Array.from([0, 40, 0]);
-    expect(pathDistance(t, x, y, 0, 2000).distNm * M_PER_NM).toBeCloseTo(100, 9);
+    expect(pathDistance(t, x, y, 0, 2000).distM).toBeCloseTo(100, 9);
   });
 
   it('flags a hole longer than 5 s with its length', () => {
@@ -38,7 +37,7 @@ describe('pathDistance', () => {
     const d = pathDistance(t, x, y, 0, 29_500);
     expect(d.distGapS).toBeCloseTo(6.5, 9);
     // Still measured, straight across the hole.
-    expect(d.distNm * M_PER_NM).toBeCloseTo(147.5, 6);
+    expect(d.distM).toBeCloseTo(147.5, 6);
     // A leg that only touches the hole at one end still bridges it.
     expect(pathDistance(t, x, y, 12_000, 20_000).distGapS).toBeCloseTo(6.5, 9);
     // A leg entirely clear of it does not.
@@ -68,23 +67,23 @@ describe('distance sailed on the fixtures', () => {
   it('Benelux race 8: plausible per-boat totals that equal the sum of the legs', () => {
     for (const b of a.boats) {
       const legs = b.legs.map((l) => l!);
-      const sum = legs.reduce((s, l) => s + l.distNm, 0);
-      expect(b.distNm).toBeGreaterThan(1.3);
-      expect(b.distNm).toBeLessThan(2.2);
-      expect(b.distNm!).toBeCloseTo(sum, 9);
+      const sum = legs.reduce((s, l) => s + l.distM, 0);
+      expect(b.distM).toBeGreaterThan(1.3 * M_PER_NM);
+      expect(b.distM).toBeLessThan(2.2 * M_PER_NM);
+      expect(b.distM!).toBeCloseTo(sum, 9);
       expect(b.distApprox).toBe(false);
       expect(legs.every((l) => l.distGapS == null)).toBe(true);
       // Same track, same clock: SOG is Dist ÷ time.
-      expect(b.sogAvgKn!).toBeCloseTo(b.distNm! / (b.raceTimeS! / 3600), 9);
-      expect(b.legs.every((l) => l && Math.abs(l.sogKn - l.distNm / (l.timeS / 3600)) < 1e-9)).toBe(true);
+      expect(b.sogAvgKn!).toBeCloseTo(b.distM! / M_PER_NM / (b.raceTimeS! / 3600), 9);
+      expect(b.legs.every((l) => l && Math.abs(l.sogKn - l.distM / M_PER_NM / (l.timeS / 3600)) < 1e-9)).toBe(true);
     }
   });
 
-  it('shows two decimals, plain when exact', () => {
+  it('shows whole metres, plain when exact', () => {
     const html = metricsTable(a, null);
     const b = a.boats[0];
-    expect(html).toContain(`>${b.distNm!.toFixed(2)}</td>`);
-    expect(html).toContain(`>${b.legs[0]!.distNm.toFixed(2)}</td>`);
+    expect(html).toContain(`>${b.distM!.toFixed(0)}</td>`);
+    expect(html).toContain(`>${b.legs[0]!.distM.toFixed(0)}</td>`);
   });
 
   it('C31 race 10: legs across telemetry holes are approximate (~ with a title), and so is the race', () => {
@@ -94,7 +93,7 @@ describe('distance sailed on the fixtures', () => {
     expect(b.distApprox).toBe(true);
     const html = metricsTable(c, null);
     const leg = b.legs.find((l) => l?.distGapS != null)!;
-    expect(html).toContain(`s telemetry gap in this leg. More than 5 s between GPS fixes; that stretch counts as a straight line.">~${leg.distNm.toFixed(2)}</span>`);
-    expect(html).toContain(`>~${b.distNm!.toFixed(2)}</span>`);
+    expect(html).toContain(`s telemetry gap in this leg. More than 5 s between GPS fixes; that stretch counts as a straight line.">~${leg.distM.toFixed(0)}</span>`);
+    expect(html).toContain(`>~${b.distM!.toFixed(0)}</span>`);
   });
 });
