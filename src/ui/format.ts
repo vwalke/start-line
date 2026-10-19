@@ -1,7 +1,12 @@
 import { compassRound } from '../analysis/geo';
+import type { BoatResult } from '../analysis/types';
 
 export const esc = (s: string): string =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+
+/** "#851 Name", as the boat list labels boats; the id when the boat isn't known. */
+export const boatLabel = (b: BoatResult | undefined, id: string): string =>
+  b ? `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}` : id;
 
 export const f0 = (x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : Math.round(x).toString());
 export const f1 = (x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : x.toFixed(1));

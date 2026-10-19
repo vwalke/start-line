@@ -20,13 +20,14 @@ import {
   speedEmphasis,
   speedKey,
   speedStyle,
+  tieAtCut,
   TOP_KEY,
   topLimit,
   writePref,
   type Emphasis,
   type SpeedStyle,
 } from '../src/ui/speed';
-import { fixtureRace } from './helpers';
+import { fixtureRace, m24Race } from './helpers';
 
 const leg = (timeS: number, distGapS: number | null = null): LegResult => ({
   startMs: 0,
@@ -282,8 +283,10 @@ describe('Highlight: Top N and selection', () => {
     expect(me).toMatchObject({ kind: 'ranked', opacity: 1, selected: true });
     expect(me.t).toBeCloseTo(49 / 51);
     expect(me.width).toBeGreaterThanOrEqual(speedEmphasis(1, 52).width);
+    // past N: full opacity and thick, but no rank colour (it would pass for #N)
     const outside = speedStyle(rank(30, 52), 3, 'this');
-    expect(outside).toMatchObject({ opacity: 1, t: 1 });
+    expect(outside).toMatchObject({ kind: 'picked-out', opacity: 1, t: null, tier: null, selected: true });
+    expect(outside.width).toBe(me.width);
     const other = speedStyle(rank(1, 52), 'all', 'other');
     expect(other.opacity).toBeCloseTo(1 * SELECTION_DIM);
     expect(other.width).toBe(speedEmphasis(1, 52).width);
@@ -291,6 +294,26 @@ describe('Highlight: Top N and selection', () => {
     expect(speedStyle(undefined, 'all', 'none').opacity).toBeCloseTo(0.25);
     expect(speedStyle(undefined, 'all', 'other').opacity).toBeCloseTo(0.25 * SELECTION_DIM);
     expect(speedStyle(undefined, 'all', 'this').opacity).toBe(1);
+  });
+
+  it('under Top 3 gives a picked boat a rank colour only at ranks ≤ 3', () => {
+    const at = (r: number): SpeedStyle => speedStyle(rank(r, 49), 3, 'this');
+    expect(at(2)).toMatchObject({ kind: 'ranked', t: 0.5, opacity: 1 });
+    expect(at(3)).toMatchObject({ kind: 'ranked', t: 1, opacity: 1 });
+    for (const r of [4, 43]) expect(at(r)).toMatchObject({ kind: 'picked-out', t: null, opacity: 1, width: 3.2 });
+    // and Top N past the fleet is All: no picked-out
+    expect(speedStyle(rank(43, 49), 'all', 'this').kind).toBe('ranked');
+    // an unranked pick stays grey dashed at full opacity
+    expect(speedStyle(undefined, 3, 'this')).toMatchObject({ kind: 'unranked', opacity: 1 });
+  });
+
+  it('finds a tie straddling the Top N cut (competition ranks)', () => {
+    expect(tieAtCut([1, 2, 3, 3, 5], 3)).toEqual({ rank: 3, count: 2 });
+    expect(tieAtCut([1, 2, 3, 4], 3)).toBeNull();
+    expect(tieAtCut([1, 2, 2, 4], 3)).toBeNull(); // 3 in: the tie is inside N
+    expect(tieAtCut([1, 1, 1, 1, 5], 3)).toEqual({ rank: 1, count: 4 });
+    expect(tieAtCut([1, 2, 3, 3, 3, 6, 7, 8, 9, 10, 10, 12], 10)).toEqual({ rank: 10, count: 2 });
+    expect(tieAtCut([], 3)).toBeNull();
   });
 });
 
@@ -501,5 +524,124 @@ describe('track map in Rank', () => {
     const r = [...a.boats].map((b) => b.legs[1]?.timeS).filter((t): t is number => t != null);
     expect(r.length).toBeGreaterThan(0);
     expect(speedKey(a, 1, 'leg')).toMatch(/on this leg.*\d+:\d\d → \d+:\d\d/s);
+  });
+});
+
+describe('a picked boat under Top N (M24 race 4)', () => {
+  const a = analyzeRace(m24Race());
+  const polylines = (svg: string): string[] => [...svg.matchAll(/<polyline class="trk[^"]*"[^>]*>[\s\S]*?<\/polyline>/g)].map((m) => m[0]);
+  const idOf = (p: string): string => /data-id="([^"]+)"/.exec(p)![1];
+  const coloured = (p: string): boolean => / stroke="#[0-9a-f]{6}"/.test(p);
+  const labels = (svg: string): string[] => [...svg.matchAll(/<text class="spd-pick-lbl"[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
+  const drawn = (id: string, l: number): boolean => a.drawings.some((d) => d.id === id && d.segments.some((s) => s.leg === l && s.x.length > 1));
+  // A leg with a clean top 3 (no tie at the cut) and boats drawn well outside it.
+  const leg = a.legs.findIndex((l) => {
+    const rs = [...legRanks(a.boats, l.index).values()].map((r) => r.rank);
+    return rs.length > 6 && tieAtCut(rs, 3) == null;
+  });
+  const ranks = legRanks(a.boats, leg);
+  const [slow, slowRank] = [...ranks].filter(([id, r]) => r.rank > 3 && drawn(id, leg)).pop()!;
+  const byRank = (k: number): string => [...ranks].find(([, r]) => r.rank === k)![0];
+  const second = byRank(2);
+  const label = (id: string): string => {
+    const b = a.boats.find((x) => x.id === id)!;
+    return `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}`;
+  };
+
+  it('has a leg to test on', () => {
+    expect(leg).toBeGreaterThanOrEqual(0);
+    expect(slowRank.rank).toBeGreaterThan(3);
+    expect([1, 2, 3].every((k) => drawn(byRank(k), leg))).toBe(true);
+  });
+
+  it('colours exactly the top 3 and draws a pick outside them in neutral ink with its rank', () => {
+    const svg = trackMap(a, slow, leg, { colour: 'rank', top: 3 });
+    const ps = polylines(svg);
+    expect(ps.filter((p) => idOf(p) !== slow && coloured(p))).toHaveLength(3);
+    const mine = ps.filter((p) => idOf(p) === slow);
+    expect(mine.length).toBeGreaterThan(0);
+    for (const p of mine) {
+      expect(p).toMatch(/^<polyline class="trk spd picked on"/);
+      expect(coloured(p)).toBe(false);
+      expect(p).not.toContain('--cd');
+      expect(p).toContain(`#${slowRank.rank} of ${slowRank.of}`); // tooltip keeps the rank
+    }
+    // on a surface casing, not the selection's ink outline; drawn last
+    expect(svg).toMatch(/<polyline class="spd-pick-case"[^>]*\/><polyline class="trk spd picked on"/);
+    expect(svg).not.toContain('spd-sel');
+    expect(idOf(ps[ps.length - 1])).toBe(slow);
+    expect(labels(svg)).toEqual([`#${slowRank.rank}`]);
+    expect(svg).toMatch(/<text class="spd-pick-lbl"[^>]* font-size="[\d.]+" stroke-width="[\d.]+"/);
+  });
+
+  it('keeps a picked top-3 boat in its rank colour, with no label', () => {
+    const svg = trackMap(a, second, leg, { colour: 'rank', top: 3 });
+    const ps = polylines(svg);
+    expect(ps.filter(coloured)).toHaveLength(3);
+    expect(ps.filter((p) => idOf(p) === second).every((p) => coloured(p) && p.includes(' on'))).toBe(true);
+    expect(svg).toContain('spd-sel');
+    expect(svg).not.toContain('picked');
+    expect(labels(svg)).toEqual([]);
+  });
+
+  it('leaves Highlight: All and Colour: Leg alone', () => {
+    expect(trackMap(a, slow, leg, { colour: 'rank' })).not.toContain('picked');
+    expect(trackMap(a, slow, leg)).not.toContain('spd-pick');
+  });
+
+  it('names the pick in the key only when it is outside the top N', () => {
+    const key = speedKey(a, leg, 'leg', 3, slow);
+    expect(key).toContain(`picked: ${label(slow)} #${slowRank.rank} on this leg`);
+    expect(key).toContain('<span class="spd-pick" aria-hidden="true"></span>');
+    // the span still comes from the top 3 only: the same key, plus the picked entry
+    expect(key).toMatch(/fastest → #3 on this leg/);
+    expect(key.replace(/ · <span class="spd-picked">.*$/s, '')).toBe(speedKey(a, leg, 'leg', 3));
+    expect(speedKey(a, leg, 'leg', 3)).not.toContain('picked:');
+    expect(speedKey(a, leg, 'leg', 3, second)).not.toContain('picked:');
+    expect(speedKey(a, leg, 'leg', 'all', slow)).not.toContain('picked:');
+  });
+
+  it('says nothing about a picked non-competitor or an unranked pick', () => {
+    expect(a.excluded.length).toBeGreaterThan(0);
+    expect(speedKey(a, leg, 'leg', 3, a.excluded[0].result.id)).not.toContain('picked:');
+    const cut = { ...a, boats: a.boats.map((b) => (b.id === slow ? { ...b, legs: b.legs.map((l, i) => (i === leg ? null : l)) } : b)) };
+    expect(speedKey(cut, leg, 'leg', 3, slow)).not.toContain('picked:');
+    expect(labels(trackMap(cut, slow, leg, { colour: 'rank', top: 3 }))).toEqual([]);
+  });
+
+  it('for the whole race on each leg, labels and lists every leg the pick is outside the top 3', () => {
+    const per = raceLegRanks(a.boats, a.legs.length);
+    const outLegs = a.legs.filter((l) => drawn(slow, l.index) && (per[l.index].get(slow)?.rank ?? 0) > 3);
+    expect(outLegs.length).toBeGreaterThan(0);
+    const svg = trackMap(a, slow, null, { colour: 'rank', top: 3 });
+    expect(labels(svg)).toEqual(outLegs.map((l) => `#${per[l.index].get(slow)!.rank}`));
+    const list = outLegs.map((l) => `#${per[l.index].get(slow)!.rank} ${l.name}`).join(' · ');
+    expect(speedKey(a, null, 'leg', 3, slow)).toContain(`picked: ${label(slow)}, ${list}`);
+    for (const l of a.legs) {
+      const n = [...per[l.index]].filter(([id, r]) => r.rank <= 3 && drawn(id, l.index)).length;
+      expect(polylines(svg).filter((p) => p.includes(`data-leg="${l.index}"`) && coloured(p))).toHaveLength(n);
+    }
+  });
+
+  it('with Rank by: Overall, one label at the end of the track and its race-time rank', () => {
+    const [id, r] = [...overallRanks(a.boats)].filter(([b, k]) => k.rank > 3 && drawn(b, a.legs.length - 1)).pop()!;
+    const svg = trackMap(a, id, null, { colour: 'rank', rankBy: 'overall', top: 3 });
+    expect(labels(svg)).toEqual([`#${r.rank}`]);
+    const mine = polylines(svg).filter((p) => idOf(p) === id);
+    expect(mine.length).toBeGreaterThan(1);
+    expect(mine.every((p) => p.startsWith('<polyline class="trk spd picked on"'))).toBe(true);
+    expect(speedKey(a, null, 'overall', 3, id)).toContain(`picked: ${label(id)} #${r.rank} race time`);
+  });
+
+  it('keeps a tie at the cut in (N + 1 coloured) and says so in the key', () => {
+    const [third, fourth] = [byRank(3), byRank(4)];
+    const t3 = a.boats.find((b) => b.id === third)!.legs[leg]!.timeS;
+    const tied = { ...a, boats: a.boats.map((b) => (b.id === fourth ? { ...b, legs: b.legs.map((l, i) => (i === leg && l ? { ...l, timeS: t3 } : l)) } : b)) };
+    expect(legRanks(tied.boats, leg).get(fourth)!.rank).toBe(3);
+    expect(polylines(trackMap(tied, null, leg, { colour: 'rank', top: 3 })).filter(coloured)).toHaveLength(drawn(fourth, leg) ? 4 : 3);
+    expect(speedKey(tied, leg, 'leg', 3)).toMatch(/fastest → #3 on this leg.* · <span class="spd-tie">2 tied at #3<\/span>/s);
+    expect(speedKey(a, leg, 'leg', 3)).not.toContain('tied');
+    expect(speedKey(tied, leg, 'leg', 'all')).not.toContain('tied');
+    expect(speedKey(tied, null, 'leg', 3)).toContain(`2 tied at #3 on ${a.legs[leg].name}`);
   });
 });

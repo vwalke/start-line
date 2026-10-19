@@ -218,7 +218,7 @@ export function startApp(): void {
     els.colour.innerHTML = colourControls(trackColour, rankBy, legSel, speedTop, sogScale);
     els.speedKey.innerHTML =
       trackColour === 'rank'
-        ? speedKey(a, legSel, rankBy, speedTop)
+        ? speedKey(a, legSel, rankBy, speedTop, highlight)
         : trackColour === 'sog'
           ? legSel == null && sogScale === 'leg'
             ? sogLegKey(a, hasGaps(segmentTimes(a, null)))

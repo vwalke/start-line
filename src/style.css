@@ -435,6 +435,12 @@ svg .trk.spd.unranked { stroke: var(--ink-3); stroke-linecap: butt; }
 svg .trk.spd.out { stroke: var(--ink-3); }
 svg .spd-case { fill: none; stroke: var(--ink); stroke-linejoin: round; stroke-linecap: round; }
 svg .spd-sel { fill: none; stroke: var(--ink); stroke-linejoin: round; stroke-linecap: round; }
+/* A picked boat outside the top N: plain ink (dark by day, near-white by night) on a surface casing, never a rank colour; its rank labelled at the end. */
+svg .trk.spd.picked { stroke: var(--ink); }
+svg .spd-pick-case { fill: none; stroke: var(--surface); stroke-linejoin: round; stroke-linecap: round; }
+svg text.spd-pick-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; font-weight: 700; pointer-events: none; }
+.speed-key .spd-pick { display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--ink); vertical-align: middle; }
+.speed-key .spd-picked { color: var(--ink); }
 @media (prefers-color-scheme: dark) {
   svg .trk.spd[style] { stroke: var(--cd); }
   svg .spd-case { display: none; }

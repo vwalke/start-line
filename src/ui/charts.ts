@@ -9,7 +9,7 @@ import { add, bearingVec, scale, type Vec } from '../analysis/geo';
 import type { BoatDrawing, BoatResult, ExcludedBoat, RaceAnalysis } from '../analysis/types';
 import { classDims, type ClassDims } from '../data/classes';
 import type { SpeedRank } from '../analysis/speedRank';
-import { duration, esc, f1 } from './format';
+import { boatLabel, duration, esc, f1 } from './format';
 import {
   addSogTrack,
   emptySogPaths,
@@ -346,10 +346,6 @@ export interface TrackMapOptions {
   sogScale?: SogScale;
 }
 
-/** "#851 Name", as the boat list labels boats. */
-const boatLabel = (b: BoatResult | undefined, id: string): string =>
-  b ? `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}` : id;
-
 /** Tooltip for a speed-coloured segment. */
 function speedTitle(who: string, legName: string, r: SpeedRank | undefined, overall: boolean): string {
   if (!r) return `${who} · ${legName} · ${overall ? 'did not finish' : 'did not complete'}`;
@@ -437,6 +433,8 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   const hi: string[] = [];
   /** Rank mode: [draw order, svg]; unranked first, then slowest → fastest, the selection last. */
   const ordered: [number, string][] = [];
+  /** Rank mode: where the picked boat's segments outside the top N end, and its rank there. */
+  const pickLabels: { at: Vec; leg: number; rank: number }[] = [];
   // Boat speed draws its own layer (above); the per-segment polylines are for Leg
   // and Rank. A picked non-competitor is still a grey dashed polyline in every mode.
   for (const d of opts.colour === 'sog' ? (nc ? [nc.drawing] : []) : drawings) {
@@ -468,11 +466,18 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
       const st = speedStyle(r, opts.top ?? 'all', on ? 'this' : highlight ? 'other' : 'none');
       const title = `<title>${esc(speedTitle(boatLabel(byId.get(d.id), d.id), legName(seg.leg), r, speed.overall))}</title>`;
       const attrs = `data-leg="${seg.leg}" data-id="${esc(d.id)}" points="${p}"`;
-      // Grey strokes are classed by why (unranked / out of the top N), coloured ones by tier.
-      const cls = ['trk spd', st.t == null ? st.kind : st.tier, on ? 'on' : ''].filter(Boolean).join(' ');
+      // Grey strokes are classed by why (unranked / out of the top N), coloured ones by tier, a picked boat past N 'picked'.
+      const cls = ['trk spd', st.kind === 'picked-out' ? 'picked' : st.t == null ? st.kind : st.tier, on ? 'on' : ''].filter(Boolean).join(' ');
       const op = `stroke-opacity="${st.opacity.toFixed(2)}"`;
       let svg: string;
-      if (st.t == null) {
+      if (st.kind === 'picked-out' && r) {
+        // Ink over a surface casing: no rank colour, so it can't pass for one of the top N; its rank is labelled instead.
+        svg = `<polyline class="spd-pick-case" points="${p}" ${sw(st.width + 2.4)}/><polyline class="${cls}" ${attrs} ${sw(st.width)} ${op}>${title}</polyline>`;
+        const end = ps[ps.length - 1];
+        // Overall: one label, at the end of the track; each leg: one per segment.
+        if (!speed.overall) pickLabels.push({ at: end, leg: seg.leg, rank: r.rank });
+        else if (!pickLabels[0] || seg.leg >= pickLabels[0].leg) pickLabels[0] = { at: end, leg: seg.leg, rank: r.rank };
+      } else if (st.t == null) {
         const dash = st.kind === 'unranked' ? ` stroke-dasharray="${(3 * k).toFixed(2)} ${(2.5 * k).toFixed(2)}"` : '';
         svg = `<polyline class="${cls}" ${attrs} ${sw(st.width)} ${op}${dash}>${title}</polyline>`;
       } else {
@@ -491,6 +496,14 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
     ordered.sort((x, y) => x[0] - y[0]);
     paths.push(...ordered.map(([, s]) => s));
   }
+
+  // Beside the end point, on the side with more room.
+  const rankLabels = pickLabels
+    .map(({ at: [x, y], rank }) => {
+      const right = x < (box.x0 + box.x1) / 2;
+      return `<text class="spd-pick-lbl" x="${(x + (right ? 7 : -7) * unit).toFixed(1)}" y="${(y + 4 * unit).toFixed(1)}" font-size="${12 * k}" stroke-width="${(3 * k).toFixed(2)}" text-anchor="${right ? 'start' : 'end'}">#${rank}</text>`;
+    })
+    .join('');
 
   const L = rot(a.line.left);
   const R = rot(a.line.right);
@@ -532,7 +545,7 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
       : `Tracks on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', coloured by speed on the leg: yellow and boldest fastest' : sogLabel ? `, ${sogLabel}` : ''}`;
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map" role="img" aria-label="${esc(label)}">
     ${paths.join('')}${hi.join('')}
-    <line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>${finish}${marks}
+    <line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>${finish}${marks}${rankLabels}
     ${windArrow(box, unit, k, 'wind (est.)')}${scaleBar(box, unit, k)}</svg>`;
 }
 
