@@ -42,6 +42,26 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   more than 5 s apart it's shown as `~` (approximate), and so is a tack or
   gybe count where one bridges a gap. Data % below 90% is flagged ⚠ with how
   much of the leg had data and the longest gap.
+- **Place changes** (a card after the track map; `analysis/places.ts`,
+  `ui/places.ts`): a bump chart of each boat's place at the start, at every
+  mark rounding (named as the legs name them; a repeat is "M1 (2)") and at
+  the finish, 1 at the top. Start is the start table's place among clean
+  starters (an OCS boat, or one with no reliable figure, has no start
+  point); each mark is the order of the rounding times from the leg splits
+  (a leg's end, or the next leg's start when that leg broke), among the boats
+  with a time there, with equal times kept in the legs table's order; Finish
+  is the finish order. A boat with no rounding time at a mark (a telemetry
+  gap) is left out of that mark's order, so the others close up, and its line
+  is dashed grey across it; nothing is guessed. A DNF's line stops at the
+  last mark reached and is labelled "DNF" there. Boats set aside as not
+  racing are not drawn. When the legs come from where the fleet turned (no
+  mark trackers) the marks are those turns; a one-leg race is Start → Finish.
+  Lines use the boat colours (past eight boats the colours repeat; the
+  labels at the right, "1 Savasana", name them). Hover or tap a dot for
+  "#GER42 · Gate: 3rd (+2)": the place there and the places gained (+) or
+  lost (−) since the boat's last place. Tap a line, dot or name to select the
+  boat everywhere; the others fade. On a narrow screen the labels are sail
+  numbers and the mark names are turned.
 - **Wide tables:** each has a second scrollbar above it, kept in step with
   its own (which sits directly under the table, with the notes below that).
   Fin and Boat stay put while the rest scrolls; on a phone long boat names
@@ -207,7 +227,7 @@ src/
   data/racesense/            RaceSense source adapter (pure) + fetch/pagination
   data/vkx.ts                documented stub for a future .vkx upload source
   data/cache.ts              memory + Cache API caching
-  analysis/                  RaceData -> RaceAnalysis (geometry, legs, wind, tacks/gybes, coverage, upwind/downwind summaries, findings)
+  analysis/                  RaceData -> RaceAnalysis (geometry, legs, wind, tacks/gybes, heel, coverage, upwind/downwind summaries, place changes, findings)
   worker.ts                  fetch + normalize + analyze, off the main thread
   ui/                        plain TS + SVG rendering
 functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing/regatta/wind/telemetry

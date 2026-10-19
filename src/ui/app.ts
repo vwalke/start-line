@@ -18,6 +18,7 @@ import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
 import { biasCaption } from './startLine';
 import { attachTopScroll } from './hscroll';
 import { attachPanZoom } from './panzoom';
+import { placesCaption, placesChart } from './places';
 import {
   START_COLOUR_KEY,
   hasGaps,
@@ -79,6 +80,9 @@ export function startApp(): void {
     colour: $('map-colour'),
     speedKey: $('map-speed-key'),
     mapSplit: $('map-split'),
+    places: $('places-chart'),
+    placesTip: $('places-tip'),
+    placesCaption: $('places-caption'),
     startTable: $('start-table'),
     startTableTop: $('start-table-top'),
     startNotes: $('start-notes'),
@@ -240,6 +244,7 @@ export function startApp(): void {
           : '';
     els.speedKey.hidden = trackColour === 'leg';
     els.mapSplit.textContent = legSplitCaption(a);
+    els.placesCaption.textContent = placesCaption(a);
     els.startTable.innerHTML = startTable(a, highlight, startSort);
     els.startNotes.innerHTML = startNotesHtml(a);
     els.table.innerHTML = legsTable(a, highlight, sort);
@@ -256,6 +261,15 @@ export function startApp(): void {
     els.digest.hidden = false;
     // Measured once the digest is showing (a hidden table has no width).
     for (const t of topScrolls) t.update();
+    renderPlaces();
+  }
+
+  /** The bump chart, sized for its card's width (re-run on resize). */
+  function renderPlaces(): void {
+    const a = analysis;
+    if (!a) return;
+    els.places.innerHTML = placesChart(a, highlight, { widthPx: els.places.clientWidth || undefined });
+    els.placesTip.hidden = true;
   }
 
   /** Start chart + its scale note; re-run on pan/zoom without redrawing the rest. */
@@ -365,11 +379,51 @@ export function startApp(): void {
 
   // Names are sized for the chart's width: redraw when it changes (rotation, window resize).
   let startW = 0;
+  let placesW = 0;
   addEventListener('resize', () => {
+    if (!analysis) return;
+    const pw = els.places.clientWidth;
+    if (pw !== placesW) {
+      placesW = pw;
+      renderPlaces();
+    }
     const w = els.start.clientWidth;
-    if (w === startW || !analysis) return;
+    if (w === startW) return;
     startW = w;
     setView(view);
+  });
+
+  // Place changes: a dot's place on hover or tap (beside it, as the map's tip); a click on a line, dot or name selects the boat.
+  function showPlaceTip(ev: PointerEvent): void {
+    const dot = (ev.target as Element).closest?.('circle.pc-dot[data-tip]');
+    if (!dot) {
+      els.placesTip.hidden = true;
+      return;
+    }
+    els.placesTip.textContent = dot.getAttribute('data-tip');
+    els.placesTip.hidden = false;
+    const wrap = els.placesTip.parentElement!.getBoundingClientRect();
+    const r = dot.getBoundingClientRect();
+    const left = r.left + r.width / 2 - wrap.left;
+    const flip = left + 12 + els.placesTip.offsetWidth > wrap.width;
+    els.placesTip.style.left = `${Math.max(0, flip ? left - 12 - els.placesTip.offsetWidth : left + 12)}px`;
+    els.placesTip.style.top = `${Math.max(0, r.top - wrap.top - els.placesTip.offsetHeight - 6)}px`;
+  }
+  els.places.addEventListener('pointermove', showPlaceTip);
+  els.places.addEventListener('pointerdown', showPlaceTip);
+  els.places.addEventListener('pointerleave', (ev) => {
+    if (ev.pointerType === 'mouse') els.placesTip.hidden = true;
+  });
+  els.places.addEventListener('click', (ev) => {
+    const g = (ev.target as Element).closest('g.pc-boat[data-id]');
+    const tip = !els.placesTip.hidden ? els.placesTip.textContent : null;
+    // Tapping empty chart clears the selection, as on the start chart.
+    toggleHighlight(g ? g.getAttribute('data-id') : null);
+    // A tap on a dot keeps its tip up after the redraw.
+    if (tip && g && (ev.target as Element).closest('circle.pc-dot')) {
+      els.placesTip.textContent = tip;
+      els.placesTip.hidden = false;
+    }
   });
 
   /** Re-render, then put keyboard focus back on the rebuilt control matching `selector` (if focus was in it). */

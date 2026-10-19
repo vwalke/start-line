@@ -92,6 +92,14 @@
             </div>
             <p class="cap">GPS tracker tracks (bow offset is a few metres and omitted at this scale). <span id="map-split">Legs split at each boat's closest approach to the mark trackers.</span> Pick a leg above to show only it. Colour: Rank shades each boat by its elapsed-time rank (yellow and boldest fastest, fading to faint purple; Highlight greys all but the top 3 or 10, and a picked boat outside them is drawn in white (dark by day) with its rank; hover a track for its time). Colour: Boat speed shades every stretch of track by that boat's speed over ground at the time (4 s average; dark purple slow, through teal, to yellow-green fast; grey dashed = telemetry gap; hover a track for the boat, time, speed and leg). For the whole race, Scale: Per leg stretches the colours over each leg's own spread of fleet speeds, so beats and runs both show who was quick; Whole race uses one knot range for every leg. Select a boat in the list, the start chart or a table row to highlight it.</p>
           </section>
+          <section id="places-card" class="card">
+            <h3 id="places-title">Place changes</h3>
+            <div class="places-wrap">
+              <div id="places-chart" aria-labelledby="places-title"></div>
+              <div id="places-tip" class="map-tip" role="status" aria-live="off" hidden></div>
+            </div>
+            <p class="cap"><span id="places-caption"></span> Hover or tap a dot for the place there and the places gained or lost since the mark before; tap a line or name to select that boat.</p>
+          </section>
           <section id="race-findings-card" class="card">
             <h3 id="race-findings-title">Race findings</h3>
             <ul id="findings" class="findings" aria-labelledby="race-findings-title"></ul>

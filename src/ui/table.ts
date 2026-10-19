@@ -9,13 +9,7 @@ import { LOW_COVERAGE } from '../analysis/coverage';
 import type { BoatResult, KindSummary, LegKind, LegResult, RaceAnalysis } from '../analysis/types';
 import { SPAN_MS, startNotes } from '../analysis/validity';
 import { boatColor, pickedExcluded } from './charts';
-import { duration, esc, f0, f1, f2, fM, localTime, pct, twaLabel } from './format';
-
-const ordinal = (n: number): string => {
-  const m = n % 100;
-  const suf = m > 10 && m < 14 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th');
-  return `${n}${suf}`;
-};
+import { duration, esc, f0, f1, f2, fM, localTime, ordinal, pct, twaLabel } from './format';
 
 export type SortDir = 'asc' | 'desc';
 /** Which column the rows are sorted by (null = finish order, as analysed). */

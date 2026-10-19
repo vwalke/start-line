@@ -491,6 +491,27 @@ svg .sog-hover { fill: none; stroke: var(--ink); pointer-events: none; }
 }
 .map-tip[hidden] { display: none; }
 
+/* Place changes (bump chart): drawn at the card's pixel width, so no letterboxing; tall fleets scroll the page. */
+.places-wrap { position: relative; }
+svg.chart.places { max-height: none; overflow: visible; }
+svg .pc-grid { stroke: var(--rule); stroke-width: 1; }
+svg .pc-col { stroke: var(--rule); stroke-width: 1; stroke-dasharray: 2 3; }
+svg .pc-axis, svg .pc-head { fill: var(--ink-3); font-variant-numeric: tabular-nums; }
+svg .pc-head { fill: var(--ink-2); }
+svg .pc-boat { cursor: pointer; }
+svg .pc-line { fill: none; stroke-linejoin: round; stroke-linecap: round; opacity: 0.9; }
+svg .pc-gap { fill: none; stroke: var(--ink-3); stroke-dasharray: 4 4; stroke-linecap: butt; }
+/* A wide invisible stroke makes a thin line easy to hit with a finger. */
+svg .pc-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
+svg .pc-dot { stroke: var(--surface); stroke-width: 1.2; }
+svg .pc-lbl { font-weight: 500; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+svg .pc-lbl.dnf { font-style: italic; }
+/* With a selection the others fade, their names less than their lines so they stay readable. */
+svg .pc-boat.dim .pc-line, svg .pc-boat.dim .pc-dot, svg .pc-boat.dim .pc-gap { opacity: 0.2; }
+svg .pc-boat.dim .pc-lbl { opacity: 0.55; }
+svg .pc-boat.on .pc-line { opacity: 1; }
+svg .pc-boat.on .pc-lbl { font-weight: 700; }
+
 .tablewrap {
   overflow-x: auto;
   overflow-y: hidden;
