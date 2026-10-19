@@ -39,7 +39,17 @@ Switching races keeps the tab.
   The line continues dashed past each end, and the favoured end is labelled
   with its bias in degrees and metres (and boat lengths when the class is
   known), e.g. `Pin favoured 7° · 18 m (1.9 lengths)`, or `Square line`
-  within 2 m. The caption and the label's tooltip give the wind source
+  within 2 m. The label is small text running along the favoured end's
+  dashed extension, starting a clear gap past the pin or RC mark and sitting
+  just above the line: "above" is screen-up once the text is turned upright
+  (it flips 180° rather than read upside down), which with the wind at the
+  top is the course side, away from the boats. It scales with the view like
+  the boat names, so it reads the same at every zoom. The Fit view leaves room
+  on that extension for `Pin favoured 7° · 18 m`; the lengths join when
+  zoomed in. Where even that won't fit (a phone's larger text), the label runs
+  along the line inward from that end, shortening to `Pin fav. 7° · 18 m` or
+  `Pin 7°` only if it must. `Square line` sits centred along the line.
+  The caption and the label's tooltip give the wind source
   (tacks, weather model, or first leg assumed upwind), a confidence, and how
   far a 5° wind error moves the figure. `Names: Auto | All | Off` sets the
   boat labels: Auto places them greedily (selected boat, then by start place)

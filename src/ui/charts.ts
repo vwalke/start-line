@@ -6,6 +6,7 @@
  */
 import { primaryDtlM } from '../analysis/findings';
 import { add, bearingVec, scale, type Vec } from '../analysis/geo';
+import { lineBias } from '../analysis/line';
 import type { BoatDrawing, BoatResult, ExcludedBoat, RaceAnalysis } from '../analysis/types';
 import { matchClass, type ClassDims } from '../data/classes';
 import type { SpeedRank } from '../analysis/speedRank';
@@ -27,7 +28,7 @@ import {
   type StartColour,
 } from './sog';
 import { casedByDay, speedColor, speedRanking, speedStyle, type RankBy, type SogScale, type SpeedTop, type TrackColour } from './speed';
-import { lineBiasSvg } from './startLine';
+import { FAV_GAP_PX, favouredTexts, lineBiasSvg } from './startLine';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
 
 const SLOTS = 8;
@@ -174,7 +175,37 @@ function startFrame(a: RaceAnalysis) {
   box.x1 += pad;
   box.y0 -= pad * 1.4;
   box.y1 += pad;
+  roomForFavLabel(a, L, R, box);
   return { rot, L, R, box };
+}
+
+/** The Fit frame may grow at most this share of its width to fit the favoured-end label on its extension. */
+const FAV_ROOM_MAX = 0.25;
+
+/**
+ * Grow `box` past the favoured end so the extension there holds the label's
+ * "Pin favoured 7° · 18 m" wording at Fit (its size in chart units follows the
+ * frame's width: ~600 css px across, as `startView`'s unit). Capped; when it
+ * still doesn't fit (a phone's larger text), the label runs along the line instead.
+ */
+function roomForFavLabel(a: RaceAnalysis, L: Vec, R: Vec, box: Box): void {
+  const fav = lineBias(a.line, a.wind.twdAtGunDeg).favored;
+  if (fav === 'square') return;
+  const [end, other] = fav === 'left' ? [L, R] : [R, L];
+  const len = Math.hypot(end[0] - other[0], end[1] - other[1]);
+  if (!(len > 0)) return;
+  const u: Vec = [(end[0] - other[0]) / len, (end[1] - other[1]) / len];
+  const texts = favouredTexts(a, startDims(a));
+  const needPx = FAV_GAP_PX + textWidth(texts[texts.length - 3], 0.85 * NAME_FS) + 6;
+  const w0 = box.x1 - box.x0;
+  // The unit grows with the box, so settle it in a couple of passes.
+  for (let pass = 0; pass < 3; pass++) {
+    const unit = (box.x1 - box.x0) / 600;
+    const tip: Vec = [end[0] + u[0] * needPx * unit, end[1] + u[1] * needPx * unit];
+    const grown = { x0: Math.min(box.x0, tip[0]), y0: Math.min(box.y0, tip[1]), x1: Math.max(box.x1, tip[0]), y1: Math.max(box.y1, tip[1]) };
+    if (grown.x1 - grown.x0 > w0 * (1 + FAV_ROOM_MAX)) return;
+    Object.assign(box, grown);
+  }
 }
 
 function startView(a: RaceAnalysis, v?: View) {
@@ -345,7 +376,8 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     const half = textWidth(s, endFs) / 2;
     return { x0: p[0] - half, y0: p[1] - 11 * unit - endFs, x1: p[0] + half, y1: p[1] + 6 * unit };
   };
-  const bias = lineBiasSvg(a, L, R, box, unit, nameFs, startDims(a));
+  // Small text (85% of a boat name), sized as the names are: with the view and up on narrow screens.
+  const bias = lineBiasSvg(a, L, R, box, unit, 0.85 * nameFs, startDims(a));
 
   // Names: the selected boat first, then by start place, then by distance off the line, then the rest.
   const order = (id: string): [number, number, number] => {
