@@ -185,8 +185,17 @@ export function manoeuvresByLeg(ms: Manoeuvre[], bounds: (number | null)[], kind
   const suits = (m: Manoeuvre, li: number): boolean => (m.kind === 'tack' ? kinds[li] === 'upwind' : kinds[li] !== 'upwind');
   for (const m of ms) {
     let li = kinds.findIndex((_, i) => bounds[i] != null && bounds[i + 1] != null && m.tMs >= bounds[i]! && m.tMs < bounds[i + 1]!);
-    if (li < 0 && m.tMs === bounds[kinds.length]) li = kinds.length - 1;
-    if (li < 0) continue;
+    // Crossing times are inclusive at `toMs` (often the last mark a DNF reached, or the finish).
+    // Half-open intervals would drop those; put them on the last interval that actually exists.
+    if (li < 0) {
+      for (let i = kinds.length - 1; i >= 0; i--) {
+        if (out[i] && m.tMs === bounds[i + 1]) {
+          li = i;
+          break;
+        }
+      }
+    }
+    if (li < 0 || !out[li]) continue;
     if (!suits(m, li)) {
       if (li > 0 && m.tMs - bounds[li]! <= MAN_ROUNDING_MS && out[li - 1] && suits(m, li - 1)) li--;
       else if (li < kinds.length - 1 && bounds[li + 1]! - m.tMs <= MAN_ROUNDING_MS && out[li + 1] && suits(m, li + 1)) li++;

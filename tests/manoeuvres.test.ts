@@ -196,6 +196,12 @@ describe('manoeuvresByLeg', () => {
     const out = manoeuvresByLeg([m('tack', 50), m('tack', 1000)], [0, null, 600_000, 900_000], kinds);
     expect(out).toEqual([null, null, { tacks: 0, gybes: 0, gap: false }]);
   });
+
+  it('counts a manoeuvre at the last reached bound (a DNF at the mark) and at the finish', () => {
+    // DNF after the first rounding: the gybe-set sits on that bound, which used to be dropped.
+    expect(manoeuvresByLeg([m('gybe', 300)], [0, 300_000, null, null], kinds)).toEqual([{ tacks: 0, gybes: 1, gap: false }, null, null]);
+    expect(manoeuvresByLeg([m('tack', 900)], bounds, kinds)[2]).toEqual({ tacks: 1, gybes: 0, gap: false });
+  });
 });
 
 describe('tacks and gybes on the fixtures', () => {
