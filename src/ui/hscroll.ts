@@ -38,9 +38,11 @@ export function attachTopScroll(mirror: ScrollEl, spacer: { style: { width: stri
     spacer.style.width = `${wrap.scrollWidth}px`;
     if (over) mirror.scrollLeft = wrap.scrollLeft;
   };
-  const ro =
-    typeof ResizeObserver !== 'undefined' && typeof Element !== 'undefined' && wrap instanceof Element ? new ResizeObserver(update) : null;
-  ro?.observe(wrap);
+  let ro: ResizeObserver | null = null;
+  if (typeof ResizeObserver !== 'undefined' && typeof Element !== 'undefined' && wrap instanceof Element) {
+    ro = new ResizeObserver(update);
+    ro.observe(wrap);
+  }
   return {
     update,
     disconnect(): void {
