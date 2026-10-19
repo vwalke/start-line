@@ -16,6 +16,7 @@ import { legLegend, legSplitCaption, mapBox, startFitBox, startScaleCaption, sta
 import { degLabel, duration, esc, f0, f1, gunTimeLine, localTime } from './format';
 import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
 import { biasCaption } from './startLine';
+import { attachTopScroll } from './hscroll';
 import { attachPanZoom } from './panzoom';
 import {
   START_COLOUR_KEY,
@@ -45,7 +46,7 @@ import {
   speedKey,
   writePref,
 } from './speed';
-import { metricsTable, toggleSort, type SortState } from './table';
+import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
 import { clampView, clientToChart, fitView, presetActive, type Box, type View } from './view';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -78,7 +79,12 @@ export function startApp(): void {
     colour: $('map-colour'),
     speedKey: $('map-speed-key'),
     mapSplit: $('map-split'),
+    startTable: $('start-table'),
+    startTableTop: $('start-table-top'),
+    startNotes: $('start-notes'),
     table: $('table'),
+    tableTop: $('table-top'),
+    legsNotes: $('legs-notes'),
     startFindings: $('start-findings'),
     startFindingsBox: $('start-findings-box'),
     findings: $('findings'),
@@ -116,8 +122,14 @@ export function startApp(): void {
   let analysis: RaceAnalysis | null = null;
   /** The one selected boat, shared by the boat list, both charts, the table and the findings. */
   let highlight: string | null = null;
-  /** Table sort (null = finish order) and the map's leg filter; both reset per race. */
+  /** The legs and start tables' sorts (null = finish order) and the map's leg filter; all reset per race. */
   let sort: SortState | null = null;
+  let startSort: SortState | null = null;
+  /** A scrollbar above each table, in step with the table's own. */
+  const topScrolls = [
+    attachTopScroll(els.startTableTop, els.startTableTop.firstElementChild as HTMLElement, els.startTable),
+    attachTopScroll(els.tableTop, els.tableTop.firstElementChild as HTMLElement, els.table),
+  ];
   let legSel: number | null = null;
   /** `nc=all`: keep coach/spare boats as competitors (re-analyses when toggled). */
   let allCompetitors = !!params.allCompetitors;
@@ -149,7 +161,7 @@ export function startApp(): void {
     // A load that has swapped `analysis` but not yet `current` (or the reverse) must not mix them.
     if (analysis.meta.division !== current.division || analysis.meta.raceNumber !== current.raceNumber) return;
     if (analysis.meta.eventId != null && analysis.meta.eventId !== current.eventId) return;
-    writeLastView({ v: 1, ...current, ...(allCompetitors ? { allCompetitors: true } : {}), leg: legSel, boat: highlight, sort, savedAt: Date.now() });
+    writeLastView({ v: 1, ...current, ...(allCompetitors ? { allCompetitors: true } : {}), leg: legSel, boat: highlight, sort, startSort, savedAt: Date.now() });
   }
 
   /** Forget the saved race and take it out of the URL. */
@@ -228,7 +240,10 @@ export function startApp(): void {
           : '';
     els.speedKey.hidden = trackColour === 'leg';
     els.mapSplit.textContent = legSplitCaption(a);
-    els.table.innerHTML = metricsTable(a, highlight, sort);
+    els.startTable.innerHTML = startTable(a, highlight, startSort);
+    els.startNotes.innerHTML = startNotesHtml(a);
+    els.table.innerHTML = legsTable(a, highlight, sort);
+    els.legsNotes.innerHTML = legsNotesHtml();
     els.boats.innerHTML = boatList(a, highlight, ncOpen);
     const found = splitFindings(a.findings);
     els.startFindings.innerHTML = findingsList(found.start, highlight);
@@ -239,6 +254,8 @@ export function startApp(): void {
     els.warnings.hidden = !a.warnings.length;
     els.raceFindings.hidden = !found.race.length && !a.warnings.length;
     els.digest.hidden = false;
+    // Measured once the digest is showing (a hidden table has no width).
+    for (const t of topScrolls) t.update();
   }
 
   /** Start chart + its scale note; re-run on pan/zoom without redrawing the rest. */
@@ -368,30 +385,38 @@ export function startApp(): void {
     render();
     save();
   }
-  function toggleRow(tr: Element): void {
-    const id = tr.getAttribute('data-id');
-    highlight = highlight === id ? null : id;
-    save();
-    renderKeepingFocus(els.table, focusSel(tr, 'data-id'));
-  }
-  els.table.addEventListener('click', (ev) => {
-    const btn = (ev.target as HTMLElement).closest('button[data-sort]');
-    if (btn && analysis) {
-      sort = toggleSort(analysis, sort, btn.getAttribute('data-sort')!);
+  // The two tables: each sorts on its own; a row selects the boat everywhere.
+  for (const [wrap, which] of [
+    [els.startTable, 'start'],
+    [els.table, 'legs'],
+  ] as const) {
+    const toggleRow = (tr: Element): void => {
+      const id = tr.getAttribute('data-id');
+      highlight = highlight === id ? null : id;
       save();
-      renderKeepingFocus(els.table, focusSel(btn, 'data-sort'));
-      return;
-    }
-    const tr = (ev.target as HTMLElement).closest('tr[data-id]');
-    if (tr) toggleRow(tr);
-  });
-  els.table.addEventListener('keydown', (ev) => {
-    const tr = (ev.target as HTMLElement).closest('tr[data-id]');
-    if (tr && (ev.key === 'Enter' || ev.key === ' ')) {
-      ev.preventDefault();
-      toggleRow(tr);
-    }
-  });
+      renderKeepingFocus(wrap, focusSel(tr, 'data-id'));
+    };
+    wrap.addEventListener('click', (ev) => {
+      const btn = (ev.target as HTMLElement).closest('button[data-sort]');
+      if (btn && analysis) {
+        const key = btn.getAttribute('data-sort')!;
+        if (which === 'start') startSort = toggleSort(analysis, startSort, key);
+        else sort = toggleSort(analysis, sort, key);
+        save();
+        renderKeepingFocus(wrap, focusSel(btn, 'data-sort'));
+        return;
+      }
+      const tr = (ev.target as HTMLElement).closest('tr[data-id]');
+      if (tr) toggleRow(tr);
+    });
+    wrap.addEventListener('keydown', (ev) => {
+      const tr = (ev.target as HTMLElement).closest('tr[data-id]');
+      if (tr && (ev.key === 'Enter' || ev.key === ' ')) {
+        ev.preventDefault();
+        toggleRow(tr);
+      }
+    });
+  }
   els.boats.addEventListener('click', (ev) => {
     const el = ev.target as HTMLElement;
     const item = el.closest('button[data-id]');
@@ -489,6 +514,7 @@ export function startApp(): void {
       highlight = v?.boat ?? null;
       ncOpen = false;
       sort = v?.sort ?? null;
+      startSort = v?.startSort ?? null;
       legSel = v?.leg ?? null;
       fitBox = startFitBox(a);
       setView(fitView(fitBox));
@@ -507,7 +533,7 @@ export function startApp(): void {
     const id = eventId;
     // Don't replaceState until this race is on screen: a kill mid-switch keeps the last
     // successful race in both the URL and recall.lastView (and not the half-switched one).
-    const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: legSel, boat: highlight, sort }, restore);
+    const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: legSel, boat: highlight, sort, startSort }, restore);
     try {
       const classLabel = events.find((e) => e.eventId === id)?.classLabel;
       if (!(await show(run({ type: 'live', eventId: id, regatta, division, raceNumber, allCompetitors, classLabel }), view))) return 'superseded';

@@ -38,6 +38,14 @@ describe('parseLastView / serializeLastView', () => {
     expect(serializeLastView(rec)).not.toContain('allCompetitors');
   });
 
+  it('round-trips the start table sort, and stays readable by the old shape', () => {
+    const both: LastView = { ...rec, startSort: { key: 'speed', dir: 'desc' } };
+    expect(parseLastView(serializeLastView(both))).toEqual(both);
+    expect(serializeLastView(rec)).not.toContain('startSort');
+    // A malformed startSort is dropped, not the whole record.
+    expect(parseLastView(JSON.stringify({ ...rec, startSort: { key: 'x', dir: 'up' } }))).toEqual(rec);
+  });
+
   it('rejects anything malformed', () => {
     const bad = (patch: Record<string, unknown>): string => JSON.stringify({ ...rec, ...patch });
     for (const raw of [
@@ -171,8 +179,27 @@ describe('applyView', () => {
   it('keeps a leg, boat and sort column this race has', () => {
     expect(a.legs.length).toBeGreaterThan(0);
     const v = { leg: a.legs.length - 1, boat, sort: { key: 'fin', dir: 'asc' as const } };
-    expect(applyView(a, v)).toEqual(v);
-    expect(applyView(a, { leg: null, boat: null, sort: null })).toEqual({ leg: null, boat: null, sort: null });
+    expect(applyView(a, v)).toEqual({ ...v, startSort: null });
+    expect(applyView(a, { leg: null, boat: null, sort: null })).toEqual({ leg: null, boat: null, sort: null, startSort: null });
+    // Each table's own sort.
+    const both = { ...v, sort: { key: 'up.vmg', dir: 'desc' as const }, startSort: { key: 'speed', dir: 'desc' as const } };
+    expect(applyView(a, both)).toEqual(both);
+  });
+
+  it('restores an old single-table sort onto whichever table now has that column', () => {
+    // Records from before the split: one `sort`, no `startSort`.
+    for (const key of ['start', 'rc', 'ours', 'late', 'line', 'speed', 'twa']) {
+      expect(applyView(a, { leg: null, boat: null, sort: { key, dir: 'asc' } })).toMatchObject({ sort: null, startSort: { key, dir: 'asc' } });
+    }
+    for (const key of ['fin', 'boat', 'sog', 'L0.sog', 'L1.time', 'dist', 'race']) {
+      expect(applyView(a, { leg: null, boat: null, sort: { key, dir: 'desc' } })).toMatchObject({ sort: { key, dir: 'desc' }, startSort: null });
+    }
+    // A record that went through parse/serialize the old way restores the same.
+    const old = parseLastView(JSON.stringify({ ...rec, sort: { key: 'late', dir: 'asc' } }))!;
+    expect(old.startSort).toBeUndefined();
+    expect(applyView(a, old)).toMatchObject({ sort: null, startSort: { key: 'late', dir: 'asc' } });
+    // Each table key is unique: none is in both tables.
+    expect(applyView(a, { leg: null, boat: null, sort: null, startSort: { key: 'L0.sog', dir: 'asc' } })).toMatchObject({ sort: { key: 'L0.sog', dir: 'asc' }, startSort: null });
   });
 
   it('keeps a picked not-racing boat', () => {
@@ -181,12 +208,13 @@ describe('applyView', () => {
   });
 
   it('drops unknown boats, legs and sort columns', () => {
-    expect(applyView(a, { leg: a.legs.length, boat: 'nobody', sort: { key: 'L9.sog', dir: 'desc' } })).toEqual({
+    expect(applyView(a, { leg: a.legs.length, boat: 'nobody', sort: { key: 'L9.sog', dir: 'desc' }, startSort: { key: 'nope', dir: 'asc' } })).toEqual({
       leg: null,
       boat: null,
       sort: null,
+      startSort: null,
     });
-    expect(applyView(a, { leg: -1, boat, sort: null })).toEqual({ leg: null, boat, sort: null });
+    expect(applyView(a, { leg: -1, boat, sort: null })).toEqual({ leg: null, boat, sort: null, startSort: null });
   });
 });
 

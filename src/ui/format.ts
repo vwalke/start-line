@@ -12,6 +12,16 @@ export const f0 = (x: number | null | undefined): string => (x == null || !Numbe
 export const f1 = (x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : x.toFixed(1));
 export const f2 = (x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : x.toFixed(2));
 
+/** Thousands separator: a narrow no-break space (SI style), so "12 345" never wraps or reads as a decimal. */
+export const THOUSANDS = ' ';
+
+/** Whole metres with a thousands separator: 1234.6 → "1 235". */
+export const fM = (x: number | null | undefined): string =>
+  x == null || !Number.isFinite(x) ? '—' : Math.round(x).toString().replace(/\B(?=(\d{3})+(?!\d))/g, THOUSANDS);
+
+/** A 0–1 fraction as a whole percent, rounded down so anything short of complete never reads 100%. */
+export const pct = (x: number | null | undefined): string => (x == null || !Number.isFinite(x) ? '—' : `${Math.floor(x * 100 + 1e-9)}%`);
+
 /** Whole compass degrees, never 360°. */
 export const degLabel = (x: number | null | undefined): string =>
   x == null || !Number.isFinite(x) ? '—' : `${compassRound(x)}°`;

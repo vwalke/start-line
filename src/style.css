@@ -513,11 +513,21 @@ table.metrics {
   font-variant-numeric: tabular-nums;
 }
 .table-hint { display: none; font-size: 0.75rem; color: var(--ink-3); margin: 6px 0 0; }
+/* The scrollbar above a wide table (ui/hscroll.ts): only the bar shows; its spacer is as wide as the table. */
+.hscroll { overflow-x: auto; overflow-y: hidden; height: 14px; margin-bottom: 2px; scrollbar-width: thin; scrollbar-color: var(--rule-strong) transparent; }
+.hscroll[hidden] { display: none; }
+.hscroll > div { height: 1px; }
 @media (max-width: 600px) {
   table.metrics { font-size: 0.78rem; }
   .metrics th, .metrics td { padding: 5px 6px; }
   .table-hint { display: block; }
+  /* Keep the sticky Boat column narrow on a phone: long names are cut, the sidebar has them in full. */
+  .metrics td.boat .bname { display: inline-block; max-width: 6.5em; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 }
+/* Data % below LOW_COVERAGE, and upwind/downwind sums missing a leg. */
+.metrics .dq-low { color: var(--bad); font-weight: 600; }
+.metrics .partial { color: var(--ink-3); font-style: italic; }
+.metrics .partial b { font-weight: 400; }
 .metrics th { font-size: 0.75rem; font-weight: 600; color: var(--ink-2); text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; vertical-align: bottom; }
 .metrics th small { font-weight: 400; color: var(--ink-3); }
 /* Leg / race group headers span their sub-columns; a rule marks where each group starts. */
@@ -580,8 +590,8 @@ footer { font-size: 0.75rem; color: var(--ink-3); margin-top: 24px; }
 .metrics .warn { color: var(--bad); margin-right: 3px; }
 .metrics .rk-src { font-size: 0.7rem; color: var(--ink-3); }
 .metrics .rk-over { font-size: 0.75rem; color: var(--bad); }
-/* width: 100% of the scrollport, not the wide table, so notes wrap on a phone. */
-.table-notes { position: sticky; left: 0; width: 100%; max-width: 100%; box-sizing: border-box; font-size: 0.8rem; color: var(--ink-2); white-space: normal; overflow-wrap: anywhere; margin-top: 6px; }
+/* Under the table's scroller (not in it), so its scrollbar sits right under the table and the notes wrap on a phone. */
+.table-notes { max-width: 100%; box-sizing: border-box; font-size: 0.8rem; color: var(--ink-2); white-space: normal; overflow-wrap: anywhere; margin-top: 6px; }
 .table-notes p { margin: 4px 0; }
 .table-notes ul { margin: 0; padding-left: 18px; }
 .table-notes li { margin: 2px 0; }

@@ -69,6 +69,16 @@
               <ul id="start-findings" class="findings" aria-labelledby="start-findings-title"></ul>
             </div>
           </section>
+          <section id="start-table-card" class="card">
+            <h3>Start by boat</h3>
+            <div class="hscroll" id="start-table-top" aria-hidden="true" hidden><div></div></div>
+            <div id="start-table" class="tablewrap"></div>
+            <p class="table-hint">Swipe the table sideways for more →</p>
+            <div id="start-notes"></div>
+            <div class="key-notes">
+              <p><b>Start</b>: place among clean starters (V = Vakaros, ours = our check). <b>DTL (Vakaros)</b>: the boat's own device figure from the feed, bow-corrected; the primary number (— = no usable fix). <b>Check</b>: our estimate from the GPS track (bow offset along heading, at the device's start fix ~0.9 s before the gun; ~ = interpolated across a telemetry gap). <b>Late</b>: our DTL ÷ speed toward the line (blank when our check is interpolated). <b>Line pos</b>: 0% pin, 100% RC. ▲ best / ▼ worst in column. Click a column heading to sort (↑/↓); click again to reverse.</p>
+            </div>
+          </section>
           <section class="card">
             <h3>Tracks by leg</h3>
             <div class="map-tools">
@@ -87,13 +97,14 @@
             <ul id="findings" class="findings" aria-labelledby="race-findings-title"></ul>
             <ul id="warnings" class="warnings" hidden></ul>
           </section>
-          <section class="card">
-            <h3>Per boat</h3>
+          <section id="legs-table-card" class="card">
+            <h3>Legs by boat</h3>
+            <div class="hscroll" id="table-top" aria-hidden="true" hidden><div></div></div>
             <div id="table" class="tablewrap"></div>
             <p class="table-hint">Swipe the table sideways to see later legs →</p>
+            <div id="legs-notes"></div>
             <div class="key-notes">
-              <p><b>Start</b>: place among clean starters (V = Vakaros, ours = our check). <b>DTL (Vakaros)</b>: the boat's own device figure from the feed, bow-corrected; the primary number (— = no usable fix). <b>Check</b>: our estimate from the GPS track (bow offset along heading, at the device's start fix ~0.9 s before the gun; ~ = interpolated across a telemetry gap). <b>Late</b>: our DTL ÷ speed toward the line (blank when our check is interpolated). <b>Line pos</b>: 0% pin, 100% RC.</p>
-              <p><b>TWA / VMG are estimates.</b> The boats carry no wind sensor; wind direction comes from the fleet's steady upwind tack headings (cross-checked against a weather model). VMG = distance made good along the wind ÷ leg time. Leg TWA = median |TWA| while sailing steadily. <b>Dist</b>: distance sailed along the GPS track, metres (~ = bridges a telemetry gap of more than 5 s). <b>Time</b>: leg time and place at the mark. ▲ best / ▼ worst in column. Click a column heading to sort (↑/↓); click again to reverse.</p>
+              <p><b>Start</b>: place among clean starters (the Start by boat table has the detail). <b>TWA / VMG are estimates.</b> The boats carry no wind sensor; wind direction comes from the fleet's steady upwind tack headings (cross-checked against a weather model). VMG = distance made good along the wind ÷ leg time. Leg TWA = median |TWA| while sailing steadily. <b>Dist</b>: distance sailed along the GPS track, metres (~ = bridges a telemetry gap of more than 5 s). <b>Time</b>: leg time and place at the mark. <b>Tacks / Gybes</b> and <b>Data %</b>: see above. ▲ best / ▼ worst in column. Click a column heading to sort (↑/↓); click again to reverse.</p>
             </div>
           </section>
         </div>

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import { M_PER_NM, pathDistance } from '../src/analysis/distance';
 import { SPAN_MS } from '../src/analysis/validity';
-import { metricsTable } from '../src/ui/table';
+import { fM } from '../src/ui/format';
+import { legsTable } from '../src/ui/table';
 import { c31Race, fixtureRace } from './helpers';
 
 /** A straight run east at `v` m/s with fixes at times `ts` (ms). */
@@ -80,10 +81,10 @@ describe('distance sailed on the fixtures', () => {
   });
 
   it('shows whole metres, plain when exact', () => {
-    const html = metricsTable(a, null);
+    const html = legsTable(a, null);
     const b = a.boats[0];
-    expect(html).toContain(`>${b.distM!.toFixed(0)}</td>`);
-    expect(html).toContain(`>${b.legs[0]!.distM.toFixed(0)}</td>`);
+    expect(html).toContain(`>${fM(b.distM)}</td>`);
+    expect(html).toContain(`>${fM(b.legs[0]!.distM)}</td>`);
   });
 
   it('C31 race 10: legs across telemetry holes are approximate (~ with a title), and so is the race', () => {
@@ -91,9 +92,9 @@ describe('distance sailed on the fixtures', () => {
     const b = c.boats.find((x) => x.sail === 'ITA 78')!;
     expect(b.legs.some((l) => l?.distGapS != null)).toBe(true);
     expect(b.distApprox).toBe(true);
-    const html = metricsTable(c, null);
+    const html = legsTable(c, null);
     const leg = b.legs.find((l) => l?.distGapS != null)!;
-    expect(html).toContain(`s telemetry gap in this leg. More than 5 s between GPS fixes; that stretch counts as a straight line.">~${leg.distM.toFixed(0)}</span>`);
-    expect(html).toContain(`>~${b.distM!.toFixed(0)}</span>`);
+    expect(html).toContain(`s telemetry gap in this leg. More than 5 s between GPS fixes; that stretch counts as a straight line.">~${fM(leg.distM)}</span>`);
+    expect(html).toContain(`>~${fM(b.distM)}</span>`);
   });
 });

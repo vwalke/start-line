@@ -27,19 +27,31 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   boat labels: Auto places them greedily (selected boat, then by start place)
   and leaves out any that would overlap another label or the line, so
   zooming in reveals more; hover or tap a boat for its name either way.
-- **Per boat:** distance off the line at the gun (bow-corrected), seconds late,
-  line position (0% pin … 100% RC), speed at the gun, and TWA at the gun.
-- **Per leg:** VMG, SOG, TWA, distance sailed (metres), and leg time with the
-  boat's place at the mark, each in its own column under the leg's name.
-  Race distance, finish time and race time. Distance sums the GPS track point
-  to point; where fixes are more than 5 s apart it's shown as `~` (approximate).
-  The analysis also counts each leg's tacks and gybes and its data coverage
-  (below), and adds up each boat's upwind and downwind legs (below).
+- **Start by boat** (a table under the start chart and its findings): finish
+  place, start place, distance off the line at the gun (Vakaros and our
+  check, bow-corrected), seconds late, line position (0% pin … 100% RC),
+  speed at the gun and TWA at the gun, with each boat's start caveats listed
+  under it.
+- **Legs by boat** (a table after the map and race findings): finish place,
+  start place, then per leg VMG, SOG, TWA, distance sailed (metres), leg time
+  with the place at the mark, tacks (on beats) or gybes (on runs; both on
+  reaches) and Data %; then the same for **Upwind** and **Downwind**, then the
+  race: distance, race and finish time, average SOG, tacks, gybes and Data %.
+  Distances are whole metres with a thin-space thousands separator
+  (`12 345`). Distance sums the GPS track point to point; where fixes are
+  more than 5 s apart it's shown as `~` (approximate), and so is a tack or
+  gybe count where one bridges a gap. Data % below 90% is flagged ⚠ with how
+  much of the leg had data and the longest gap.
+- **Wide tables:** each has a second scrollbar above it, kept in step with
+  its own (which sits directly under the table, with the notes below that).
+  Fin and Boat stay put while the rest scrolls; on a phone long boat names
+  are cut short (the sidebar has them).
 - **Upwind / downwind summaries:** per boat, the beats added up and the runs
   added up (reaches are in neither): total time and distance, SOG = distance ÷
   time, VMG, |TWA| and coverage weighted by leg time, tacks and gybes summed,
   and a place by total time among boats that sailed every leg of that kind
-  (ties share a place). A boat missing one gets a partial sum and no place.
+  (ties share a place). A boat missing one gets a partial sum, shown in grey
+  italics as "partial 1/2", and no place.
 - **Tacks and gybes** (`analysis/manoeuvres.ts`): from the GPS track gun →
   finish (plus 30 s before the gun, to know the side held at the start).
   Course over ground comes from the position change over 5 s (never across a
@@ -59,8 +71,10 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   fixes are at most 5 s apart, and the longest interval between fixes. Below
   90% is flagged as low. The public feed is lossy: some events have holes of
   several minutes.
-- **Sorting:** every column header sorts the table, best end first; click
-  again to reverse. Missing values always sort last.
+- **Sorting:** every column header sorts its table, best end first; click
+  again to reverse. Missing values always sort last. The two tables sort
+  independently, and both sorts are kept with the last race viewed (a sort
+  saved before the split goes back onto whichever table has that column).
 - **Tracks by leg:** a map in local metres (no map tiles), rotated so the wind
   comes from the top. The legend picks one leg and zooms the map to it.
 - **Colour tracks:** `Colour: Leg | Rank | Boat speed` beside the legend.
@@ -90,8 +104,8 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   wind cross-check, with the data warnings below them. An empty list is
   hidden.
 - **Highlights:** ▲ best and ▼ worst in each column. Select a boat in the boat
-  list, the start chart or a table row to highlight it in both charts, the
-  table and both findings lists.
+  list, the start chart or a table row to highlight it in both charts, both
+  tables and both findings lists.
 
 ## Data sources & caveats
 

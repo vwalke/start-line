@@ -4,7 +4,7 @@ import { primaryDtlM } from '../src/analysis/findings';
 import { OCS_BLIND_NOTE } from '../src/analysis/validity';
 import { currentDoc } from '../src/data/racesense/adapter';
 import { startClass, startHullScale, startScaleCaption, startSnapshot } from '../src/ui/charts';
-import { metricsTable } from '../src/ui/table';
+import { startNotesHtml, startTable } from '../src/ui/table';
 import { c31Fixture, c31Race } from './helpers';
 
 // C31 Gold Cup race 10 (trimmed to four boats). The Vakaros feed carried a stale
@@ -20,7 +20,7 @@ function cells(html: string, id: string): string[] {
 }
 const tdClass = (html: string, id: string, col: number): string =>
   [...new RegExp(`<tr data-id="${id}"[^>]*>(.*?)</tr>`).exec(html)![1].matchAll(/<td class="([^"]*)"/g)][col][1];
-// Columns: Fin, Boat, Start, DTL Vakaros, Check ours, Late, …
+// Start table columns: Fin, Boat, Start, DTL Vakaros, Check ours, Late, Line, Speed, TWA.
 const START = 2;
 const VAK = 3;
 const OURS = 4;
@@ -88,8 +88,8 @@ describe('C31 Gold Cup race 10: start validity', () => {
   });
 });
 
-describe('C31 race 10: metrics table', () => {
-  const html = metricsTable(analysis, null);
+describe('C31 race 10: start table', () => {
+  const html = startTable(analysis, null) + startNotesHtml(analysis);
 
   it('Black Pearl: — for Vakaros and rank, ~ for ours, no Late', () => {
     const c = cells(html, 'GER42');
@@ -156,7 +156,7 @@ describe('C31 race 10: metrics table', () => {
     const ger = st.startingStats!.find((s) => s.sailNumber === 'GER42')!;
     Object.assign(ger, { raceNumber: 10, dtlMm: 0, mask: { value: 1 }, lineLeftLocation: fra.lineLeftLocation, lineRightLocation: fra.lineRightLocation });
     const a = analyzeRace(c31Race(f));
-    const t = metricsTable(a, null);
+    const t = startTable(a, null) + startNotesHtml(a);
     const warn = 'Vakaros 7.6 m vs ours 12.9 m (5.3 m apart) — one of them is off (feed, GPS or bow offset).';
     expect(cells(t, 'FRA 901')[VAK]).toBe(`<span class="warn" title="${warn}" aria-label="disagrees with our check">⚠</span>7.6`);
     expect(t).toContain(`<li><b>#FRA 901</b> Outrage — ${warn}</li>`);
