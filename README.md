@@ -44,11 +44,16 @@ Switching races keeps the tab.
   just above the line: "above" is screen-up once the text is turned upright
   (it flips 180° rather than read upside down), which with the wind at the
   top is the course side, away from the boats. It scales with the view like
-  the boat names, so it reads the same at every zoom. The Fit view leaves room
-  on that extension for `Pin favoured 7° · 18 m`; the lengths join when
-  zoomed in. Where even that won't fit (a phone's larger text), the label runs
-  along the line inward from that end, shortening to `Pin fav. 7° · 18 m` or
-  `Pin 7°` only if it must. `Square line` sits centred along the line.
+  the boat names, so it reads the same at every zoom. It always takes the
+  longest wording that fits on the extension and keeps the metres:
+  `Pin favoured 7° · 18 m (1.9 lengths)`, then `Pin favoured 7° · 18 m`,
+  `Pin fav. 7° · 18 m`, `Pin 7° · 18 m`. The Fit view leaves room past the
+  favoured end for one of those: `Pin favoured 7° · 18 m` on a wide chart
+  (the frame grows up to 25%), and on a chart under 480 px wide, where the
+  text is larger, the longest that fits with the frame grown up to 35% (that
+  frame changes only when the chart crosses 480 px). The lengths join when
+  zoomed in. Only if none fits does the label run along the line inward from
+  that end (as `Pin 7°` at worst). `Square line` sits centred along the line.
   The caption and the label's tooltip give the wind source
   (tacks, weather model, or first leg assumed upwind), a confidence, and how
   far a 5° wind error moves the figure. `Names: Auto | All | Off` sets the

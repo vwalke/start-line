@@ -38,7 +38,7 @@ export function favouredText(a: RaceAnalysis, dims: ClassDims | null): string {
 
 /**
  * The label's wordings, longest first, for when the extension is short:
- * "Pin favoured 7° · 18 m (1.9 lengths)", "Pin favoured 7° · 18 m", "Pin fav. 7° · 18 m", "Pin 7°".
+ * "Pin favoured 7° · 18 m (1.9 lengths)", "Pin favoured 7° · 18 m", "Pin fav. 7° · 18 m", "Pin 7° · 18 m", "Pin 7°".
  */
 export function favouredTexts(a: RaceAnalysis, dims: ClassDims | null): string[] {
   const b = lineBias(a.line, a.wind.twdAtGunDeg);
@@ -47,7 +47,7 @@ export function favouredTexts(a: RaceAnalysis, dims: ClassDims | null): string[]
   const deg = `${f0(biasAngle(b))}°`;
   const m = `${f0(b.byM)} m`;
   const short = `${end} favoured ${deg} · ${m}`;
-  return [...(dims ? [`${short} (${f1(b.byM / dims.loaM)} lengths)`] : []), short, `${end} fav. ${deg} · ${m}`, `${end} ${deg}`];
+  return [...(dims ? [`${short} (${f1(b.byM / dims.loaM)} lengths)`] : []), short, `${end} fav. ${deg} · ${m}`, `${end} ${deg} · ${m}`, `${end} ${deg}`];
 }
 
 /** Where a label running along a line goes: anchor point, rotation, text-anchor, room along the line. */
@@ -138,11 +138,11 @@ export function biasCaption(a: RaceAnalysis): string {
  * every zoom). The label runs along the favoured end's extension, FAV_GAP_PX
  * past the end mark and just above the line (screen-up after the upright flip,
  * which with the wind at the top is the course side, away from the boats); a
- * square line's label sits centred on the line. The longest wording that fits
- * is used: the extension stops at the chart frame, so when it is too short for
- * even "Pin favoured 7° · 18 m" (a long line at Fit) the label runs along the
- * line inward from that end instead, the same gap past the mark. Returns the
- * SVG and the label's box so boat names keep clear of it.
+ * square line's label sits centred on the line. It takes the longest wording that fits
+ * on the extension, which stops at the chart frame (the Fit frame leaves room
+ * there: charts.ts `roomForFavLabel`); only when not even "Pin 7° · 18 m" fits
+ * does the label run along the line inward from that end, the same gap past
+ * the mark. Returns the SVG and the label's box so boat names keep clear of it.
  */
 export function lineBiasSvg(a: RaceAnalysis, L: Vec, R: Vec, frame: Rect, unit: number, fs: number, dims: ClassDims | null): { ext: string; label: string; box: Rect } {
   const exts = lineExtensions(L, R, frame);
@@ -163,9 +163,9 @@ export function lineBiasSvg(a: RaceAnalysis, L: Vec, R: Vec, frame: Rect, unit: 
     const end = b.favored === 'left' ? L : R;
     const ext = exts[b.favored === 'left' ? 0 : 1];
     const onExt = ext ? alongLineLabel(ext[0], ext[1], opts) : null;
-    // On the extension when at least "Pin favoured 7° · 18 m" fits there (zoomed in, or a short line);
-    // otherwise along the line itself, inward from the favoured end, rather than cut to "Pin 7°".
-    const extText = onExt ? texts.slice(0, -2).find((t) => fits(t, onExt.room)) : undefined;
+    // On the extension with the longest wording that keeps the metres (down to "Pin 7° · 18 m");
+    // only when none fits, along the line itself, inward from the favoured end, rather than cut to "Pin 7°".
+    const extText = onExt ? texts.slice(0, -1).find((t) => fits(t, onExt.room)) : undefined;
     if (onExt && extText) {
       at = onExt;
       text = extText;

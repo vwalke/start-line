@@ -367,8 +367,9 @@ tr.nc td { color: var(--ink-2); }
   /* Block, not a one-column grid: a grid item can only stick within its own row. */
   .digest { display: block; }
   .content { margin-top: 4px; }
-  .tabs { top: var(--boatbar-h, 0px); }
-  .tabs [role='tab'] { flex: 1 1 0; min-height: 44px; }
+  /* Compact under the boat strip (~41 px with its rule): full-width halves, still ≥ 36 px to tap. */
+  .tabs { top: var(--boatbar-h, 0px); padding: 2px 0; margin-bottom: 8px; }
+  .tabs [role='tab'] { flex: 1 1 0; min-width: 0; min-height: 36px; padding: 4px 12px; font-size: 0.85rem; }
   .boatbar {
     top: 0;
     z-index: 3;
@@ -436,7 +437,8 @@ svg text.sub, svg text.endlbl { fill: var(--ink-2); }
 svg .blbl text { stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; }
 /* The line continued past each end, under everything; the favoured-end label above it. */
 svg .line-ext { stroke: var(--ink-3); stroke-linecap: butt; fill: none; pointer-events: none; }
-svg text.fav-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; font-weight: 600; }
+/* Upright (never italic); it only looks slanted by following the line's rotation. */
+svg text.fav-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; font-weight: 600; font-style: normal; }
 svg .wind line, svg .wind path { stroke: var(--accent); }
 svg .wind text { fill: var(--accent); }
 svg .scalebar line { stroke: var(--ink-2); }

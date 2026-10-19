@@ -24,7 +24,7 @@ import {
   type ViewState,
 } from './lastView';
 import { NC_ALL } from './params';
-import { legLegend, legSplitCaption, mapBox, startFitBox, startScaleCaption, startSnapshot, trackMap, trackSogIndex } from './charts';
+import { isNarrowStart, legLegend, legSplitCaption, mapBox, startFitBox, startScaleCaption, startSnapshot, trackMap, trackSogIndex } from './charts';
 import { boatLabel, degLabel, duration, esc, f0, f1, gunTimeLine, localTime } from './format';
 import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
 import { biasCaption } from './startLine';
@@ -325,9 +325,24 @@ export function startApp(): void {
   function renderStart(): void {
     const a = analysis;
     if (!a) return;
-    els.startScale.textContent = startScaleCaption(a, view);
+    const widthPx = els.start.clientWidth || undefined;
+    els.startScale.textContent = startScaleCaption(a, view, widthPx);
     // Names are placed for this zoom (zooming in spreads the boats and reveals more) and sized for this width.
-    els.start.innerHTML = startSnapshot(a, highlight, view, startColour, { names: startNames, widthPx: els.start.clientWidth || undefined });
+    els.start.innerHTML = startSnapshot(a, highlight, view, startColour, { names: startNames, widthPx });
+  }
+
+  /** The Fit frame for the start chart's width class (narrow charts leave more room for the favoured-end label). */
+  let fitNarrow = false;
+  function fitStart(a: RaceAnalysis): void {
+    const w = els.start.clientWidth;
+    fitNarrow = isNarrowStart(w);
+    fitBox = startFitBox(a, w || undefined);
+    setView(fitView(fitBox));
+  }
+  /** Refit (back to Fit) when the visible chart has crossed into the other width class. */
+  function refitStart(): void {
+    const w = els.start.clientWidth;
+    if (analysis && w && isNarrowStart(w) !== fitNarrow) fitStart(analysis);
   }
 
   /** Boat speed: the nearest drawn fix under the pointer (the selected boat's, within 40 px; else anyone's within 8 px). */
@@ -441,6 +456,7 @@ export function startApp(): void {
     const w = els.start.clientWidth;
     if (!w || w === startW) return;
     startW = w;
+    refitStart();
     setView(view);
   });
 
@@ -450,6 +466,7 @@ export function startApp(): void {
     contentW = els.panel[t].clientWidth;
     if (t === 'start') {
       startW = els.start.clientWidth;
+      refitStart();
       renderStart();
       renderStartSog();
       topScrolls[0].update();
@@ -731,8 +748,7 @@ export function startApp(): void {
       sort = v?.sort ?? null;
       startSort = v?.startSort ?? null;
       legSel = v?.leg ?? null;
-      fitBox = startFitBox(a);
-      setView(fitView(fitBox));
+      fitStart(a);
       render();
       setStatus('');
       return true;

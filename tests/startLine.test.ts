@@ -131,7 +131,12 @@ describe('favoured end text', () => {
     expect(favouredText(j88, null)).toMatch(/^RC favoured \d+° · 7 m$/);
     expect(startSnapshot(c31, null)).toMatch(/>Pin favoured \d+° · 40 m<\/text>/);
     expect(startSnapshot(c31, null, { ...fitView(startFitBox(c31)), k: 2 })).toMatch(/>Pin favoured \d+° · 40 m \(4\.2 lengths\)<\/text>/);
-    expect(favouredTexts(c31, null)).toEqual([expect.stringMatching(/^Pin favoured \d+° · 40 m$/), expect.stringMatching(/^Pin fav\. \d+° · 40 m$/), expect.stringMatching(/^Pin \d+°$/)]);
+    expect(favouredTexts(c31, null)).toEqual([
+      expect.stringMatching(/^Pin favoured \d+° · 40 m$/),
+      expect.stringMatching(/^Pin fav\. \d+° · 40 m$/),
+      expect.stringMatching(/^Pin \d+° · 40 m$/),
+      expect.stringMatching(/^Pin \d+°$/),
+    ]);
   });
 
   it('says Square line within the threshold, centred along the line', () => {
@@ -150,10 +155,46 @@ describe('favoured end text', () => {
     const sizes = [1, 2, 4, 8].map((k) => size(startSnapshot(j70, null, { ...fit, k })));
     // Same on-screen size at every zoom (the font size is written to 0.01 chart units, ~2% at 8×).
     for (const s of sizes) expect(Math.abs(s / 8.5 - 1)).toBeLessThan(0.03);
-    // A 390 px phone: larger text, so a shorter wording, still inside the chart.
-    const phone = startSnapshot(c31, null, undefined, 'boat', { widthPx: 390 });
-    const text = /<text class="fav-lbl"[^>]*><title>[^<]+<\/title>([^<]+)<\/text>/.exec(phone)![1];
-    expect(favouredTexts(c31, startClass(c31)!.dims)).toContain(text);
+  });
+
+  it.each([
+    ['J/70', j70],
+    ['C31', c31],
+  ])('%s on a 390 px phone: on the extension, a shorter wording with the metres, inside the frame', (_n, a) => {
+    const svg = startSnapshot(a, null, undefined, 'boat', { widthPx: 390 });
+    const m = /<text class="fav-lbl" x="([-\d.]+)" y="([-\d.]+)" transform="rotate\(([-\d.]+)[^"]*\)" font-size="([\d.]+)"[^>]*text-anchor="(start|end)"><title>[^<]+<\/title>([^<]+)<\/text>/.exec(svg)!;
+    expect(m).not.toBeNull();
+    const [x, y, rot, fs, anchor, text] = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]), m[5], m[6]];
+    const texts = favouredTexts(a, startClass(a)!.dims);
+    // Not the full wording (no room on a phone), but one that keeps the metres.
+    expect(texts.slice(1, -1)).toContain(text);
+    expect(text).toMatch(/· \d+ m$/);
+    // On the extension: past the favoured end, away from the other end.
+    const rotr = rotator(a.wind.twdAtGunDeg);
+    const [L, R] = [rotr(a.line.left), rotr(a.line.right)];
+    const [end, other] = a.line.favored === 'left' ? [L, R] : [R, L];
+    const len = Math.hypot(end[0] - other[0], end[1] - other[1]);
+    const u = [(end[0] - other[0]) / len, (end[1] - other[1]) / len];
+    const vb = /viewBox="([-\d.]+) ([-\d.]+) ([\d.]+) ([\d.]+)"/.exec(svg)!.slice(1).map(Number);
+    const unit = vb[2] / 600;
+    expect((x - end[0]) * u[0] + (y - end[1]) * u[1]).toBeGreaterThanOrEqual(FAV_GAP_PX * unit - 0.1);
+    // The whole text stays inside the chart frame.
+    const w = text.length * 0.6 * fs;
+    const r = (rot * Math.PI) / 180;
+    const sgn = anchor === 'start' ? 1 : -1;
+    const far = [x + sgn * Math.cos(r) * w, y + sgn * Math.sin(r) * w];
+    expect(far[0]).toBeGreaterThanOrEqual(vb[0] - 0.5);
+    expect(far[0]).toBeLessThanOrEqual(vb[0] + vb[2] + 0.5);
+    // The narrow Fit frame is wider than the desktop one, within the phone cap.
+    const wide = startFitBox(a);
+    const narrow = startFitBox(a, 390);
+    expect(narrow.x1 - narrow.x0).toBeGreaterThanOrEqual(wide.x1 - wide.x0);
+  });
+
+  it('the Fit frame only changes across the narrow threshold', () => {
+    expect(startFitBox(j70, 390)).toEqual(startFitBox(j70, 360));
+    expect(startFitBox(j70, 1200)).toEqual(startFitBox(j70));
+    expect(startFitBox(j70, 0)).toEqual(startFitBox(j70));
   });
 
   it('puts the degrees in the caption with the wind source and sensitivity', () => {
