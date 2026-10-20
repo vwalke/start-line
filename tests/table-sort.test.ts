@@ -282,6 +282,25 @@ describe('Rank column', () => {
   it('is explained in one short ⓘ bullet per table', () => {
     for (const k of [legsTableKey(a), startTableKey(a)]) expect(k.bullets).toContain('Rank: place in the current sort; =3 tied at the shown figure; — none.');
   });
+
+  it('marks the sorted column header and every cell with the highlight class', () => {
+    const html = legsTable(a, null, { key: 'L0.sog', dir: 'desc' });
+    expect(th(html, 'L0.sog')).toMatch(/class="[^"]*\bsorted\b/);
+    expect(th(html, 'L0.vmg')).not.toMatch(/\bsorted\b/);
+    const rows = [...html.matchAll(/<tr data-id="[^"]+"[^>]*>(.*?)<\/tr>/g)].map((m) => [...m[1].matchAll(/<td class="([^"]*)"/g)].map((c) => c[1]));
+    expect(rows.length).toBe(a.boats.length);
+    const keys = [...html.matchAll(/data-sort="([^"]+)"/g)].map((m) => m[1]);
+    const sog = keys.indexOf('L0.sog');
+    const vmg = keys.indexOf('L0.vmg');
+    expect(sog).toBeGreaterThanOrEqual(0);
+    for (const tds of rows) {
+      expect(tds[sog + 1].split(' ')).toContain('sorted'); // +1 Rank
+      expect(tds[vmg + 1].split(' ')).not.toContain('sorted');
+    }
+    const start = startTable(a, null, { key: 'speed', dir: 'desc' });
+    expect(th(start, 'speed')).toMatch(/class="[^"]*\bsorted\b/);
+    expect([...start.matchAll(/<td class="([^"]*sorted[^"]*)"/g)].length).toBe(a.boats.length);
+  });
 });
 
 describe('column-group dividers (Legs table)', () => {

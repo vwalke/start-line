@@ -52,6 +52,8 @@
   --bad-bg: #fbe3e3;
   --bad: #b02a2a;
   --notice-bg: #fff1c9;
+  /* Sorted metrics column: a light accent wash, readable on both schemes. */
+  --sorted-bg: color-mix(in srgb, var(--accent) 11%, var(--surface));
 
   --carbon: #16181c;
   --on-carbon: #f2f4f7;
@@ -94,6 +96,7 @@
     --bad-bg: #4a1e1e;
     --bad: #ff9c9c;
     --notice-bg: #3a2f12;
+    --sorted-bg: color-mix(in srgb, var(--accent) 18%, var(--surface));
     --s1: #3987e5;
     --s2: #d95926;
     --s3: #199e70;
@@ -632,6 +635,15 @@ table.metrics {
 .metrics th[aria-sort] { color: var(--ink); }
 /* ↑/↓ sort glyph: accent coloured and inline, unlike the small ▲/▼ best/worst marks in cells. */
 .metrics th .si { display: inline-block; min-width: 0.8em; margin-left: 2px; color: var(--accent); font-weight: 700; }
+/* The sorted column: tinted header + cells, bold label, a heavier arrow. Best/worst keep their own fill. */
+.metrics th.sorted { background: var(--sorted-bg); color: var(--ink); font-weight: 800; }
+.metrics th.sorted small { font-weight: 600; color: var(--ink-2); }
+.metrics th.sorted .si { font-weight: 800; font-size: 1.2em; }
+.metrics td.sorted { background: var(--sorted-bg); }
+.metrics td.sorted.best { background: var(--good-bg); }
+.metrics td.sorted.worst { background: var(--bad-bg); }
+.metrics th.sorted.sticky0, .metrics td.sorted.sticky0,
+.metrics th.sorted.sticky1, .metrics td.sorted.sticky1 { background: var(--sorted-bg); }
 .metrics .rk { color: var(--ink-3); font-size: 0.72rem; }
 .metrics td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; vertical-align: top; }
 .metrics td.boat, .metrics th.boat { text-align: left; }
