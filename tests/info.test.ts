@@ -4,7 +4,7 @@ import { analyzeRace } from '../src/analysis/analyze';
 import type { RaceNote } from '../src/analysis/types';
 import { mapKey, raceNotesKey, startKey } from '../src/ui/captions';
 import { startScale } from '../src/ui/charts';
-import { capHtml, infoHtml, keyLineHtml, warnChip, type KeyLine } from '../src/ui/info';
+import { capHtml, infoHtml, keyLineHtml, renderKeepOpen, warnChip, type KeyLine } from '../src/ui/info';
 import { placesKey } from '../src/ui/places';
 import { startSogKey } from '../src/ui/startSog';
 import { startSogSeries } from '../src/analysis/startSog';
@@ -47,6 +47,33 @@ describe('the ⓘ disclosure', () => {
     const k: KeyLine = { chips: [{ text: 'x' }], bullets: ['y.'] };
     expect(keyLineHtml(k)).toBe(capHtml(k.chips, infoHtml(k.bullets)));
     expect(keyLineHtml(k, true)).toContain('<details class="info" open>');
+  });
+  it('renderKeepOpen keeps the ⓘ open across a redraw and skips a no-op', () => {
+    const state = { html: '', opened: false, writes: 0 };
+    const el = {
+      querySelector(sel: string) {
+        return sel === 'details.info[open]' && state.opened ? {} : null;
+      },
+      get innerHTML() {
+        return state.html;
+      },
+      set innerHTML(v: string) {
+        state.html = v;
+        state.writes++;
+      },
+    } as unknown as HTMLElement;
+    const line = (text: string) => (open: boolean) => keyLineHtml({ chips: [{ text }], bullets: ['y.'] }, open);
+    renderKeepOpen(el, line('x'));
+    expect(state.html).toContain('<details class="info">');
+    expect(state.html).not.toContain(' open');
+    renderKeepOpen(el, line('x'));
+    expect(state.writes).toBe(1);
+    state.opened = true;
+    renderKeepOpen(el, line('z'));
+    expect(state.html).toContain('<details class="info" open>');
+    expect(state.html).toContain('>z</li>');
+    renderKeepOpen(el, line('z'));
+    expect(state.writes).toBe(2);
   });
 });
 

@@ -143,6 +143,19 @@ describe('placeChanges (synthetic)', () => {
     expect(placesKey(a, { ...pc, missing: pc.missing.map(() => 0) }).chips).toEqual([]);
   });
 
+  it('names one or two missing marks; a longer list becomes a count so the chip stays short', () => {
+    const a = { ...races.j70, legSource: 'course' } as RaceAnalysis;
+    const two = { ...pc, missing: [0, 1, 2, 0, 0] };
+    expect(placesKey(a, two).chips[0]).toEqual(
+      expect.objectContaining({ text: 'no time at M1 (1), Gate (2)', warn: true, title: 'Boats with no rounding time at M1 (1), Gate (2); the others close up' }),
+    );
+    const many = { ...pc, missing: [0, 1, 2, 3, 0] };
+    expect(placesKey(a, many).chips[0]).toEqual(
+      expect.objectContaining({ text: 'no time at 3 marks', warn: true, title: 'Boats with no rounding time at M1 (1), Gate (2), M1 (2) (3); the others close up' }),
+    );
+    expect(placesKey(a, many).chips[0].text.split(/\s+/).length).toBeLessThanOrEqual(6);
+  });
+
   it('a DNF ends at the last mark reached; no start place = no start point', () => {
     expect(of('d').places).toEqual([null, 4, 3, null, null]);
     expect(of('d')).toMatchObject({ dnf: true, lastCol: 2, net: 1 });

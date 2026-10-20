@@ -68,8 +68,15 @@ export function shortName(b: BoatResult, narrow: boolean, max = 16): string {
 /** The chart's key line: ⚠ who has no rounding time where (with the dashed swatch); the counting rules in the ⓘ. */
 export function placesKey(a: RaceAnalysis, pc: PlaceChanges = placeChanges(a)): KeyLine {
   const gaps = pc.columns.map((c, k) => (pc.missing[k] ? `${c.label} (${pc.missing[k]})` : '')).filter(Boolean);
+  // One or two marks stay named; more would overflow a 390 px chip row, so the count goes on the chip and the names in the title.
   const chips: Chip[] = gaps.length
-    ? [warnChip(`no time at ${gaps.join(', ')}`, 'Boats with no rounding time there (a telemetry gap); the others close up'), { text: 'no rounding time', swatch: 'gap' }]
+    ? [
+        warnChip(
+          gaps.length <= 2 ? `no time at ${gaps.join(', ')}` : `no time at ${gaps.length} marks`,
+          `Boats with no rounding time at ${gaps.join(', ')}; the others close up`,
+        ),
+        { text: 'no rounding time', swatch: 'gap' },
+      ]
     : [];
   const marks = pc.columns.length > 2;
   return {
