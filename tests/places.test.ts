@@ -10,8 +10,8 @@ import {
   gainLabel,
   nearestPlaceDot,
   placeTip,
-  placesCaption,
   placesChart,
+  placesKey,
   shortName,
 } from '../src/ui/places';
 import { c31Race, fixtureRace, j88Race, m24Race } from './helpers';
@@ -62,7 +62,7 @@ describe('placeChanges on the fixtures', () => {
     const pc = placeChanges(a);
     expect(pc.columns.length).toBeGreaterThan(2);
     expect(pc.columns.slice(1, -1).every((c) => /mark/i.test(c.label))).toBe(true);
-    expect(placesCaption(a, pc)).toContain('placed from where the fleet turned');
+    expect(placesKey(a, pc).bullets).toContain('Marks: rounding order, placed from where the fleet turned.');
   });
 
   it('leaves Not racing boats out entirely (M24 coaches and the spare)', () => {
@@ -131,6 +131,18 @@ describe('placeChanges (synthetic)', () => {
     expect(of('c').since[3]).toBe(1);
   });
 
+  it('keeps the missing rounding visible as a ⚠ chip with the dashed swatch; none when every time is there', () => {
+    const a = { ...races.j70, legSource: 'course' } as RaceAnalysis;
+    const k = placesKey(a, pc);
+    expect(k.chips).toEqual([
+      expect.objectContaining({ text: 'no time at Gate (1)', warn: true }),
+      { text: 'no rounding time', swatch: 'gap' },
+    ]);
+    expect(k.bullets).toContain('Marks: rounding order, from the leg splits.');
+    expect(k.bullets.length).toBeLessThanOrEqual(6);
+    expect(placesKey(a, { ...pc, missing: pc.missing.map(() => 0) }).chips).toEqual([]);
+  });
+
   it('a DNF ends at the last mark reached; no start place = no start point', () => {
     expect(of('d').places).toEqual([null, 4, 3, null, null]);
     expect(of('d')).toMatchObject({ dnf: true, lastCol: 2, net: 1 });
@@ -143,7 +155,8 @@ describe('placeChanges (synthetic)', () => {
     expect(one.columns.map((c) => c.label)).toEqual(['Start', 'Finish']);
     expect(one.boats.map((b) => b.gains[1])).toEqual([1, -1]);
     const a = { ...races.j70, legs: [def(0, 'Finish')], legSource: 'none' } as RaceAnalysis;
-    expect(placesCaption(a)).toContain('Start → Finish only');
+    expect(placesKey(a).bullets).toContain('One leg: Start → Finish only.');
+    expect(placesKey(a).bullets.join(' ')).not.toContain('Grey dashed');
   });
 
   it('tips: boat, mark, place and gain', () => {

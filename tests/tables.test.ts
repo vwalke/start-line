@@ -3,7 +3,7 @@ import { analyzeRace } from '../src/analysis/analyze';
 import type { RaceAnalysis } from '../src/analysis/types';
 import { THOUSANDS, fM, pct } from '../src/ui/format';
 import { attachTopScroll, type ScrollEl } from '../src/ui/hscroll';
-import { dqCell, legsNotesHtml, legsTable, sortTable, startTable, toggleSort } from '../src/ui/table';
+import { dqCell, legsNotesHtml, legsTable, legsTableKey, sortTable, startTable, startTableKey, toggleSort } from '../src/ui/table';
 import { c31Race, fixtureRace } from './helpers';
 
 const keysOf = (html: string): string[] => [...html.matchAll(/data-sort="([^"]+)"/g)].map((m) => m[1]);
@@ -146,8 +146,35 @@ describe('Benelux J70 r8: legs table', () => {
     }
   });
 
-  it('explains Data % and its threshold in the notes', () => {
-    expect(legsNotesHtml()).toContain('at most 5 s apart. ⚠ below 90%');
+  it('promotes the race-wide Vakaros DTL warning to a ⚠ chip by the start table', () => {
+    expect(startTableKey(a).chips.some((c) => c.text === 'Vakaros DTL off vs GPS')).toBe(false);
+    const w = 'Vakaros DTL differs from the GPS tracks by a median 5 m for this start; treat the DTL columns with caution.';
+    expect(startTableKey({ ...a, notes: [{ kind: 'dtl-off', text: w, medianM: 5 }] }).chips[0]).toEqual({ text: 'Vakaros DTL off vs GPS', warn: true, title: w });
+  });
+
+  it('explains Data % and its threshold in the ⓘ', () => {
+    expect(legsTableKey().bullets).toContain('Data: share with fixes ≤ 5 s apart; ⚠ under 90%; ~ bridges a gap.');
+    expect(legsNotesHtml()).toContain('<details class="info"><summary>');
+  });
+
+  it('keeps only the key line visible: TWA/VMG est., and ~ / partial / ⚠ low data only when present', () => {
+    const texts = (x: RaceAnalysis): string[] => legsTableKey(x).chips.map((c) => `${c.warn ? '⚠ ' : ''}${c.text}`);
+    const clean = {
+      ...a,
+      boats: a.boats.map((b) => ({
+        ...b,
+        distApprox: false,
+        coverage: 1,
+        legs: b.legs.map((l) => l && { ...l, coverage: 1, heelCoverage: 1, distGapS: null, manoeuvreGap: false }),
+        upwind: b.upwind && { ...b.upwind, coverage: 1, heelCoverage: 1, complete: true },
+        downwind: b.downwind && { ...b.downwind, coverage: 1, heelCoverage: 1, complete: true },
+      })),
+    };
+    expect(texts(clean)).toEqual(['TWA/VMG est.']);
+    const holey = { ...clean, boats: clean.boats.map((b, i) => (i ? b : { ...b, legs: b.legs.map((l, j) => (j || !l ? l : { ...l, coverage: 0.5, distGapS: 30 })) })) };
+    expect(texts(holey)).toEqual(['TWA/VMG est.', '⚠ low data', '~ across a gap']);
+    const assumed = { ...clean, wind: { ...clean.wind, method: 'course' as const } };
+    expect(texts(assumed)).toEqual(['⚠ TWA/VMG: wind assumed']);
   });
 });
 

@@ -1,9 +1,10 @@
-/** The start line's favoured end on the chart and in the caption: dashed extensions, the bias label, the wind it rests on. */
+/** The start line's favoured end on the chart and in its key line: dashed extensions, the bias label, the wind it rests on. */
 import type { Vec } from '../analysis/geo';
 import { biasAngle, biasSensitivityM, lineBias, windSource } from '../analysis/line';
 import type { RaceAnalysis } from '../analysis/types';
 import type { ClassDims } from '../data/classes';
 import { degLabel, esc, f0, f1 } from './format';
+import { warnChip, type Chip } from './info';
 import { textWidth, type Rect } from './labels';
 
 /** Extensions reach this many line lengths past each end, or to the frame if that's nearer. */
@@ -115,20 +116,33 @@ export const FAV_GAP_PX = 18;
 /** The label's baseline sits this far off the line, css px (× unit). */
 export const FAV_OFFSET_PX = 4;
 
-/** The wind the bias rests on, its confidence and the bias's sensitivity to it (the label's title; the caption's detail). */
+/** The wind the bias rests on, its confidence and the bias's sensitivity to it (the label's and the wind chip's title). */
 export function biasBasis(a: RaceAnalysis): string {
   const src = windSource(a.wind);
   return `Wind ${degLabel(a.wind.twdAtGunDeg)} at the gun, ${src.text}${src.detail ? ` (${src.detail})` : ''}; ${src.confidence} confidence. ±5° of wind ≈ ±${f0(biasSensitivityM(a.line.lengthM))} m.`;
 }
 
-/** The caption's line clause: "pin end favoured by 7° ≈ 18 m (wind estimated from the fleet's tacks, high confidence; ±5° of wind ≈ ±9 m)". */
-export function biasCaption(a: RaceAnalysis): string {
-  const b = lineBias(a.line, a.wind.twdAtGunDeg);
+/** The wind chip: "wind est. (medium)"; low confidence is a caveat, "⚠ wind est. low" (or "⚠ wind assumed"). */
+export function windChip(a: RaceAnalysis): Chip {
   const src = windSource(a.wind);
-  const basis = `${src.text}, ${src.confidence} confidence; ±5° of wind ≈ ±${f0(biasSensitivityM(a.line.lengthM))} m`;
-  return b.favored === 'square'
-    ? `about square to the wind (${basis})`
-    : `${b.favored === 'left' ? 'pin' : 'RC'} end favoured by ${f0(biasAngle(b))}° ≈ ${f0(b.byM)} m (${basis})`;
+  const what = src.method === 'tacks' ? 'wind est.' : src.method === 'model' ? 'model wind' : 'wind assumed';
+  const title = biasBasis(a);
+  if (src.confidence !== 'low') return { text: `${what} (${src.confidence})`, title };
+  return warnChip(src.method === 'course' ? what : `${what} low`, title);
+}
+
+/** The line's chips: length, the favoured end ("RC fav. 2° · 4 m", or "Square line"), the wind. */
+export function lineChips(a: RaceAnalysis): Chip[] {
+  const b = lineBias(a.line, a.wind.twdAtGunDeg);
+  const fav = b.favored === 'square' ? 'Square line' : `${b.favored === 'left' ? 'Pin' : 'RC'} fav. ${f0(biasAngle(b))}° · ${f0(b.byM)} m`;
+  return [{ text: `Line ${f0(a.line.lengthM)} m` }, { text: fav }, windChip(a)];
+}
+
+/** The ⓘ bullet for the favoured end: the wind it's measured against, and its sensitivity to that wind. */
+export function biasBullets(a: RaceAnalysis): string[] {
+  const src = windSource(a.wind);
+  const from = src.method === 'tacks' ? "from the fleet's tacks" : src.method === 'model' ? 'from the weather model' : '(first leg assumed upwind)';
+  return [`Favoured end vs wind ${degLabel(a.wind.twdAtGunDeg)} ${from}; ±5° of wind ≈ ±${f0(biasSensitivityM(a.line.lengthM))} m.`];
 }
 
 /**

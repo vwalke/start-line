@@ -6,6 +6,7 @@ import type { RaceAnalysis } from '../src/analysis/types';
 import { buildRaceData } from '../src/data/racesense/adapter';
 import type { Boat, RaceData } from '../src/data/types';
 import { boatList } from '../src/ui/boats';
+import { raceNotesKey } from '../src/ui/captions';
 import { pickedExcluded, startSnapshot, trackMap } from '../src/ui/charts';
 import { parsePickerParams } from '../src/ui/params';
 import { startSogRange, trackSogRange } from '../src/ui/sog';
@@ -86,6 +87,7 @@ describe('Melges 24 Worlds race 4: coaches and the spare tracker', () => {
       expect(e.result.start?.startPlace ?? null).toBeNull();
     }
     expect(a.warnings.at(-1)).toBe('4 boats hidden as not racing (coach boats, spare or second trackers); they are listed at the foot of the boat list.');
+    expect(a.notes.at(-1)).toMatchObject({ kind: 'not-racing', n: 4 });
   });
 
   it("doesn't change any rank, leg or finding (same as without those boats in the feed)", () => {
@@ -200,6 +202,10 @@ describe('behaviour, not names', () => {
     expect(a.warnings.find((w) => w.startsWith('Not ranking'))).toMatch(
       /^Not ranking #491 \(Huzzah\)'s finish: the feed has it sailing 1\.2 km against the fleet's 1\d\.\d km\.$/,
     );
+    // On the findings card: a ⚠ chip, the reason in the ⓘ.
+    const k = raceNotesKey(a);
+    expect(k.chips).toContainEqual(expect.objectContaining({ text: '#491 (Huzzah) finish not ranked', warn: true }));
+    expect(k.bullets.join(' ')).toMatch(/#491 \(Huzzah\)'s finish isn't ranked: the feed has it sailing 1\.2 km/);
   });
 });
 

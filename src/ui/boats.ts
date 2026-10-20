@@ -31,7 +31,7 @@ function notRacing(a: RaceAnalysis, highlight: string | null, open: boolean): st
   const isOpen = open || a.excluded.some((e) => e.result.id === highlight);
   return `<details class="nc-group"${isOpen ? ' open' : ''}><summary>Not racing (${a.excluded.length})</summary>
     <ul class="boat-items">${items}</ul>
-    <p class="nc-note">Coach boats and spare or second trackers, judged from their results and tracks; they don't count in any rank. <button type="button" class="linkish" data-nc="all">Show all as competitors</button></p></details>`;
+    <p class="nc-note">Coach boats and spare trackers; not ranked. <button type="button" class="linkish" data-nc="all">Show all as competitors</button></p></details>`;
 }
 
 /** Finish order; each entry toggles the shared selection. */

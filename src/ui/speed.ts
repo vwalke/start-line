@@ -354,7 +354,7 @@ export function speedKey(a: RaceAnalysis, leg: number | null, rankBy: RankBy, to
   const end = out ? `#${top}` : 'slowest';
   const what = leg == null && !r.overall ? `fastest → ${end} on each leg` : r.overall ? `fastest → ${end} race time` : `fastest → ${end} on this leg`;
   const others = out ? ` · <span class="spd-out" aria-hidden="true"></span> others grey` : '';
-  const none = unranked ? ` · <span class="spd-none" aria-hidden="true"></span> grey dashed = ${r.overall ? "didn't finish" : "didn't complete the leg"}` : '';
+  const none = unranked ? ` · <span class="spd-none" aria-hidden="true"></span> ${r.overall ? "didn't finish" : 'leg not completed'}` : '';
   const ties = [...cut]
     .sort(([x], [y]) => x - y)
     .flatMap(([l, c]) => {

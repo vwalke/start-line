@@ -9,10 +9,10 @@ import {
   START_SOG_WINDOW_KEY,
   parseStartSogWindow,
   secsLabel,
-  startSogCaption,
   startSogChart,
   startSogControls,
   startSogHover,
+  startSogKey,
   startSogLayout,
 } from '../src/ui/startSog';
 import { c31Race, fixtureRace, m24Race } from './helpers';
@@ -79,8 +79,22 @@ describe('startSogSeries', () => {
     const s = startSogSeries(a, 120);
     expect(s.clamped).toBe(true);
     expect(s.t0).toBe(-91);
-    expect(startSogCaption(s, 120)).toContain('only go back to −91.0 s');
-    expect(startSogSeries(a, 60).clamped).toBe(false);
+    // A visible ⚠ chip; the why in the ⓘ.
+    const k = startSogKey(s, 120);
+    expect(k.chips[0]).toMatchObject({ text: 'data from −91.0 s only', warn: true });
+    expect(k.bullets.join(' ')).toContain('only go back to −91.0 s');
+    const s60 = startSogSeries(a, 60);
+    expect(s60.clamped).toBe(false);
+    expect(startSogKey(s60, 60).chips[0]).toEqual({ text: `${secsLabel(s60.t0)} → ${secsLabel(s60.t1)}` });
+  });
+
+  it('keys the crossing dot and, when a track has a hole, the "no data" swatch', () => {
+    const swatches = (s: StartSogSeries): (string | undefined)[] => startSogKey(s, 120).chips.map((c) => c.swatch);
+    const patchy = startSogSeries(c31, 120);
+    expect(swatches(patchy)).toEqual([undefined, 'dot', 'gap']);
+    const clean = { ...patchy, boats: patchy.boats.map((b) => ({ ...b, gaps: [] })) };
+    expect(swatches(clean)).toEqual([undefined, 'dot']);
+    expect(startSogKey(patchy, 120).bullets.length).toBeLessThanOrEqual(6);
   });
 
   it('splits at the real gaps of the patchy C31 feed, dropping no fix', () => {

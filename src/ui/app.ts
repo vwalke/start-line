@@ -27,34 +27,35 @@ import { NC_ALL } from './params';
 import {
   isNarrowStart,
   legLegend,
-  legSplitCaption,
   mapBox,
   startBoatKey,
   startFitBox,
   startFullFrame,
-  startScaleCaption,
+  startScale,
   startSnapshot,
   trackMap,
   trackSogIndex,
   type StartFrame,
 } from './charts';
+import { mapKey, raceNotesKey, startKey } from './captions';
 import { createFullscreen, inertOthers, lockScroll, moveNodes, trapFocus, type ScrollLock } from './fullscreen';
-import { boatLabel, degLabel, duration, esc, f0, f1, gunTimeLine, localTime } from './format';
+import { boatLabel, degLabel, duration, esc, f1, gunTimeLine, localTime } from './format';
+import { dismissHint, hintStore, showHint } from './hints';
+import { renderKeepOpen, renderKeyLine } from './info';
 import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
-import { biasCaption } from './startLine';
 import { attachTopScroll } from './hscroll';
 import { attachPanZoom } from './panzoom';
-import { PLACE_TIP_MOUSE_REACH, PLACE_TIP_TOUCH_REACH, nearestPlaceDot, placesCaption, placesChart } from './places';
+import { PLACE_TIP_MOUSE_REACH, PLACE_TIP_TOUCH_REACH, nearestPlaceDot, placesChart, placesKey } from './places';
 import { DEFAULT_TAB, TABS, parseTab, tabForKey, tabFromHash, withTabHash, type Tab } from './tabs';
 import { startSogSeries, type StartSogSeries } from '../analysis/startSog';
 import {
   START_SOG_WINDOW_KEY,
   parseStartSogWindow,
   secsLabel,
-  startSogCaption,
   startSogChart,
   startSogControls,
   startSogHover,
+  startSogKey,
   startSogLayout,
 } from './startSog';
 import {
@@ -115,8 +116,9 @@ export function startApp(): void {
     digest: $('digest'),
     summary: $('summary'),
     start: $('start-chart'),
-    startCaption: $('start-caption'),
-    startScale: $('start-scale'),
+    startCap: $('start-cap'),
+    startHint: $('start-hint'),
+    startHintDismiss: $('start-hint-dismiss'),
     startZoom: $('start-zoom'),
     startColour: $('start-colour'),
     startKey: $('start-speed-key'),
@@ -125,14 +127,14 @@ export function startApp(): void {
     legend: $('map-legend'),
     colour: $('map-colour'),
     speedKey: $('map-speed-key'),
-    mapSplit: $('map-split'),
+    mapCap: $('map-cap'),
     startSog: $('start-sog-chart'),
     startSogTip: $('start-sog-tip'),
     startSogWindow: $('start-sog-window'),
-    startSogCaption: $('start-sog-caption'),
+    startSogCap: $('start-sog-cap'),
     places: $('places-chart'),
     placesTip: $('places-tip'),
-    placesCaption: $('places-caption'),
+    placesCap: $('places-cap'),
     startTable: $('start-table'),
     startTableTop: $('start-table-top'),
     startNotes: $('start-notes'),
@@ -144,7 +146,7 @@ export function startApp(): void {
     findings: $('findings'),
     raceFindings: $('race-findings-card'),
     boats: $('boat-list'),
-    warnings: $('warnings'),
+    raceNotes: $('race-notes'),
     tabs: $('tabs'),
     tabBtn: { start: $('tab-start'), race: $('tab-race') } as Record<Tab, HTMLElement>,
     panel: { start: $('panel-start'), race: $('panel-race') } as Record<Tab, HTMLElement>,
@@ -291,12 +293,11 @@ export function startApp(): void {
       ${a.boats.length} boats · ${a.legs.map((l) => esc(l.name)).join(', ')} ·
       <span title="No wind sensor on the boats: estimated from the fleet's steady upwind headings">${windText}${model}</span> ·
       <span class="muted">${esc(m.sourceLabel)}</span></p>`;
-    els.startCaption.textContent = `Line ${f0(a.line.lengthM)} m, bearing ${degLabel(a.line.bearingDeg)}; ${biasCaption(a)}; dashed: the line continued past each end. Bows at the gun (Vakaros timing) with the last ${START_TRAIL_MS / 1000} s of track shifted to the bow. Labels are distance behind the line${a.boats.some((b) => b.start?.rcDtlM != null) ? " (the boat's Vakaros DTL from the feed)" : ''}.${startColour === 'speed' ? ' Colour: Speed shades each trail by speed over ground (4 s mean) and each hull by its SOG at the gun; hover a boat for the figure.' : ''}`;
     renderStart();
     els.startColour.innerHTML = startColourControls(startColour) + startNamesControls(startNames);
     els.startKey.innerHTML =
       startColour === 'speed'
-        ? sogKey(startSogRange(a), `Last ${START_TRAIL_MS / 1000} s before the gun; hulls at the gun`, hasGaps(a.drawings.map((d) => d.trail.t)))
+        ? sogKey(startSogRange(a), `last ${START_TRAIL_MS / 1000} s, hull at the gun`, hasGaps(a.drawings.map((d) => d.trail.t)))
         : '';
     els.startKey.hidden = startColour !== 'speed';
     renderFullKey();
@@ -316,21 +317,21 @@ export function startApp(): void {
             : sogKey(trackSogRange(a, legSel), legSel == null ? 'Whole race' : `${a.legs[legSel]?.name ?? 'This leg'}`, hasGaps(segmentTimes(a, legSel)))
           : '';
     els.speedKey.hidden = trackColour === 'leg';
-    els.mapSplit.textContent = legSplitCaption(a);
-    els.placesCaption.textContent = placesCaption(a);
+    renderKeyLine(els.mapCap, mapKey(a, { highlight, colour: trackColour, rankBy, sogScale, leg: legSel }));
+    renderKeyLine(els.placesCap, placesKey(a));
     els.startTable.innerHTML = startTable(a, highlight, startSort);
-    els.startNotes.innerHTML = startNotesHtml(a);
+    renderKeepOpen(els.startNotes, (open) => startNotesHtml(a, open));
     els.table.innerHTML = legsTable(a, highlight, sort);
-    els.legsNotes.innerHTML = legsNotesHtml(a);
+    renderKeepOpen(els.legsNotes, (open) => legsNotesHtml(a, open));
     els.boats.innerHTML = boatList(a, highlight, ncOpen);
     const found = splitFindings(a.findings);
     els.startFindings.innerHTML = findingsList(found.start, highlight);
     els.startFindingsBox.hidden = !found.start.length;
     els.findings.innerHTML = findingsList(found.race, highlight);
     els.findings.hidden = !found.race.length;
-    els.warnings.innerHTML = a.warnings.map((t) => `<li>${esc(t)}</li>`).join('');
-    els.warnings.hidden = !a.warnings.length;
-    els.raceFindings.hidden = !found.race.length && !a.warnings.length;
+    renderKeyLine(els.raceNotes, raceNotesKey(a));
+    els.raceNotes.hidden = !a.notes.length;
+    els.raceFindings.hidden = !found.race.length && !a.notes.length;
     els.digest.hidden = false;
     // Measured once the digest is showing (a hidden table has no width).
     for (const t of topScrolls) t.update();
@@ -345,7 +346,7 @@ export function startApp(): void {
     sogSeries = startSogSeries(a, sogWindow);
     els.startSogWindow.innerHTML = startSogControls(sogWindow);
     els.startSog.innerHTML = startSogChart(a, highlight, sogWindow, { widthPx: els.startSog.clientWidth || undefined }, sogSeries);
-    els.startSogCaption.textContent = startSogCaption(sogSeries, sogWindow);
+    renderKeyLine(els.startSogCap, startSogKey(sogSeries, sogWindow));
     els.startSogTip.hidden = true;
   }
 
@@ -359,13 +360,13 @@ export function startApp(): void {
     els.placesTip.hidden = true;
   }
 
-  /** Start chart + its scale note; re-run on pan/zoom without redrawing the rest. */
+  /** Start chart + its key line (the scale chip follows the zoom); re-run on pan/zoom without redrawing the rest. */
   function renderStart(): void {
     const a = analysis;
     if (!a) return;
     const widthPx = els.start.clientWidth || undefined;
     const frame = fullFrame ?? undefined;
-    els.startScale.textContent = startScaleCaption(a, view, widthPx, frame);
+    renderKeyLine(els.startCap, startKey(a, { scale: startScale(a, view, widthPx, frame), highlight, colour: startColour }));
     // Names are placed for this zoom (zooming in spreads the boats and reveals more) and sized for this width.
     els.start.innerHTML = startSnapshot(a, highlight, view, startColour, { names: startNames, widthPx, frame });
   }
@@ -487,11 +488,21 @@ export function startApp(): void {
     setView(next === 1 ? fitView(fitBox) : { ...view, k: next });
   });
 
+  // The pinch / pan / double-tap hint: touch devices only, until dismissed (× or the gesture itself; recall.hints).
+  els.startHint.hidden = !showHint('pinch', window, hintStore());
+  const retireHint = (): void => {
+    if (els.startHint.hidden) return;
+    els.startHint.hidden = true;
+    dismissHint(hintStore(), 'pinch');
+  };
+  els.startHintDismiss.addEventListener('click', retireHint);
+
   attachPanZoom(els.start, {
     getBox: () => fitBox,
     getView: () => view,
     setView,
     getRect: () => (els.start.querySelector('svg') ?? els.start).getBoundingClientRect(),
+    onGesture: retireHint,
   });
 
   // Names are sized for the chart's width: redraw when it changes (rotation, window resize).
@@ -858,9 +869,10 @@ export function startApp(): void {
     onOpen: () => {
       const f = full!;
       const parts: Record<Full, [HTMLElement[], HTMLElement[], HTMLElement[]]> = {
-        start: [[els.startZoom.parentElement!], [els.startKey], [els.start]],
-        map: [[els.legend.parentElement!], [els.speedKey], [els.map.parentElement!]],
-        places: [[], [], [els.places.parentElement!]],
+        // The key: the speed key and the card's own chip line + ⓘ, the same as inline.
+        start: [[els.startZoom.parentElement!], [els.startKey, els.startCap], [els.start]],
+        map: [[els.legend.parentElement!], [els.speedKey, els.mapCap], [els.map.parentElement!]],
+        places: [[], [els.placesCap], [els.places.parentElement!]],
       };
       const [tools, key, body] = parts[f];
       fullLock = lockScroll(window, document.body);
@@ -923,7 +935,7 @@ export function startApp(): void {
   // Tab cycles within the overlay.
   els.fs.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Tab') return;
-    const items = [...els.fs.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter(
+    const items = [...els.fs.querySelectorAll<HTMLElement>('button:not([disabled]), summary, [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter(
       (el) => el.getClientRects().length > 0,
     );
     const next = trapFocus(items, document.activeElement as HTMLElement | null, ev.shiftKey);

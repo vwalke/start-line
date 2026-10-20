@@ -121,7 +121,7 @@ describe('index.html', () => {
     const start = panel('panel-start');
     const race = panel('panel-race');
     for (const id of ['start-chart', 'start-findings', 'start-sog-chart', 'start-table']) expect(start).toContain(`id="${id}"`);
-    for (const id of ['map-chart', 'places-chart', 'race-findings-card', 'warnings', 'table']) expect(race).toContain(`id="${id}"`);
+    for (const id of ['map-chart', 'places-chart', 'race-findings-card', 'race-notes', 'table']) expect(race).toContain(`id="${id}"`);
     for (const id of ['map-chart', 'places-chart', 'legs-table-card']) expect(start).not.toContain(`id="${id}"`);
     for (const id of ['start-chart', 'start-sog-chart', 'start-table-card']) expect(race).not.toContain(`id="${id}"`);
     // The race header and the boat list sit outside the panels (shared by both).

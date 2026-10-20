@@ -347,14 +347,14 @@ export function startHullScale(a: RaceAnalysis, v?: View, widthPx?: number, fram
   return dims && dims.loaM / startView(a, v, widthPx, frame).unit >= MIN_HULL_PX ? dims : null;
 }
 
-/** The start caption's scale note: hulls to scale (class, LOA), markers at this zoom, or no dimensions for the class. */
-export function startScaleCaption(a: RaceAnalysis, v?: View, widthPx?: number, frame?: StartFrame): string {
+/** The start chart's scale: a chip (hulls to scale, markers at this zoom, or not to scale) and its ⓘ detail (class, LOA, what the shapes point along). */
+export function startScale(a: RaceAnalysis, v?: View, widthPx?: number, frame?: StartFrame): { chip: string; info: string } {
   const cls = startClass(a);
-  if (!cls) return `Hulls not to scale: no dimensions for class "${a.meta.boatClass}". Arrows follow course over ground.`;
+  if (!cls) return { chip: 'hulls not to scale', info: `No dimensions for class "${a.meta.boatClass}"; arrows follow course over ground.` };
   const spec = `${cls.name}, ${f2(cls.dims.loaM)} m`;
   return startHullScale(a, v, widthPx, frame)
-    ? `Hulls to scale (${spec}); they point along heading.`
-    : `Markers not to scale at this zoom (${spec} hulls would be under ${MIN_HULL_PX} px; zoom in to draw them). Arrows follow course over ground.`;
+    ? { chip: 'hulls to scale', info: `Hulls to scale (${spec}), pointing along heading.` }
+    : { chip: 'markers at this zoom', info: `${spec} hulls would be under ${MIN_HULL_PX} px: zoom in to draw them.` };
 }
 
 /** Name font sizes in chart units (~css px at 600 px wide); below 480 px wide they're scaled up to stay legible. */
@@ -801,15 +801,15 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
     ${windArrow(box, unit, k, 'wind (est.)')}${scaleBar(box, unit, k)}</svg>`;
 }
 
-/** How the map's legs were split, for its caption. */
-export function legSplitCaption(a: RaceAnalysis): string {
+/** How the map's legs were split: its chip ("legs: mark trackers") and its ⓘ line. */
+export function legSplit(a: RaceAnalysis): { chip: string; info: string } {
   switch (a.legSource) {
     case 'fleet':
-      return `Legs split where each boat turned at the top and bottom of the course (snapped to the mark trackers where present)${a.marks.some((m) => m.estimated) ? '; hollow marks are estimated from the tracks' : ''}.`;
+      return { chip: 'legs: fleet turns', info: 'Legs split where each boat turned (snapped to mark trackers where present).' };
     case 'none':
-      return 'One leg: no mark trackers or turns to split the race at.';
+      return { chip: 'one leg', info: 'One leg: no mark trackers or turns to split the race at.' };
     default:
-      return "Legs split at each boat's closest approach to the mark trackers.";
+      return { chip: 'legs: mark trackers', info: "Legs split at each boat's closest approach to the mark trackers." };
   }
 }
 

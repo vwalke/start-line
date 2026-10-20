@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import type { Vec } from '../src/analysis/geo';
 import { classDims, matchClass } from '../src/data/classes';
-import { hullOutline, hullPathD, rotator, startClass, startFitBox, startHullScale, startScaleCaption, startSnapshot } from '../src/ui/charts';
+import { hullOutline, hullPathD, rotator, startClass, startFitBox, startHullScale, startScale, startSnapshot } from '../src/ui/charts';
 import { clampView, fitView, type View } from '../src/ui/view';
 import { fixtureRace } from './helpers';
 
@@ -39,13 +39,22 @@ describe('start chart class and scale caption', () => {
     expect(startClass({ ...analysis, meta: { ...m, boatClass: 'Mystery', division: 'Gold' } })).toBeNull();
   });
 
-  it('names the class and LOA when hulls are to scale', () => {
-    expect(startScaleCaption(analysis, at(8))).toBe('Hulls to scale (J/70, 6.93 m); they point along heading.');
+  it('chips "hulls to scale" and names the class and LOA in the ⓘ', () => {
+    expect(startScale(analysis, at(8))).toEqual({ chip: 'hulls to scale', info: 'Hulls to scale (J/70, 6.93 m), pointing along heading.' });
   });
 
   it('says so when the class has no dimensions', () => {
     const meta = { ...analysis.meta, boatClass: 'Mystery', division: 'Mystery' };
-    expect(startScaleCaption({ ...analysis, meta })).toBe('Hulls not to scale: no dimensions for class "Mystery". Arrows follow course over ground.');
+    expect(startScale({ ...analysis, meta })).toEqual({ chip: 'hulls not to scale', info: 'No dimensions for class "Mystery"; arrows follow course over ground.' });
+  });
+
+  it('chips markers when the hulls would be too small at this width', () => {
+    // The Fit box drawn as if only 20 px wide: a 6.93 m hull is well under a pixel.
+    const frame = { box: startFitBox(analysis), refPx: 20 };
+    expect(startHullScale(analysis, undefined, undefined, frame)).toBeNull();
+    const s = startScale(analysis, undefined, undefined, frame);
+    expect(s.chip).toBe('markers at this zoom');
+    expect(s.info).toContain('zoom in to draw them');
   });
 });
 

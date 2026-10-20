@@ -35,7 +35,7 @@ Switching races keeps the tab.
   which end was favoured. Wind bearings display as 0° rather than 360°.
   Hulls are drawn to scale when the class is known (division `boatClass`,
   then division name, then the event's class label; e.g. Cape 31 = C31,
-  9.55 m); otherwise the caption says there are no dimensions for the class.
+  9.55 m); otherwise the key line says `hulls not to scale` (and the ⓘ why).
   The line continues dashed past each end, and the favoured end is labelled
   with its bias in degrees and metres (and boat lengths when the class is
   known), e.g. `Pin favoured 7° · 18 m (1.9 lengths)`, or `Square line`
@@ -54,18 +54,38 @@ Switching races keeps the tab.
   frame changes only when the chart crosses 480 px). The lengths join when
   zoomed in. Only if none fits does the label run along the line inward from
   that end (as `Pin 7°` at worst). `Square line` sits centred along the line.
-  The caption and the label's tooltip give the wind source
-  (tacks, weather model, or first leg assumed upwind), a confidence, and how
-  far a 5° wind error moves the figure. `Names: Auto | All | Off` sets the
+  The wind chip (`wind est. (medium)`) and the label's tooltip give the wind
+  source (tacks, weather model, or first leg assumed upwind) and a
+  confidence; low confidence is a ⚠ chip. The ⓘ says how far a 5° wind
+  error moves the figure. `Names: Auto | All | Off` sets the
   boat labels: Auto places them greedily (selected boat, then by start place)
   and leaves out any that would overlap another label or the line, so
   zooming in reveals more; hover or tap a boat for its name either way.
+- **Key lines** (`ui/info.ts`, `ui/captions.ts`): under every chart and
+  table, one short row of chips with the key facts only, e.g.
+  `Line 143 m · RC fav. 2° · 4 m · wind est. (medium) · hulls to scale`,
+  plus legend swatches (`- - line extended`, `- - no data`, `○ estimated
+  mark`, `- - not racing`, `● crossed the line`). Caveats stay in sight as
+  red ⚠ chips: low wind confidence (`⚠ wind est. low`, `⚠ wind assumed`),
+  low data, gaps across the gun, Vakaros vs our check, unchecked OCS,
+  missing roundings, a start window cut short, legs split from the fleet's
+  turns (on the Race findings card). The row ends in one ⓘ
+  "How to read this" (a native `<details>`, closed by default; it stays
+  open across redraws) with a few short bullets: methods, what dashed
+  means, sensitivity (±5° of wind ≈ ±N m), label meaning, Names modes,
+  gestures, and for the start table each boat's start caveats. Full screen
+  shows the same key line.
+- **Zoom hint:** "Pinch to zoom · drag to pan · double-tap to zoom in"
+  shows under the start chart on touch devices only (`(pointer: coarse)`),
+  until it's dismissed with × or by the first pinch, pan or double-tap; the
+  dismissal is kept in `recall.hints` (`ui/hints.ts`; blocked storage just
+  shows it again next visit). Desktop gestures are in the start chart's ⓘ.
 - **Full screen** (`ui/fullscreen.ts`): the expand button at the top right
   of the start chart, the track map and the place changes cards opens that
   chart over the whole viewport, with its own controls in a compact top bar
   (start chart: Fit / 2× / 4× / 8×, Colour, Names; map: the leg picker and
   Colour) and its key (the speed scale, or each boat's colour for a fleet of
-  up to eight); the long caption stays behind. Pinch, pan and tap-to-select
+  up to eight) with the card's key line and ⓘ, as inline. Pinch, pan and tap-to-select
   work as inline, and the selected boat, zoom and Names are shared with the
   page, so they carry in and back out. The overlay is a fixed layer
   `100dvh` tall inside the safe-area insets (the page uses
@@ -104,7 +124,7 @@ Switching races keeps the tab.
   in `recall.startSogWindow`, default 60). The analysis keeps every fix from
   120 s before the gun to 20 s after, and the live feed is fetched from 130 s
   before the gun to allow for it; if no boat's track goes back as far as the
-  window, the chart starts at the earliest data and the caption says so.
+  window, the chart starts at the earliest data and a ⚠ chip says so.
   A line breaks wherever a boat's fixes are more than 5 s apart (the same
   threshold as the distance `~` and Data %), with a grey dashed join, so a
   hole is never drawn as a speed; hovering inside one shows nothing. A dot
@@ -148,7 +168,7 @@ Switching races keeps the tab.
   boat everywhere; the others fade. On a narrow screen the labels are sail
   numbers and the mark names are turned.
 - **Wide tables:** each has a second scrollbar above it, kept in step with
-  its own (which sits directly under the table, with the notes below that).
+  its own (which sits directly under the table, with the key line below that).
   Fin and Boat stay put while the rest scrolls; on a phone long boat names
   are cut short (the sidebar has them).
 - **Upwind / downwind summaries:** per boat, the beats added up and the runs
@@ -186,7 +206,7 @@ Switching races keeps the tab.
   clamp on coach and spare trackers) and runs of exactly 0° roll and 0° pitch
   lasting 10 s or more while moving (a device sending no IMU) count as
   missing; brief 0/0 readings are real and kept. Feeds without `roll` (older
-  events) hide the heel columns and say so under the tables. Trim (`pitch`)
+  events) hide the heel columns and say so in the tables' ⓘ. Trim (`pitch`)
   is read and averaged per leg but not shown: it carries each tracker's own
   mounting angle (boats in one fleet sit 13° apart on every leg), so it
   doesn't compare between boats.
@@ -226,8 +246,14 @@ Switching races keeps the tab.
   worst start, boats over the line or that race control couldn't check.
   **Race findings** (Race tab) follow the place changes: the biggest single-leg gain and
   loss, the quickest boats upwind and downwind, places gained or lost, and a
-  wind cross-check, with the data warnings below them. An empty list is
-  hidden.
+  wind cross-check. Below them, the race's data caveats (`RaceAnalysis.notes`,
+  typed; `warnings` keeps the full sentences) are a key line: ⚠ chips for
+  what changes how the numbers read (`⚠ legs split from turns`, leg order
+  from tracks, course shortened, wind assumed, Vakaros DTL off vs GPS, a
+  finish not ranked), plain chips for the rest (`windward mark est.`,
+  `5 not racing`, `Gate moved`, `model wind`), and the why as short bullets
+  in the card's ⓘ; each chip's tooltip has the full sentence. An empty list
+  is hidden.
 - **Highlights:** ▲ best and ▼ worst in each column. Select a boat in the boat
   list, the start chart or a table row to highlight it in both charts, both
   tables and both findings lists.
