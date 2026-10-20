@@ -52,6 +52,38 @@ export interface Boat {
   bowNumber?: string;
   /** Event-wide results, when the source has them (RaceSense: the regatta doc's finishes for every race). */
   entry?: EntryResults;
+  /** Where `finishMs` came from, when the race's results were resolved (see RaceData.results). */
+  finishSource?: FinishSource;
+  /** Official place in class (null: coded or not in the official results); set only with official results. */
+  officialPlace?: number | null;
+  /** Official scoring code (DNF, DNS, DNC, OCS, DSQ, RET, …); null for an official finisher. */
+  officialCode?: string | null;
+  /**
+   * Set by the source when the tracks show this boat wasn't in the race (a race with no
+   * RaceSense finishes: never near the start and no finish; data/finishes.ts awayFromStart):
+   * analysis sets it aside as not racing, with this reason.
+   */
+  notRacing?: string;
+}
+
+export type FinishSource = 'official' | 'racesense' | 'tracker';
+
+/** How a race's places and finish times were decided (data/finishes.ts, racesense/adapter.ts). */
+export interface RaceResults {
+  /** Places: the official results, RaceSense's finish order, or the order of the tracks' finish-line crossings. */
+  places: FinishSource;
+  /** Times: as places, or 'mixed' (official places with RaceSense finishes where it has them and crossings elsewhere). */
+  times: FinishSource | 'mixed';
+  /** Why official times were set aside (placeholders, outside the race, too few to check). */
+  timesNote?: string;
+  /** Official race number, when linked. */
+  officialNumber?: number;
+  /** Boats whose finish is a tracker crossing. */
+  trackerFinishes: number;
+  /** Official results with no track in this race (RaceSense sail, or the official sail when unpaired). */
+  officialNoTrack?: string[];
+  /** Tracked boats the official results don't list. */
+  trackNoOfficial?: string[];
 }
 
 /**
@@ -156,4 +188,6 @@ export interface RaceData {
   boats: Boat[];
   /** Modelled (not measured) wind near the course, if available. */
   windModel?: { label: string; samples: WindSample[] };
+  /** Where places and finish times came from; absent when nothing was resolved (as before official results). */
+  results?: RaceResults;
 }

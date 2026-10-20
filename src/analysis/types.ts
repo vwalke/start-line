@@ -1,4 +1,4 @@
-import type { RcStatus } from '../data/types';
+import type { FinishSource, RaceResults, RcStatus } from '../data/types';
 import type { Vec } from './geo';
 
 /** How much track before the start fix the start chart draws behind each boat. */
@@ -129,8 +129,10 @@ export interface StartResult {
   rank: { m: number; source: 'vakaros' | 'ours' } | null;
   /** Flagged OCS, or the ranking value is negative. */
   over: boolean;
-  /** Place among clean starters (1 = closest to the line); null when over or unranked. */
+  /** Place among clean starters (1 = closest to the line); null when over, unranked or away from the line. */
   startPlace: number | null;
+  /** Bow is far from the line at the gun: listed as away, left out of Fit and start places. */
+  awayFromLine: boolean;
   /** Vakaros and ours are both valid but clearly disagree. */
   warn: string | null;
   /** Vakaros had no usable fix, and our figure puts the boat near or over the line. */
@@ -145,6 +147,10 @@ export interface BoatResult {
   colorSlot: number;
   finishPos: number | null;
   finishMs: number | null;
+  /** Official scoring code (DSQ, DNF, …) when official results are linked; finishPos is then null. */
+  finishCode?: string;
+  /** Where finishMs came from, when the race's results were resolved ('tracker': a finish-line crossing, shown as ~). */
+  finishSource?: FinishSource;
   raceTimeS: number | null;
   sogAvgKn: number | null;
   /** Distance sailed gun → finish, m (the sum of the legs); null without a finish. */
@@ -255,6 +261,8 @@ export interface RaceAnalysis {
     sourceLabel: string;
     sourceKind: string;
     eventId?: string;
+    /** Where places and finish times came from (official results, tracker crossings), when resolved. */
+    results?: RaceResults;
   };
   line: LineInfo;
   finishLine: { left: Vec; right: Vec } | null;

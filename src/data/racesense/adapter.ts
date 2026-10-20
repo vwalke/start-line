@@ -4,7 +4,9 @@
  * normalized `RaceData`. Pure functions only; fetching lives in api.ts so
  * the same code runs against the offline fixtures in tests.
  */
-import type { Boat, CourseMark, EntryResults, LatLon, Line, MarkTrack, RaceData, RcStart, Track, WindSample } from '../types';
+import { awayFromStart, crossings, feedRaceNumber, fleetOnsetFloor, lineFrom, officialTimesPlausible, trackerFinish, PLAUSIBLE_SEARCH_MS, type MarkSeries } from '../finishes';
+import type { OfficialResultRow } from '../official/link';
+import type { Boat, CourseMark, EntryResults, LatLon, Line, MarkTrack, RaceData, RaceResults, RcStart, Track, WindSample } from '../types';
 import type {
   Course,
   Division,
@@ -51,12 +53,12 @@ function finishMs(race: Race): number[] {
   return (race.finishes ?? []).map((f) => Date.parse(f.finishingTime)).filter(Number.isFinite);
 }
 
-/** Every non-practice race with a gun, newest first. */
-export function listRaces(doc: RegattaDoc): RaceListItem[] {
+/** Every non-practice race with a gun (with `practice`, practice races too), newest first. */
+export function listRaces(doc: RegattaDoc, opts: { practice?: boolean } = {}): RaceListItem[] {
   const out: RaceListItem[] = [];
   for (const div of doc.divisions ?? []) {
     for (const race of div.races ?? []) {
-      if (race.isPractice) continue;
+      if (race.isPractice && !opts.practice) continue;
       const st = raceStart(race);
       if (!st || st.startTime == null) continue;
       const fins = finishMs(race);
@@ -94,15 +96,33 @@ export function findRace(doc: RegattaDoc, ref: RaceRef): { div: Division; race: 
  */
 export const PRE_START_FETCH_MS = 130_000;
 
+/**
+ * A race with no RaceSense finishes is fetched to the division's next gun (less a minute) or
+ * this long after its own, whichever is first: its finishes come from the tracks or the official
+ * results, and RaceSense's `endTime` for such races is unreliable (AYC: before the last finish;
+ * Cascais: 8 h or a day later).
+ */
+export const NO_FINISH_WINDOW_MS = 2 * 3_600_000;
+
+/** The division's next gun after this race's (any race with a gun, practice included), or null. */
+export function nextGunMs(doc: RegattaDoc, ref: RaceRef): number | null {
+  const { div, race } = findRace(doc, ref);
+  const gun = raceStart(race)?.startTime;
+  if (gun == null) return null;
+  const later = (div.races ?? []).map((r) => raceStart(r)?.startTime ?? null).filter((t): t is number => t != null && t > gun + 60_000);
+  return later.length ? Math.min(...later) : null;
+}
+
 /** Telemetry time window worth fetching for a race: a short pre-start (for trails) to just past the last finish. */
 export function telemetryWindow(doc: RegattaDoc, ref: RaceRef): { after: number; before: number } {
   const { race } = findRace(doc, ref);
   const st = raceStart(race);
   if (!st?.startTime) throw new Error('Race has no start time');
   const fins = finishMs(race);
-  const endIso = race.endTime ? Date.parse(race.endTime) : NaN;
-  const end = fins.length ? Math.max(...fins) + 30_000 : Number.isFinite(endIso) ? endIso : st.startTime + 90 * 60_000;
-  return { after: st.startTime - PRE_START_FETCH_MS, before: end };
+  if (fins.length) return { after: st.startTime - PRE_START_FETCH_MS, before: Math.max(...fins) + 30_000 };
+  const next = nextGunMs(doc, ref);
+  const end = Math.min(st.startTime + NO_FINISH_WINDOW_MS, next != null ? next - 60_000 : Infinity);
+  return { after: st.startTime - PRE_START_FETCH_MS, before: Math.max(end, st.startTime + 20 * 60_000) };
 }
 
 /** Firestore carries a 10-hex-digit serial; telemetry's `sn` is its low 16 bits as a number. */
@@ -359,6 +379,9 @@ interface Row {
   /** Heel / trim, degrees; null when the page has no such column or the value is missing or implausible. */
   roll: number | null;
   pitch: number | null;
+  /** The feed's `race_stage` / `race_number` for the device, when the page has them (tracker finishes use the stage). */
+  stage?: string | null;
+  rn?: number | null;
 }
 
 /** |roll| or |pitch| at or beyond this is no reading: coach and spare trackers sit at a ±90 clamp, and a few glitches read 94–127. */
@@ -427,6 +450,8 @@ export function parseTelemetry(pages: TelemetryPage[]): Row[] {
         sog: f.sog === undefined ? NaN : Number(r[f.sog]),
         roll: f.roll === undefined ? null : imuAngle(r[f.roll]),
         pitch: f.pitch === undefined ? null : imuAngle(r[f.pitch]),
+        ...(f.race_stage === undefined ? {} : { stage: r[f.race_stage] == null ? null : String(r[f.race_stage]) }),
+        ...(f.race_number === undefined || r[f.race_number] == null ? {} : { rn: Number(r[f.race_number]) }),
       });
     }
   }
@@ -478,6 +503,148 @@ export interface BuildOptions {
   wind?: WindResponse;
   /** The landing list's class label for the event (a fallback for the class dimensions). */
   classLabel?: string;
+  /** This race's official results (Yachtscoring, linked by gun): places and codes win; times if plausible. */
+  official?: OfficialRaceInput | null;
+  /** The division's next gun (official finish times must fall before it; the tracker-finish window ends there). */
+  nextGunMs?: number | null;
+}
+
+/** One race's official results as the worker receives them (plain JSON). */
+export interface OfficialRaceInput {
+  number: number;
+  /** Local − UTC of the official wall-clock times, ms (link.ts infers it). */
+  tzOffsetMs: number;
+  rows: OfficialResultRow[];
+}
+
+/** The finish line's two trackers: the course's finish line, else its start line (AYC shares one line). */
+function finishDevices(course: Course | null): { left: string; right: string } | null {
+  const ach = course?.achievements ?? [];
+  for (const type of ['finishLine', 'startLine']) {
+    const a = ach.find((x) => x.type === type);
+    const l = a?.deviceRoles.find((d) => /left/i.test(d.role));
+    const r = a?.deviceRoles.find((d) => /right/i.test(d.role));
+    if (l && r) return { left: l.sn, right: r.sn };
+  }
+  return null;
+}
+
+/**
+ * Decide places and finish times (RaceData.results, Boat.finishSource / official*): official
+ * places and codes when linked, with official times only if plausible (data/finishes.ts), else
+ * RaceSense's finish or the tracker crossing; with no official results and no RaceSense
+ * finishes, tracker crossings. A race with RaceSense finishes and no official results is left as it was.
+ */
+function resolveResults(
+  boats: Boat[],
+  rowsOf: (sail: string) => Row[] | undefined,
+  rows: Row[],
+  ctx: { gunMs: number; startMid: LatLon; course: Course | null; finishLine: Line | null; rsFinishes: number; official: OfficialRaceInput | null; nextGunMs: number | null },
+): RaceResults | undefined {
+  const { gunMs, official } = ctx;
+  if (!official && ctx.rsFinishes > 0) return undefined;
+  const lastTs = rows.length ? rows[rows.length - 1].ts : gunMs;
+  const endMs = Math.min(lastTs, ctx.nextGunMs != null ? ctx.nextGunMs - 30_000 : Infinity);
+  const dev = finishDevices(ctx.course);
+  const series = (hex: string): MarkSeries => {
+    const sn = snFromHex(hex);
+    const s: MarkSeries = { t: [], lat: [], lon: [] };
+    for (const r of rows) {
+      if (r.role !== 'mark' || r.sn !== sn) continue;
+      s.t.push(r.ts);
+      s.lat.push(r.lat);
+      s.lon.push(r.lon);
+    }
+    return s;
+  };
+  let lineAt: ((t: number) => Line | null) | null = null;
+  if (dev) {
+    const l = series(dev.left);
+    const r = series(dev.right);
+    if (l.t.length && r.t.length) lineAt = lineFrom(l, r);
+  }
+  if (!lineAt && ctx.finishLine) {
+    const fl = ctx.finishLine;
+    lineAt = () => fl;
+  }
+  const fixes = new Map<string, Row[]>();
+  for (const b of boats) fixes.set(b.id, rowsOf(b.sail) ?? []);
+  const feedRn = feedRaceNumber(fixes.values(), gunMs);
+  const floor = fleetOnsetFloor(fixes.values(), gunMs, feedRn);
+  const tracker = new Map<string, number>();
+  if (lineAt) {
+    for (const b of boats) {
+      const t = trackerFinish(fixes.get(b.id)!, lineAt, gunMs, endMs, feedRn, floor);
+      if (t != null) tracker.set(b.id, t);
+    }
+  }
+
+  if (!official) {
+    for (const b of boats) {
+      const t = tracker.get(b.id);
+      b.finishMs = t ?? null;
+      if (t != null) b.finishSource = 'tracker';
+      // No RaceSense finishes confirm who raced: a tracker far from the start that never finishes was elsewhere.
+      const away = awayFromStart(fixes.get(b.id)!, ctx.startMid, gunMs, t != null);
+      if (away) b.notRacing = away;
+    }
+    return { places: 'tracker', times: 'tracker', trackerFinishes: tracker.size };
+  }
+
+  const byRs = new Map(official.rows.filter((r) => r.rsSail).map((r) => [r.rsSail!, r]));
+  const utc = (wall: number | null): number | null => (wall == null ? null : wall - official.tzOffsetMs);
+  const fins = official.rows.filter((r) => r.code == null && r.place != null);
+  const pairs = boats
+    .map((b) => ({ b, o: byRs.get(b.sail) }))
+    .filter((x) => x.o && x.o.code == null && utc(x.o.finishWallMs) != null)
+    .map(({ b, o }) => ({ officialMs: utc(o!.finishWallMs)!, crossings: lineAt ? crossings(fixes.get(b.id)!, lineAt, gunMs, endMs + PLAUSIBLE_SEARCH_MS) : [] }));
+  const allOfficial = fins.map((r) => utc(r.finishWallMs)).filter((t): t is number => t != null);
+  const plaus = allOfficial.length ? officialTimesPlausible(pairs, gunMs, ctx.nextGunMs, allOfficial) : { ok: false, n: 0, medianS: null, why: 'no official finish times' };
+  let trackerN = 0;
+  let rsN = 0;
+  for (const b of boats) {
+    const o = byRs.get(b.sail);
+    const rsFin = b.finishMs;
+    b.officialPlace = o && o.code == null ? o.place : null;
+    b.officialCode = o ? o.code : null;
+    if (o?.code === 'OCS') b.ocs = true;
+    else if (o && o.code == null) b.ocs = false;
+    if (!o || o.code != null) {
+      b.finishMs = null;
+      delete b.finishSource;
+      continue;
+    }
+    // Officially placed: the place stands even with an implausible-looking RaceSense finish.
+    if (b.entry) b.entry = { ...b.entry, finishPlausible: true, finishNote: undefined };
+    const ot = utc(o.finishWallMs);
+    if (plaus.ok && ot != null) {
+      b.finishMs = ot;
+      b.finishSource = 'official';
+    } else if (rsFin != null) {
+      b.finishMs = rsFin;
+      b.finishSource = 'racesense';
+      rsN++;
+    } else if (tracker.has(b.id)) {
+      b.finishMs = tracker.get(b.id)!;
+      b.finishSource = 'tracker';
+      trackerN++;
+    } else {
+      b.finishMs = null;
+    }
+  }
+  const tracked = new Set(boats.map((b) => b.sail));
+  const out: RaceResults = {
+    places: 'official',
+    times: plaus.ok ? 'official' : trackerN && rsN ? 'mixed' : rsN ? 'racesense' : 'tracker',
+    officialNumber: official.number,
+    trackerFinishes: trackerN,
+  };
+  if (!plaus.ok) out.timesNote = plaus.why ?? 'official times not plausible';
+  const noTrack = official.rows.filter((r) => !r.rsSail || !tracked.has(r.rsSail)).map((r) => r.rsSail ?? [r.prefix, r.sail].filter(Boolean).join(' '));
+  const noOfficial = boats.filter((b) => !byRs.has(b.sail)).map((b) => b.sail);
+  if (noTrack.length) out.officialNoTrack = noTrack;
+  if (noOfficial.length) out.trackNoOfficial = noOfficial;
+  return out;
 }
 
 export function buildRaceData(
@@ -656,6 +823,16 @@ export function buildRaceData(
   };
   if (opts.classLabel) data.classLabel = opts.classLabel;
   if (untracked.length) data.courseUntracked = untracked;
+  const results = resolveResults(boats, rowsOf, rows, {
+    gunMs,
+    startMid: mid,
+    course,
+    finishLine,
+    rsFinishes: fins.length,
+    official: opts.official ?? null,
+    nextGunMs: opts.nextGunMs ?? null,
+  });
+  if (results) data.results = results;
   if (ws?.length) {
     data.windModel = { label: opts.wind?.modelLabel ?? opts.wind?.model ?? 'weather model', samples: ws };
   }

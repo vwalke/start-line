@@ -17,6 +17,8 @@ export function startKey(a: RaceAnalysis, o: { scale: { chip: string; info: stri
   const gaps = a.boats.filter((b) => b.start?.dtlGapS != null).length;
   if (gaps) chips.push(warnChip(`${gaps} with a gap at the gun`, "Their GPS track has a hole across the gun: our ~ figure is interpolated"));
   chips.push({ text: 'line extended', swatch: 'ext' });
+  const away = a.boats.filter((b) => b.start?.awayFromLine).length;
+  if (away) chips.push({ text: away === 1 ? '1 away from the line' : `${away} away from the line` });
   if (pickedExcluded(a, o.highlight ?? null)) chips.push({ text: 'not racing', swatch: 'nc' });
   const vakaros = a.boats.some((b) => b.start?.rcDtlM != null);
   return {
@@ -27,6 +29,7 @@ export function startKey(a: RaceAnalysis, o: { scale: { chip: string; info: stri
       `Bow numbers: metres behind the line (${vakaros ? 'Vakaros DTL' : 'our GPS check'}; ~ = across a gap).`,
       ...biasBullets(a),
       'Names: Auto skips overlaps (tap a boat for it); All; Off = selected only.',
+      ...(away ? ['Boats far from the line at the gun are listed as away from the line and left out of Fit.'] : []),
       GESTURES,
     ],
   };

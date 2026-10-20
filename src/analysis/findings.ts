@@ -73,6 +73,18 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
       out.push({ kind: 'start', text: wt + '.', boatIds: [worst.id] });
     }
   }
+  const away = started.filter((b) => b.start!.awayFromLine);
+  if (away.length) {
+    const km = (b: BoatResult): string => `${(Math.abs(b.start!.dtlM) / 1000).toFixed(1)} km`;
+    out.push({
+      kind: 'start',
+      boatIds: away.map((b) => b.id),
+      text:
+        away.length === 1
+          ? `${tag(away[0])} was ${km(away[0])} from the line at the gun (away from the line).`
+          : `${joinTags(away)} were away from the line at the gun (${away.map(km).join(', ')}).`,
+    });
+  }
   for (const b of over) {
     const s = b.start!;
     out.push({

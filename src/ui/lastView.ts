@@ -5,7 +5,7 @@
  */
 import type { RaceAnalysis } from '../analysis/types';
 import type { RaceListItem } from '../data/racesense/adapter';
-import { parsePickerParams, type PickerParams } from './params';
+import { parsePickerParams, parseYscParam, type PickerParams } from './params';
 import { readPref, removePref, writePref } from './speed';
 import { sortTable, type SortState } from './table';
 import { COACH_TABS, TABS, initialTab, parseTab, type Tab } from './tabs';
@@ -32,6 +32,9 @@ export interface LastView extends ViewState {
   allCompetitors?: true;
   /** The digest tab on screen (absent in records from before the tabs: Start). */
   tab?: Tab;
+  /** The official-results link set by hand (`ys=`, 0: off) and its class (`ysc=`); absent: automatic. */
+  ys?: number;
+  ysc?: string;
   savedAt: number;
 }
 
@@ -71,11 +74,17 @@ export function parseLastView(raw: string | null | undefined): LastView | null {
   // Added with the tabs: optional, and an unknown one is just dropped (Coach is kept: whether it opens depends on the flag).
   const tab = parseTab(x.tab, COACH_TABS);
   if (tab) out.tab = tab;
+  // Added with official results: optional, and a malformed one is just dropped.
+  if (typeof x.ys === 'number' && Number.isInteger(x.ys) && x.ys >= 0 && x.ys < 1e7) {
+    out.ys = x.ys;
+    const ysc = x.ys ? parseYscParam(typeof x.ysc === 'string' ? x.ysc : null) : undefined;
+    if (ysc) out.ysc = ysc;
+  }
   return out;
 }
 
 export function serializeLastView(r: LastView): string {
-  const { v, eventId, division, raceNumber, allCompetitors, leg, boat, sort, startSort, tab, savedAt } = r;
+  const { v, eventId, division, raceNumber, allCompetitors, leg, boat, sort, startSort, tab, ys, ysc, savedAt } = r;
   return JSON.stringify({
     v,
     eventId,
@@ -87,6 +96,8 @@ export function serializeLastView(r: LastView): string {
     sort,
     ...(startSort ? { startSort } : {}),
     ...(tab ? { tab } : {}),
+    ...(ys !== undefined ? { ys } : {}),
+    ...(ys && ysc ? { ysc } : {}),
     savedAt,
   });
 }
@@ -129,9 +140,10 @@ export function resolveStart(search: string, saved: LastView | null): StartPlan 
   }
   if (saved) {
     const want = { division: saved.division, raceNumber: saved.raceNumber };
+    const official = { ...(saved.ys !== undefined ? { ys: saved.ys } : {}), ...(saved.ys && saved.ysc ? { ysc: saved.ysc } : {}) };
     return {
       source: 'saved',
-      params: saved.allCompetitors ? { eventId: saved.eventId, want, allCompetitors: true } : { eventId: saved.eventId, want },
+      params: saved.allCompetitors ? { eventId: saved.eventId, want, allCompetitors: true, ...official } : { eventId: saved.eventId, want, ...official },
       view: viewOf(saved),
     };
   }

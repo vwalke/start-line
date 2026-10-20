@@ -8,9 +8,14 @@ import { legStories } from '../analysis/coach/legStory';
 import type { Group } from '../analysis/coach/groups';
 import { splitFindings } from '../analysis/findings';
 import { START_TRAIL_MS, type RaceAnalysis } from '../analysis/types';
+import { linkOfficial, type LinkOutcome } from '../data/official/link';
+import { httpYsSource, parseYsEventId } from '../data/official/yachtscoring';
+import { PROBE_BUDGET, discoverOrphans, isOrphanKey, type OrphanFound } from '../data/orphans';
+import { buildRaceList, findListed, type ListedRace, type RaceList } from '../data/raceList';
 import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchUsableRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
+import { eventFinished, linkRequest, linksOf, mergeOrphans, officialFor, orphanContexts, probeFetcher } from '../data/recovery';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { boatList, findingsList } from './boats';
 import {
@@ -49,7 +54,8 @@ import {
   type StartPlan,
   type ViewState,
 } from './lastView';
-import { NC_ALL } from './params';
+import { NC_ALL, YSC_PARAM, YS_PARAM } from './params';
+import { easternZone, raceHead, raceHeadHtml, raceOptionText, raceTitleHtml, type FeedCheck, type OfficialState } from './races';
 import {
   isNarrowStart,
   legLegend,
@@ -141,6 +147,7 @@ export function startApp(): void {
     status: $('status'),
     digest: $('digest'),
     summary: $('summary'),
+    raceHead: $('race-head'),
     start: $('start-chart'),
     startCap: $('start-cap'),
     startHint: $('start-hint'),
@@ -286,6 +293,17 @@ export function startApp(): void {
   let matchCount = 0;
   /** The race on screen (null until one loads); what recall.lastView records. */
   let current: { eventId: string; division: string; raceNumber: number } | null = null;
+  /** The loaded event's regatta as fetched (`regatta` is it with rebuilt races merged in). */
+  let baseRegatta: RegattaResponse | null = null;
+  /** The loaded event's race list (official numbering, practice, rebuilt races). */
+  let raceList: RaceList | null = null;
+  /** Official results for the loaded event: `ys=` (0: off) / `ysc=` from the link or the saved view. */
+  let ysParam: number | undefined = params.ys;
+  let yscParam: string | undefined = params.ysc;
+  let official: OfficialState = { status: 'pending' };
+  let feed: FeedCheck = { status: 'idle', used: 0, max: 0, found: 0, exhausted: false };
+  const outcomeOf = (): LinkOutcome | null => (official.status === 'done' ? official.outcome : null);
+  const listedOf = (division: string, raceNumber: number): ListedRace | undefined => (raceList ? findListed(raceList, division, raceNumber) : undefined);
 
   /** Record the race on screen and how it's viewed, so a relaunch can come back to it. */
   function save(): void {
@@ -293,7 +311,19 @@ export function startApp(): void {
     // A load that has swapped `analysis` but not yet `current` (or the reverse) must not mix them.
     if (analysis.meta.division !== current.division || analysis.meta.raceNumber !== current.raceNumber) return;
     if (analysis.meta.eventId != null && analysis.meta.eventId !== current.eventId) return;
-    writeLastView({ v: 1, ...current, ...(allCompetitors ? { allCompetitors: true } : {}), leg: legSel, boat: highlight, sort, startSort, tab, savedAt: Date.now() });
+    writeLastView({
+      v: 1,
+      ...current,
+      ...(allCompetitors ? { allCompetitors: true } : {}),
+      leg: legSel,
+      boat: highlight,
+      sort,
+      startSort,
+      tab,
+      ...(ysParam !== undefined ? { ys: ysParam } : {}),
+      ...(ysParam && yscParam ? { ysc: yscParam } : {}),
+      savedAt: Date.now(),
+    });
   }
 
   /** Forget the saved race and take it out of the URL. */
@@ -301,7 +331,9 @@ export function startApp(): void {
     clearLastView();
     current = null;
     allCompetitors = false;
-    setUrl({ event: null, div: null, race: null, nc: null });
+    ysParam = undefined;
+    yscParam = undefined;
+    setUrl({ event: null, div: null, race: null, nc: null, [YS_PARAM]: null, [YSC_PARAM]: null });
   }
 
   function setStatus(text: string): void {
@@ -332,7 +364,17 @@ export function startApp(): void {
     history.replaceState(history.state, '', u);
   }
 
-  function render(): void {
+  /** The race header's chips and ⓘ (official link, numbering, finishes, feed check); kept open across redraws. */
+  function renderRaceHead(): void {
+    const m = analysis?.meta;
+    const race = m && (m.eventId == null || m.eventId === eventId) ? listedOf(m.division, m.raceNumber) : undefined;
+    const k = raceHead({ race, official, feed, results: m?.results, ys: ysParam ?? null });
+    renderKeepOpen(els.raceHead, (open) => raceHeadHtml(k, open));
+    els.raceHead.hidden = !m;
+  }
+
+  /** The race title and gun line (`#summary`): re-run whenever the race list is relabelled, as well as on every render. */
+  function renderSummary(): void {
     const a = analysis;
     if (!a) return;
     const m = a.meta;
@@ -344,11 +386,19 @@ export function startApp(): void {
           ? `Wind ${degLabel(w.twdAtGunDeg)} from the weather model`
           : `Wind assumed ${degLabel(w.twdAtGunDeg)} (first leg dead upwind)`;
     const model = w.model && w.method === 'tacks' ? ` · model ${degLabel(w.model.dirAtGunDeg)}` : '';
-    els.summary.innerHTML = `<h2>${esc(m.eventName)} · ${esc(m.boatClass)} · Race ${m.raceNumber}</h2>
+    const listed = m.eventId == null || m.eventId === eventId ? listedOf(m.division, m.raceNumber) : undefined;
+    els.summary.innerHTML = `${raceTitleHtml(m, listed)}
       <p>${esc(gunTimeLine(m.gunMs, m.tzOffsetMs))} ·
       ${a.boats.length} boats · ${a.legs.map((l) => esc(l.name)).join(', ')} ·
       <span title="No wind sensor on the boats: estimated from the fleet's steady upwind headings">${windText}${model}</span> ·
       <span class="muted">${esc(m.sourceLabel)}</span></p>`;
+    renderRaceHead();
+  }
+
+  function render(): void {
+    const a = analysis;
+    if (!a) return;
+    renderSummary();
     renderStart();
     els.startColour.innerHTML = startColourControls(startColour) + startNamesControls(startNames);
     els.startKey.innerHTML =
@@ -1239,11 +1289,14 @@ export function startApp(): void {
     const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: legSel, boat: highlight, sort, startSort }, restore);
     try {
       const classLabel = events.find((e) => e.eventId === id)?.classLabel;
-      if (!(await show(run({ type: 'live', eventId: id, regatta, division, raceNumber, allCompetitors, classLabel, ...(coachOn ? { coach: true } : {}) }), view))) return 'superseded';
+      const off = officialFor(outcomeOf(), listedOf(division, raceNumber));
+      const req = { type: 'live' as const, eventId: id, regatta, division, raceNumber, allCompetitors, classLabel, ...(off ? { official: off } : {}), ...(coachOn ? { coach: true } : {}) };
+      if (!(await show(run(req), view))) return 'superseded';
       current = { eventId: id, division, raceNumber };
       setUrl({ event: id, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
       save();
       setNotice('');
+      reapplyOfficial();
       return 'ok';
     } catch (e) {
       if (isSuperseded(e)) return 'superseded';
@@ -1267,6 +1320,117 @@ export function startApp(): void {
     els.count.classList.toggle('none', q.trim() !== '' && matchCount === 0);
   }
 
+  /** The Race select from the race list (official numbers, practice, rebuilt races), keeping the selection. */
+  function renderRaceOptions(): void {
+    if (!raceList) return;
+    const keep = els.race.value;
+    const multi = new Set(raceList.races.map((r) => r.division)).size > 1;
+    els.race.innerHTML = raceList.races
+      .map((r) => `<option value="${esc(r.division)}|${r.raceNumber}">${esc(raceOptionText(r, multi))}</option>`)
+      .join('');
+    const values = new Set(raceList.races.map((r) => `${r.division}|${r.raceNumber}`));
+    if (values.has(keep)) els.race.value = keep;
+    else if (current && values.has(`${current.division}|${current.raceNumber}`)) els.race.value = `${current.division}|${current.raceNumber}`;
+    const first = raceList.races[0];
+    els.race.title = first ? `Times Eastern (${easternZone(first.gunMs)})` : '';
+  }
+
+  /** Re-list with what enrich() has found; re-analyse the race on screen if its official results changed. */
+  function refreshList(found?: ReadonlyMap<string, readonly OrphanFound[]>): void {
+    if (!regatta) return;
+    raceList = buildRaceList(currentDoc(regatta), { links: linksOf(outcomeOf()), ...(found ? { orphans: found } : orphansFound ? { orphans: orphansFound } : {}) });
+    renderRaceOptions();
+    // The header names the race as the picker does: relabel it too (title, RS tag and chips).
+    renderSummary();
+    reapplyOfficial();
+  }
+
+  /** The race on screen was analysed without (or with) official results it should (not) have: load it again, keeping the view. */
+  function reapplyOfficial(): void {
+    const a = analysis;
+    if (!a || !current || a.meta.division !== current.division || a.meta.raceNumber !== current.raceNumber || current.eventId !== eventId) return;
+    const want = officialFor(outcomeOf(), listedOf(current.division, current.raceNumber)) != null;
+    if (want !== (a.meta.results?.places === 'official')) void loadRace(current.division, current.raceNumber);
+  }
+
+  let orphansFound: Map<string, OrphanFound[]> | null = null;
+  let enrichGen = 0;
+  /**
+   * After the race list first renders: link official results (or follow `ys=`), relabel, then look
+   * for unlisted races in the feed (bounded: data/orphans.ts) and list them. Never blocks the first
+   * race; every failure ends as a chip with RaceSense numbering kept.
+   */
+  async function enrich(id: string, req: number): Promise<void> {
+    const gen = ++enrichGen;
+    const stale = (): boolean => gen !== enrichGen || req !== eventReq || id !== eventId;
+    const base = baseRegatta;
+    if (!base) return;
+    const doc = currentDoc(base);
+    if (ysParam === 0) official = { status: 'off' };
+    else {
+      official = { status: 'pending' };
+      renderRaceHead();
+      const landing = events.find((e) => e.eventId === id);
+      const outcome = await linkOfficial(httpYsSource(), linkRequest(doc, landing, ysParam ? { eventId: ysParam, cls: yscParam ?? null } : null));
+      if (stale()) return;
+      official = { status: 'done', outcome };
+    }
+    orphansFound = null;
+    regatta = base;
+    refreshList();
+    const contexts = orphanContexts(doc, raceList!, outcomeOf());
+    const fetchRows = probeFetcher(id, eventFinished(doc));
+    const found = new Map<string, OrphanFound[]>();
+    feed = { status: 'running', used: 0, max: PROBE_BUDGET, found: 0, exhausted: false };
+    renderRaceHead();
+    for (const c of contexts) {
+      const before = feed.used;
+      const r = await discoverOrphans(c, fetchRows, {
+        budget: PROBE_BUDGET - before,
+        onProgress: (u) => {
+          if (stale()) return;
+          feed = { ...feed, used: before + u };
+          renderRaceHead();
+        },
+      });
+      if (stale()) return;
+      feed = { ...feed, used: before + r.used, exhausted: feed.exhausted || r.exhausted };
+      if (r.found.length) found.set(c.division, r.found);
+    }
+    feed = { ...feed, status: 'done', found: [...found.values()].reduce((n, l) => n + l.length, 0) };
+    orphansFound = found;
+    regatta = mergeOrphans(base, found);
+    refreshList(found);
+  }
+
+  /** The ⓘ form: link official results by hand (`ys=`), turn them off (`ys=0`) or back to automatic. */
+  function setYs(v: number | undefined): void {
+    ysParam = v;
+    yscParam = undefined;
+    setUrl({ [YS_PARAM]: v === undefined ? null : String(v), [YSC_PARAM]: null });
+    save();
+    if (eventId) void enrich(eventId, eventReq);
+  }
+  els.raceHead.addEventListener('submit', (ev) => {
+    const form = (ev.target as HTMLElement).closest<HTMLFormElement>('form[data-ys-form]');
+    if (!form) return;
+    ev.preventDefault();
+    const input = form.elements.namedItem('ys') as HTMLInputElement | null;
+    const id = input ? parseYsEventId(input.value) : null;
+    if (!id) {
+      input?.setCustomValidity('Paste a yachtscoring.com/emenu/… link or an event number');
+      input?.reportValidity();
+      return;
+    }
+    input?.setCustomValidity('');
+    setYs(id);
+  });
+  els.raceHead.addEventListener('input', (ev) => (ev.target as HTMLInputElement).setCustomValidity?.(''));
+  els.raceHead.addEventListener('click', (ev) => {
+    const b = (ev.target as HTMLElement).closest<HTMLButtonElement>('button[data-ys]');
+    if (b) setYs(b.dataset.ys === 'off' ? 0 : undefined);
+  });
+
   let eventReq = 0;
   /** 'empty': no finished races; 'missing': a strict (restore) `want` isn't listed; an Error: the race failed to load. */
   type EventLoad = RaceLoad | 'empty' | 'missing';
@@ -1286,18 +1450,32 @@ export function startApp(): void {
       const next = await fetchUsableRegatta(id, (r) => listRaces(currentDoc(r)).some((x) => x.finishers > 0));
       if (req !== eventReq) return 'superseded'; // a newer pick
       const doc = currentDoc(next);
-      const races = listRaces(doc).filter((r) => r.finishers > 0);
-      if (!races.length) return 'empty';
-      const pick = pickRace(races, want, defaultRace(doc), opts.strict);
-      if (!pick) return 'missing';
+      // Zero-finisher races are listed too (tracker or official finishes); bogus ones are hidden.
+      let list = buildRaceList(doc);
+      if (!list.races.length) return 'empty';
+      if (id !== eventId) {
+        official = { status: ysParam === 0 ? 'off' : 'pending' };
+        feed = { status: 'idle', used: 0, max: 0, found: 0, exhausted: false };
+      }
+      baseRegatta = next;
       regatta = next;
+      raceList = list;
       eventId = id;
       renderEventOptions();
-      els.race.innerHTML = races
-        .map((r) => `<option value="${esc(r.division)}|${r.raceNumber}">${esc(r.division)} · Race ${r.raceNumber}</option>`)
-        .join('');
-      els.race.value = `${pick.division}|${pick.raceNumber}`;
+      renderRaceOptions();
       els.race.disabled = false;
+      // The picker is on screen before official matching or the feed probe (those only relabel).
+      const enrichment = enrich(id, req);
+      // A rebuilt race (`race=` its gun minute) exists only once the feed check has run: wait for it.
+      if (want && isOrphanKey(want.raceNumber) && !findListed(list, want.division, want.raceNumber)) {
+        await enrichment;
+        if (req !== eventReq) return 'superseded';
+        list = raceList ?? list;
+      }
+      const races = list.races;
+      const pick = pickRace(races, want, defaultRace(doc), opts.strict);
+      if (!pick) return 'missing';
+      els.race.value = `${pick.division}|${pick.raceNumber}`;
       const wanted = want && pick.division === want.division && pick.raceNumber === want.raceNumber;
       return await loadRace(pick.division, pick.raceNumber, wanted ? opts.view : undefined);
     } catch (e) {
@@ -1311,6 +1489,12 @@ export function startApp(): void {
   /** A user pick (select, or Enter in the search). On failure the select goes back to the loaded event. */
   function pickEvent(id: string): void {
     if (!id || id === eventId) return;
+    // A hand-set official link belongs to the event it was set on.
+    if (ysParam !== undefined) {
+      ysParam = undefined;
+      yscParam = undefined;
+      setUrl({ [YS_PARAM]: null, [YSC_PARAM]: null });
+    }
     loadEvent(id).then(
       (r) => {
         if (r !== 'empty') return;

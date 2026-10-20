@@ -1,0 +1,6006 @@
+{
+"source": "https://cascaisj70worlds2026.cncascais.com/en/default/races/race-resultsall (Sailti, Clube Naval de Cascais), fetched 2026-10-20; crew/club stripped",
+"races": 10,
+"boats": [
+{
+"rank": 1,
+"sail": "BRA 641",
+"name": "OCEANPACT - VIKING",
+"cat": "Open",
+"net": 86.0,
+"total": 117.0,
+"races": [
+{
+"points": 9.0,
+"code": null,
+"discard": false
+},
+{
+"points": 1.0,
+"code": null,
+"discard": false
+},
+{
+"points": 17.0,
+"code": null,
+"discard": false
+},
+{
+"points": 4.0,
+"code": null,
+"discard": false
+},
+{
+"points": 8.0,
+"code": null,
+"discard": false
+},
+{
+"points": 5.0,
+"code": null,
+"discard": false
+},
+{
+"points": 9.0,
+"code": null,
+"discard": false
+},
+{
+"points": 31.0,
+"code": null,
+"discard": true
+},
+{
+"points": 13.0,
+"code": null,
+"discard": false
+},
+{
+"points": 20.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 2,
+"sail": "ESP 1283",
+"name": "MARNATURA",
+"cat": "Corinthian",
+"net": 102.0,
+"total": 138.0,
+"races": [
+{
+"points": 4.0,
+"code": null,
+"discard": false
+},
+{
+"points": 8.0,
+"code": null,
+"discard": false
+},
+{
+"points": 5.0,
+"code": null,
+"discard": false
+},
+{
+"points": 3.0,
+"code": null,
+"discard": false
+},
+{
+"points": 18.0,
+"code": null,
+"discard": false
+},
+{
+"points": 25.0,
+"code": null,
+"discard": false
+},
+{
+"points": 20.0,
+"code": null,
+"discard": false
+},
+{
+"points": 17.0,
+"code": null,
+"discard": false
+},
+{
+"points": 36.0,
+"code": null,
+"discard": true
+},
+{
+"points": 2.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 3,
+"sail": "USA 169",
+"name": "EMPEIRIA",
+"cat": "Open",
+"net": 114.0,
+"total": 171.3,
+"races": [
+{
+"points": 17.0,
+"code": null,
+"discard": false
+},
+{
+"points": 57.3,
+"code": "PRP",
+"discard": true
+},
+{
+"points": 2.0,
+"code": null,
+"discard": false
+},
+{
+"points": 5.0,
+"code": null,
+"discard": false
+},
+{
+"points": 5.0,
+"code": null,
+"discard": false
+},
+{
+"points": 1.0,
+"code": null,
+"discard": false
+},
+{
+"points": 4.0,
+"code": null,
+"discard": false
+},
+{
+"points": 22.0,
+"code": null,
+"discard": false
+},
+{
+"points": 11.0,
+"code": null,
+"discard": false
+},
+{
+"points": 47.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 4,
+"sail": "USA 26",
+"name": "MIDLIFE CRISIS",
+"cat": "Open",
+"net": 122.0,
+"total": 223.0,
+"races": [
+{
+"points": 21.0,
+"code": null,
+"discard": false
+},
+{
+"points": 6.0,
+"code": null,
+"discard": false
+},
+{
+"points": 3.0,
+"code": null,
+"discard": false
+},
+{
+"points": 18.0,
+"code": null,
+"discard": false
+},
+{
+"points": 33.0,
+"code": null,
+"discard": false
+},
+{
+"points": 4.0,
+"code": null,
+"discard": false
+},
+{
+"points": 1.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DSQ",
+"discard": true
+},
+{
+"points": 35.0,
+"code": null,
+"discard": false
+},
+{
+"points": 1.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 5,
+"sail": "USA 1047",
+"name": "GOOD TO GO",
+"cat": "Open",
+"net": 130.0,
+"total": 176.0,
+"races": [
+{
+"points": 18.0,
+"code": null,
+"discard": false
+},
+{
+"points": 4.0,
+"code": null,
+"discard": false
+},
+{
+"points": 13.0,
+"code": null,
+"discard": false
+},
+{
+"points": 13.0,
+"code": null,
+"discard": false
+},
+{
+"points": 46.0,
+"code": null,
+"discard": true
+},
+{
+"points": 10.0,
+"code": null,
+"discard": false
+},
+{
+"points": 45.0,
+"code": null,
+"discard": false
+},
+{
+"points": 6.0,
+"code": null,
+"discard": false
+},
+{
+"points": 3.0,
+"code": null,
+"discard": false
+},
+{
+"points": 18.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 6,
+"sail": "MEX 162",
+"name": "ALGARETE",
+"cat": "Open",
+"net": 175.0,
+"total": 233.0,
+"races": [
+{
+"points": 27.0,
+"code": null,
+"discard": false
+},
+{
+"points": 31.0,
+"code": null,
+"discard": false
+},
+{
+"points": 30.0,
+"code": null,
+"discard": false
+},
+{
+"points": 6.0,
+"code": null,
+"discard": false
+},
+{
+"points": 3.0,
+"code": null,
+"discard": false
+},
+{
+"points": 3.0,
+"code": null,
+"discard": false
+},
+{
+"points": 2.0,
+"code": null,
+"discard": false
+},
+{
+"points": 33.0,
+"code": null,
+"discard": false
+},
+{
+"points": 58.0,
+"code": null,
+"discard": true
+},
+{
+"points": 40.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 7,
+"sail": "ESP 1135",
+"name": "PATAKIN",
+"cat": "Open",
+"net": 175.0,
+"total": 225.0,
+"races": [
+{
+"points": 3.0,
+"code": null,
+"discard": false
+},
+{
+"points": 33.0,
+"code": null,
+"discard": false
+},
+{
+"points": 50.0,
+"code": null,
+"discard": true
+},
+{
+"points": 7.0,
+"code": null,
+"discard": false
+},
+{
+"points": 4.0,
+"code": null,
+"discard": false
+},
+{
+"points": 26.0,
+"code": null,
+"discard": false
+},
+{
+"points": 49.0,
+"code": null,
+"discard": false
+},
+{
+"points": 5.0,
+"code": null,
+"discard": false
+},
+{
+"points": 40.0,
+"code": null,
+"discard": false
+},
+{
+"points": 8.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 8,
+"sail": "BRA 1795",
+"name": "ARET\u00ea",
+"cat": "Open",
+"net": 183.0,
+"total": 240.0,
+"races": [
+{
+"points": 13.0,
+"code": null,
+"discard": false
+},
+{
+"points": 9.0,
+"code": null,
+"discard": false
+},
+{
+"points": 7.0,
+"code": null,
+"discard": false
+},
+{
+"points": 9.0,
+"code": null,
+"discard": false
+},
+{
+"points": 57.0,
+"code": null,
+"discard": true
+},
+{
+"points": 21.0,
+"code": null,
+"discard": false
+},
+{
+"points": 22.0,
+"code": null,
+"discard": false
+},
+{
+"points": 21.0,
+"code": null,
+"discard": false
+},
+{
+"points": 39.0,
+"code": null,
+"discard": false
+},
+{
+"points": 42.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 9,
+"sail": "SWE 1121",
+"name": "GARM",
+"cat": "Open",
+"net": 190.0,
+"total": 247.0,
+"races": [
+{
+"points": 16.0,
+"code": null,
+"discard": false
+},
+{
+"points": 57.0,
+"code": null,
+"discard": true
+},
+{
+"points": 10.0,
+"code": null,
+"discard": false
+},
+{
+"points": 50.0,
+"code": null,
+"discard": false
+},
+{
+"points": 2.0,
+"code": null,
+"discard": false
+},
+{
+"points": 37.0,
+"code": null,
+"discard": false
+},
+{
+"points": 13.0,
+"code": null,
+"discard": false
+},
+{
+"points": 8.0,
+"code": null,
+"discard": false
+},
+{
+"points": 42.0,
+"code": null,
+"discard": false
+},
+{
+"points": 12.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 10,
+"sail": "TUR 1389",
+"name": "TEAM NAUTIQUE YACHTING",
+"cat": "One Pro",
+"net": 210.0,
+"total": 254.0,
+"races": [
+{
+"points": 12.0,
+"code": null,
+"discard": false
+},
+{
+"points": 34.0,
+"code": null,
+"discard": false
+},
+{
+"points": 18.0,
+"code": null,
+"discard": false
+},
+{
+"points": 21.0,
+"code": null,
+"discard": false
+},
+{
+"points": 44.0,
+"code": null,
+"discard": true
+},
+{
+"points": 43.0,
+"code": null,
+"discard": false
+},
+{
+"points": 6.0,
+"code": null,
+"discard": false
+},
+{
+"points": 34.0,
+"code": null,
+"discard": false
+},
+{
+"points": 21.0,
+"code": null,
+"discard": false
+},
+{
+"points": 21.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 11,
+"sail": "POR 1282",
+"name": "ANOTHER AFFAIR",
+"cat": "Open",
+"net": 211.0,
+"total": 273.0,
+"races": [
+{
+"points": 7.0,
+"code": null,
+"discard": false
+},
+{
+"points": 18.0,
+"code": null,
+"discard": false
+},
+{
+"points": 20.0,
+"code": null,
+"discard": false
+},
+{
+"points": 2.0,
+"code": null,
+"discard": false
+},
+{
+"points": 62.0,
+"code": null,
+"discard": true
+},
+{
+"points": 55.0,
+"code": null,
+"discard": false
+},
+{
+"points": 30.0,
+"code": null,
+"discard": false
+},
+{
+"points": 14.0,
+"code": null,
+"discard": false
+},
+{
+"points": 61.0,
+"code": null,
+"discard": false
+},
+{
+"points": 4.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 12,
+"sail": "USA 833",
+"name": "RELATIVE OBSCURITY",
+"cat": "Open",
+"net": 213.0,
+"total": 272.0,
+"races": [
+{
+"points": 10.0,
+"code": null,
+"discard": false
+},
+{
+"points": 59.0,
+"code": null,
+"discard": true
+},
+{
+"points": 15.0,
+"code": null,
+"discard": false
+},
+{
+"points": 29.0,
+"code": null,
+"discard": false
+},
+{
+"points": 54.0,
+"code": null,
+"discard": false
+},
+{
+"points": 22.0,
+"code": null,
+"discard": false
+},
+{
+"points": 40.0,
+"code": null,
+"discard": false
+},
+{
+"points": 13.0,
+"code": null,
+"discard": false
+},
+{
+"points": 17.0,
+"code": null,
+"discard": false
+},
+{
+"points": 13.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 13,
+"sail": "USA 49",
+"name": "SAVASANA",
+"cat": "Open",
+"net": 216.0,
+"total": 317.0,
+"races": [
+{
+"points": 19.0,
+"code": null,
+"discard": false
+},
+{
+"points": 3.0,
+"code": null,
+"discard": false
+},
+{
+"points": 1.0,
+"code": null,
+"discard": false
+},
+{
+"points": 52.0,
+"code": null,
+"discard": false
+},
+{
+"points": 60.0,
+"code": null,
+"discard": false
+},
+{
+"points": 6.0,
+"code": null,
+"discard": false
+},
+{
+"points": 31.0,
+"code": null,
+"discard": false
+},
+{
+"points": 11.0,
+"code": null,
+"discard": false
+},
+{
+"points": 33.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+}
+]
+},
+{
+"rank": 14,
+"sail": "FIN 1634",
+"name": "LIQUID SUN",
+"cat": "Corinthian",
+"net": 218.0,
+"total": 310.0,
+"races": [
+{
+"points": 11.0,
+"code": null,
+"discard": false
+},
+{
+"points": 37.0,
+"code": null,
+"discard": false
+},
+{
+"points": 37.0,
+"code": null,
+"discard": false
+},
+{
+"points": 10.0,
+"code": null,
+"discard": false
+},
+{
+"points": 92.0,
+"code": null,
+"discard": true
+},
+{
+"points": 29.0,
+"code": null,
+"discard": false
+},
+{
+"points": 3.0,
+"code": null,
+"discard": false
+},
+{
+"points": 18.0,
+"code": null,
+"discard": false
+},
+{
+"points": 50.0,
+"code": null,
+"discard": false
+},
+{
+"points": 23.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 15,
+"sail": "ESP 1170",
+"name": "YUPI",
+"cat": "Mixed Plus",
+"net": 218.0,
+"total": 303.0,
+"races": [
+{
+"points": 39.0,
+"code": null,
+"discard": false
+},
+{
+"points": 5.0,
+"code": null,
+"discard": false
+},
+{
+"points": 45.0,
+"code": null,
+"discard": false
+},
+{
+"points": 20.0,
+"code": null,
+"discard": false
+},
+{
+"points": 10.0,
+"code": null,
+"discard": false
+},
+{
+"points": 85.0,
+"code": null,
+"discard": true
+},
+{
+"points": 5.0,
+"code": null,
+"discard": false
+},
+{
+"points": 70.0,
+"code": null,
+"discard": false
+},
+{
+"points": 18.0,
+"code": null,
+"discard": false
+},
+{
+"points": 6.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 16,
+"sail": "BRA 1196",
+"name": "EL ENEMIGO TEAM - BTG PACTUAL",
+"cat": "Open",
+"net": 219.0,
+"total": 273.0,
+"races": [
+{
+"points": 37.0,
+"code": null,
+"discard": false
+},
+{
+"points": 25.0,
+"code": null,
+"discard": false
+},
+{
+"points": 51.0,
+"code": null,
+"discard": false
+},
+{
+"points": 25.0,
+"code": null,
+"discard": false
+},
+{
+"points": 24.0,
+"code": null,
+"discard": false
+},
+{
+"points": 27.0,
+"code": null,
+"discard": false
+},
+{
+"points": 19.0,
+"code": null,
+"discard": false
+},
+{
+"points": 10.0,
+"code": null,
+"discard": false
+},
+{
+"points": 1.0,
+"code": null,
+"discard": false
+},
+{
+"points": 54.0,
+"code": null,
+"discard": true
+}
+]
+},
+{
+"rank": 17,
+"sail": "CHI 218",
+"name": "DUCASSE SAILING TEAM",
+"cat": "Corinthian",
+"net": 228.0,
+"total": 287.0,
+"races": [
+{
+"points": 33.0,
+"code": null,
+"discard": false
+},
+{
+"points": 21.0,
+"code": null,
+"discard": false
+},
+{
+"points": 46.0,
+"code": null,
+"discard": false
+},
+{
+"points": 24.0,
+"code": null,
+"discard": false
+},
+{
+"points": 22.0,
+"code": null,
+"discard": false
+},
+{
+"points": 38.0,
+"code": null,
+"discard": false
+},
+{
+"points": 59.0,
+"code": null,
+"discard": true
+},
+{
+"points": 4.0,
+"code": null,
+"discard": false
+},
+{
+"points": 24.0,
+"code": null,
+"discard": false
+},
+{
+"points": 16.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 18,
+"sail": "AUS 1451",
+"name": "VAMOS",
+"cat": "Open",
+"net": 232.0,
+"total": 285.0,
+"races": [
+{
+"points": 46.0,
+"code": null,
+"discard": false
+},
+{
+"points": 19.0,
+"code": null,
+"discard": false
+},
+{
+"points": 4.0,
+"code": null,
+"discard": false
+},
+{
+"points": 32.0,
+"code": null,
+"discard": false
+},
+{
+"points": 48.0,
+"code": null,
+"discard": false
+},
+{
+"points": 2.0,
+"code": null,
+"discard": false
+},
+{
+"points": 53.0,
+"code": null,
+"discard": true
+},
+{
+"points": 26.0,
+"code": null,
+"discard": false
+},
+{
+"points": 12.0,
+"code": null,
+"discard": false
+},
+{
+"points": 43.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 19,
+"sail": "BRA 1527",
+"name": "TO NESSA",
+"cat": "Open",
+"net": 236.0,
+"total": 337.0,
+"races": [
+{
+"points": 14.0,
+"code": null,
+"discard": false
+},
+{
+"points": 28.0,
+"code": null,
+"discard": false
+},
+{
+"points": 33.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 19.0,
+"code": null,
+"discard": false
+},
+{
+"points": 48.0,
+"code": null,
+"discard": false
+},
+{
+"points": 23.0,
+"code": null,
+"discard": false
+},
+{
+"points": 28.0,
+"code": null,
+"discard": false
+},
+{
+"points": 8.0,
+"code": null,
+"discard": false
+},
+{
+"points": 35.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 20,
+"sail": "USA 1561",
+"name": "ROWDY",
+"cat": "Open",
+"net": 237.0,
+"total": 283.0,
+"races": [
+{
+"points": 36.0,
+"code": null,
+"discard": false
+},
+{
+"points": 29.0,
+"code": null,
+"discard": false
+},
+{
+"points": 8.0,
+"code": null,
+"discard": false
+},
+{
+"points": 26.0,
+"code": null,
+"discard": false
+},
+{
+"points": 27.0,
+"code": null,
+"discard": false
+},
+{
+"points": 45.0,
+"code": null,
+"discard": false
+},
+{
+"points": 33.0,
+"code": null,
+"discard": false
+},
+{
+"points": 23.0,
+"code": null,
+"discard": false
+},
+{
+"points": 10.0,
+"code": null,
+"discard": false
+},
+{
+"points": 46.0,
+"code": null,
+"discard": true
+}
+]
+},
+{
+"rank": 21,
+"sail": "USA 1474",
+"name": "CALLISTO",
+"cat": "Open",
+"net": 241.0,
+"total": 317.0,
+"races": [
+{
+"points": 2.0,
+"code": null,
+"discard": false
+},
+{
+"points": 13.0,
+"code": null,
+"discard": false
+},
+{
+"points": 35.0,
+"code": null,
+"discard": false
+},
+{
+"points": 1.0,
+"code": null,
+"discard": false
+},
+{
+"points": 36.0,
+"code": null,
+"discard": false
+},
+{
+"points": 76.0,
+"code": null,
+"discard": true
+},
+{
+"points": 55.0,
+"code": null,
+"discard": false
+},
+{
+"points": 9.0,
+"code": null,
+"discard": false
+},
+{
+"points": 68.0,
+"code": null,
+"discard": false
+},
+{
+"points": 22.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 22,
+"sail": "POR 284",
+"name": "NAVIS PORTUGAL",
+"cat": "Open",
+"net": 245.0,
+"total": 333.0,
+"races": [
+{
+"points": 20.0,
+"code": null,
+"discard": false
+},
+{
+"points": 10.0,
+"code": null,
+"discard": false
+},
+{
+"points": 6.0,
+"code": null,
+"discard": false
+},
+{
+"points": 8.0,
+"code": null,
+"discard": false
+},
+{
+"points": 40.0,
+"code": null,
+"discard": false
+},
+{
+"points": 56.0,
+"code": null,
+"discard": false
+},
+{
+"points": 28.0,
+"code": null,
+"discard": false
+},
+{
+"points": 36.0,
+"code": null,
+"discard": false
+},
+{
+"points": 88.0,
+"code": null,
+"discard": true
+},
+{
+"points": 41.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 23,
+"sail": "ESP 1214",
+"name": "HSN SAILING TEAM",
+"cat": "One Pro",
+"net": 259.0,
+"total": 321.0,
+"races": [
+{
+"points": 40.0,
+"code": null,
+"discard": false
+},
+{
+"points": 56.0,
+"code": null,
+"discard": false
+},
+{
+"points": 16.0,
+"code": null,
+"discard": false
+},
+{
+"points": 34.0,
+"code": null,
+"discard": false
+},
+{
+"points": 37.0,
+"code": null,
+"discard": false
+},
+{
+"points": 8.0,
+"code": null,
+"discard": false
+},
+{
+"points": 62.0,
+"code": null,
+"discard": true
+},
+{
+"points": 37.0,
+"code": null,
+"discard": false
+},
+{
+"points": 14.0,
+"code": null,
+"discard": false
+},
+{
+"points": 17.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 24,
+"sail": "USA 385",
+"name": "PROGRESS",
+"cat": "Open",
+"net": 265.0,
+"total": 343.0,
+"races": [
+{
+"points": 62.0,
+"code": null,
+"discard": false
+},
+{
+"points": 49.0,
+"code": null,
+"discard": false
+},
+{
+"points": 28.0,
+"code": null,
+"discard": false
+},
+{
+"points": 78.0,
+"code": null,
+"discard": true
+},
+{
+"points": 14.0,
+"code": null,
+"discard": false
+},
+{
+"points": 46.0,
+"code": null,
+"discard": false
+},
+{
+"points": 7.0,
+"code": null,
+"discard": false
+},
+{
+"points": 45.0,
+"code": null,
+"discard": false
+},
+{
+"points": 5.0,
+"code": null,
+"discard": false
+},
+{
+"points": 9.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 25,
+"sail": "USA 1328",
+"name": "HEDGEHOG",
+"cat": "Corinthian",
+"net": 265.0,
+"total": 366.0,
+"races": [
+{
+"points": 5.0,
+"code": null,
+"discard": false
+},
+{
+"points": 11.0,
+"code": null,
+"discard": false
+},
+{
+"points": 60.0,
+"code": null,
+"discard": false
+},
+{
+"points": 14.0,
+"code": null,
+"discard": false
+},
+{
+"points": 16.0,
+"code": null,
+"discard": false
+},
+{
+"points": 24.0,
+"code": null,
+"discard": false
+},
+{
+"points": 46.0,
+"code": null,
+"discard": false
+},
+{
+"points": 69.0,
+"code": null,
+"discard": false
+},
+{
+"points": 20.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DSQ",
+"discard": true
+}
+]
+},
+{
+"rank": 26,
+"sail": "USA 1523",
+"name": "MAGATRON",
+"cat": "Open",
+"net": 269.0,
+"total": 335.0,
+"races": [
+{
+"points": 65.0,
+"code": null,
+"discard": false
+},
+{
+"points": 14.0,
+"code": null,
+"discard": false
+},
+{
+"points": 21.0,
+"code": null,
+"discard": false
+},
+{
+"points": 16.0,
+"code": null,
+"discard": false
+},
+{
+"points": 66.0,
+"code": null,
+"discard": true
+},
+{
+"points": 60.0,
+"code": null,
+"discard": false
+},
+{
+"points": 32.0,
+"code": null,
+"discard": false
+},
+{
+"points": 12.0,
+"code": null,
+"discard": false
+},
+{
+"points": 19.0,
+"code": null,
+"discard": false
+},
+{
+"points": 30.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 27,
+"sail": "AUS 828",
+"name": "JOUST70",
+"cat": "Open",
+"net": 271.0,
+"total": 334.0,
+"races": [
+{
+"points": 52.0,
+"code": null,
+"discard": false
+},
+{
+"points": 7.0,
+"code": null,
+"discard": false
+},
+{
+"points": 19.0,
+"code": null,
+"discard": false
+},
+{
+"points": 37.0,
+"code": null,
+"discard": false
+},
+{
+"points": 17.0,
+"code": null,
+"discard": false
+},
+{
+"points": 63.0,
+"code": null,
+"discard": true
+},
+{
+"points": 50.0,
+"code": null,
+"discard": false
+},
+{
+"points": 7.0,
+"code": null,
+"discard": false
+},
+{
+"points": 57.0,
+"code": null,
+"discard": false
+},
+{
+"points": 25.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 28,
+"sail": "GBR 1906",
+"name": "SARDONYX",
+"cat": "Open",
+"net": 273.0,
+"total": 346.0,
+"races": [
+{
+"points": 34.0,
+"code": null,
+"discard": false
+},
+{
+"points": 54.0,
+"code": null,
+"discard": false
+},
+{
+"points": 32.0,
+"code": null,
+"discard": false
+},
+{
+"points": 22.0,
+"code": null,
+"discard": false
+},
+{
+"points": 39.0,
+"code": null,
+"discard": false
+},
+{
+"points": 7.0,
+"code": null,
+"discard": false
+},
+{
+"points": 14.0,
+"code": null,
+"discard": false
+},
+{
+"points": 52.0,
+"code": null,
+"discard": false
+},
+{
+"points": 73.0,
+"code": null,
+"discard": true
+},
+{
+"points": 19.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 29,
+"sail": "POR 570",
+"name": "BTA",
+"cat": "Corinthian",
+"net": 277.0,
+"total": 328.0,
+"races": [
+{
+"points": 23.0,
+"code": null,
+"discard": false
+},
+{
+"points": 43.0,
+"code": null,
+"discard": false
+},
+{
+"points": 40.0,
+"code": null,
+"discard": false
+},
+{
+"points": 43.0,
+"code": null,
+"discard": false
+},
+{
+"points": 51.0,
+"code": null,
+"discard": true
+},
+{
+"points": 12.0,
+"code": null,
+"discard": false
+},
+{
+"points": 15.0,
+"code": null,
+"discard": false
+},
+{
+"points": 46.0,
+"code": null,
+"discard": false
+},
+{
+"points": 23.0,
+"code": null,
+"discard": false
+},
+{
+"points": 32.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 30,
+"sail": "BRA 1226",
+"name": "MINDSET",
+"cat": "Open",
+"net": 278.3,
+"total": 357.3,
+"races": [
+{
+"points": 6.0,
+"code": null,
+"discard": false
+},
+{
+"points": 26.0,
+"code": null,
+"discard": false
+},
+{
+"points": 59.3,
+"code": "PRP",
+"discard": false
+},
+{
+"points": 79.0,
+"code": null,
+"discard": true
+},
+{
+"points": 49.0,
+"code": null,
+"discard": false
+},
+{
+"points": 15.0,
+"code": null,
+"discard": false
+},
+{
+"points": 25.0,
+"code": null,
+"discard": false
+},
+{
+"points": 20.0,
+"code": null,
+"discard": false
+},
+{
+"points": 45.0,
+"code": null,
+"discard": false
+},
+{
+"points": 33.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 31,
+"sail": "GBR 1247",
+"name": "JELVIS",
+"cat": "Open",
+"net": 286.3,
+"total": 366.3,
+"races": [
+{
+"points": 22.0,
+"code": null,
+"discard": false
+},
+{
+"points": 35.0,
+"code": null,
+"discard": false
+},
+{
+"points": 25.0,
+"code": null,
+"discard": false
+},
+{
+"points": 31.0,
+"code": null,
+"discard": false
+},
+{
+"points": 26.0,
+"code": null,
+"discard": false
+},
+{
+"points": 80.0,
+"code": null,
+"discard": true
+},
+{
+"points": 8.0,
+"code": null,
+"discard": false
+},
+{
+"points": 60.3,
+"code": "PRP",
+"discard": false
+},
+{
+"points": 65.0,
+"code": null,
+"discard": false
+},
+{
+"points": 14.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 32,
+"sail": "USA 684",
+"name": "LEVEL 5",
+"cat": "Open",
+"net": 287.0,
+"total": 353.0,
+"races": [
+{
+"points": 66.0,
+"code": null,
+"discard": true
+},
+{
+"points": 22.0,
+"code": null,
+"discard": false
+},
+{
+"points": 43.0,
+"code": null,
+"discard": false
+},
+{
+"points": 30.0,
+"code": null,
+"discard": false
+},
+{
+"points": 6.0,
+"code": null,
+"discard": false
+},
+{
+"points": 40.0,
+"code": null,
+"discard": false
+},
+{
+"points": 18.0,
+"code": null,
+"discard": false
+},
+{
+"points": 35.0,
+"code": null,
+"discard": false
+},
+{
+"points": 32.0,
+"code": null,
+"discard": false
+},
+{
+"points": 61.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 33,
+"sail": "ESP 961",
+"name": "NOTICIA",
+"cat": "Open",
+"net": 292.0,
+"total": 374.0,
+"races": [
+{
+"points": 26.0,
+"code": null,
+"discard": false
+},
+{
+"points": 20.0,
+"code": null,
+"discard": false
+},
+{
+"points": 62.0,
+"code": null,
+"discard": false
+},
+{
+"points": 23.0,
+"code": null,
+"discard": false
+},
+{
+"points": 29.0,
+"code": null,
+"discard": false
+},
+{
+"points": 82.0,
+"code": null,
+"discard": true
+},
+{
+"points": 17.0,
+"code": null,
+"discard": false
+},
+{
+"points": 65.0,
+"code": null,
+"discard": false
+},
+{
+"points": 2.0,
+"code": null,
+"discard": false
+},
+{
+"points": 48.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 34,
+"sail": "POR 1797",
+"name": "B\u00e1B\u00e1",
+"cat": "Open",
+"net": 307.0,
+"total": 366.0,
+"races": [
+{
+"points": 32.0,
+"code": null,
+"discard": false
+},
+{
+"points": 2.0,
+"code": null,
+"discard": false
+},
+{
+"points": 48.0,
+"code": null,
+"discard": false
+},
+{
+"points": 47.0,
+"code": null,
+"discard": false
+},
+{
+"points": 7.0,
+"code": null,
+"discard": false
+},
+{
+"points": 54.0,
+"code": null,
+"discard": false
+},
+{
+"points": 36.0,
+"code": null,
+"discard": false
+},
+{
+"points": 59.0,
+"code": null,
+"discard": true
+},
+{
+"points": 53.0,
+"code": null,
+"discard": false
+},
+{
+"points": 28.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 35,
+"sail": "DEN 1398",
+"name": "SIRENA CHICO",
+"cat": "One Pro",
+"net": 311.0,
+"total": 394.0,
+"races": [
+{
+"points": 31.0,
+"code": null,
+"discard": false
+},
+{
+"points": 42.0,
+"code": null,
+"discard": false
+},
+{
+"points": 9.0,
+"code": null,
+"discard": false
+},
+{
+"points": 63.0,
+"code": null,
+"discard": false
+},
+{
+"points": 83.0,
+"code": null,
+"discard": true
+},
+{
+"points": 50.0,
+"code": null,
+"discard": false
+},
+{
+"points": 54.0,
+"code": null,
+"discard": false
+},
+{
+"points": 3.0,
+"code": null,
+"discard": false
+},
+{
+"points": 4.0,
+"code": null,
+"discard": false
+},
+{
+"points": 55.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 36,
+"sail": "ESP 665",
+"name": "ABRIL VERDE",
+"cat": "Corinthian",
+"net": 318.0,
+"total": 416.0,
+"races": [
+{
+"points": 54.0,
+"code": null,
+"discard": false
+},
+{
+"points": 32.0,
+"code": null,
+"discard": false
+},
+{
+"points": 22.0,
+"code": null,
+"discard": false
+},
+{
+"points": 17.0,
+"code": null,
+"discard": false
+},
+{
+"points": 98.0,
+"code": null,
+"discard": true
+},
+{
+"points": 44.0,
+"code": null,
+"discard": false
+},
+{
+"points": 11.0,
+"code": null,
+"discard": false
+},
+{
+"points": 32.0,
+"code": null,
+"discard": false
+},
+{
+"points": 69.0,
+"code": null,
+"discard": false
+},
+{
+"points": 37.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 37,
+"sail": "MEX 1655",
+"name": "ZAGUERO",
+"cat": "Corinthian",
+"net": 319.0,
+"total": 420.0,
+"races": [
+{
+"points": 15.0,
+"code": null,
+"discard": false
+},
+{
+"points": 24.0,
+"code": null,
+"discard": false
+},
+{
+"points": 24.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 41.0,
+"code": null,
+"discard": false
+},
+{
+"points": 94.0,
+"code": null,
+"discard": false
+},
+{
+"points": 47.0,
+"code": null,
+"discard": false
+},
+{
+"points": 1.0,
+"code": null,
+"discard": false
+},
+{
+"points": 66.0,
+"code": null,
+"discard": false
+},
+{
+"points": 7.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 38,
+"sail": "ESP 1122",
+"name": "LET IT BE",
+"cat": "Corinthian",
+"net": 331.3,
+"total": 415.3,
+"races": [
+{
+"points": 56.0,
+"code": null,
+"discard": false
+},
+{
+"points": 84.0,
+"code": null,
+"discard": true
+},
+{
+"points": 39.0,
+"code": null,
+"discard": false
+},
+{
+"points": 39.0,
+"code": null,
+"discard": false
+},
+{
+"points": 15.0,
+"code": null,
+"discard": false
+},
+{
+"points": 43.3,
+"code": "PRP",
+"discard": false
+},
+{
+"points": 10.0,
+"code": null,
+"discard": false
+},
+{
+"points": 19.0,
+"code": null,
+"discard": false
+},
+{
+"points": 79.0,
+"code": null,
+"discard": false
+},
+{
+"points": 31.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 39,
+"sail": "AUT 1090",
+"name": "PHANTOM7",
+"cat": "Open",
+"net": 333.0,
+"total": 391.0,
+"races": [
+{
+"points": 45.0,
+"code": null,
+"discard": false
+},
+{
+"points": 16.0,
+"code": null,
+"discard": false
+},
+{
+"points": 49.0,
+"code": null,
+"discard": false
+},
+{
+"points": 57.0,
+"code": null,
+"discard": false
+},
+{
+"points": 58.0,
+"code": null,
+"discard": true
+},
+{
+"points": 19.0,
+"code": null,
+"discard": false
+},
+{
+"points": 27.0,
+"code": null,
+"discard": false
+},
+{
+"points": 51.0,
+"code": null,
+"discard": false
+},
+{
+"points": 16.0,
+"code": null,
+"discard": false
+},
+{
+"points": 53.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 40,
+"sail": "USA 202",
+"name": "WARCANOE",
+"cat": "Open",
+"net": 349.0,
+"total": 435.0,
+"races": [
+{
+"points": 25.0,
+"code": null,
+"discard": false
+},
+{
+"points": 86.0,
+"code": null,
+"discard": true
+},
+{
+"points": 23.0,
+"code": null,
+"discard": false
+},
+{
+"points": 51.0,
+"code": null,
+"discard": false
+},
+{
+"points": 72.0,
+"code": null,
+"discard": false
+},
+{
+"points": 35.0,
+"code": null,
+"discard": false
+},
+{
+"points": 65.0,
+"code": null,
+"discard": false
+},
+{
+"points": 24.0,
+"code": null,
+"discard": false
+},
+{
+"points": 49.0,
+"code": null,
+"discard": false
+},
+{
+"points": 5.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 41,
+"sail": "GER 1250",
+"name": "PAINT IT GREY",
+"cat": "Young",
+"net": 352.0,
+"total": 432.0,
+"races": [
+{
+"points": 43.0,
+"code": null,
+"discard": false
+},
+{
+"points": 48.0,
+"code": null,
+"discard": false
+},
+{
+"points": 80.0,
+"code": null,
+"discard": true
+},
+{
+"points": 12.0,
+"code": null,
+"discard": false
+},
+{
+"points": 34.0,
+"code": null,
+"discard": false
+},
+{
+"points": 20.0,
+"code": null,
+"discard": false
+},
+{
+"points": 57.0,
+"code": null,
+"discard": false
+},
+{
+"points": 71.0,
+"code": null,
+"discard": false
+},
+{
+"points": 22.0,
+"code": null,
+"discard": false
+},
+{
+"points": 45.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 42,
+"sail": "TUR 1486",
+"name": "EKER KAYMAK",
+"cat": "One Pro",
+"net": 354.0,
+"total": 442.0,
+"races": [
+{
+"points": 69.0,
+"code": null,
+"discard": false
+},
+{
+"points": 17.0,
+"code": null,
+"discard": false
+},
+{
+"points": 57.0,
+"code": null,
+"discard": false
+},
+{
+"points": 11.0,
+"code": null,
+"discard": false
+},
+{
+"points": 88.0,
+"code": null,
+"discard": true
+},
+{
+"points": 67.0,
+"code": null,
+"discard": false
+},
+{
+"points": 16.0,
+"code": null,
+"discard": false
+},
+{
+"points": 39.0,
+"code": null,
+"discard": false
+},
+{
+"points": 67.0,
+"code": null,
+"discard": false
+},
+{
+"points": 11.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 43,
+"sail": "SWE 1489",
+"name": "ELVIS",
+"cat": "Open",
+"net": 359.0,
+"total": 453.0,
+"races": [
+{
+"points": 24.0,
+"code": null,
+"discard": false
+},
+{
+"points": 78.0,
+"code": null,
+"discard": false
+},
+{
+"points": 44.0,
+"code": null,
+"discard": false
+},
+{
+"points": 15.0,
+"code": null,
+"discard": false
+},
+{
+"points": 13.0,
+"code": null,
+"discard": false
+},
+{
+"points": 28.0,
+"code": null,
+"discard": false
+},
+{
+"points": 94.0,
+"code": null,
+"discard": true
+},
+{
+"points": 80.0,
+"code": null,
+"discard": false
+},
+{
+"points": 26.0,
+"code": null,
+"discard": false
+},
+{
+"points": 51.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 44,
+"sail": "MON 1172",
+"name": "GSPOT",
+"cat": "Open",
+"net": 360.0,
+"total": 461.0,
+"races": [
+{
+"points": 29.0,
+"code": null,
+"discard": false
+},
+{
+"points": 12.0,
+"code": null,
+"discard": false
+},
+{
+"points": 27.0,
+"code": null,
+"discard": false
+},
+{
+"points": 71.0,
+"code": null,
+"discard": false
+},
+{
+"points": 28.0,
+"code": null,
+"discard": false
+},
+{
+"points": 49.0,
+"code": null,
+"discard": false
+},
+{
+"points": 41.0,
+"code": null,
+"discard": false
+},
+{
+"points": 2.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+}
+]
+},
+{
+"rank": 45,
+"sail": "DEN 1566",
+"name": "LADY IN RED",
+"cat": "Open",
+"net": 360.0,
+"total": 431.0,
+"races": [
+{
+"points": 28.0,
+"code": null,
+"discard": false
+},
+{
+"points": 44.0,
+"code": null,
+"discard": false
+},
+{
+"points": 56.0,
+"code": null,
+"discard": false
+},
+{
+"points": 59.0,
+"code": null,
+"discard": false
+},
+{
+"points": 25.0,
+"code": null,
+"discard": false
+},
+{
+"points": 18.0,
+"code": null,
+"discard": false
+},
+{
+"points": 38.0,
+"code": null,
+"discard": false
+},
+{
+"points": 53.0,
+"code": null,
+"discard": false
+},
+{
+"points": 71.0,
+"code": null,
+"discard": true
+},
+{
+"points": 39.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 46,
+"sail": "SWE 713",
+"name": "TYRA",
+"cat": "Open",
+"net": 369.0,
+"total": 438.0,
+"races": [
+{
+"points": 35.0,
+"code": null,
+"discard": false
+},
+{
+"points": 38.0,
+"code": null,
+"discard": false
+},
+{
+"points": 11.0,
+"code": null,
+"discard": false
+},
+{
+"points": 44.0,
+"code": null,
+"discard": false
+},
+{
+"points": 68.0,
+"code": null,
+"discard": false
+},
+{
+"points": 31.0,
+"code": null,
+"discard": false
+},
+{
+"points": 69.0,
+"code": null,
+"discard": true
+},
+{
+"points": 41.0,
+"code": null,
+"discard": false
+},
+{
+"points": 52.0,
+"code": null,
+"discard": false
+},
+{
+"points": 49.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 47,
+"sail": "GER 1898",
+"name": "DIVA",
+"cat": "One Pro",
+"net": 381.0,
+"total": 456.0,
+"races": [
+{
+"points": 41.0,
+"code": null,
+"discard": false
+},
+{
+"points": 51.0,
+"code": null,
+"discard": false
+},
+{
+"points": 68.0,
+"code": null,
+"discard": false
+},
+{
+"points": 42.0,
+"code": null,
+"discard": false
+},
+{
+"points": 56.0,
+"code": null,
+"discard": false
+},
+{
+"points": 47.0,
+"code": null,
+"discard": false
+},
+{
+"points": 75.0,
+"code": null,
+"discard": true
+},
+{
+"points": 44.0,
+"code": null,
+"discard": false
+},
+{
+"points": 29.0,
+"code": null,
+"discard": false
+},
+{
+"points": 3.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 48,
+"sail": "ITA 1478",
+"name": "CICLONE",
+"cat": "Open",
+"net": 394.0,
+"total": 476.0,
+"races": [
+{
+"points": 44.0,
+"code": null,
+"discard": false
+},
+{
+"points": 82.0,
+"code": null,
+"discard": true
+},
+{
+"points": 67.0,
+"code": null,
+"discard": false
+},
+{
+"points": 55.0,
+"code": null,
+"discard": false
+},
+{
+"points": 53.0,
+"code": null,
+"discard": false
+},
+{
+"points": 39.0,
+"code": null,
+"discard": false
+},
+{
+"points": 21.0,
+"code": null,
+"discard": false
+},
+{
+"points": 61.0,
+"code": null,
+"discard": false
+},
+{
+"points": 28.0,
+"code": null,
+"discard": false
+},
+{
+"points": 26.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 49,
+"sail": "POR 1846",
+"name": "PEIXARANHA",
+"cat": "Corinthian",
+"net": 399.0,
+"total": 486.0,
+"races": [
+{
+"points": 1.0,
+"code": null,
+"discard": false
+},
+{
+"points": 23.0,
+"code": null,
+"discard": false
+},
+{
+"points": 55.0,
+"code": null,
+"discard": false
+},
+{
+"points": 33.0,
+"code": null,
+"discard": false
+},
+{
+"points": 79.0,
+"code": null,
+"discard": false
+},
+{
+"points": 33.0,
+"code": null,
+"discard": false
+},
+{
+"points": 12.0,
+"code": null,
+"discard": false
+},
+{
+"points": 85.0,
+"code": null,
+"discard": false
+},
+{
+"points": 87.0,
+"code": null,
+"discard": true
+},
+{
+"points": 78.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 50,
+"sail": "NED 1087",
+"name": "MR HENRI",
+"cat": "Corinthian",
+"net": 402.0,
+"total": 480.0,
+"races": [
+{
+"points": 78.0,
+"code": null,
+"discard": true
+},
+{
+"points": 63.0,
+"code": null,
+"discard": false
+},
+{
+"points": 54.0,
+"code": null,
+"discard": false
+},
+{
+"points": 19.0,
+"code": null,
+"discard": false
+},
+{
+"points": 73.0,
+"code": null,
+"discard": false
+},
+{
+"points": 65.0,
+"code": null,
+"discard": false
+},
+{
+"points": 26.0,
+"code": null,
+"discard": false
+},
+{
+"points": 38.0,
+"code": null,
+"discard": false
+},
+{
+"points": 30.0,
+"code": null,
+"discard": false
+},
+{
+"points": 34.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 51,
+"sail": "EST 1796",
+"name": "LENNY",
+"cat": "Corinthian",
+"net": 403.0,
+"total": 469.0,
+"races": [
+{
+"points": 38.0,
+"code": null,
+"discard": false
+},
+{
+"points": 50.0,
+"code": null,
+"discard": false
+},
+{
+"points": 64.0,
+"code": null,
+"discard": false
+},
+{
+"points": 66.0,
+"code": null,
+"discard": true
+},
+{
+"points": 61.0,
+"code": null,
+"discard": false
+},
+{
+"points": 42.0,
+"code": null,
+"discard": false
+},
+{
+"points": 63.0,
+"code": null,
+"discard": false
+},
+{
+"points": 16.0,
+"code": null,
+"discard": false
+},
+{
+"points": 54.0,
+"code": null,
+"discard": false
+},
+{
+"points": 15.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 52,
+"sail": "GER 1719",
+"name": "PAINT IT BLACK",
+"cat": "Open",
+"net": 415.5,
+"total": 497.5,
+"races": [
+{
+"points": 49.0,
+"code": null,
+"discard": false
+},
+{
+"points": 42.5,
+"code": "RDG",
+"discard": false
+},
+{
+"points": 14.0,
+"code": null,
+"discard": false
+},
+{
+"points": 64.0,
+"code": null,
+"discard": false
+},
+{
+"points": 67.0,
+"code": null,
+"discard": false
+},
+{
+"points": 32.0,
+"code": null,
+"discard": false
+},
+{
+"points": 24.0,
+"code": null,
+"discard": false
+},
+{
+"points": 47.0,
+"code": null,
+"discard": false
+},
+{
+"points": 82.0,
+"code": null,
+"discard": true
+},
+{
+"points": 76.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 53,
+"sail": "POR 152",
+"name": "SAILCASCAIS",
+"cat": "Open",
+"net": 419.1,
+"total": 520.1,
+"races": [
+{
+"points": 42.0,
+"code": null,
+"discard": false
+},
+{
+"points": 15.0,
+"code": null,
+"discard": false
+},
+{
+"points": 46.1,
+"code": "PTS",
+"discard": false
+},
+{
+"points": 49.0,
+"code": null,
+"discard": false
+},
+{
+"points": 70.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "RET",
+"discard": true
+},
+{
+"points": 39.0,
+"code": null,
+"discard": false
+},
+{
+"points": 25.0,
+"code": null,
+"discard": false
+},
+{
+"points": 75.0,
+"code": null,
+"discard": false
+},
+{
+"points": 58.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 54,
+"sail": "BRA 1666",
+"name": "HIGHLANDERS",
+"cat": "Open",
+"net": 455.0,
+"total": 556.0,
+"races": [
+{
+"points": 8.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DSQ",
+"discard": true
+},
+{
+"points": 47.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 1.0,
+"code": null,
+"discard": false
+},
+{
+"points": 81.0,
+"code": null,
+"discard": false
+},
+{
+"points": 81.0,
+"code": null,
+"discard": false
+},
+{
+"points": 48.0,
+"code": null,
+"discard": false
+},
+{
+"points": 64.0,
+"code": null,
+"discard": false
+},
+{
+"points": 24.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 55,
+"sail": "GBR 108",
+"name": "SPENCER RIGGING",
+"cat": "Open",
+"net": 459.1,
+"total": 560.1,
+"races": [
+{
+"points": 63.0,
+"code": null,
+"discard": false
+},
+{
+"points": 47.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNF",
+"discard": true
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 12.0,
+"code": null,
+"discard": false
+},
+{
+"points": 46.1,
+"code": "PTS",
+"discard": false
+},
+{
+"points": 58.0,
+"code": null,
+"discard": false
+},
+{
+"points": 62.0,
+"code": null,
+"discard": false
+},
+{
+"points": 6.0,
+"code": null,
+"discard": false
+},
+{
+"points": 64.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 56,
+"sail": "AUS 1668",
+"name": "THE BULL",
+"cat": "Open",
+"net": 476.8,
+"total": 577.8,
+"races": [
+{
+"points": 60.0,
+"code": null,
+"discard": false
+},
+{
+"points": 52.9,
+"code": "RDG",
+"discard": false
+},
+{
+"points": 52.9,
+"code": "RDG",
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 11.0,
+"code": null,
+"discard": false
+},
+{
+"points": 16.0,
+"code": null,
+"discard": false
+},
+{
+"points": 68.0,
+"code": null,
+"discard": false
+},
+{
+"points": 76.0,
+"code": null,
+"discard": false
+},
+{
+"points": 81.0,
+"code": null,
+"discard": false
+},
+{
+"points": 59.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 57,
+"sail": "BRA 1556",
+"name": "JAMAICA RUM",
+"cat": "Open",
+"net": 477.0,
+"total": 578.0,
+"races": [
+{
+"points": 59.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DSQ",
+"discard": true
+},
+{
+"points": 78.0,
+"code": null,
+"discard": false
+},
+{
+"points": 27.0,
+"code": null,
+"discard": false
+},
+{
+"points": 45.0,
+"code": null,
+"discard": false
+},
+{
+"points": 17.0,
+"code": null,
+"discard": false
+},
+{
+"points": 74.0,
+"code": null,
+"discard": false
+},
+{
+"points": 49.0,
+"code": null,
+"discard": false
+},
+{
+"points": 78.0,
+"code": null,
+"discard": false
+},
+{
+"points": 50.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 58,
+"sail": "FIN 787",
+"name": "SOLID FUN",
+"cat": "Corinthian",
+"net": 479.0,
+"total": 567.0,
+"races": [
+{
+"points": 57.0,
+"code": null,
+"discard": false
+},
+{
+"points": 55.0,
+"code": null,
+"discard": false
+},
+{
+"points": 72.0,
+"code": null,
+"discard": false
+},
+{
+"points": 28.0,
+"code": null,
+"discard": false
+},
+{
+"points": 87.0,
+"code": null,
+"discard": false
+},
+{
+"points": 88.0,
+"code": null,
+"discard": true
+},
+{
+"points": 29.0,
+"code": null,
+"discard": false
+},
+{
+"points": 56.0,
+"code": null,
+"discard": false
+},
+{
+"points": 85.0,
+"code": null,
+"discard": false
+},
+{
+"points": 10.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 59,
+"sail": "ESP 669",
+"name": "BODEGAS VILLANUEVA",
+"cat": "Corinthian",
+"net": 494.0,
+"total": 595.0,
+"races": [
+{
+"points": 75.0,
+"code": null,
+"discard": false
+},
+{
+"points": 40.0,
+"code": null,
+"discard": false
+},
+{
+"points": 41.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 35.0,
+"code": null,
+"discard": false
+},
+{
+"points": 95.0,
+"code": null,
+"discard": false
+},
+{
+"points": 43.0,
+"code": null,
+"discard": false
+},
+{
+"points": 81.0,
+"code": null,
+"discard": false
+},
+{
+"points": 48.0,
+"code": null,
+"discard": false
+},
+{
+"points": 36.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 60,
+"sail": "BER 11",
+"name": "FREQUENT FLYER",
+"cat": "One Pro",
+"net": 495.0,
+"total": 587.0,
+"races": [
+{
+"points": 55.0,
+"code": null,
+"discard": false
+},
+{
+"points": 30.0,
+"code": null,
+"discard": false
+},
+{
+"points": 76.0,
+"code": null,
+"discard": false
+},
+{
+"points": 65.0,
+"code": null,
+"discard": false
+},
+{
+"points": 91.0,
+"code": null,
+"discard": false
+},
+{
+"points": 92.0,
+"code": null,
+"discard": true
+},
+{
+"points": 73.0,
+"code": null,
+"discard": false
+},
+{
+"points": 40.0,
+"code": null,
+"discard": false
+},
+{
+"points": 38.0,
+"code": null,
+"discard": false
+},
+{
+"points": 27.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 61,
+"sail": "USA 240",
+"name": "STAMPEDE",
+"cat": "Open",
+"net": 498.0,
+"total": 581.0,
+"races": [
+{
+"points": 77.0,
+"code": null,
+"discard": false
+},
+{
+"points": 61.0,
+"code": null,
+"discard": false
+},
+{
+"points": 71.0,
+"code": null,
+"discard": false
+},
+{
+"points": 41.0,
+"code": null,
+"discard": false
+},
+{
+"points": 23.0,
+"code": null,
+"discard": false
+},
+{
+"points": 61.0,
+"code": null,
+"discard": false
+},
+{
+"points": 83.0,
+"code": null,
+"discard": true
+},
+{
+"points": 55.0,
+"code": null,
+"discard": false
+},
+{
+"points": 47.0,
+"code": null,
+"discard": false
+},
+{
+"points": 62.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 62,
+"sail": "SWE 458",
+"name": "LIMONCELLO LL",
+"cat": "Corinthian",
+"net": 505.0,
+"total": 606.0,
+"races": [
+{
+"points": 101.0,
+"code": "DNS",
+"discard": true
+},
+{
+"points": 101.0,
+"code": "DNS",
+"discard": false
+},
+{
+"points": 61.0,
+"code": null,
+"discard": false
+},
+{
+"points": 36.0,
+"code": null,
+"discard": false
+},
+{
+"points": 76.0,
+"code": null,
+"discard": false
+},
+{
+"points": 89.0,
+"code": null,
+"discard": false
+},
+{
+"points": 44.0,
+"code": null,
+"discard": false
+},
+{
+"points": 29.0,
+"code": null,
+"discard": false
+},
+{
+"points": 25.0,
+"code": null,
+"discard": false
+},
+{
+"points": 44.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 63,
+"sail": "POR 1046",
+"name": "UON",
+"cat": "One Pro",
+"net": 510.0,
+"total": 611.0,
+"races": [
+{
+"points": 30.0,
+"code": null,
+"discard": false
+},
+{
+"points": 68.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNF",
+"discard": true
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 31.0,
+"code": null,
+"discard": false
+},
+{
+"points": 97.0,
+"code": null,
+"discard": false
+},
+{
+"points": 42.0,
+"code": null,
+"discard": false
+},
+{
+"points": 15.0,
+"code": null,
+"discard": false
+},
+{
+"points": 56.0,
+"code": null,
+"discard": false
+},
+{
+"points": 70.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 64,
+"sail": "CAN 282",
+"name": "TRIAL",
+"cat": "One Pro",
+"net": 513.0,
+"total": 598.0,
+"races": [
+{
+"points": 53.0,
+"code": null,
+"discard": false
+},
+{
+"points": 65.0,
+"code": null,
+"discard": false
+},
+{
+"points": 65.0,
+"code": null,
+"discard": false
+},
+{
+"points": 54.0,
+"code": null,
+"discard": false
+},
+{
+"points": 85.0,
+"code": null,
+"discard": true
+},
+{
+"points": 9.0,
+"code": null,
+"discard": false
+},
+{
+"points": 67.0,
+"code": null,
+"discard": false
+},
+{
+"points": 60.0,
+"code": null,
+"discard": false
+},
+{
+"points": 74.0,
+"code": null,
+"discard": false
+},
+{
+"points": 66.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 65,
+"sail": "MON 730",
+"name": "CHARISMA V H992 SAILING TEAM",
+"cat": "Open",
+"net": 513.0,
+"total": 605.0,
+"races": [
+{
+"points": 92.0,
+"code": null,
+"discard": true
+},
+{
+"points": 46.0,
+"code": null,
+"discard": false
+},
+{
+"points": 86.0,
+"code": null,
+"discard": false
+},
+{
+"points": 61.0,
+"code": null,
+"discard": false
+},
+{
+"points": 21.0,
+"code": null,
+"discard": false
+},
+{
+"points": 23.0,
+"code": null,
+"discard": false
+},
+{
+"points": 37.0,
+"code": null,
+"discard": false
+},
+{
+"points": 91.0,
+"code": null,
+"discard": false
+},
+{
+"points": 60.0,
+"code": null,
+"discard": false
+},
+{
+"points": 88.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 66,
+"sail": "ESP 663",
+"name": "ABRIL ROJO",
+"cat": "Corinthian",
+"net": 521.0,
+"total": 618.0,
+"races": [
+{
+"points": 86.0,
+"code": null,
+"discard": false
+},
+{
+"points": 39.0,
+"code": null,
+"discard": false
+},
+{
+"points": 53.0,
+"code": null,
+"discard": false
+},
+{
+"points": 53.0,
+"code": null,
+"discard": false
+},
+{
+"points": 97.0,
+"code": null,
+"discard": true
+},
+{
+"points": 57.0,
+"code": null,
+"discard": false
+},
+{
+"points": 84.0,
+"code": null,
+"discard": false
+},
+{
+"points": 73.0,
+"code": null,
+"discard": false
+},
+{
+"points": 9.0,
+"code": null,
+"discard": false
+},
+{
+"points": 67.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 67,
+"sail": "POR 1329",
+"name": "ODESSA",
+"cat": "Corinthian",
+"net": 525.0,
+"total": 614.0,
+"races": [
+{
+"points": 67.0,
+"code": null,
+"discard": false
+},
+{
+"points": 64.0,
+"code": null,
+"discard": false
+},
+{
+"points": 58.0,
+"code": null,
+"discard": false
+},
+{
+"points": 48.0,
+"code": null,
+"discard": false
+},
+{
+"points": 59.0,
+"code": null,
+"discard": false
+},
+{
+"points": 51.0,
+"code": null,
+"discard": false
+},
+{
+"points": 88.0,
+"code": null,
+"discard": false
+},
+{
+"points": 27.0,
+"code": null,
+"discard": false
+},
+{
+"points": 89.0,
+"code": null,
+"discard": true
+},
+{
+"points": 63.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 68,
+"sail": "POR 105",
+"name": "UNIFHORM/HENRI LLOYD",
+"cat": "One Pro",
+"net": 527.0,
+"total": 628.0,
+"races": [
+{
+"points": 51.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DSQ",
+"discard": true
+},
+{
+"points": 52.0,
+"code": null,
+"discard": false
+},
+{
+"points": 58.0,
+"code": null,
+"discard": false
+},
+{
+"points": 32.0,
+"code": null,
+"discard": false
+},
+{
+"points": 87.0,
+"code": null,
+"discard": false
+},
+{
+"points": 35.0,
+"code": null,
+"discard": false
+},
+{
+"points": 89.0,
+"code": null,
+"discard": false
+},
+{
+"points": 63.0,
+"code": null,
+"discard": false
+},
+{
+"points": 60.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 69,
+"sail": "GBR 1867",
+"name": "GENIUS",
+"cat": "One Pro",
+"net": 528.0,
+"total": 620.0,
+"races": [
+{
+"points": 85.0,
+"code": null,
+"discard": false
+},
+{
+"points": 60.0,
+"code": null,
+"discard": false
+},
+{
+"points": 26.0,
+"code": null,
+"discard": false
+},
+{
+"points": 84.0,
+"code": null,
+"discard": false
+},
+{
+"points": 64.0,
+"code": null,
+"discard": false
+},
+{
+"points": 68.0,
+"code": null,
+"discard": false
+},
+{
+"points": 92.0,
+"code": null,
+"discard": true
+},
+{
+"points": 57.0,
+"code": null,
+"discard": false
+},
+{
+"points": 7.0,
+"code": null,
+"discard": false
+},
+{
+"points": 77.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 70,
+"sail": "DEN 1185",
+"name": "SASSY / FAT MOOSE",
+"cat": "Open",
+"net": 557.0,
+"total": 658.0,
+"races": [
+{
+"points": 88.0,
+"code": null,
+"discard": false
+},
+{
+"points": 66.0,
+"code": null,
+"discard": false
+},
+{
+"points": 34.0,
+"code": null,
+"discard": false
+},
+{
+"points": 45.0,
+"code": null,
+"discard": false
+},
+{
+"points": 81.0,
+"code": null,
+"discard": false
+},
+{
+"points": 79.0,
+"code": null,
+"discard": false
+},
+{
+"points": 60.0,
+"code": null,
+"discard": false
+},
+{
+"points": 58.0,
+"code": null,
+"discard": false
+},
+{
+"points": 46.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+}
+]
+},
+{
+"rank": 71,
+"sail": "POR 661",
+"name": "AP HOTELS",
+"cat": "Corinthian",
+"net": 560.0,
+"total": 653.0,
+"races": [
+{
+"points": 71.0,
+"code": null,
+"discard": false
+},
+{
+"points": 73.0,
+"code": null,
+"discard": false
+},
+{
+"points": 70.0,
+"code": null,
+"discard": false
+},
+{
+"points": 68.0,
+"code": null,
+"discard": false
+},
+{
+"points": 20.0,
+"code": null,
+"discard": false
+},
+{
+"points": 93.0,
+"code": null,
+"discard": true
+},
+{
+"points": 64.0,
+"code": null,
+"discard": false
+},
+{
+"points": 64.0,
+"code": null,
+"discard": false
+},
+{
+"points": 51.0,
+"code": null,
+"discard": false
+},
+{
+"points": 79.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 72,
+"sail": "ESP 1419",
+"name": "AUDYO TENERIFE",
+"cat": "Corinthian",
+"net": 560.0,
+"total": 645.0,
+"races": [
+{
+"points": 82.0,
+"code": null,
+"discard": false
+},
+{
+"points": 85.0,
+"code": null,
+"discard": true
+},
+{
+"points": 42.0,
+"code": null,
+"discard": false
+},
+{
+"points": 67.0,
+"code": null,
+"discard": false
+},
+{
+"points": 77.0,
+"code": null,
+"discard": false
+},
+{
+"points": 69.0,
+"code": null,
+"discard": false
+},
+{
+"points": 66.0,
+"code": null,
+"discard": false
+},
+{
+"points": 42.0,
+"code": null,
+"discard": false
+},
+{
+"points": 77.0,
+"code": null,
+"discard": false
+},
+{
+"points": 38.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 73,
+"sail": "SUI 1808",
+"name": "TARTE - 3NUITS.COM",
+"cat": "Corinthian",
+"net": 563.0,
+"total": 664.0,
+"races": [
+{
+"points": 64.0,
+"code": null,
+"discard": false
+},
+{
+"points": 69.0,
+"code": null,
+"discard": false
+},
+{
+"points": 85.0,
+"code": null,
+"discard": false
+},
+{
+"points": 40.0,
+"code": null,
+"discard": false
+},
+{
+"points": 43.0,
+"code": null,
+"discard": false
+},
+{
+"points": 41.0,
+"code": null,
+"discard": false
+},
+{
+"points": 80.0,
+"code": null,
+"discard": false
+},
+{
+"points": 67.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 74.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 74,
+"sail": "FRA 1089",
+"name": "LIFT TICKET",
+"cat": "Corinthian",
+"net": 570.0,
+"total": 671.0,
+"races": [
+{
+"points": 74.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNF",
+"discard": true
+},
+{
+"points": 83.0,
+"code": null,
+"discard": false
+},
+{
+"points": 62.0,
+"code": null,
+"discard": false
+},
+{
+"points": 38.0,
+"code": null,
+"discard": false
+},
+{
+"points": 90.0,
+"code": null,
+"discard": false
+},
+{
+"points": 34.0,
+"code": null,
+"discard": false
+},
+{
+"points": 87.0,
+"code": null,
+"discard": false
+},
+{
+"points": 15.0,
+"code": null,
+"discard": false
+},
+{
+"points": 87.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 75,
+"sail": "NOR 645",
+"name": "HELLY HANSEN BAGDAD II",
+"cat": "Corinthian",
+"net": 576.0,
+"total": 663.0,
+"races": [
+{
+"points": 87.0,
+"code": null,
+"discard": true
+},
+{
+"points": 71.0,
+"code": null,
+"discard": false
+},
+{
+"points": 59.0,
+"code": null,
+"discard": false
+},
+{
+"points": 73.0,
+"code": null,
+"discard": false
+},
+{
+"points": 55.0,
+"code": null,
+"discard": false
+},
+{
+"points": 73.0,
+"code": null,
+"discard": false
+},
+{
+"points": 61.0,
+"code": null,
+"discard": false
+},
+{
+"points": 66.0,
+"code": null,
+"discard": false
+},
+{
+"points": 34.0,
+"code": null,
+"discard": false
+},
+{
+"points": 84.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 76,
+"sail": "ESP 1893",
+"name": "WILCO",
+"cat": "Open",
+"net": 584.0,
+"total": 685.0,
+"races": [
+{
+"points": 81.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNF",
+"discard": true
+},
+{
+"points": 87.0,
+"code": null,
+"discard": false
+},
+{
+"points": 82.0,
+"code": null,
+"discard": false
+},
+{
+"points": 9.0,
+"code": null,
+"discard": false
+},
+{
+"points": 53.0,
+"code": null,
+"discard": false
+},
+{
+"points": 70.0,
+"code": null,
+"discard": false
+},
+{
+"points": 83.0,
+"code": null,
+"discard": false
+},
+{
+"points": 44.0,
+"code": null,
+"discard": false
+},
+{
+"points": 75.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 77,
+"sail": "POR 1685",
+"name": "HOTEL VALVERDE",
+"cat": "Open",
+"net": 585.0,
+"total": 686.0,
+"races": [
+{
+"points": 58.0,
+"code": null,
+"discard": false
+},
+{
+"points": 52.0,
+"code": null,
+"discard": false
+},
+{
+"points": 69.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 101.0,
+"code": "DNF",
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 48.0,
+"code": null,
+"discard": false
+},
+{
+"points": 77.0,
+"code": null,
+"discard": false
+},
+{
+"points": 27.0,
+"code": null,
+"discard": false
+},
+{
+"points": 52.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 78,
+"sail": "USA 65",
+"name": "CATAPULT",
+"cat": "Open",
+"net": 589.0,
+"total": 690.0,
+"races": [
+{
+"points": 48.0,
+"code": null,
+"discard": false
+},
+{
+"points": 36.0,
+"code": null,
+"discard": false
+},
+{
+"points": 12.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 78.0,
+"code": null,
+"discard": false
+},
+{
+"points": 11.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+}
+]
+},
+{
+"rank": 79,
+"sail": "HUN 1686",
+"name": "FANTOM",
+"cat": "Open",
+"net": 602.0,
+"total": 692.0,
+"races": [
+{
+"points": 73.0,
+"code": null,
+"discard": false
+},
+{
+"points": 67.0,
+"code": null,
+"discard": false
+},
+{
+"points": 74.0,
+"code": null,
+"discard": false
+},
+{
+"points": 56.0,
+"code": null,
+"discard": false
+},
+{
+"points": 84.0,
+"code": null,
+"discard": false
+},
+{
+"points": 14.0,
+"code": null,
+"discard": false
+},
+{
+"points": 78.0,
+"code": null,
+"discard": false
+},
+{
+"points": 84.0,
+"code": null,
+"discard": false
+},
+{
+"points": 90.0,
+"code": null,
+"discard": true
+},
+{
+"points": 72.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 80,
+"sail": "USA 639",
+"name": "NORBOY",
+"cat": "Open",
+"net": 608.0,
+"total": 697.0,
+"races": [
+{
+"points": 89.0,
+"code": null,
+"discard": true
+},
+{
+"points": 88.0,
+"code": null,
+"discard": false
+},
+{
+"points": 66.0,
+"code": null,
+"discard": false
+},
+{
+"points": 75.0,
+"code": null,
+"discard": false
+},
+{
+"points": 69.0,
+"code": null,
+"discard": false
+},
+{
+"points": 34.0,
+"code": null,
+"discard": false
+},
+{
+"points": 82.0,
+"code": null,
+"discard": false
+},
+{
+"points": 54.0,
+"code": null,
+"discard": false
+},
+{
+"points": 72.0,
+"code": null,
+"discard": false
+},
+{
+"points": 68.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 81,
+"sail": "BRA 1267",
+"name": "CAPIM CANELA",
+"cat": "Open",
+"net": 609.0,
+"total": 690.0,
+"races": [
+{
+"points": 76.0,
+"code": null,
+"discard": false
+},
+{
+"points": 76.0,
+"code": null,
+"discard": false
+},
+{
+"points": 75.0,
+"code": null,
+"discard": false
+},
+{
+"points": 76.0,
+"code": null,
+"discard": false
+},
+{
+"points": 65.0,
+"code": null,
+"discard": false
+},
+{
+"points": 30.0,
+"code": null,
+"discard": false
+},
+{
+"points": 56.0,
+"code": null,
+"discard": false
+},
+{
+"points": 75.0,
+"code": null,
+"discard": false
+},
+{
+"points": 80.0,
+"code": null,
+"discard": false
+},
+{
+"points": 81.0,
+"code": null,
+"discard": true
+}
+]
+},
+{
+"rank": 82,
+"sail": "BRA 1440",
+"name": "SACI",
+"cat": "Corinthian",
+"net": 612.0,
+"total": 704.0,
+"races": [
+{
+"points": 80.0,
+"code": null,
+"discard": false
+},
+{
+"points": 53.0,
+"code": null,
+"discard": false
+},
+{
+"points": 38.0,
+"code": null,
+"discard": false
+},
+{
+"points": 38.0,
+"code": null,
+"discard": false
+},
+{
+"points": 74.0,
+"code": null,
+"discard": false
+},
+{
+"points": 86.0,
+"code": null,
+"discard": false
+},
+{
+"points": 85.0,
+"code": null,
+"discard": false
+},
+{
+"points": 92.0,
+"code": null,
+"discard": true
+},
+{
+"points": 76.0,
+"code": null,
+"discard": false
+},
+{
+"points": 82.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 83,
+"sail": "USA 1863",
+"name": "DIME",
+"cat": "Corinthian",
+"net": 615.0,
+"total": 699.0,
+"races": [
+{
+"points": 61.0,
+"code": null,
+"discard": false
+},
+{
+"points": 45.0,
+"code": null,
+"discard": false
+},
+{
+"points": 84.0,
+"code": null,
+"discard": true
+},
+{
+"points": 77.0,
+"code": null,
+"discard": false
+},
+{
+"points": 71.0,
+"code": null,
+"discard": false
+},
+{
+"points": 78.0,
+"code": null,
+"discard": false
+},
+{
+"points": 72.0,
+"code": null,
+"discard": false
+},
+{
+"points": 72.0,
+"code": null,
+"discard": false
+},
+{
+"points": 83.0,
+"code": null,
+"discard": false
+},
+{
+"points": 56.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 84,
+"sail": "TUR 111",
+"name": "MARMARA YELKEN",
+"cat": "Young",
+"net": 620.0,
+"total": 721.0,
+"races": [
+{
+"points": 101.0,
+"code": "DNS",
+"discard": true
+},
+{
+"points": 101.0,
+"code": "DNS",
+"discard": false
+},
+{
+"points": 73.0,
+"code": null,
+"discard": false
+},
+{
+"points": 69.0,
+"code": null,
+"discard": false
+},
+{
+"points": 63.0,
+"code": null,
+"discard": false
+},
+{
+"points": 58.0,
+"code": null,
+"discard": false
+},
+{
+"points": 90.0,
+"code": null,
+"discard": false
+},
+{
+"points": 82.0,
+"code": null,
+"discard": false
+},
+{
+"points": 55.0,
+"code": null,
+"discard": false
+},
+{
+"points": 29.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 85,
+"sail": "GER 726",
+"name": "SENSACI\u00f3N",
+"cat": "Corinthian",
+"net": 622.0,
+"total": 715.0,
+"races": [
+{
+"points": 101.0,
+"code": "DNE",
+"discard": false
+},
+{
+"points": 70.0,
+"code": null,
+"discard": false
+},
+{
+"points": 77.0,
+"code": null,
+"discard": false
+},
+{
+"points": 60.0,
+"code": null,
+"discard": false
+},
+{
+"points": 47.0,
+"code": null,
+"discard": false
+},
+{
+"points": 70.0,
+"code": null,
+"discard": false
+},
+{
+"points": 51.0,
+"code": null,
+"discard": false
+},
+{
+"points": 63.0,
+"code": null,
+"discard": false
+},
+{
+"points": 93.0,
+"code": null,
+"discard": true
+},
+{
+"points": 83.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 86,
+"sail": "ITA 1490",
+"name": "T.ONE",
+"cat": "One Pro",
+"net": 631.0,
+"total": 732.0,
+"races": [
+{
+"points": 90.0,
+"code": null,
+"discard": false
+},
+{
+"points": 62.0,
+"code": null,
+"discard": false
+},
+{
+"points": 81.0,
+"code": null,
+"discard": false
+},
+{
+"points": 35.0,
+"code": null,
+"discard": false
+},
+{
+"points": 89.0,
+"code": null,
+"discard": false
+},
+{
+"points": 52.0,
+"code": null,
+"discard": false
+},
+{
+"points": 71.0,
+"code": null,
+"discard": false
+},
+{
+"points": 50.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+}
+]
+},
+{
+"rank": 87,
+"sail": "FRA 1911",
+"name": "JOUR J",
+"cat": "Open",
+"net": 632.0,
+"total": 733.0,
+"races": [
+{
+"points": 97.0,
+"code": null,
+"discard": false
+},
+{
+"points": 75.0,
+"code": null,
+"discard": false
+},
+{
+"points": 82.0,
+"code": null,
+"discard": false
+},
+{
+"points": 46.0,
+"code": null,
+"discard": false
+},
+{
+"points": 30.0,
+"code": null,
+"discard": false
+},
+{
+"points": 83.0,
+"code": null,
+"discard": false
+},
+{
+"points": 91.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 59.0,
+"code": null,
+"discard": false
+},
+{
+"points": 69.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 88,
+"sail": "FRA 1583",
+"name": "EURO-VOILES",
+"cat": "Corinthian",
+"net": 646.0,
+"total": 747.0,
+"races": [
+{
+"points": 91.0,
+"code": null,
+"discard": false
+},
+{
+"points": 74.0,
+"code": null,
+"discard": false
+},
+{
+"points": 63.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNF",
+"discard": true
+},
+{
+"points": 94.0,
+"code": null,
+"discard": false
+},
+{
+"points": 64.0,
+"code": null,
+"discard": false
+},
+{
+"points": 86.0,
+"code": null,
+"discard": false
+},
+{
+"points": 43.0,
+"code": null,
+"discard": false
+},
+{
+"points": 41.0,
+"code": null,
+"discard": false
+},
+{
+"points": 90.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 89,
+"sail": "USA 496",
+"name": "RIFF",
+"cat": "Mixed Plus",
+"net": 665.0,
+"total": 759.0,
+"races": [
+{
+"points": 94.0,
+"code": null,
+"discard": true
+},
+{
+"points": 87.0,
+"code": null,
+"discard": false
+},
+{
+"points": 89.0,
+"code": null,
+"discard": false
+},
+{
+"points": 81.0,
+"code": null,
+"discard": false
+},
+{
+"points": 42.0,
+"code": null,
+"discard": false
+},
+{
+"points": 75.0,
+"code": null,
+"discard": false
+},
+{
+"points": 93.0,
+"code": null,
+"discard": false
+},
+{
+"points": 90.0,
+"code": null,
+"discard": false
+},
+{
+"points": 43.0,
+"code": null,
+"discard": false
+},
+{
+"points": 65.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 90,
+"sail": "SUI 1852",
+"name": "IVA",
+"cat": "Corinthian",
+"net": 672.0,
+"total": 767.0,
+"races": [
+{
+"points": 68.0,
+"code": null,
+"discard": false
+},
+{
+"points": 80.0,
+"code": null,
+"discard": false
+},
+{
+"points": 92.0,
+"code": null,
+"discard": false
+},
+{
+"points": 74.0,
+"code": null,
+"discard": false
+},
+{
+"points": 75.0,
+"code": null,
+"discard": false
+},
+{
+"points": 74.0,
+"code": null,
+"discard": false
+},
+{
+"points": 95.0,
+"code": null,
+"discard": true
+},
+{
+"points": 74.0,
+"code": null,
+"discard": false
+},
+{
+"points": 62.0,
+"code": null,
+"discard": false
+},
+{
+"points": 73.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 91,
+"sail": "ARG 1191",
+"name": "NEGRONI",
+"cat": "Corinthian",
+"net": 679.0,
+"total": 780.0,
+"races": [
+{
+"points": 96.0,
+"code": null,
+"discard": false
+},
+{
+"points": 81.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 90.0,
+"code": null,
+"discard": false
+},
+{
+"points": 62.0,
+"code": null,
+"discard": false
+},
+{
+"points": 52.0,
+"code": null,
+"discard": false
+},
+{
+"points": 86.0,
+"code": null,
+"discard": false
+},
+{
+"points": 31.0,
+"code": null,
+"discard": false
+},
+{
+"points": 80.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 92,
+"sail": "BRA 1618",
+"name": "IRRATIONAL EXUBERANCE",
+"cat": "Open",
+"net": 680.0,
+"total": 781.0,
+"races": [
+{
+"points": 83.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNF",
+"discard": true
+},
+{
+"points": 91.0,
+"code": null,
+"discard": false
+},
+{
+"points": 72.0,
+"code": null,
+"discard": false
+},
+{
+"points": 86.0,
+"code": null,
+"discard": false
+},
+{
+"points": 84.0,
+"code": null,
+"discard": false
+},
+{
+"points": 77.0,
+"code": null,
+"discard": false
+},
+{
+"points": 79.0,
+"code": null,
+"discard": false
+},
+{
+"points": 37.0,
+"code": null,
+"discard": false
+},
+{
+"points": 71.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 93,
+"sail": "GBR 937",
+"name": "POWDER MONKEY",
+"cat": "Corinthian",
+"net": 693.0,
+"total": 794.0,
+"races": [
+{
+"points": 70.0,
+"code": null,
+"discard": false
+},
+{
+"points": 79.0,
+"code": null,
+"discard": false
+},
+{
+"points": 79.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 52.0,
+"code": null,
+"discard": false
+},
+{
+"points": 71.0,
+"code": null,
+"discard": false
+},
+{
+"points": 79.0,
+"code": null,
+"discard": false
+},
+{
+"points": 93.0,
+"code": null,
+"discard": false
+},
+{
+"points": 84.0,
+"code": null,
+"discard": false
+},
+{
+"points": 86.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 94,
+"sail": "TUR 442",
+"name": "DENIZCIK",
+"cat": "Open",
+"net": 709.0,
+"total": 810.0,
+"races": [
+{
+"points": 47.0,
+"code": null,
+"discard": false
+},
+{
+"points": 58.0,
+"code": null,
+"discard": false
+},
+{
+"points": 81.0,
+"code": "RDG",
+"discard": false
+},
+{
+"points": 81.0,
+"code": "RDG",
+"discard": false
+},
+{
+"points": 80.0,
+"code": null,
+"discard": false
+},
+{
+"points": 59.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+}
+]
+},
+{
+"rank": 95,
+"sail": "GBR 1591",
+"name": "JUST RIGHT",
+"cat": "One Pro",
+"net": 709.0,
+"total": 810.0,
+"races": [
+{
+"points": 95.0,
+"code": null,
+"discard": false
+},
+{
+"points": 72.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNF",
+"discard": true
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 50.0,
+"code": null,
+"discard": false
+},
+{
+"points": 77.0,
+"code": null,
+"discard": false
+},
+{
+"points": 87.0,
+"code": null,
+"discard": false
+},
+{
+"points": 78.0,
+"code": null,
+"discard": false
+},
+{
+"points": 92.0,
+"code": null,
+"discard": false
+},
+{
+"points": 57.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 96,
+"sail": "FIN 1542",
+"name": "TEAM ELVING",
+"cat": "Corinthian",
+"net": 719.0,
+"total": 820.0,
+"races": [
+{
+"points": 84.0,
+"code": null,
+"discard": false
+},
+{
+"points": 77.0,
+"code": null,
+"discard": false
+},
+{
+"points": 88.0,
+"code": null,
+"discard": false
+},
+{
+"points": 70.0,
+"code": null,
+"discard": false
+},
+{
+"points": 93.0,
+"code": null,
+"discard": false
+},
+{
+"points": 66.0,
+"code": null,
+"discard": false
+},
+{
+"points": 76.0,
+"code": null,
+"discard": false
+},
+{
+"points": 95.0,
+"code": null,
+"discard": false
+},
+{
+"points": 70.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+}
+]
+},
+{
+"rank": 97,
+"sail": "ITA 1798",
+"name": "J CURVE",
+"cat": "Open",
+"net": 728.0,
+"total": 829.0,
+"races": [
+{
+"points": 50.0,
+"code": null,
+"discard": false
+},
+{
+"points": 41.0,
+"code": null,
+"discard": false
+},
+{
+"points": 31.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+}
+]
+},
+{
+"rank": 98,
+"sail": "NED 964",
+"name": "MOORE DRV",
+"cat": "Corinthian",
+"net": 767.0,
+"total": 863.0,
+"races": [
+{
+"points": 93.0,
+"code": null,
+"discard": false
+},
+{
+"points": 83.0,
+"code": null,
+"discard": false
+},
+{
+"points": 94.0,
+"code": null,
+"discard": false
+},
+{
+"points": 80.0,
+"code": null,
+"discard": false
+},
+{
+"points": 82.0,
+"code": null,
+"discard": false
+},
+{
+"points": 72.0,
+"code": null,
+"discard": false
+},
+{
+"points": 96.0,
+"code": null,
+"discard": true
+},
+{
+"points": 88.0,
+"code": null,
+"discard": false
+},
+{
+"points": 86.0,
+"code": null,
+"discard": false
+},
+{
+"points": 89.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 99,
+"sail": "POL 1588",
+"name": "GRP METIKAM N'FUN YACHTING",
+"cat": "Corinthian",
+"net": 792.0,
+"total": 893.0,
+"races": [
+{
+"points": 72.0,
+"code": null,
+"discard": false
+},
+{
+"points": 90.0,
+"code": null,
+"discard": false
+},
+{
+"points": 93.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 96.0,
+"code": null,
+"discard": false
+},
+{
+"points": 96.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNS",
+"discard": false
+},
+{
+"points": 68.0,
+"code": null,
+"discard": false
+},
+{
+"points": 91.0,
+"code": null,
+"discard": false
+},
+{
+"points": 85.0,
+"code": null,
+"discard": false
+}
+]
+},
+{
+"rank": 100,
+"sail": "POR 1783",
+"name": "OUT WITH THE BUOYS",
+"cat": "Corinthian",
+"net": 811.0,
+"total": 912.0,
+"races": [
+{
+"points": 79.0,
+"code": null,
+"discard": false
+},
+{
+"points": 89.0,
+"code": null,
+"discard": false
+},
+{
+"points": 90.0,
+"code": null,
+"discard": false
+},
+{
+"points": 83.0,
+"code": null,
+"discard": false
+},
+{
+"points": 95.0,
+"code": null,
+"discard": false
+},
+{
+"points": 91.0,
+"code": null,
+"discard": false
+},
+{
+"points": 89.0,
+"code": null,
+"discard": false
+},
+{
+"points": 94.0,
+"code": null,
+"discard": false
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": true
+},
+{
+"points": 101.0,
+"code": "DNC",
+"discard": false
+}
+]
+}
+]
+}

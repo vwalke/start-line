@@ -29,7 +29,7 @@ import {
 } from './geo';
 import { fleetTurns, isOffset, legCourse, legsAgree, snapTurns } from './course';
 import { checkBounds, inferRoundings, legMedians, splitLegs, targetsOf, type Targets, type Waypoint } from './legs';
-import { SQUARE_LINE_M } from './line';
+import { SQUARE_LINE_M, awayFromLineThresholdM } from './line';
 import { heelAt, heelSeries, heelStats } from './heel';
 import { cogHeading, detectManoeuvres, headingCheck, manoeuvresByLeg, signedTwa, type HeadingCheck } from './manoeuvres';
 import { classifyParticipation } from './participation';
@@ -439,6 +439,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
         startPlace: null,
         warn: null,
         ocsBlind: false,
+        awayFromLine: false,
       };
       // START_TRAIL_MS of the tracker up to the DTL sample, translated by that
       // sample's bow offset so the polyline ends exactly on the bow used for DTL.
@@ -528,12 +529,16 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     const covEnd = ranked ? (b.finishMs != null && b.finishMs > gun ? b.finishMs : lastEnd) : null;
     const raceCov = covEnd != null && covEnd > gun ? coverage(tr.t, gun, covEnd) : null;
     const pos = ranked ? finishOrder.indexOf(b.id) : -1;
+    // Official results: their place stands (the finish order by time can differ: penalties, a boat with no tracked finish).
+    const official = data.results?.places === 'official';
     const result: BoatResult = {
       id: b.id,
       sail: b.sail,
       name: b.name,
       colorSlot: ranked ? sailOrder.indexOf(b) : -1,
-      finishPos: pos >= 0 ? pos + 1 : null,
+      finishPos: official ? (ranked ? (b.officialPlace ?? null) : null) : pos >= 0 ? pos + 1 : null,
+      ...(b.officialCode ? { finishCode: b.officialCode } : {}),
+      ...(b.finishSource ? { finishSource: b.finishSource } : {}),
       finishMs: b.finishMs,
       raceTimeS,
       sogAvgKn,
@@ -607,6 +612,13 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   // judge its lateness against half the fleet's typical approach speed instead.
   const approach = results.filter((r) => r.start && r.start.vToLineMs > 0).map((r) => r.start!.vToLineMs);
   const vFloor = Math.max(0.3, approach.length ? 0.5 * median(approach) : 0.3);
+  // One boat kilometres out must not take the "furthest back" place or stretch the Fit.
+  const absDtl = (r: BoatResult): number => Math.abs(r.start!.dtlM);
+  const withBow = results.filter((r) => r.start);
+  const awayThresh = awayFromLineThresholdM(withBow.map(absDtl));
+  if (withBow.filter((r) => absDtl(r) <= awayThresh).length >= 3) {
+    for (const r of withBow) r.start!.awayFromLine = absDtl(r) > awayThresh;
+  }
   for (const r of results) {
     if (!r.start) continue;
     r.start.secsLate = r.start.dtlM / Math.max(r.start.vToLineMs, vFloor);
@@ -699,6 +711,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       sourceLabel: data.source.label,
       sourceKind: data.source.kind,
       eventId: data.source.eventId,
+      ...(data.results ? { results: data.results } : {}),
     },
     line,
     finishLine,

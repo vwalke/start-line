@@ -39,8 +39,11 @@ export function boatList(a: RaceAnalysis, highlight: string | null, ncOpen = fal
   const items = a.boats
     .map((b) => {
       const name = b.name !== `#${b.sail}` ? `<span class="bname">${esc(b.name)}</span>` : '';
-      const pos = b.finishPos == null ? 'DNF' : String(b.finishPos);
-      const label = `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}, ${b.finishPos == null ? 'did not finish' : `finished ${pos}`}`;
+      // An official code (DSQ, DNF…) when linked; "~" marks a place from the tracks' finish-line crossings.
+      const tracker = b.finishSource === 'tracker' && a.meta.results?.places === 'tracker';
+      const pos = b.finishPos == null ? (b.finishCode ?? 'DNF') : `${tracker ? '~' : ''}${b.finishPos}`;
+      const how = b.finishCode ? `scored ${b.finishCode}` : b.finishPos == null ? 'did not finish' : `finished ${b.finishPos}${tracker ? ' (tracker finish)' : ''}`;
+      const label = `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}, ${how}`;
       return `<li><button type="button" class="boat-item" data-id="${esc(b.id)}" aria-pressed="${highlight === b.id}" aria-label="${esc(label)}" title="${esc(label)}">
         <i class="sw" style="background:${boatColor(b, a.boats.length)}"></i><b class="sail">${esc(b.sail)}</b>${name}<span class="pos">${pos}</span></button></li>`;
     })

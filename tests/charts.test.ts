@@ -127,16 +127,30 @@ describe('start chart hulls', () => {
   });
 
   it('falls back to the min-size marker when hulls would be under 6 px', () => {
-    const far = { ...analysis, drawings: analysis.drawings.map((d, i) => (i ? d : { ...d, bow: [d.bow![0] + 3000, d.bow![1]] as Vec })) };
-    expect(startHullScale(far)).toBeNull();
-    const svg = startSnapshot(far, null);
+    const box = startFitBox(analysis);
+    const huge = { x0: box.x0 - 2000, y0: box.y0 - 2000, x1: box.x1 + 2000, y1: box.y1 + 2000 };
+    const frame = { box: huge, refPx: 600 };
+    expect(startHullScale(analysis, fitView(huge), undefined, frame)).toBeNull();
+    const svg = startSnapshot(analysis, null, fitView(huge), 'boat', { frame });
     expect(svg).toContain('boat-min');
     expect(svg).not.toContain('class="hull"');
     // Zooming in far enough brings the hulls back.
-    const farBox = startFitBox(far);
-    const zoomed = clampView(farBox, { ...fitView(farBox), k: 16 });
-    expect(startHullScale(far, zoomed)?.loaM).toBe(6.934);
-    expect(startSnapshot(far, null, zoomed)).toContain('class="hull"');
+    const zoomed = clampView(huge, { ...fitView(huge), k: 16 });
+    expect(startHullScale(analysis, zoomed, undefined, frame)?.loaM).toBe(6.934);
+    expect(startSnapshot(analysis, null, zoomed, 'boat', { frame })).toContain('class="hull"');
+  });
+
+  it('does not let one boat kilometres from the line stretch the Fit', () => {
+    const base = startFitBox(analysis);
+    const farId = analysis.drawings.find((d) => d.bow)!.id;
+    const far = {
+      ...analysis,
+      boats: analysis.boats.map((b) => (b.id === farId && b.start ? { ...b, start: { ...b.start, awayFromLine: true, startPlace: null } } : b)),
+      drawings: analysis.drawings.map((d) => (d.id === farId && d.bow ? { ...d, bow: [d.bow[0] + 3000, d.bow[1]] as Vec } : d)),
+    };
+    const box = startFitBox(far);
+    expect(Math.max(box.x1 - box.x0, box.y1 - box.y0)).toBeLessThan(Math.max(base.x1 - base.x0, base.y1 - base.y0) + 80);
+    expect(Math.max(box.x1 - box.x0, box.y1 - box.y0)).toBeLessThan(800);
   });
 
   it('keeps the plain marker for unknown classes', () => {

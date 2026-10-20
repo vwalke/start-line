@@ -1,0 +1,1 @@
+{"count":0,"rows":[],"page":1,"size":40,"sort":"default","srdir":"ASC","q":"","filters":[{"field":"name","opr":"contains","value":"Cascais J/70 World Championship","isNested":false},{"field":"isActive","value":"true","opr":"eq"}],"multiSort":[["startDate","DESC NULLS LAST"]],"select":[]}
