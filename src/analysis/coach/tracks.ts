@@ -21,6 +21,18 @@ export interface CoachTrack {
   y: Float64Array;
   /** Leg boundary times: [gun, end of leg 1, …, finish]; n legs → n + 1; null = unknown. */
   bounds: (number | null)[];
+  /**
+   * Where `bounds` leave the leg unknown (roundings lost in a hole), stretches next to a known
+   * rounding where the boat was still closing on that leg's mark (ladder.ts inferLegSpans).
+   */
+  spans?: LegSpan[];
+}
+
+/** A stretch of track known to be on `leg` although its roundings are not. */
+export interface LegSpan {
+  fromMs: number;
+  toMs: number;
+  leg: number;
 }
 
 /**
@@ -39,6 +51,14 @@ export function legAt(bounds: readonly (number | null)[], t: number): number | n
   while (j <= n && bounds[j] == null) j++;
   if (j > n) return k; // nothing known after: still on the leg it started
   return j === k + 1 ? k : null;
+}
+
+/** The leg at `t` from the timed roundings (legAt), else from an inferred span; null when unknown. */
+export function trackLegAt(tr: Pick<CoachTrack, 'bounds' | 'spans'>, t: number): number | null {
+  const k = legAt(tr.bounds, t);
+  if (k != null) return k;
+  for (const s of tr.spans ?? []) if (t >= s.fromMs && t <= s.toMs) return s.leg;
+  return null;
 }
 
 /** Position at `t`: interpolated between the bracketing fixes only when they are ≤ COACH_MAX_SPAN_S apart and one is ≤ COACH_NEAR_FIX_S away. */

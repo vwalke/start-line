@@ -106,11 +106,16 @@ export function coachPickerHtml(a: RaceAnalysis, boat: string | null, races: { r
 const hm = (ms: number, tz: number): string => localTime(ms, tz).slice(0, 5);
 
 /** The header: place, gun time (venue clock), ⚠ tracker coverage, ⚠ longest hole, ⚠ heading from GPS course. */
-export function coachChips(a: RaceAnalysis, b: BoatResult, ladder: RivalLadder | null): Chip[] {
+export function coachChips(a: RaceAnalysis, b: BoatResult, ladder: RivalLadder | null, atStakeS: number | null = null): Chip[] {
   const tz = a.meta.tzOffsetMs;
   const chips: Chip[] = [];
   chips.push(b.finishPos != null ? { text: `${ordinal(b.finishPos)} of ${a.boats.length}`, title: 'Place by the tracked finish' } : warnChip('no tracked finish'));
+  const win = a.boats.find((x) => x.finishPos === 1);
+  if (b.finishPos != null && b.finishPos > 1 && b.finishMs != null && win?.finishMs != null) {
+    chips.push({ text: `${Math.round((b.finishMs - win.finishMs) / 1000)} s behind ${win.name && win.name !== `#${win.sail}` ? win.name : win.sail}`, title: `Tracked finish times; ${boatLabel(win, win.id)} won` });
+  }
   chips.push({ text: `gun ${hm(a.meta.gunMs, tz)}`, title: `Venue time (${tzLabel(tz)})` });
+  if (atStakeS != null && atStakeS > 0) chips.push({ text: `≈ ${Math.round(atStakeS)} s at stake`, title: 'Seconds at stake over the cards below' });
   if (b.coverage != null && b.coverage < COACH_LOW_COVERAGE) chips.push(warnChip(`tracker ${pct(b.coverage)}`, 'Share of the race the tracker covered'));
   const h = ladder?.hole;
   if (h && (h.toMs - h.fromMs) / 1000 >= COACH_HOLE_CHIP_S) {
@@ -323,6 +328,8 @@ export const gapWords = (behindS: number): string => {
 export interface LadderOptions {
   widthPx?: number;
   each?: boolean;
+  /** Shade these windows (ms): the selected opportunity card's. */
+  highlight?: readonly [number, number][];
 }
 
 /** The chart as SVG. */
@@ -339,6 +346,14 @@ export function ladderChart(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder,
   // No-data bands (the chosen boat or every group boat untracked).
   for (const [p, q] of nullSpans(ladder.points)) {
     out.push(`<rect class="cl-nodata" x="${r1(L.x(p))}" y="${L.padT}" width="${r1(Math.max(1, L.x(q) - L.x(p)))}" height="${L.gapB - L.padT}"><title>No data ${hm(p, tz)}–${hm(q, tz)}</title></rect>`);
+  }
+  // The selected card's window(s), across both panels.
+  for (const [p, q] of opts.highlight ?? []) {
+    const a0 = Math.max(L.t0, p);
+    const b0 = Math.min(L.t1, q);
+    if (!(b0 >= a0)) continue;
+    const x0 = L.x(a0);
+    out.push(`<rect class="cl-hl" x="${r1(x0 - (b0 === a0 ? 1.5 : 0))}" y="${L.padT}" width="${r1(Math.max(3, L.x(b0) - x0))}" height="${L.windB - L.padT}"><title>${hm(p, tz)}–${hm(q, tz)}</title></rect>`);
   }
   // Gap gridlines: + ahead above zero, − behind below.
   for (let s = L.lo; s <= L.hi + 1e-9; s += L.sStep) {

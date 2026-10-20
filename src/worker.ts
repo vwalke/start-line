@@ -3,8 +3,7 @@
  * normalize it to RaceData, run the analysis, post back the result.
  */
 import { analyzeRace } from './analysis/analyze';
-import { coachRaceKey, coachWind } from './analysis/coach';
-import type { TwdSeriesData } from './analysis/coach/twdSeries';
+import { coachRaceKey, coachRaw, type CoachRaw } from './analysis/coach';
 import type { RaceAnalysis } from './analysis/types';
 import type { RaceData } from './data/types';
 import { buildRaceData, currentDoc, findRace, listRaces, telemetryWindow } from './data/racesense/adapter';
@@ -26,14 +25,14 @@ export type WorkerRequest =
       /** Keep raw RaceData so the Coach tab can build the wind series. Off unless `?coach=1`. */
       coach?: boolean;
     }
-  /** Coach (lazy, on the tab's first open): the fleet wind series of the race last analysed, from its raw fixes. */
-  | { id: number; type: 'coach-wind'; key: string };
+  /** Coach (lazy, on the tab's first open): the fleet wind series and start crossings of the race last analysed, from its raw fixes. */
+  | { id: number; type: 'coach-raw'; key: string };
 
 export type WorkerResponse =
   | { id: number; type: 'progress'; message: string }
   | { id: number; type: 'done'; analysis: RaceAnalysis }
-  /** `wind` null: that race isn't the one last analysed here (or has no course); the caller works it out from the drawn tracks. */
-  | { id: number; type: 'coach-wind'; wind: TwdSeriesData | null }
+  /** `raw` null: that race isn't the one last analysed here; the caller works the wind out from the drawn tracks, with no start crossings. */
+  | { id: number; type: 'coach-raw'; raw: CoachRaw | null }
   | { id: number; type: 'error'; message: string };
 
 const ctx = self as unknown as {
@@ -93,10 +92,10 @@ function drawingBuffers(a: RaceAnalysis): Transferable[] {
 
 ctx.onmessage = (ev) => {
   const req = ev.data;
-  if (req.type === 'coach-wind') {
+  if (req.type === 'coach-raw') {
     try {
-      const wind = last && last.key === req.key ? coachWind(last.analysis, last.data) : null;
-      ctx.postMessage({ id: req.id, type: 'coach-wind', wind });
+      const raw = last && last.key === req.key ? coachRaw(last.analysis, last.data) : null;
+      ctx.postMessage({ id: req.id, type: 'coach-raw', raw });
     } catch (err) {
       ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) });
     }
