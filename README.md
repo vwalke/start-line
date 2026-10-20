@@ -395,10 +395,9 @@ next class. An automatically matched event must also beat the next candidate by
   finish is set aside the same way. They are then out of the start view's Fit,
   the ranks and the findings. Cascais official race 4 had three boats scored
   DNC that sat 4.9 km off.
-- **Start Fit:** bows more than ~300 m (or 2 line-lengths) from the line
-  middle, against the fleet's own spread, are listed as away from the line and
-  left out of Fit and start places, so one late boat ~2 km out cannot collapse
-  the chart.
+- **Start Fit:** boats whose |DTL| is over ~300 m (or 4× the fleet's 80th
+  percentile) are listed as away from the line and left out of Fit and start
+  places, so one late boat kilometres out cannot collapse the chart.
 
 **Rebuilt races**, `src/data/orphans.ts`: races the tracks show but RaceSense
 doesn't list.

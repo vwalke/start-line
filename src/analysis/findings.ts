@@ -75,8 +75,7 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
   }
   const away = started.filter((b) => b.start!.awayFromLine);
   if (away.length) {
-    const mid: [number, number] = [(a.line.left[0] + a.line.right[0]) / 2, (a.line.left[1] + a.line.right[1]) / 2];
-    const km = (b: BoatResult): string => `${(Math.hypot(b.start!.bow[0] - mid[0], b.start!.bow[1] - mid[1]) / 1000).toFixed(1)} km`;
+    const km = (b: BoatResult): string => `${(Math.abs(b.start!.dtlM) / 1000).toFixed(1)} km`;
     out.push({
       kind: 'start',
       boatIds: away.map((b) => b.id),

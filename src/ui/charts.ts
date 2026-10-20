@@ -161,13 +161,19 @@ export function startFitBox(a: RaceAnalysis, widthPx?: number): Box {
 /** Whether a chart this wide gets the narrow (larger-text) layout. */
 export const isNarrowStart = (widthPx?: number): boolean => widthPx != null && widthPx > 0 && widthPx < NAME_MIN_W;
 
-/** How far from the line middle a bow may sit and still set the Fit (same rule as analysis). */
+/** |DTL| this large leaves a bow out of the Fit (same rule as analysis). */
 function startReach(a: RaceAnalysis): number {
-  const mid: Vec = [(a.line.left[0] + a.line.right[0]) / 2, (a.line.left[1] + a.line.right[1]) / 2];
   const away = new Set(a.boats.filter((b) => b.start?.awayFromLine).map((b) => b.id));
-  const near = a.drawings.filter((d) => d.bow && !away.has(d.id)).map((d) => Math.hypot(d.bow![0] - mid[0], d.bow![1] - mid[1]));
-  const fleet = near.length >= 3 ? near : a.drawings.filter((d) => d.bow).map((d) => Math.hypot(d.bow![0] - mid[0], d.bow![1] - mid[1]));
-  return awayFromLineThresholdM(a.line.lengthM, fleet);
+  const near = a.boats.filter((b) => b.start && !away.has(b.id)).map((b) => Math.abs(b.start!.dtlM));
+  const fleet = near.length >= 3 ? near : a.boats.filter((b) => b.start).map((b) => Math.abs(b.start!.dtlM));
+  return awayFromLineThresholdM(fleet);
+}
+
+function perpToLine(p: Vec, L: Vec, R: Vec): number {
+  const vx = R[0] - L[0];
+  const vy = R[1] - L[1];
+  const n = Math.hypot(vx, vy) || 1;
+  return Math.abs((p[0] - L[0]) * (-vy / n) + (p[1] - L[1]) * (vx / n));
 }
 
 function startFrame(a: RaceAnalysis, widthPx?: number) {
@@ -177,11 +183,12 @@ function startFrame(a: RaceAnalysis, widthPx?: number) {
   grow(box, R);
   // Room for the bows and nearby trails; a boat kilometres out must not shrink everyone else.
   const mid = rot([(a.line.left[0] + a.line.right[0]) / 2, (a.line.left[1] + a.line.right[1]) / 2]);
+  const away = new Set(a.boats.filter((b) => b.start?.awayFromLine).map((b) => b.id));
   const bowReach = startReach(a);
   for (const d of a.drawings) {
-    if (!d.bow) continue;
+    if (!d.bow || away.has(d.id)) continue;
     const p = rot(d.bow);
-    if (Math.hypot(p[0] - mid[0], p[1] - mid[1]) <= bowReach) grow(box, p);
+    if (perpToLine(p, L, R) <= bowReach) grow(box, p);
   }
   const reach = Math.max(40, 0.8 * a.line.lengthM);
   for (const d of a.drawings) {
@@ -279,11 +286,12 @@ export function startFullFrame(a: RaceAnalysis, widthPx: number, heightPx: numbe
   grow(core, L);
   grow(core, R);
   const mid: Vec = [(L[0] + R[0]) / 2, (L[1] + R[1]) / 2];
+  const away = new Set(a.boats.filter((b) => b.start?.awayFromLine).map((b) => b.id));
   const bowReach = startReach(a);
   for (const d of a.drawings) {
-    if (!d.bow) continue;
+    if (!d.bow || away.has(d.id)) continue;
     const p = rot(d.bow);
-    if (Math.hypot(p[0] - mid[0], p[1] - mid[1]) <= bowReach) grow(core, p);
+    if (perpToLine(p, L, R) <= bowReach) grow(core, p);
   }
   if (!(widthPx > 0 && heightPx > 0)) return { box: startFrame(a).box, refPx: 600, core, trails: core, rotate: false };
   const refPx = Math.max(widthPx, NAME_MIN_W);

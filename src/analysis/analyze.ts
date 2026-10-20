@@ -613,12 +613,11 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   const approach = results.filter((r) => r.start && r.start.vToLineMs > 0).map((r) => r.start!.vToLineMs);
   const vFloor = Math.max(0.3, approach.length ? 0.5 * median(approach) : 0.3);
   // One boat kilometres out must not take the "furthest back" place or stretch the Fit.
-  const midXY: Vec = [(L[0] + R[0]) / 2, (L[1] + R[1]) / 2];
-  const bowDist = (r: BoatResult): number => Math.hypot(r.start!.bow[0] - midXY[0], r.start!.bow[1] - midXY[1]);
+  const absDtl = (r: BoatResult): number => Math.abs(r.start!.dtlM);
   const withBow = results.filter((r) => r.start);
-  const awayThresh = awayFromLineThresholdM(lineLen, withBow.map(bowDist));
-  if (withBow.filter((r) => bowDist(r) <= awayThresh).length >= 3) {
-    for (const r of withBow) r.start!.awayFromLine = bowDist(r) > awayThresh;
+  const awayThresh = awayFromLineThresholdM(withBow.map(absDtl));
+  if (withBow.filter((r) => absDtl(r) <= awayThresh).length >= 3) {
+    for (const r of withBow) r.start!.awayFromLine = absDtl(r) > awayThresh;
   }
   for (const r of results) {
     if (!r.start) continue;

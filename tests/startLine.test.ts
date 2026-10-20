@@ -325,7 +325,7 @@ describe('lineExtensions', () => {
 
 describe('awayFromLineThresholdM', () => {
   it('stays in the hundreds of metres for a normal start and leaves a 2 km boat outside', () => {
-    const t = awayFromLineThresholdM(150, [20, 30, 40, 50, 60, 2000]);
+    const t = awayFromLineThresholdM([20, 30, 40, 50, 60, 2000]);
     expect(t).toBeGreaterThanOrEqual(300);
     expect(t).toBeLessThan(500);
     expect(t).toBeLessThan(2000);
