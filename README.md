@@ -169,8 +169,10 @@ Switching races keeps the tab.
   numbers and the mark names are turned.
 - **Wide tables:** each has a second scrollbar above it, kept in step with
   its own (which sits directly under the table, with the key line below that).
-  Fin and Boat stay put while the rest scrolls; on a phone long boat names
-  are cut short (the sidebar has them).
+  Fin and Boat (and Rank, once sorted) stay put while the rest scrolls; on a
+  phone long boat names are cut short (the sidebar has them). A 2 px divider
+  runs down the start of each column group (each leg, Upwind, Downwind,
+  Race), header to last row.
 - **Upwind / downwind summaries:** per boat, the beats added up and the runs
   added up (reaches are in neither): total time and distance, SOG = distance ÷
   time, VMG, |TWA| and coverage weighted by leg time, heel time-weighted over
@@ -220,6 +222,13 @@ Switching races keeps the tab.
   again to reverse. Missing values always sort last. The two tables sort
   independently, and both sorts are kept with the last race viewed (a sort
   saved before the split goes back onto whichever table has that column).
+- **Rank:** once a table is sorted, a narrow Rank column (leftmost, pinned)
+  gives each boat's place in that sort, 1 at the top in either direction;
+  ties share a place ("=3", then 5) when the shown (rounded) figures match,
+  a missing value or a not-racing boat shows "—". Its header names the
+  sorted column in short ("Up VMG", "B1 SOG", "Race Time"). In finish
+  order (no sort) it is hidden: Fin already gives that order, and a phone
+  keeps the width.
 - **Tracks by leg:** a map in local metres (no map tiles), rotated so the wind
   comes from the top. The legend picks one leg and zooms the map to it.
 - **Colour tracks:** `Colour: Leg | Rank | Boat speed` beside the legend.

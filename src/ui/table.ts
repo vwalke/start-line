@@ -3,7 +3,8 @@
  * Start: how each boat started (and its heel at the gun). Legs: each leg's VMG / SOG / TWA / Heel / Dist / Time / tacks or gybes / Data,
  * (Heel columns only when the feed carries roll),
  * the upwind and downwind legs added up, and the race. Every column sorts from its header (↑/↓); the
- * tables sort independently, and their column keys are unique across both.
+ * tables sort independently, and their column keys are unique across both. Once sorted, a sticky Rank
+ * column (leftmost) gives each boat's place in that sort.
  */
 import { LOW_COVERAGE } from '../analysis/coverage';
 import type { BoatResult, KindSummary, LegKind, LegResult, RaceAnalysis, StartResult } from '../analysis/types';
@@ -40,6 +41,8 @@ interface Col {
   cls?: string;
   /** The finish-place and boat columns: a not-racing row shows "—" and its flag there. */
   role?: 'fin' | 'boat';
+  /** Display rounding for rank ties, matching the cell (0 / 1 / 2 decimals, or '%' as pct()). */
+  prec?: 0 | 1 | 2 | '%';
 }
 
 const missing = (v: SortVal): boolean => v == null || (typeof v === 'number' && !Number.isFinite(v));
@@ -66,6 +69,47 @@ export function nextSort(cur: SortState | null, key: string, first: SortDir): So
   if (cur?.key === key) return { key, dir: cur.dir === 'asc' ? 'desc' : 'asc' };
   return { key, dir: first };
 }
+
+/** A boat's place in a sort: 1 at the top; `tied` when another boat shares its value. */
+export interface SortRank {
+  n: number;
+  tied: boolean;
+}
+
+/** The figure a cell shows: same rounding as f0 / f1 / f2 / pct, so 3.961 and 3.964 (both "3.96") match. */
+export function shownVal(v: SortVal, prec?: 0 | 1 | 2 | '%'): SortVal {
+  if (prec == null || typeof v !== 'number' || !Number.isFinite(v)) return v;
+  if (prec === '%') return Math.floor(v * 100 + 1e-9);
+  return prec === 0 ? Math.round(v) : Number(v.toFixed(prec));
+}
+
+/** Each boat's place in `boats` sorted by `value` in `dir`, ties shared (1, =2, =2, 4); null = missing value, not ranked. `shown` is the displayed figure (raw `value` if omitted). */
+export function sortRanks(
+  boats: BoatResult[],
+  value: (b: BoatResult) => SortVal,
+  dir: SortDir,
+  shown: (v: SortVal) => SortVal = (v) => v,
+): Map<string, SortRank | null> {
+  const out = new Map<string, SortRank | null>();
+  let prev: { v: SortVal; r: SortRank } | null = null;
+  sortBoats(boats, value, dir).forEach((b, i) => {
+    const v = shown(value(b));
+    if (missing(v)) {
+      out.set(b.id, null);
+    } else if (prev && compareValues(prev.v, v, dir) === 0) {
+      prev.r.tied = true;
+      out.set(b.id, prev.r);
+    } else {
+      prev = { v, r: { n: i + 1, tied: false } };
+      out.set(b.id, prev.r);
+    }
+  });
+  return out;
+}
+
+/** "3", "=3" when tied, "—" when not ranked. */
+export const rankCell = (r: SortRank | null | undefined): string =>
+  r == null ? '—' : r.tied ? `<span title="Tied ${ordinal(r.n)}">=${r.n}</span>` : String(r.n);
 
 const findCol = (a: RaceAnalysis, key: string): Col | undefined => startColumns(a).find((c) => c.key === key) ?? legColumns(a).find((c) => c.key === key);
 
@@ -156,6 +200,7 @@ export function heelCell(heelDeg: number | null | undefined, cover: number | nul
 
 const LOW_PCT = Math.round(LOW_COVERAGE * 100);
 const SORT_NOTE = 'Tap a heading to sort (↑/↓), again to reverse. ▲ best, ▼ worst.';
+const RANK_NOTE = 'Rank: place in the current sort; =3 tied at the shown figure; — none.';
 
 /** The ⓘ line on Heel: what it is (at the gun, or averaged per leg), or that this feed has none (the columns are hidden). */
 export const heelNote = (a: RaceAnalysis, which: TableId): string =>
@@ -193,6 +238,7 @@ export function startTableKey(a: RaceAnalysis): KeyLine & { notes: string[] } {
       'Late: our DTL ÷ speed to the line. Line pos: 0% pin, 100% RC.',
       heelNote(a, 'start'),
       SORT_NOTE,
+      RANK_NOTE,
     ],
     notes,
   };
@@ -225,6 +271,7 @@ export function legsTableKey(a?: RaceAnalysis): KeyLine {
       'Tacks on beats, gybes on runs (both on reaches); a side held 10 s.',
       ...(a ? [heelNote(a, 'legs')] : []),
       SORT_NOTE,
+      RANK_NOTE,
     ],
   };
 }
@@ -295,6 +342,7 @@ function startColumns(a: RaceAnalysis): Col[] {
             "Distance to line from the boat's Vakaros device (feed dtlMm, bow-corrected; device start-fix timing). Primary figure. — = no usable fix; ⚠ = differs from our check by more than 3 m.",
           sort: (b) => b.start?.rcDtlM,
           first: 'asc',
+          prec: 1 as const,
           cell: rcCell,
         },
         {
@@ -304,6 +352,7 @@ function startColumns(a: RaceAnalysis): Col[] {
             "Our independent estimate from the GPS track (bow offset along heading, sampled at the device's start fix). A check on the Vakaros figure, not the official number. ~ = interpolated across a telemetry gap.",
           sort: (b) => b.start?.dtlM,
           first: 'asc',
+          prec: 1 as const,
           cell: oursCell,
           cls: 'num muted',
         },
@@ -315,6 +364,7 @@ function startColumns(a: RaceAnalysis): Col[] {
           title: 'Bow distance behind the line at the gun (bow-corrected). Negative = over. ~ = interpolated across a telemetry gap.',
           sort: (b) => b.start?.dtlM,
           first: 'asc',
+          prec: 1 as const,
           cell: oursCell,
         },
       ];
@@ -331,6 +381,7 @@ function startColumns(a: RaceAnalysis): Col[] {
       better: 'low',
       sort: (b) => b.start?.lateS,
       first: 'asc',
+      prec: 1 as const,
       cell: (b) => f1(b.start?.lateS),
     },
     {
@@ -339,6 +390,7 @@ function startColumns(a: RaceAnalysis): Col[] {
       title: '0% = pin (left) end, 100% = RC (right) end',
       sort: (b) => b.start?.linePosPct,
       first: 'asc',
+      prec: 0 as const,
       cell: (b) => f0(b.start?.linePosPct),
       cls: 'num muted',
     },
@@ -349,6 +401,7 @@ function startColumns(a: RaceAnalysis): Col[] {
       better: 'high',
       sort: (b) => b.start?.speedKn,
       first: 'desc',
+      prec: 1 as const,
       cell: (b) => f1(b.start?.speedKn),
     },
     {
@@ -357,6 +410,7 @@ function startColumns(a: RaceAnalysis): Col[] {
       title: 'S = starboard, P = port; vs the estimated wind. Sorts by angle off the wind, closest first.',
       sort: (b) => (b.start ? Math.abs(b.start.twaDeg) : null),
       first: 'asc',
+      prec: 0 as const,
       cell: (b) => twaLabel(b.start?.twaDeg),
       cls: 'num muted',
     },
@@ -368,6 +422,7 @@ function startColumns(a: RaceAnalysis): Col[] {
             title: 'Leeward heel at the gun (the fix nearest the gun, within 2 s): + = heeled to leeward, − = to windward. — = none, or head to wind',
             sort: (b: BoatResult) => b.start?.heelAtGunDeg,
             first: 'desc' as const,
+            prec: 0 as const,
             cell: (b: BoatResult) => (b.start?.heelAtGunDeg != null ? `<span class="heel">${f0(b.start.heelAtGunDeg)}°</span>` : '—'),
             cls: 'num muted',
           },
@@ -402,7 +457,8 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
       better: 'high',
       sort: (b) => S(b)?.vmgKn,
       first: 'desc',
-      cls: 'num leg g0',
+      prec: 2 as const,
+      cls: 'num leg',
       cell: val((s) => `<b>${f2(s.vmgKn)}</b>`),
     },
     {
@@ -412,6 +468,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
       group,
       sort: (b) => S(b)?.sogKn,
       first: 'desc',
+      prec: 1 as const,
       cell: val((s) => f1(s.sogKn)),
     },
     {
@@ -421,6 +478,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
       group,
       sort: (b) => S(b)?.twaDeg,
       first: kind === 'downwind' ? 'desc' : 'asc',
+      prec: 0 as const,
       cell: val((s) => `${f0(s.twaDeg)}°`),
       cls: 'num muted',
     },
@@ -433,6 +491,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
             group,
             sort: (b: BoatResult) => S(b)?.heelDeg,
             first: 'desc' as const,
+            prec: 1 as const,
             cell: val((s) => heelCell(s.heelDeg, s.heelCoverage, `${kind} legs`)),
           },
         ]
@@ -444,6 +503,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
       group,
       sort: (b) => S(b)?.distM,
       first: 'asc',
+      prec: 0 as const,
       cell: val((s) => (s.distApprox ? gapSpan(`Approximate: a ${kind} leg bridges a telemetry gap. ${APPROX}.`, fM(s.distM)) : fM(s.distM))),
     },
     {
@@ -455,6 +515,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
       better: 'low',
       sort: (b) => S(b)?.timeS,
       first: 'asc',
+      prec: 0 as const,
       cell: val((s) => `${duration(s.timeS)} <small class="rk">${s.place != null ? ordinal(s.place) : s.complete ? '' : `partial ${s.legs}/${s.of}`}</small>`),
     },
     kind === 'upwind'
@@ -483,6 +544,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
       group,
       sort: (b) => S(b)?.coverage,
       first: 'desc',
+      prec: '%',
       cell: val((s) => dqCell(s.coverage, s.maxGapS, `${kind} legs`)),
     },
   ];
@@ -512,7 +574,8 @@ function legColumns(a: RaceAnalysis): Col[] {
         better: 'high',
         sort: (b) => L(b)?.vmgKn,
         first: 'desc',
-        cls: 'num leg g0',
+        prec: 2 as const,
+        cls: 'num leg',
         cell: (b) => (L(b) ? `<b>${f2(L(b)!.vmgKn)}</b>` : '—'),
       },
       {
@@ -522,6 +585,7 @@ function legColumns(a: RaceAnalysis): Col[] {
         group,
         sort: (b) => L(b)?.sogKn,
         first: 'desc',
+        prec: 1 as const,
         cell: (b) => f1(L(b)?.sogKn),
       },
       {
@@ -532,6 +596,7 @@ function legColumns(a: RaceAnalysis): Col[] {
         // Upwind, closer to the wind first; downwind, deepest first.
         sort: (b) => L(b)?.twaDeg,
         first: leg.kind === 'downwind' ? 'desc' : 'asc',
+        prec: 0 as const,
         cell: (b) => (L(b) ? `${f0(L(b)!.twaDeg)}°` : '—'),
         cls: 'num muted',
       },
@@ -544,6 +609,7 @@ function legColumns(a: RaceAnalysis): Col[] {
         group,
         sort: (b) => L(b)?.heelDeg,
         first: 'desc',
+        prec: 1 as const,
         cell: (b) => (L(b) ? heelCell(L(b)!.heelDeg, L(b)!.heelCoverage, 'leg') : '—'),
       });
     }
@@ -555,6 +621,7 @@ function legColumns(a: RaceAnalysis): Col[] {
         group,
         sort: (b) => L(b)?.distM,
         first: 'asc',
+        prec: 0 as const,
         cell: (b) => (L(b) ? legDistCell(L(b)!) : '—'),
       },
       {
@@ -564,6 +631,7 @@ function legColumns(a: RaceAnalysis): Col[] {
         group,
         sort: (b) => L(b)?.timeS,
         first: 'asc',
+        prec: 0 as const,
         cell: (b) => {
           const l = L(b);
           if (!l) return '—';
@@ -600,6 +668,7 @@ function legColumns(a: RaceAnalysis): Col[] {
       group,
       sort: (b) => L(b)?.coverage,
       first: 'desc',
+      prec: '%',
       cell: (b) => (L(b) ? dqCell(L(b)!.coverage, L(b)!.maxGapS, 'leg') : '—'),
     });
   }
@@ -615,8 +684,8 @@ function legColumns(a: RaceAnalysis): Col[] {
       group: race,
       sort: (b) => b.distM,
       first: 'asc',
+      prec: 0 as const,
       cell: raceDistCell,
-      cls: 'num g0',
     },
     {
       key: 'race',
@@ -627,6 +696,7 @@ function legColumns(a: RaceAnalysis): Col[] {
       better: 'low',
       sort: (b) => b.raceTimeS,
       first: 'asc',
+      prec: 0 as const,
       cell: (b) => `${duration(b.raceTimeS)}<span class="sub">${localTime(b.finishMs, a.meta.tzOffsetMs)}</span>`,
     },
     {
@@ -638,6 +708,7 @@ function legColumns(a: RaceAnalysis): Col[] {
       better: 'high',
       sort: (b) => b.sogAvgKn,
       first: 'desc',
+      prec: 2 as const,
       cell: (b) => f2(b.sogAvgKn),
     },
     {
@@ -665,36 +736,70 @@ function legColumns(a: RaceAnalysis): Col[] {
       group: race,
       sort: (b) => b.coverage,
       first: 'desc',
+      prec: '%',
       cell: (b) => dqCell(b.coverage, b.maxGapS, 'race'),
     },
   );
   return cols;
 }
 
-function headCell(c: Col, sort: SortState | null, span: string): string {
+/** A column's classes; the first of each group (a leg, Upwind, Downwind, the race) gets g0, the divider down its left edge. */
+function colCls(cols: Col[], j: number): string {
+  const c = cols[j];
+  const first = c.group != null && cols[j - 1]?.group?.id !== c.group.id;
+  return `${c.cls ?? 'num'}${first ? ' g0' : ''}`;
+}
+
+function headCell(c: Col, cls: string, sort: SortState | null, span: string): string {
   const on = sort?.key === c.key ? sort.dir : null;
   const aria = on ? ` aria-sort="${on === 'asc' ? 'ascending' : 'descending'}"` : '';
   // ↑/↓ for the sort, distinct from the ▲/▼ best/worst marks in the cells.
   const si = `<span class="si" aria-hidden="true">${on === 'asc' ? '↑' : on === 'desc' ? '↓' : ''}</span>`;
-  return `<th class="${c.cls ?? 'num'}" scope="col"${span}${aria}${c.title ? ` title="${esc(c.title)}"` : ''}><button type="button" class="sort" data-sort="${esc(c.key)}">${c.head}${si}</button></th>`;
+  return `<th class="${cls}" scope="col"${span}${aria}${c.title ? ` title="${esc(c.title)}"` : ''}><button type="button" class="sort" data-sort="${esc(c.key)}">${c.head}${si}</button></th>`;
+}
+
+/** The sorted column in words, e.g. "Beat 1 VMG kn ↓". */
+const sortedName = (c: Col, dir: SortDir): string =>
+  `${c.group ? `${c.group.label} ` : ''}${c.head.replace(/<br>/g, ' ').replace(/<[^>]+>/g, '')} ${dir === 'asc' ? '↑' : '↓'}`;
+
+/** Compact group tag for the Rank header: "Up", "Dn", "B1", "R2", "Re1", "Race". */
+function groupTag(g: { id: string; label: string }): string {
+  if (g.id === 'up') return 'Up';
+  if (g.id === 'dn') return 'Dn';
+  if (g.id === 'race') return 'Race';
+  const m = /^(Beat|Run|Reach)\s+(\d+)$/i.exec(g.label);
+  if (!m) return g.label;
+  return `${m[1].toLowerCase() === 'reach' ? 'Re' : m[1][0]}${m[2]}`;
+}
+
+/** Rank header sub-label: "Up VMG", "B1 SOG", "Race Time"; ungrouped columns keep the column name. */
+function rankLabel(c: Col): string {
+  const metric = c.head.split('<br>')[0].replace(/<[^>]+>/g, '');
+  return c.group ? `${groupTag(c.group)} ${metric}` : metric;
+}
+
+/** The Rank header (not a sort button): its sub-label names the sorted column, in full in the title. */
+function rankHead(by: Col, dir: SortDir, span: string): string {
+  const what = `Rank in the current sort, by ${sortedName(by, dir)}`;
+  return `<th class="num rank" scope="col"${span} title="${esc(what)}" aria-label="${esc(what)}">Rank<small>${esc(rankLabel(by))}</small></th>`;
 }
 
 /** Two header rows when there are groups: ungrouped columns span both; a group's label spans its sub-columns. */
-function header(cols: Col[], sort: SortState | null): string {
+function header(cols: Col[], sort: SortState | null, by: Col | null): string {
   const grouped = cols.some((c) => c.group);
-  const top: string[] = [];
+  const top: string[] = by && sort ? [rankHead(by, sort.dir, grouped ? ' rowspan="2"' : '')] : [];
   const sub: string[] = [];
   cols.forEach((c, j) => {
     const g = c.group;
     if (!g) {
-      top.push(headCell(c, sort, grouped ? ' rowspan="2"' : ''));
+      top.push(headCell(c, colCls(cols, j), sort, grouped ? ' rowspan="2"' : ''));
       return;
     }
     if (cols[j - 1]?.group?.id !== g.id) {
       const n = cols.filter((x) => x.group?.id === g.id).length;
       top.push(`<th class="grp" scope="colgroup" colspan="${n}"${g.title ? ` title="${esc(g.title)}"` : ''}>${esc(g.label)}</th>`);
     }
-    sub.push(headCell(c, sort, ''));
+    sub.push(headCell(c, colCls(cols, j), sort, ''));
   });
   return `<tr>${top.join('')}</tr>${sub.length ? `<tr>${sub.join('')}</tr>` : ''}`;
 }
@@ -710,21 +815,24 @@ function renderTable(a: RaceAnalysis, cols: Col[], id: TableId, highlight: strin
     m.set(vals[vals.length - 1].id, 'worst');
     return m;
   });
-  const by = sort && cols.find((c) => c.key === sort.key);
-  const boats = by ? sortBoats(a.boats, by.sort, sort.dir) : a.boats;
+  const by = (sort && cols.find((c) => c.key === sort.key)) || null;
+  const boats = by ? sortBoats(a.boats, by.sort, sort!.dir) : a.boats;
+  // Rank only once sorted: in finish order it would only repeat Fin.
+  const ranks = by ? sortRanks(a.boats, by.sort, sort!.dir, (v) => shownVal(v, by.prec)) : null;
   const rows = boats
     .map((b) => {
+      const rank = ranks ? `<td class="num rank">${rankCell(ranks.get(b.id))}</td>` : '';
       const tds = cols
         .map((c, j) => {
           const hl = marks[j].get(b.id);
           const icon = hl === 'best' ? '<span class="ic" aria-label="best">▲</span>' : hl === 'worst' ? '<span class="ic" aria-label="worst">▼</span>' : '';
-          return `<td class="${c.cls ?? 'num'}${hl ? ' ' + hl : ''}">${icon}${c.cell(b)}</td>`;
+          return `<td class="${colCls(cols, j)}${hl ? ' ' + hl : ''}">${icon}${c.cell(b)}</td>`;
         })
         .join('');
-      return `<tr data-id="${esc(b.id)}" class="${highlight === b.id ? 'sel' : ''}" tabindex="0">${tds}</tr>`;
+      return `<tr data-id="${esc(b.id)}" class="${highlight === b.id ? 'sel' : ''}" tabindex="0">${rank}${tds}</tr>`;
     })
     .join('');
-  return `<table class="metrics ${id}" data-table="${id}"><thead>${header(cols, sort)}</thead><tbody>${rows}${excludedRow(a, cols, highlight)}</tbody></table>`;
+  return `<table class="metrics ${id}${ranks ? ' ranked' : ''}" data-table="${id}"><thead>${header(cols, sort, by)}</thead><tbody>${rows}${excludedRow(a, cols, highlight, !!ranks)}</tbody></table>`;
 }
 
 /** The start table (notes: `startNotesHtml`, rendered outside its scroller). */
@@ -735,17 +843,18 @@ export const startTable = (a: RaceAnalysis, highlight: string | null, sort: Sort
 export const legsTable = (a: RaceAnalysis, highlight: string | null, sort: SortState | null = null): string =>
   renderTable(a, legColumns(a), 'legs', highlight, sort);
 
-/** A picked boat that isn't racing: one unranked row at the foot, whatever the sort; no ▲/▼ marks. */
-function excludedRow(a: RaceAnalysis, cols: Col[], highlight: string | null): string {
+/** A picked boat that isn't racing: one unranked row at the foot, whatever the sort; no ▲/▼ marks, Rank "—". */
+function excludedRow(a: RaceAnalysis, cols: Col[], highlight: string | null, ranked: boolean): string {
   const nc = pickedExcluded(a, highlight);
   if (!nc) return '';
   const b = nc.result;
   const why = nc.reasons.join('; ');
   const tds = cols
-    .map((c) => {
+    .map((c, j) => {
       const body = c.role === 'fin' ? '—' : c.role === 'boat' ? `${c.cell(b)} <span class="flag nc" title="${esc(why)}">not racing</span>` : c.cell(b);
-      return `<td class="${c.cls ?? 'num'}">${body}</td>`;
+      return `<td class="${colCls(cols, j)}">${body}</td>`;
     })
     .join('');
-  return `<tr data-id="${esc(b.id)}" class="sel nc" tabindex="0" title="${esc(`Not racing: ${why}`)}">${tds}</tr>`;
+  const rank = ranked ? '<td class="num rank">—</td>' : '';
+  return `<tr data-id="${esc(b.id)}" class="sel nc" tabindex="0" title="${esc(`Not racing: ${why}`)}">${rank}${tds}</tr>`;
 }
