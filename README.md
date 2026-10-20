@@ -291,13 +291,15 @@ Switching races keeps the tab.
   using a 90 s window that opens when the boat first comes within 45 m. Mark
   positions are followed over time, because committees re-lay marks between
   laps. If most finishers clearly didn't sail the listed course, it is
-  treated as shortened. A rounding inside a telemetry hole is interpolated
-  and its leg time marked `~`; one timed at the fix beside a hole over 60 s,
-  more than a minute's sail from the mark, is unknown. A leg over twice the
-  fleet's median with a hole that could hide a whole leg has likely lost
-  roundings, so it and the legs after it are unknown too. Unknown legs show
-  — and stay out of places at the mark, ▲/▼ and the Upwind/Downwind totals;
-  the track is still drawn (`analysis/legs.ts` `checkBounds`).
+  treated as shortened. A rounding that falls in a telemetry hole shorter
+  than ¾ of the fleet's quickest median leg (it can hide no more than that
+  rounding) is estimated across the hole, by the boat's distance to the mark
+  at the fixes either side, and its leg time marked `~`; like `~` distances,
+  it still ranks. In a longer hole it is unknown, and a leg over twice the
+  fleet's median with such a hole has likely lost roundings, so it and the
+  legs after it are unknown too. Unknown legs show — and stay out of places
+  at the mark, ▲/▼ and the Upwind/Downwind totals; the track is still drawn
+  (`analysis/legs.ts` `checkBounds`).
 - **Heading.** TWA, the heading at the gun and the bow offset use each
   device's compass, unless it is a median of over 30° off the GPS course at
   speed (a broken compass; leeway and current are a few degrees). Then the

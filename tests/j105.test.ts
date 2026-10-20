@@ -45,6 +45,11 @@ describe('J/105 race 2: a sparse tracker that finished', () => {
     expect(gt.downwind).toBeNull();
     // The track is still drawn: the drawing keeps its own split.
     expect(a.drawings.find((d) => d.id === GT)!.segments.length).toBeGreaterThan(0);
+    // The others' windward roundings fall in 2–7 min holes: estimated across them (~), never dropped.
+    for (const b of a.boats.filter((x) => x.id !== GT)) {
+      expect(b.legs.every((l) => l), b.id).toBe(true);
+      expect(b.legs[0]!.timeGapS, b.id).toBeGreaterThan(5);
+    }
     // The others are ranked 1…n at every mark, with nothing slower than twice the leg's median.
     a.legs.forEach((_, li) => {
       const done = a.boats.filter((b) => b.legs[li]);

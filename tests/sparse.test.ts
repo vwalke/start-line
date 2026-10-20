@@ -39,16 +39,27 @@ describe('checkBounds: leg boundaries a telemetry hole leaves in doubt', () => {
     expect(c.gapS[1]).toBe(30);
   });
 
-  it('drops one at the fix before a long hole unless that fix is within a minute’s sail of the mark', () => {
-    const tr = north(2400, [[600, 900]]);
+  it('keeps one at the fix beside a longer hole when that fix is within a minute’s sail of the mark', () => {
     // The fix at 600 s is at y = 1800 m; at 3 m/s a minute's sail is 180 m.
-    const far = checkBounds(tr, tt, meds, [[[0, 2300]]]);
-    expect(far.tt).toEqual([0, null, 1_200_000, 1_800_000, 2_400_000]);
-    const near = checkBounds(tr, tt, meds, [[[0, 1850]]]);
+    const near = checkBounds(north(2400, [[600, 900]]), tt, meds, [[[0, 1850]]]);
     expect(near.tt).toEqual(tt);
     expect(near.gapS[1]).toBe(300);
+  });
+
+  it(`re-times one further off across a hole too short to hide a leg (≤ ${HIDE_FRAC}× the quickest median), by distance to the mark in and out`, () => {
+    // Fixes at 600 s (y 1800) and 900 s (y 2700); the mark at y 2300: 500 m in, 400 m out → 600 + 300 × 5/9 s.
+    const c = checkBounds(north(2400, [[600, 900]]), tt, meds, [[[0, 2300]]]);
+    expect(c.tt[1]).toBeCloseTo(600_000 + (300_000 * 500) / 900, 6);
+    expect(c.tt.slice(2)).toEqual(tt.slice(2));
+    expect(c.gapS[1]).toBe(300);
     // No mark known: unknown.
-    expect(checkBounds(tr, tt, meds).tt[1]).toBeNull();
+    expect(checkBounds(north(2400, [[600, 900]]), tt, meds).tt[1]).toBeNull();
+  });
+
+  it('leaves one beside a hole long enough to hide a leg unknown', () => {
+    // 500 s > 0.75 × 600 s.
+    const c = checkBounds(north(2400, [[600, 1100]]), tt, meds, [[[0, 2300]]]);
+    expect(c.tt).toEqual([0, null, 1_200_000, 1_800_000, 2_400_000]);
   });
 
   it(`a leg over ${HIDE_SLOW_X}× the median with a hole that could hide a leg (${HIDE_FRAC}× the quickest) loses its end and every rounding after; the finish stays`, () => {

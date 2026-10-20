@@ -86,13 +86,18 @@ export const AT_FIX_MS = 1_500;
 export const EDGE_GAP_MS = 60_000;
 /** Below this speed the sail to the mark is timed at this speed, m/s. */
 const MIN_SPEED_MS = 1;
-/** A hole of this share of the fleet's quickest median leg could hide a whole leg's roundings… */
+/**
+ * A hole of this share of the fleet's quickest median leg could hide a whole
+ * leg's roundings; a shorter one holds at most the one rounding, so the
+ * passage is estimated across it (J/105 race 2: 0.75 × 885 s ≈ 11 min, against
+ * 2–7 min holes at the windward mark and Good Trade's 45 min)…
+ */
 export const HIDE_FRAC = 0.75;
 /** …and has, when the leg it sits in took over this many times the fleet's median for that leg. */
 export const HIDE_SLOW_X = 2;
 
 export interface CheckedBounds {
-  /** Leg boundary times with the ones a telemetry hole leaves unknown set to null (gun and finish kept). */
+  /** Leg boundary times, re-timed across a short hole or null when a long one leaves them unknown (gun and finish kept). */
   tt: (number | null)[];
   /** Per boundary, the hole (> SPAN_MS) its time sits in or next to, s; null when clear. */
   gapS: (number | null)[];
@@ -102,13 +107,17 @@ export interface CheckedBounds {
  * Which of one boat's leg boundaries (`tt`: gun, roundings…, finish) a
  * telemetry hole leaves in doubt, given the fleet's median time per leg
  * (`legMedians`) and where each rounding is (`marks[k]` for `tt[k + 1]`).
- * A rounding interpolated inside a hole (course.ts turnInHole) is
- * approximate; one timed at the fix next to a hole is approximate when the
- * hole is short or that fix was at most EDGE_GAP_MS's sail from the mark
- * (or the fleet's turn), else unknown: the boat rounded somewhere in the
- * hole. A leg over HIDE_SLOW_X × the fleet's median with a hole that could
- * hide a whole leg (HIDE_FRAC) has likely lost roundings in it (its end is
- * a later lap's), so its end and every rounding after it are unknown.
+ * Graded by the hole's length. A rounding interpolated inside a hole
+ * (course.ts turnInHole) is approximate. One timed at the fix next to a hole
+ * stays there, approximate, when the hole is at most EDGE_GAP_MS or that fix
+ * was within EDGE_GAP_MS's sail of the mark (or the fleet's turn). Else, in a
+ * hole too short to hide a leg (HIDE_FRAC), the passage is re-timed across
+ * the hole by distance to the mark from the fixes either side (constant
+ * speed in and out, so always inside the hole; no mark known: unknown),
+ * approximate; in a longer hole it is unknown. A leg over HIDE_SLOW_X × the
+ * fleet's median with a hole that could hide a whole leg has likely lost
+ * roundings in it (its end is a later lap's), so its end and every rounding
+ * after it are unknown. `~` times keep their ranks, as `~` distances do.
  */
 export function checkBounds(
   tr: { t: ArrayLike<number>; x: ArrayLike<number>; y: ArrayLike<number>; sog: ArrayLike<number> },
@@ -135,13 +144,17 @@ export function checkBounds(
     return lo;
   };
   const span = (j: number): number => (j > 0 && j < n ? t[j] - t[j - 1] : 0);
+  /** Fix i's distance to rounding k's mark (the nearer buoy of a gate), m; null when no mark is known. */
+  const toMark = (k: number, i: number): number | null => {
+    const tg = marks[k - 1];
+    if (!tg) return null;
+    const ps = typeof tg === 'function' ? tg(t[i]) : tg;
+    return Math.min(...ps.map((p) => Math.hypot(tr.x[i] - p[0], tr.y[i] - p[1])));
+  };
   /** Fix i is within EDGE_GAP_MS's sail (at its own SOG) of rounding k's mark. */
   const nearMark = (k: number, i: number): boolean => {
-    const tg = marks[k - 1];
-    if (!tg) return false;
-    const ps = typeof tg === 'function' ? tg(t[i]) : tg;
-    const reach = (Math.max(MIN_SPEED_MS, tr.sog[i] / MS_TO_KN) * EDGE_GAP_MS) / 1000;
-    return ps.some((p) => Math.hypot(tr.x[i] - p[0], tr.y[i] - p[1]) <= reach);
+    const d = toMark(k, i);
+    return d != null && d <= (Math.max(MIN_SPEED_MS, tr.sog[i] / MS_TO_KN) * EDGE_GAP_MS) / 1000;
   };
   let lost = false;
   for (let k = 1; k < tt.length - 1; k++) {
@@ -163,8 +176,20 @@ export function checkBounds(
     const fix = hi - x <= x - lo ? j : j - 1;
     const g = atFix ? Math.max(span(fix), span(fix + 1)) : span(j);
     if (g <= SPAN_MS) continue;
-    if (!atFix || g <= EDGE_GAP_MS || nearMark(k, fix)) gapS[k] = g / 1000;
-    else out[k] = null;
+    if (!atFix || g <= EDGE_GAP_MS || nearMark(k, fix)) {
+      gapS[k] = g / 1000;
+      continue;
+    }
+    // The hole the rounding is in: whichever side of the fix is longer.
+    const q = span(fix) >= span(fix + 1) ? fix : fix + 1;
+    const dIn = toMark(k, q - 1);
+    const dOut = toMark(k, q);
+    const at = g <= hideMs && dIn != null && dOut != null ? t[q - 1] + (g * dIn) / Math.max(dIn + dOut, 1e-9) : null;
+    const before = out.slice(0, k).reduce<number>((m, v) => (v != null ? Math.max(m, v) : m), -Infinity);
+    if (at != null && at > before && at < (tt[k + 1] ?? Infinity)) {
+      out[k] = at;
+      gapS[k] = g / 1000;
+    } else out[k] = null;
   }
   return { tt: out, gapS };
 }

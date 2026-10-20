@@ -38,19 +38,20 @@ describe('Melges 24 Worlds race 4: Windward Mark and OFFSET never transmit', () 
     expect(Math.abs(wrap180(a.wind.twdAtGunDeg - 77))).toBeLessThan(15);
   });
 
-  it('gives at least 75% of finishers all four legs, summing to their race time', () => {
-    expect(finishers.filter((b) => b.legs.every((l) => l)).length).toBeGreaterThanOrEqual(0.75 * finishers.length);
+  it('gives at least 80% of finishers all four legs, summing to their race time', () => {
+    expect(finishers.filter((b) => b.legs.every((l) => l)).length).toBeGreaterThanOrEqual(0.8 * finishers.length);
     expectContiguous(a);
   });
 
-  it('leaves out the legs whose windward rounding fell in a hole, 100–150 s of sailing from the fix it was timed at', () => {
-    // 619, 629 and 708 were timed at the fix before or after a 2–6 min hole, still well short of (or past) the turn.
-    for (const id of ['619', '629', '708']) {
-      const b = a.boats.find((x) => x.id === id)!;
-      expect(b.legs.slice(0, 2)).toEqual([null, null]);
-      expect(b.legs[2]).not.toBeNull();
-      expect(b.upwind!.complete).toBe(false);
-      expect(b.upwind!.place).toBeNull();
+  it('re-times a windward rounding found at the fix beside a 2–6 min hole inside the hole, marked ~', () => {
+    // 619, 629 and 708 were still 100–150 s of sailing from the turn at that fix: [fix, hole] in s after the gun.
+    const cases: [string, number, number][] = [['619', 1280, -335], ['629', 1040, 136], ['708', 1027, 125]];
+    for (const [id, fix, hole] of cases) {
+      const l = a.boats.find((x) => x.id === id)!.legs[0]!;
+      const s = (l.endMs - a.meta.gunMs) / 1000;
+      expect(Math.round(l.timeGapS!)).toBe(Math.abs(hole));
+      expect(s).toBeGreaterThan(Math.min(fix, fix + hole) + 1);
+      expect(s).toBeLessThan(Math.max(fix, fix + hole) - 1);
     }
   });
 
