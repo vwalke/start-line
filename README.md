@@ -375,8 +375,8 @@ next class. An automatically matched event must also beat the next candidate by
 - **Official times** are used only if plausible: ≥ 3 finishers have a
   finish-line crossing within 10 min of their official time, the median gap is
   ≤ 60 s, and every official finish is after the gun and before the next gun.
-  Otherwise the chip is `⚠ official places · tracker times`, and times come from
-  RaceSense's finish, else the crossing.
+  Otherwise the chip is `official places · RaceSense times` (or tracker times),
+  a plain note, and times come from RaceSense's finish, else the crossing.
 - **Not linked:** RaceSense's finishes. A race with none gets **tracker
   finishes**, marked `~` per boat in the boat list and `⚠ ~ tracker finishes` on
   the race. A tracker finish is the first crossing of the finish line (its two
@@ -391,9 +391,14 @@ next class. An automatically matched event must also beat the next candidate by
 - **Not in the race:** in such a race (no RaceSense finishes, no official
   results), a tracker that stays over 1 km from the start line's middle from
   5 min before the gun to 10 min after, and never finishes, is set aside as not
-  racing, with its reason, as coach boats are. It is then out of the start
-  view's Fit, the ranks and the findings. Cascais official race 4 had three
-  boats scored DNC that sat 4.9 km off.
+  racing. A boat with a placeholder sail (0000) or "Coach" in the name and no
+  finish is set aside the same way. They are then out of the start view's Fit,
+  the ranks and the findings. Cascais official race 4 had three boats scored
+  DNC that sat 4.9 km off.
+- **Start Fit:** bows more than ~300 m (or 2 line-lengths) from the line
+  middle, against the fleet's own spread, are listed as away from the line and
+  left out of Fit and start places, so one late boat ~2 km out cannot collapse
+  the chart.
 
 **Rebuilt races**, `src/data/orphans.ts`: races the tracks show but RaceSense
 doesn't list.
@@ -414,7 +419,9 @@ doesn't list.
   number's last starting → in_progress bracket and refines with a 60 s window.
 - **Budget:** at most 48 requests per event, cached 30 days once the event is
   over a day old. It runs after the list renders, with a progress chip
-  (`checking the feed 12/48`; `⚠ feed check incomplete` if the budget runs out).
+  (`looking for missing races 12/48`; `⚠ feed check incomplete` if the budget
+  runs out). Up to 3 short racing days are probed at once; the request budget
+  is unchanged.
 - **URL:** a rebuilt race's number is its gun's UTC minute, `YYYYMMDDHHMM`
   (`race=202609111355`), which can't collide with RaceSense's small numbers.
   Old `race=<RaceSense number>` links open the same race as before.

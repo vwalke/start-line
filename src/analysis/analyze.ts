@@ -29,7 +29,7 @@ import {
 } from './geo';
 import { fleetTurns, isOffset, legCourse, legsAgree, snapTurns } from './course';
 import { checkBounds, inferRoundings, legMedians, splitLegs, targetsOf, type Targets, type Waypoint } from './legs';
-import { SQUARE_LINE_M } from './line';
+import { SQUARE_LINE_M, awayFromLineThresholdM } from './line';
 import { heelAt, heelSeries, heelStats } from './heel';
 import { cogHeading, detectManoeuvres, headingCheck, manoeuvresByLeg, signedTwa, type HeadingCheck } from './manoeuvres';
 import { classifyParticipation } from './participation';
@@ -439,6 +439,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
         startPlace: null,
         warn: null,
         ocsBlind: false,
+        awayFromLine: false,
       };
       // START_TRAIL_MS of the tracker up to the DTL sample, translated by that
       // sample's bow offset so the polyline ends exactly on the bow used for DTL.
@@ -611,6 +612,14 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   // judge its lateness against half the fleet's typical approach speed instead.
   const approach = results.filter((r) => r.start && r.start.vToLineMs > 0).map((r) => r.start!.vToLineMs);
   const vFloor = Math.max(0.3, approach.length ? 0.5 * median(approach) : 0.3);
+  // One boat kilometres out must not take the "furthest back" place or stretch the Fit.
+  const midXY: Vec = [(L[0] + R[0]) / 2, (L[1] + R[1]) / 2];
+  const bowDist = (r: BoatResult): number => Math.hypot(r.start!.bow[0] - midXY[0], r.start!.bow[1] - midXY[1]);
+  const withBow = results.filter((r) => r.start);
+  const awayThresh = awayFromLineThresholdM(lineLen, withBow.map(bowDist));
+  if (withBow.filter((r) => bowDist(r) <= awayThresh).length >= 3) {
+    for (const r of withBow) r.start!.awayFromLine = bowDist(r) > awayThresh;
+  }
   for (const r of results) {
     if (!r.start) continue;
     r.start.secsLate = r.start.dtlM / Math.max(r.start.vToLineMs, vFloor);

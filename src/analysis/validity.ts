@@ -85,9 +85,9 @@ export function assessStart(s: Pick<StartResult, 'rcDtlM' | 'rcStatus' | 'dtlM' 
   };
 }
 
-/** Number clean starters 1..n by ranking value (closest to the line first). */
+/** Number clean starters 1..n by ranking value (closest to the line first). Boats away from the line are unplaced. */
 export function rankStarts(boats: BoatResult[]): void {
-  const clean = boats.filter((b) => b.start && !b.start.over && b.start.rank).sort((x, y) => x.start!.rank!.m - y.start!.rank!.m);
+  const clean = boats.filter((b) => b.start && !b.start.over && !b.start.awayFromLine && b.start.rank).sort((x, y) => x.start!.rank!.m - y.start!.rank!.m);
   for (const b of boats) if (b.start) b.start.startPlace = null;
   clean.forEach((b, i) => (b.start!.startPlace = i + 1));
 }

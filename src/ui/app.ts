@@ -1464,6 +1464,7 @@ export function startApp(): void {
       renderEventOptions();
       renderRaceOptions();
       els.race.disabled = false;
+      // The picker is on screen before official matching or the feed probe (those only relabel).
       const enrichment = enrich(id, req);
       // A rebuilt race (`race=` its gun minute) exists only once the feed check has run: wait for it.
       if (want && isOrphanKey(want.raceNumber) && !findListed(list, want.division, want.raceNumber)) {

@@ -4,6 +4,23 @@ import type { LineInfo, WindInfo } from './types';
 
 /** Ends closer than this (m upwind of each other) count as a square line. */
 export const SQUARE_LINE_M = 2;
+/**
+ * A boat this far from the start-line middle at the gun is away from the start:
+ * at least this many metres, or this many line-lengths, or this many times the
+ * fleet's 80th-percentile distance — whichever is larger. One late boat 2 km
+ * out must not stretch the Fit (Cascais official race 10).
+ */
+export const AWAY_LINE_MIN_M = 300;
+export const AWAY_LINE_LEN_X = 2;
+export const AWAY_LINE_FLEET_X = 4;
+
+/** Fit / ranking threshold (m) from the line middle: far boats stay listed, they just don't set the scale. */
+export function awayFromLineThresholdM(lineLenM: number, fleetDistsM: readonly number[]): number {
+  if (!fleetDistsM.length) return Math.max(AWAY_LINE_MIN_M, lineLenM * AWAY_LINE_LEN_X);
+  const s = [...fleetDistsM].sort((a, b) => a - b);
+  const p80 = s[Math.min(s.length - 1, Math.round(0.8 * (s.length - 1)))];
+  return Math.max(AWAY_LINE_MIN_M, lineLenM * AWAY_LINE_LEN_X, p80 * AWAY_LINE_FLEET_X);
+}
 
 export interface LineBias {
   /** Signed angle of the line off square, degrees: + = pin (left) end favoured. */

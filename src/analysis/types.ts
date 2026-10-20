@@ -129,8 +129,10 @@ export interface StartResult {
   rank: { m: number; source: 'vakaros' | 'ours' } | null;
   /** Flagged OCS, or the ranking value is negative. */
   over: boolean;
-  /** Place among clean starters (1 = closest to the line); null when over or unranked. */
+  /** Place among clean starters (1 = closest to the line); null when over, unranked or away from the line. */
   startPlace: number | null;
+  /** Bow is far from the line at the gun: listed as away, left out of Fit and start places. */
+  awayFromLine: boolean;
   /** Vakaros and ours are both valid but clearly disagree. */
   warn: string | null;
   /** Vakaros had no usable fix, and our figure puts the boat near or over the line. */

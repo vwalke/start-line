@@ -138,7 +138,7 @@ export function raceHead(o: { race: ListedRace | undefined; official: OfficialSt
   // Where the places and times came from (once the race is analysed).
   if (results?.places === 'official') {
     if (results.times === 'official') chips.push({ text: 'official places & times' });
-    else chips.push(warnChip(`official places · ${results.times === 'racesense' ? 'RaceSense' : 'tracker'} times`));
+    else chips.push({ text: `official places · ${results.times === 'racesense' ? 'RaceSense' : 'tracker'} times` });
     if (results.times !== 'official') bullets.push(`Official finish times not used (${results.timesNote ?? 'not plausible'}): RaceSense’s finishes, else the tracks’ finish-line crossings (~).`);
     else bullets.push('Official finish times agree with the tracks’ finish-line crossings (median within a minute), so they are used.');
     if (results.officialNoTrack?.length) bullets.push(`In the official results without a track here: ${listOf(results.officialNoTrack)}.`);
@@ -152,7 +152,7 @@ export function raceHead(o: { race: ListedRace | undefined; official: OfficialSt
   }
 
   // The feed check for unlisted races.
-  if (feed.status === 'running') chips.push({ text: `checking the feed ${feed.used}/${feed.max}`, title: 'Looking for races the tracks show but RaceSense doesn’t list' });
+  if (feed.status === 'running') chips.push({ text: `looking for missing races ${feed.used}/${feed.max}`, title: 'The race list is already on screen. Checking the feed for races RaceSense doesn’t list (at most this many requests).' });
   else if (feed.status === 'done' && feed.found) chips.push({ text: `${feed.found} race${feed.found > 1 ? 's' : ''} rebuilt` });
   if (feed.exhausted) chips.push(warnChip('feed check incomplete', `Stopped after ${feed.max} requests`));
   if (feed.status !== 'idle') {

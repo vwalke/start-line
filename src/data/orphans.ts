@@ -29,6 +29,8 @@ export const REFINE_MS = 60_000;
 export const STEP_MS = 30 * 60_000;
 /** After-the-last-race scan: up to 4 h. */
 export const MAX_STEPS = 8;
+/** Independent official-start probes and short racing days run this many at once. */
+export const PROBE_CONCURRENCY = 3;
 /** A found gun this close to a listed one is that race. */
 export const SAME_RACE_MS = 5 * 60_000;
 /** RaceSense's startTime is a second after the RO's gun. */
@@ -211,6 +213,20 @@ class Budget {
   }
 }
 
+/** Run `fn` over `items` with at most `n` in flight (same windows as sequential; only the waits overlap). */
+async function mapPool<T>(items: readonly T[], n: number, fn: (item: T) => Promise<void>): Promise<void> {
+  if (!items.length) return;
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, () => worker()));
+}
+
 /** Positions of the start-line trackers at the gun (median of fixes within ±5 s). */
 function lineAt(rows: readonly ProbeRow[], dev: { left: string; right: string }, gunMs: number): OrphanFound['startLine'] {
   const pos = (hex: string): [number, number] | null => {
@@ -275,42 +291,45 @@ export async function discoverOrphans(
   };
 
   if (ctx.officialOnly) {
-    // Linked: probe at each official start that RaceSense doesn't list.
-    for (const o of ctx.officialOnly) {
-      if (known(o.gunMs)) continue;
-      const rows = await get(o.gunMs - REFINE_MS / 2, o.gunMs + REFINE_MS / 2);
-      if (!rows) break;
-      const counts = stageCounts(rows);
-      let hit: { gun: number; rows: ProbeRow[]; rn: number } | null = null;
-      for (const rn of counts.keys()) {
-        const g = flipGun(rows, rn);
-        if (g != null && Math.abs(g - o.gunMs) <= SAME_RACE_MS) hit = { gun: g, rows, rn };
-      }
-      if (!hit) {
-        // A flip a few minutes off the official time: bracket ±10 min on the race racing 10 min later.
-        const after = await get(o.gunMs + 10 * 60_000, o.gunMs + 10 * 60_000 + PROBE_MS);
-        const rn = after ? racingNumber(stageCounts(after)) : null;
-        const before = rn != null ? await get(o.gunMs - 10 * 60_000, o.gunMs - 10 * 60_000 + PROBE_MS) : null;
-        if (rn != null && before && started(stageCounts(before), rn) === false) {
-          const s = await search(rn, o.gunMs - 10 * 60_000, o.gunMs + 10 * 60_000);
-          if (s) hit = { ...s, rn };
+    // Linked: probe at each official start that RaceSense doesn't list (a few at once).
+    await mapPool(
+      ctx.officialOnly.filter((o) => !known(o.gunMs)),
+      PROBE_CONCURRENCY,
+      async (o) => {
+        const rows = await get(o.gunMs - REFINE_MS / 2, o.gunMs + REFINE_MS / 2);
+        if (!rows) return;
+        const counts = stageCounts(rows);
+        let hit: { gun: number; rows: ProbeRow[]; rn: number } | null = null;
+        for (const rn of counts.keys()) {
+          const g = flipGun(rows, rn);
+          if (g != null && Math.abs(g - o.gunMs) <= SAME_RACE_MS) hit = { gun: g, rows, rn };
         }
-      }
-      if (hit) {
-        await add(hit.gun, hit.rows, hit.rn, 'official', 'feed', o.number);
-        continue;
-      }
-      // No flip (the division's devices never left pre_start), but its boats are out there sailing: rebuild at the official start.
-      const moving = new Set(rows.filter((r) => r.role === 'competitor' && r.ts >= o.gunMs && r.sog > 2).map((r) => r.sn));
-      if (moving.size >= 3) await add(o.gunMs, rows, null, 'official', 'official', o.number);
-    }
+        if (!hit) {
+          // A flip a few minutes off the official time: bracket ±10 min on the race racing 10 min later.
+          const after = await get(o.gunMs + 10 * 60_000, o.gunMs + 10 * 60_000 + PROBE_MS);
+          const rn = after ? racingNumber(stageCounts(after)) : null;
+          const before = rn != null ? await get(o.gunMs - 10 * 60_000, o.gunMs - 10 * 60_000 + PROBE_MS) : null;
+          if (rn != null && before && started(stageCounts(before), rn) === false) {
+            const s = await search(rn, o.gunMs - 10 * 60_000, o.gunMs + 10 * 60_000);
+            if (s) hit = { ...s, rn };
+          }
+        }
+        if (hit) {
+          await add(hit.gun, hit.rows, hit.rn, 'official', 'feed', o.number);
+          return;
+        }
+        // No flip (the division's devices never left pre_start), but its boats are out there sailing: rebuild at the official start.
+        const moving = new Set(rows.filter((r) => r.role === 'competitor' && r.ts >= o.gunMs && r.sog > 2).map((r) => r.sn));
+        if (moving.size >= 3) await add(o.gunMs, rows, null, 'official', 'official', o.number);
+      },
+    );
   } else {
-    // Unlinked: scan after the last listed race of each short racing day.
-    for (const last of scanDays(ctx.listed, ctx.tzOffsetMs)) {
+    // Unlinked: scan after the last listed race of each short racing day (a few days at once).
+    await mapPool(scanDays(ctx.listed, ctx.tzOffsetMs), PROBE_CONCURRENCY, async (last) => {
       const p0 = await get(last + 3 * 60_000, last + 3 * 60_000 + PROBE_MS);
-      if (!p0) break;
+      if (!p0) return;
       const n0 = racingNumber(stageCounts(p0));
-      if (n0 == null) continue;
+      if (n0 == null) return;
       const probes: { t: number; counts: Map<number, Map<string, number>> }[] = [];
       for (let k = 1; k <= MAX_STEPS; k++) {
         const t = last + k * STEP_MS;
@@ -336,7 +355,7 @@ export async function discoverOrphans(
         const s = await search(rn, bracket[0], bracket[1] + PROBE_MS);
         if (s) await add(s.gun, s.rows, rn, 'after-last', 'feed');
       }
-    }
+    });
   }
   return { found: found.sort((a, b) => a.gunMs - b.gunMs), used: budget.used, exhausted: budget.exhausted };
 }

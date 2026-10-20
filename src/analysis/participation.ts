@@ -9,8 +9,9 @@
  *   S4 duplicate      a second tracker riding on another boat
  *   S5 name hint      "Coach", "Spare", "RC"… or a placeholder sail (corroborates only)
  *
- * A name alone never excludes: a boat called "Coach" that finishes and sails
- * like the fleet is a competitor. Pure functions over RaceData.
+ * A name alone never excludes a boat that finished. A boat that did not finish
+ * and has a placeholder sail (0000) or "Coach" in the name is set aside as not
+ * racing (same idea as the DNC far-from-start rule). Pure functions over RaceData.
  */
 import type { Boat, RaceData, Track } from '../data/types';
 import { EARTH_R, MS_TO_KN, median } from './geo';
@@ -67,6 +68,17 @@ export function placeholderSail(sail: string): boolean {
 export function nameHint(b: Pick<Boat, 'name' | 'sail' | 'bowNumber'>): string | null {
   if ([b.name, b.sail, b.bowNumber ?? ''].some((s) => SUPPORT_WORDS.test(s))) return 'Name suggests a support boat';
   if (placeholderSail(b.sail)) return 'Placeholder sail number';
+  return null;
+}
+
+/**
+ * Conservative: a coach/support entry that isn't racing. Placeholder sail (USA 0000)
+ * or a name containing "Coach", and no finish. A boat called Coach that finished stays.
+ */
+export function supportNotRacing(b: Pick<Boat, 'name' | 'sail' | 'bowNumber'>, finished: boolean): string | null {
+  if (finished) return null;
+  if (placeholderSail(b.sail)) return 'Placeholder sail number (not racing)';
+  if ([b.name, b.sail, b.bowNumber ?? ''].some((s) => /\bcoach\b/i.test(s))) return 'Coach boat (not racing)';
   return null;
 }
 
@@ -214,9 +226,15 @@ export function classifyParticipation(data: RaceData): Map<string, Participation
 
   for (const s of stats) {
     const b = s.b;
-    // The source saw it wasn't in this race (data/finishes.ts awayFromStart).
+    // The source saw it wasn't in this race (data/finishes.ts awayFromStart, or a coach/0000 with no finish).
     if (b.notRacing) {
       out.set(b.id, { status: 'non-competitor', reasons: [b.notRacing] });
+      continue;
+    }
+    const finished = hasPlausibleFinish(b);
+    const support = supportNotRacing(b, finished);
+    if (support) {
+      out.set(b.id, { status: 'non-competitor', reasons: [support] });
       continue;
     }
     const host = dupOf.get(b.id);
@@ -233,7 +251,6 @@ export function classifyParticipation(data: RaceData): Map<string, Participation
     const short = s.dist < SHORT_DIST_FRAC * fleetDist;
     const s3 = still || short;
     const hint = nameHint(b);
-    const finished = hasPlausibleFinish(b);
     const exclude = !finished && (s1Known ? s1 && (s2 || s3 || !!hint) : (s2 || s3) && !!hint);
     if (!exclude) {
       out.set(b.id, { status: 'competitor', reasons: [] });

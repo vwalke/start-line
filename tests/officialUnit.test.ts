@@ -236,4 +236,17 @@ describe('links, overrides and fallback', () => {
     expect(html).toContain('<details class="info">');
     expect(html).toContain('data-ys-form');
   });
+
+  it('shows official-places-only as a plain chip, and the feed check as a progress chip', () => {
+    const race: ListedRace = { division: 'J105', raceNumber: 1, gunMs: Date.parse('2026-10-18T15:05:01Z'), finishers: 16, finished: true, lastFinishMs: null, rsNumber: 1, practice: false, number: 1, numbering: 'official', officialNumber: 1, finishes: 'official' };
+    const places = raceHead({
+      race,
+      official: { status: 'done', outcome: { status: 'error', message: 'x' } },
+      feed: { status: 'idle', used: 0, max: 0, found: 0, exhausted: false },
+      results: { places: 'official', times: 'racesense', trackerFinishes: 0, timesNote: 'placeholders' },
+    });
+    expect(places.chips.find((c) => c.text.startsWith('official places ·'))).toEqual({ text: 'official places · RaceSense times' });
+    const feed = raceHead({ race, official: { status: 'pending' }, feed: { status: 'running', used: 12, max: 48, found: 0, exhausted: false } });
+    expect(feed.chips.some((c) => c.text === 'looking for missing races 12/48' && !c.warn)).toBe(true);
+  });
 });

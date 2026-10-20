@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
-import { classifyParticipation, nameHint, placeholderSail } from '../src/analysis/participation';
+import { classifyParticipation, nameHint, placeholderSail, supportNotRacing } from '../src/analysis/participation';
 import type { RaceAnalysis } from '../src/analysis/types';
 import { buildRaceData } from '../src/data/racesense/adapter';
 import type { Boat, RaceData } from '../src/data/types';
@@ -59,10 +59,7 @@ describe('Melges 24 Worlds race 4: coaches and the spare tracker', () => {
   it('sets the coaches aside for no results and motorboat speeds', () => {
     expect(excludedIds(a)).toEqual([...NON_COMPETITORS].sort());
     for (const id of ['03', '07', '10']) {
-      const r = reasonsOf(a, id);
-      expect(r[0]).toBe('No finish in 13 races');
-      expect(r.some((x) => /^Motorboat speeds \(max \d+ kt\)$/.test(x))).toBe(true);
-      expect(r).toContain('Name suggests a support boat');
+      expect(reasonsOf(a, id)).toEqual(['Coach boat (not racing)']);
     }
   });
 
@@ -130,13 +127,18 @@ describe('a name alone never sets a boat aside', () => {
     expect(excludedIds(a)).toEqual([...NON_COMPETITORS].sort());
   });
 
-  it('a "Coach" with no results that sails like the fleet stays (name only)', () => {
-    // No finish here or anywhere, and no event results (a .vkx-like source): only the name hints.
+  it('a "Coach" or sail 0000 with no finish is set aside (not racing); a finish keeps it', () => {
     const a = analyzeRace(withBoat(data, '491', (b) => ({ ...b, name: 'Coach Spare RC', finishMs: null, entry: undefined })));
-    expect(a.boats.some((b) => b.id === '491')).toBe(true);
-    // …and with the event's results saying it never finished, its normal track still keeps it.
-    const c = classifyParticipation(withBoat(data, '491', (b) => ({ ...b, name: 'Coach', finishMs: null })));
-    expect(c.get('491')!.status).toBe('competitor');
+    expect(excludedIds(a)).toContain('491');
+    expect(reasonsOf(a, '491')).toEqual(['Coach boat (not racing)']);
+    expect(a.findings.some((f) => f.boatIds?.includes('491'))).toBe(false);
+    const c = classifyParticipation(withBoat(data, '491', (b) => ({ ...b, name: 'Coach Chris', finishMs: null })));
+    expect(c.get('491')).toEqual({ status: 'non-competitor', reasons: ['Coach boat (not racing)'] });
+    const zero = classifyParticipation(withBoat(data, '491', (b) => ({ ...b, sail: 'USA 0000', name: 'Coach Chris', finishMs: null })));
+    expect(zero.get('491')).toEqual({ status: 'non-competitor', reasons: ['Placeholder sail number (not racing)'] });
+    // A finish keeps even USA 0000 (Coach Chris).
+    const kept = classifyParticipation(withBoat(data, '491', (b) => ({ ...b, sail: 'USA 0000', name: 'Coach Chris' })));
+    expect(kept.get('491')!.status).toBe('competitor');
   });
 
   it('matches whole words and placeholder sails only', () => {
@@ -150,6 +152,10 @@ describe('a name alone never sets a boat aside', () => {
     expect(placeholderSail('0')).toBe(true);
     expect(placeholderSail('77')).toBe(false);
     expect(placeholderSail('NED 7753')).toBe(false);
+    expect(supportNotRacing({ name: 'Coach Chris', sail: 'USA 0000' }, false)).toBe('Placeholder sail number (not racing)');
+    expect(supportNotRacing({ name: 'Coach Chris', sail: 'USA 96' }, false)).toBe('Coach boat (not racing)');
+    expect(supportNotRacing({ name: 'Coach Chris', sail: 'USA 0000' }, true)).toBeNull();
+    expect(supportNotRacing({ name: 'Patriot', sail: 'USA 242' }, false)).toBeNull();
   });
 });
 
@@ -161,8 +167,7 @@ describe('behaviour, not names', () => {
     const boat = motorboat(src, 'X1', 'Coach');
     boat.entry = { racesWithResults: 13, plausibleFinishes: 0, finishPlausible: null };
     const a = analyzeRace({ ...data, boats: [...data.boats, boat] });
-    expect(reasonsOf(a, 'X1')[0]).toBe('No finish in 13 races');
-    expect(reasonsOf(a, 'X1').some((r) => r.startsWith('Motorboat speeds'))).toBe(true);
+    expect(reasonsOf(a, 'X1')).toEqual(['Coach boat (not racing)']);
   });
 
   it('with too few races to judge results, needs behaviour and a name together', () => {
@@ -170,7 +175,7 @@ describe('behaviour, not names', () => {
     // Apart from X2, so the two aren't one boat's two trackers.
     const plain = motorboat(src, 'X3', 'Fast Boat', -0.0055);
     const c = classifyParticipation({ ...data, boats: [...data.boats, named, plain] });
-    expect(c.get('X2')).toEqual({ status: 'non-competitor', reasons: [expect.stringMatching(/^Motorboat speeds/), 'Name suggests a support boat'] });
+    expect(c.get('X2')).toEqual({ status: 'non-competitor', reasons: ['Coach boat (not racing)'] });
     expect(c.get('X3')!.status).toBe('competitor');
   });
 

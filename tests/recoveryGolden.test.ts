@@ -75,7 +75,7 @@ describe('J/105 CBC 2026 ↔ Yachtscoring 50575', async () => {
     // Good Trade has no RaceSense finish: its time is its own finish-line crossing (~), or none.
     expect(['tracker', undefined]).toContain(d.boats.find((b) => b.sail === 'USA 96')!.finishSource);
     const head = raceHead({ race: list.races.find((r) => r.rsNumber === 1), official: { status: 'done', outcome }, feed: { status: 'idle', used: 0, max: 0, found: 0, exhausted: false }, results: d.results });
-    expect(head.chips.map((c) => `${c.warn ? '⚠ ' : ''}${c.text}`)).toEqual(['official · YS 50575', expect.stringMatching(/^⚠ official places · (RaceSense|tracker) times$/)]);
+    expect(head.chips.map((c) => `${c.warn ? '⚠ ' : ''}${c.text}`)).toEqual(['official · YS 50575', expect.stringMatching(/^official places · (RaceSense|tracker) times$/)]);
   });
 
   it('race 3: Mirage 1st, Juggernaut (USA 322) DSQ', () => {
@@ -229,6 +229,10 @@ describe('J/70 Worlds 2026 Cascais (no Yachtscoring event)', async () => {
     const summary = app.slice(app.indexOf('function renderSummary('), app.indexOf('function render(): void'));
     expect(summary).toContain('raceTitleHtml(m, listed)');
     expect(summary).toContain('renderRaceHead();');
+    const load = app.slice(app.indexOf('async function loadEvent'), app.indexOf('const titleOf'));
+    expect(load.indexOf('renderRaceOptions()')).toBeGreaterThan(0);
+    expect(load.indexOf('renderRaceOptions()')).toBeLessThan(load.indexOf('const enrichment = enrich('));
+    expect(load).toContain('The picker is on screen before official matching or the feed probe');
   });
 
   it('sets aside boats far from the start in a rebuilt race (official race 4: three DNC boats 4.9 km away)', () => {

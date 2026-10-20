@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
-import { biasAngle, biasSensitivityM, lineBias, windSource } from '../src/analysis/line';
+import { awayFromLineThresholdM, biasAngle, biasSensitivityM, lineBias, windSource } from '../src/analysis/line';
 import type { RaceAnalysis, WindInfo } from '../src/analysis/types';
-import { rotator, startClass, startFitBox, startSnapshot } from '../src/ui/charts';
+import { startKey } from '../src/ui/captions';
+import { rotator, startClass, startFitBox, startScale, startSnapshot } from '../src/ui/charts';
 import {
   FAV_GAP_PX,
   FAV_OFFSET_PX,
@@ -319,5 +320,35 @@ describe('lineExtensions', () => {
     const rot = rotator(a.wind.twdAtGunDeg);
     const [pin] = lineExtensions(rot(a.line.left), rot(a.line.right), startFitBox(a));
     expect(pin[0]).toEqual(rot(a.line.left));
+  });
+});
+
+describe('awayFromLineThresholdM', () => {
+  it('stays in the hundreds of metres for a normal start and leaves a 2 km boat outside', () => {
+    const t = awayFromLineThresholdM(150, [20, 30, 40, 50, 60, 2000]);
+    expect(t).toBeGreaterThanOrEqual(300);
+    expect(t).toBeLessThan(500);
+    expect(t).toBeLessThan(2000);
+  });
+});
+
+describe('start-map bounds: a boat far from the line', () => {
+  it('leaves Fit on the fleet, drops that boat from start places, and lists it as away', () => {
+    const data = fixtureRace();
+    const id = data.boats[0].id;
+    const shifted = {
+      ...data,
+      boats: data.boats.map((b) => (b.id === id ? { ...b, track: { ...b.track, lat: b.track.lat.map((x) => x + 0.02) } } : b)),
+    };
+    const a = analyzeRace(shifted);
+    const far = a.boats.find((b) => b.id === id)!;
+    expect(far.start?.awayFromLine).toBe(true);
+    expect(far.start?.startPlace).toBeNull();
+    expect(a.findings.some((f) => f.kind === 'start' && f.text.includes('away from the line'))).toBe(true);
+    expect(startKey(a, { scale: startScale(a) }).chips.some((c) => c.text.endsWith('away from the line') && !c.warn)).toBe(true);
+    const box = startFitBox(a);
+    const fleet = startFitBox(analyzeRace(data));
+    expect(Math.max(box.x1 - box.x0, box.y1 - box.y0)).toBeLessThan(800);
+    expect(Math.max(box.x1 - box.x0, box.y1 - box.y0)).toBeLessThan(Math.max(fleet.x1 - fleet.x0, fleet.y1 - fleet.y0) + 80);
   });
 });

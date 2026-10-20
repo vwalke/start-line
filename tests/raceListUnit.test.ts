@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { discoverOrphans, flipGun, isOrphanKey, orphanKey, scanDays, stageCounts, started, withOrphans, type ProbeRow } from '../src/data/orphans';
+import { discoverOrphans, flipGun, isOrphanKey, orphanKey, PROBE_CONCURRENCY, scanDays, stageCounts, started, withOrphans, type ProbeRow } from '../src/data/orphans';
 import { buildRaceList } from '../src/data/raceList';
 import type { Race, RegattaDoc } from '../src/data/racesense/types';
 
@@ -123,5 +123,9 @@ describe('orphan races from the feed', () => {
     expect(rebuilt.starts[0]).toMatchObject({ startTime: gun + 1000, startLine: line });
     const list = buildRaceList(doc, { orphans: new Map([['Open', res.found]]) });
     expect(list.races.find((r) => r.rsNumber == null)).toMatchObject({ raceNumber: 202610031515, rebuilt: { gunFrom: 'feed' } });
+  });
+
+  it('caps probe concurrency at 3 so the budget stays the bound', () => {
+    expect(PROBE_CONCURRENCY).toBe(3);
   });
 });
