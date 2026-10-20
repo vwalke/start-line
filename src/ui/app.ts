@@ -5,7 +5,7 @@
 import { splitFindings } from '../analysis/findings';
 import { START_TRAIL_MS, type RaceAnalysis } from '../analysis/types';
 import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
-import { fetchLanding, fetchRegatta } from '../data/racesense/api';
+import { fetchLanding, fetchUsableRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { boatList, findingsList } from './boats';
@@ -1024,7 +1024,8 @@ export function startApp(): void {
     const req = ++eventReq;
     setStatus('Loading event…');
     try {
-      const next = await fetchRegatta(id);
+      // A cached copy with no finishers may predate them; that refetches once before 'empty'.
+      const next = await fetchUsableRegatta(id, (r) => listRaces(currentDoc(r)).some((x) => x.finishers > 0));
       if (req !== eventReq) return 'superseded'; // a newer pick
       const doc = currentDoc(next);
       const races = listRaces(doc).filter((r) => r.finishers > 0);
