@@ -224,9 +224,11 @@ Switching races keeps the tab.
   saved before the split goes back onto whichever table has that column).
 - **Rank:** once a table is sorted, a narrow Rank column (leftmost, pinned)
   gives each boat's place in that sort, 1 at the top in either direction;
-  ties share a place ("=3", then 5), a missing value or a not-racing boat
-  shows "—". Its header names the sorted column. In finish order (no sort)
-  it is hidden: Fin already gives that order, and a phone keeps the width.
+  ties share a place ("=3", then 5) when the shown (rounded) figures match,
+  a missing value or a not-racing boat shows "—". Its header names the
+  sorted column in short ("Up VMG", "B1 SOG", "Race Time"). In finish
+  order (no sort) it is hidden: Fin already gives that order, and a phone
+  keeps the width.
 - **Tracks by leg:** a map in local metres (no map tiles), rotated so the wind
   comes from the top. The legend picks one leg and zooms the map to it.
 - **Colour tracks:** `Colour: Leg | Rank | Boat speed` beside the legend.

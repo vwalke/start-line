@@ -7,6 +7,7 @@ import {
   legsTableKey,
   nextSort,
   rankCell,
+  shownVal,
   sortBoats,
   sortRanks,
   startTable,
@@ -178,6 +179,18 @@ describe('sort ranks', () => {
     expect(ranks(boats, 'asc')).toEqual({ w: '1', y: '2', x: '3', z: '4' });
     expect(ranks(boats, 'desc')).toEqual({ z: '1', x: '2', y: '3', w: '4' });
   });
+
+  it('ties at the displayed figure: 3.961 and 3.964 both show 3.96', () => {
+    expect(shownVal(3.961, 2)).toBe(3.96);
+    expect(shownVal(3.964, 2)).toBe(3.96);
+    expect(shownVal(0.971, '%')).toBe(97);
+    expect(shownVal(0.979, '%')).toBe(97);
+    const boats = [mk('a', 3.961), mk('b', 3.964), mk('c', 3.95)];
+    const shown = (v: SortVal) => shownVal(v, 2);
+    const r = Object.fromEntries([...sortRanks(boats, val, 'desc', shown)].map(([id, rk]) => [id, rankCell(rk).replace(/<[^>]+>/g, '')]));
+    expect(r).toEqual({ b: '=1', a: '=1', c: '3' });
+    expect(sortBoats(boats, val, 'desc').map((b) => b.id)).toEqual(['b', 'a', 'c']);
+  });
 });
 
 /** The Rank cell (first) of each row, in row order, tags stripped. */
@@ -197,7 +210,7 @@ describe('Rank column', () => {
     expect(html).toContain('<table class="metrics legs ranked"');
     const top = /<thead><tr>(.*?)<\/tr>/.exec(html)![1];
     expect(top).toMatch(
-      new RegExp(`^<th class="num rank" scope="col" rowspan="2" title="Rank in the current sort, by ${a.legs[0].name} SOG kn ↓" aria-label="[^"]+">Rank<small>SOG</small></th>`),
+      new RegExp(`^<th class="num rank" scope="col" rowspan="2" title="Rank in the current sort, by ${a.legs[0].name} SOG kn ↓" aria-label="[^"]+">Rank<small>B1 SOG</small></th>`),
     );
     expect(rankCol(html)).toEqual(a.boats.map((_, i) => String(i + 1)));
     const rev = legsTable(a, null, { key: 'L0.sog', dir: 'asc' });
@@ -240,8 +253,27 @@ describe('Rank column', () => {
     expect(rankCol(html).filter((r) => r !== '—')).toHaveLength(n);
   });
 
+  it('names grouped columns in the Rank header (Up / Dn / B1 / Race)', () => {
+    expect(a.legs[0].name).toBe('Beat 1');
+    expect(a.legs[1].name).toBe('Run 1');
+    expect(legsTable(a, null, { key: 'up.vmg', dir: 'desc' })).toContain('>Rank<small>Up VMG</small></th>');
+    expect(legsTable(a, null, { key: 'dn.sog', dir: 'desc' })).toContain('>Rank<small>Dn SOG</small></th>');
+    expect(legsTable(a, null, { key: 'L1.vmg', dir: 'desc' })).toContain('>Rank<small>R1 VMG</small></th>');
+    expect(legsTable(a, null, { key: 'race', dir: 'asc' })).toContain('>Rank<small>Race Time</small></th>');
+  });
+
+  it('ranks VMG by the two-decimal figure the cells show', () => {
+    const html = legsTable(a, null, { key: 'L0.vmg', dir: 'desc' });
+    const want = a.boats.map((b) => {
+      const r = sortRanks(a.boats, (x) => x.legs[0]?.vmgKn, 'desc', (v) => shownVal(v, 2)).get(b.id);
+      return rankCell(r).replace(/<[^>]+>/g, '');
+    });
+    const order = sortBoats(a.boats, (b) => b.legs[0]?.vmgKn, 'desc').map((b) => b.id);
+    expect(rankCol(html)).toEqual(order.map((id) => want[a.boats.findIndex((b) => b.id === id)]));
+  });
+
   it('is explained in one short ⓘ bullet per table', () => {
-    for (const k of [legsTableKey(a), startTableKey(a)]) expect(k.bullets).toContain('Rank: place in the current sort; =3 tied; — no value.');
+    for (const k of [legsTableKey(a), startTableKey(a)]) expect(k.bullets).toContain('Rank: place in the current sort; =3 tied at the shown figure; — none.');
   });
 });
 

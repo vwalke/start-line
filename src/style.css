@@ -634,15 +634,15 @@ table.metrics {
 .metrics td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; vertical-align: top; }
 .metrics td.boat, .metrics th.boat { text-align: left; }
 .metrics .sticky0, .metrics .sticky1 { position: sticky; background: var(--surface); z-index: 1; }
-.metrics .sticky0 { left: 0; min-width: 34px; }
+/* Fin: just wide enough for two-digit places (34 px clipped them). Rank, once sorted, pins leftmost. */
+.metrics { --rank-w: 48px; --fin-w: 38px; }
+.metrics .sticky0 { left: 0; width: var(--fin-w); min-width: var(--fin-w); max-width: var(--fin-w); }
 /* The pinned block's right edge: scrolled columns slide under a rule, not into the boat names. */
-.metrics .sticky1 { left: 34px; border-right: 1px solid var(--divider); }
-/* Rank (once sorted): pinned leftmost, narrow and plain; its sub-label names the sorted column. Fin and Boat shift over. */
-.metrics { --rank-w: 40px; }
+.metrics .sticky1 { left: var(--fin-w); border-right: 1px solid var(--divider); }
 .metrics .rank { position: sticky; left: 0; z-index: 1; background: var(--surface); width: var(--rank-w); min-width: var(--rank-w); max-width: var(--rank-w); padding-left: 4px; padding-right: 6px; color: var(--ink-2); }
 .metrics th.rank small { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--accent); }
 .metrics.ranked .sticky0 { left: var(--rank-w); }
-.metrics.ranked .sticky1 { left: calc(var(--rank-w) + 34px); }
+.metrics.ranked .sticky1 { left: calc(var(--rank-w) + var(--fin-w)); }
 .metrics td.muted { color: var(--ink-2); }
 .metrics .sub { display: block; font-size: 0.72rem; color: var(--ink-3); }
 .metrics td.leg b { font-weight: 600; }
