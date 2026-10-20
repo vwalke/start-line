@@ -48,6 +48,7 @@ const leg = (timeS: number, distGapS: number | null = null): LegResult => ({
   heelS: 0,
   trimDeg: null,
   heelCoverage: null,
+  progress: null,
   distGapS,
 });
 

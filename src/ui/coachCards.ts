@@ -54,8 +54,18 @@ export interface CardText {
 
 const windWord = (w: Fact): string => (w === 'light' ? 'light-air' : w === 'fresh' ? 'fresh' : 'medium-air');
 
-/** Title, chips, sentence and tip for a card: one template per detector variant (spec §6). */
-export function cardText(c: Card): CardText {
+/** "the boats that finished 5th–10th", or "the boats near you" (the Near fallback). */
+const peersPhrase = (f: Card['facts']): string =>
+  f.peersAhead && f.placeLo != null && f.placeHi != null ? `the boats that finished ${ordinal(num(f.placeLo))}–${ordinal(num(f.placeHi))}` : 'the boats near you';
+
+/** "67 s up" / "level" / "20 s down": a gap as the boat sees it (+ = behind). */
+const upDown = (behindS: Fact): string => {
+  const v = Math.round(num(behindS));
+  return v < 0 ? `${-v} s up` : v > 0 ? `${v} s down` : 'level';
+};
+
+/** Title, chips, sentence and tip for a card: one template per detector variant (spec §6). `tz`: the venue's offset, for clock times in the sentence. */
+export function cardText(c: Card, tz = 0): CardText {
   const f = c.facts;
   const sec = r0(c.seconds);
   switch (c.kind) {
@@ -108,6 +118,40 @@ export function cardText(c: Card): CardText {
         sentence: `In the 5 minutes after you crossed the line you lost ${r0(f.dgap)} s to the top 3.`,
         tip: 'Sail fast in a clear lane first; foot off rather than pinch in dirty air.',
       };
+    }
+    case 'D4': {
+      const shift = r0(f.shift);
+      const ldrH = f.ldrHeaded != null ? ` vs ${f.ldr} ${pct(num(f.ldrHeaded))}` : '';
+      return {
+        title: `Wrong side of a ${shift}° ${f.dir} shift`,
+        chips: [`wind ${r0(f.twd0)}° → ${r0(f.twd1)}°`, `headed ${pct(num(f.headed))}${ldrH}`, `${r0(f.sepM)} m ${f.side} of ${f.ldr}`],
+        sentence: `You went ${f.side} while the leaders held ${f.otherSide}; the wind ${f.dir === 'left' ? 'backed' : 'veered'} ${shift}° and you spent ${pct(num(f.headed))} of those minutes headed${ldrH}.`,
+        tip: 'When the wind keeps going one way, sail the lifted tack toward it; on a header more than 30 s, tack.',
+      };
+    }
+    case 'D5': {
+      if (c.variant === 'caught-leader') {
+        const went = num(f.tacked) ? 'tacked' : 'stayed';
+        return {
+          title: num(f.tacked) ? 'Caught the leader, then tacked away' : 'Caught the leader, then let go',
+          chips: [`level with ${f.ldr} ${hm(num(f.tPeak), tz)}`, `${r0(f.sepM)} m apart`, `${r0(f.gTrough)} s behind by ${hm(num(f.tTrough), tz)}`],
+          sentence: `Even with ${f.ldr} at ${hm(num(f.tPeak), tz)}; you ${went} ${f.side} and ${f.ldr} sailed into a ${f.dir}-hand lift, ${r0(f.gTrough)} s ahead by ${hm(num(f.tTrough), tz)}.`,
+          tip: 'Once level with the leader, stay between them and the mark.',
+        };
+      }
+      const peers = peersPhrase(f);
+      const side = f.side ?? 'far';
+      const chips = [`${r0(f.sepM)} m ${f.side ?? 'away'}`, ...(f.layFromM != null ? [`layline from ${r0(f.layFromM)} m`] : []), `${upDown(f.gPeak)} → ${upDown(f.gTrough)}`];
+      const sentence = `The ${side} paid first, ${upDown(f.gPeak)} on ${peers}; then the wind swung back ${r0(f.shift)}° and you were ${upDown(f.gTrough)}.`;
+      if (c.variant === 'overstand') {
+        return {
+          title: `Overstood the ${side} corner`,
+          chips,
+          sentence,
+          tip: 'When the corner pays, tack on the next header and come back toward the fleet; avoid early laylines.',
+        };
+      }
+      return { title: `Gave back a ${side} gain`, chips, sentence, tip: 'Bank gains: tack on the header and get back between the fleet and the mark.' };
     }
     case 'D6': {
       const chips = [`${r0(f.twa)}° vs fleet ${r0(f.fTwa)}°`, `${kn(f.sog)} vs ${kn(f.fSog)} kn`, `VMG ${kn(f.vmg)} vs ${kn(f.fVmg)} kn`];
@@ -192,6 +236,8 @@ export function goodTexts(n: GoodNote): string[] {
   const f = n.facts;
   if (n.kind === 'plus') return [`${r0(f.gainS)} s on ${f.leg} vs top 3`];
   if (n.detector === 'D1') return [`Start ${r0(f.dtl)} m off the line at the gun`];
+  if (n.detector === 'D4') return ['Shifts: on the lifted side'];
+  if (n.detector === 'D5') return ['Banked gains'];
   const side = n.detector === 'D6' ? 'Upwind' : 'Downwind';
   return [`${side} ${n.detector === 'D6' ? 'pointing' : 'angles'} ${r0(f.twa)}° vs fleet ${r0(f.fTwa)}°`, `${side} VMG ${kn(f.vmg)} vs fleet ${kn(f.fVmg)} kn`];
 }
@@ -201,7 +247,7 @@ const warnLi = (text: string): string => `<li class="chip warn"><span aria-hidde
 
 /** One card. `on`: its window is shaded on the chart. */
 export function cardHtml(c: Card, i: number, a: RaceAnalysis, on: boolean, raceCov?: number | null): string {
-  const t = cardText(c);
+  const t = cardText(c, a.meta.tzOffsetMs);
   const when = windowChip(c, a);
   const secs = secondsChip(c);
   const chips = [

@@ -119,19 +119,19 @@ describe('sorted metrics table (Benelux race 8)', () => {
     expect(head).not.toMatch(/[▲▼]/);
   });
 
-  it('groups each leg under a spanning header: VMG, SOG, TWA, Heel, Dist, Time, Tacks or Gybes, Data', () => {
+  it('groups each leg under a spanning header: VMG, SOG, TWA, Heel, Dist, Prog, Time, Tacks or Gybes, Data', () => {
     const html = legsTable(a, null);
     const [top, sub] = [...html.matchAll(/<tr>(.*?)<\/tr>/g)].map((m) => m[1]);
     expect(top).toContain('<th class="num sticky0" scope="col" rowspan="2"');
     expect(top).toContain('<th class="boat sticky1" scope="col" rowspan="2"');
-    for (const l of a.legs) expect(top).toContain(`colspan="8" title="${l.name} to ${l.to}">${l.name}</th>`);
+    for (const l of a.legs) expect(top).toContain(`colspan="9" title="${l.name} to ${l.to}">${l.name}</th>`);
     expect(top).toContain('colspan="8" title="Every beat added up (reaches excluded)">Upwind</th>');
     expect(top).toContain('colspan="8" title="Every run added up (reaches excluded)">Downwind</th>');
     expect(top).toContain('colspan="6" title="Gun to finish">Race</th>');
     const keys = [...sub.matchAll(/data-sort="([^"]+)"/g)].map((m) => m[1]);
     // Beat 1 shows tacks, Run 1 gybes.
-    expect(keys.slice(0, 8)).toEqual(['L0.vmg', 'L0.sog', 'L0.twa', 'L0.heel', 'L0.dist', 'L0.time', 'L0.tacks', 'L0.dq']);
-    expect(keys.slice(8, 16)).toEqual(['L1.vmg', 'L1.sog', 'L1.twa', 'L1.heel', 'L1.dist', 'L1.time', 'L1.gybes', 'L1.dq']);
+    expect(keys.slice(0, 9)).toEqual(['L0.vmg', 'L0.sog', 'L0.twa', 'L0.heel', 'L0.dist', 'L0.prog', 'L0.time', 'L0.tacks', 'L0.dq']);
+    expect(keys.slice(9, 18)).toEqual(['L1.vmg', 'L1.sog', 'L1.twa', 'L1.heel', 'L1.dist', 'L1.prog', 'L1.time', 'L1.gybes', 'L1.dq']);
     expect(keys.filter((k) => k.startsWith('up.'))).toEqual(['up.vmg', 'up.sog', 'up.twa', 'up.heel', 'up.dist', 'up.time', 'up.tacks', 'up.dq']);
     expect(keys.filter((k) => k.startsWith('dn.'))).toEqual(['dn.vmg', 'dn.sog', 'dn.twa', 'dn.heel', 'dn.dist', 'dn.time', 'dn.gybes', 'dn.dq']);
     expect(keys.slice(-6)).toEqual(['dist', 'race', 'sog', 'tacks', 'gybes', 'dq']);

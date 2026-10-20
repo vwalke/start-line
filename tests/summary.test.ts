@@ -26,6 +26,7 @@ const leg = (timeS: number, o: Partial<LegResult> = {}): LegResult => ({
   heelS: 0,
   trimDeg: null,
   heelCoverage: null,
+  progress: null,
   ...o,
 });
 const defs = [def(0, 'upwind'), def(1, 'downwind'), def(2, 'reach'), def(3, 'upwind')];

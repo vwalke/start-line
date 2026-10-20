@@ -8,7 +8,7 @@ import { median } from '../geo';
 import type { GapPoint } from './ladder';
 import { COACH_MAX_SPAN_S } from './tracks';
 
-export type DetectorKind = 'D1' | 'D2' | 'D3' | 'D6' | 'D7' | 'D10';
+export type DetectorKind = 'D1' | 'D2' | 'D3' | 'D4' | 'D5' | 'D6' | 'D7' | 'D10';
 export type Confidence = 'high' | 'medium' | 'low' | 'none';
 
 /** A fact for the card: a number (formatted by the template) or a name. */
@@ -22,6 +22,8 @@ export interface ConfInputs {
   refs?: { good: number; fair: number; need: number };
   /** Share of the window's wind minutes measured (not interpolated), 0–1; absent when the detector doesn't use the wind. */
   windOk?: number;
+  /** Wind-read detectors (D4, D5): (secondsHi − secondsLo) ÷ seconds, the noise range's share of the estimate (WIND_RANGE_SHARE). */
+  rangeShare?: number;
   /** The marks were placed from the fleet's turns, not trackers. */
   marksEstimated?: boolean;
   /** The boat's longest hole in the window (named in a low-confidence chip). */
@@ -153,11 +155,21 @@ export function confidenceOf(c: ConfInputs): { level: Confidence; limit: ConfLim
     parts.push([r.need === 0 ? 'none' : r.good >= r.need ? 'high' : r.fair >= r.need ? 'medium' : 'low', 'refs']);
   }
   if (c.windOk != null) parts.push([c.windOk >= 0.8 ? 'high' : c.windOk >= 0.5 ? 'medium' : 'low', 'wind']);
+  if (c.rangeShare != null) {
+    const [hi, med] = WIND_RANGE_SHARE;
+    parts.push([c.rangeShare <= hi ? 'high' : c.rangeShare <= med ? 'medium' : 'low', 'wind']);
+  }
   if (c.marksEstimated) parts.push(['medium', 'marks']);
   const level = lowest(parts.map((p) => p[0]));
   const limit = level === 'high' ? null : parts.find((p) => p[0] === level)![1];
   return { level, limit };
 }
+
+/**
+ * D4/D5 lean on the wind across a separation (spec §5): the noise range (hi − lo) as a share of the
+ * estimate up to the first value keeps the wind input high, up to the second medium, else low.
+ */
+export const WIND_RANGE_SHARE: [number, number] = [0.6, 1.2];
 
 /** Score weight per confidence. */
 export const CONF_WEIGHT: Record<Confidence, number> = { high: 1, medium: 0.7, low: 0.4, none: 0 };

@@ -173,6 +173,12 @@ function raceDistCell(b: BoatResult): string {
   );
 }
 
+/** The progress ratio as "92%", ~ when the distance bridges a telemetry gap; — with none. */
+export function progressCell(l: LegResult | null | undefined): string {
+  if (!l || l.progress == null || !Number.isFinite(l.progress)) return '—';
+  return l.distGapS == null ? pct(l.progress) : gapSpan(`Approximate: a ${Math.round(l.distGapS)} s telemetry gap in this leg. ${APPROX}.`, pct(l.progress));
+}
+
 const MANOEUVRE_GAP = 'Approximate: a tack or gybe here bridges a telemetry gap, so its timing (and a quick double turn) may be missed';
 
 /** A tack or gybe count, ~ when one bridges a telemetry gap. */
@@ -286,7 +292,7 @@ export function legsTableKey(a?: RaceAnalysis): KeyLine {
     chips,
     bullets: [
       "TWA / VMG: estimates vs the wind from the fleet's tacks; TWA = steady median.",
-      'Dist: metres along the track. Time: leg, place at mark; — lost in a gap.',
+      'Dist: metres sailed; Prog: straight line ÷ Dist. Time: leg, place at mark.',
       `Data: share with fixes ≤ ${SPAN_MS / 1000} s apart; ⚠ under ${LOW_PCT}%; ~ bridges a gap.`,
       'Upwind / Downwind: beats or runs summed; partial = a leg missing, no place.',
       'Tacks on beats, gybes on runs (both on reaches); a side held 10 s.',
@@ -644,6 +650,18 @@ function legColumns(a: RaceAnalysis): Col[] {
         first: 'asc',
         prec: 0 as const,
         cell: (b) => (L(b) ? legDistCell(L(b)!) : '—'),
+      },
+      {
+        key: `L${i}.prog`,
+        head: 'Prog<br><small>%</small>',
+        title: `${leg.name}: progress ratio — the straight line from where the boat started the leg to where it ended it ÷ the distance it sailed. Higher = less extra distance`,
+        group,
+        rank: (b) => L(b)?.progress,
+        better: 'high',
+        sort: (b) => L(b)?.progress,
+        first: 'desc',
+        prec: '%',
+        cell: (b) => progressCell(L(b)),
       },
       {
         key: `L${i}.time`,

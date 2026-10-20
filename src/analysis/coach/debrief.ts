@@ -1,6 +1,6 @@
 /**
- * Recall Coach, phase 2: one boat's debrief for one race — every detector
- * (D1, D2 → D3, D3, D6, D7, D10), ranked and gated (rank.ts), with the ✓ row
+ * Recall Coach, phases 2–3: one boat's debrief for one race — every detector
+ * (D1, D2 → D3, D3, D4, D5, D6, D7, D10), ranked and gated (rank.ts), with the ✓ row
  * (detectors that measured the boat as fine with good data) and ➕ (legs where
  * it gained on the leaders). Pure: the UI fills the templates.
  */
@@ -8,6 +8,8 @@ import type { RaceAnalysis } from '../types';
 import type { CoachModel } from './index';
 import { coachCtx, type CoachCtx } from './detectors/context';
 import { detectAngles } from './detectors/angles';
+import { detectConsolidate } from './detectors/consolidate';
+import { detectShift } from './detectors/shift';
 import { detectEarly } from './detectors/early';
 import { detectLastLeg } from './detectors/lastLeg';
 import { detectRolled } from './detectors/rolled';
@@ -59,6 +61,11 @@ function legGains(ctx: CoachCtx): GoodNote[] {
   return out;
 }
 
+const overlaps = (p: Opportunity, q: Opportunity): boolean => p.t0 < q.t1 && q.t0 < p.t1;
+
+/** A gain given back (D5) explains its stretch better than "the wrong side" (D4) of the same swing: D4 only clear of every D5. */
+export const d4Unless = (d4: Opportunity | null, d5: readonly Opportunity[]): Opportunity | null => (d4 && !d5.some((o) => overlaps(o, d4)) ? d4 : null);
+
 export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): CoachDebrief | null {
   const ctx = coachCtx(a, m, boat);
   if (!ctx) return null;
@@ -68,8 +75,11 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
   const up = detectAngles(ctx, 'upwind');
   const down = detectAngles(ctx, 'downwind');
   const last = detectLastLeg(ctx);
-  const found = [start.opp, early, up.opp, down.opp, last].filter((o): o is Opportunity => !!o);
-  const ok = [start.ok, up.ok, down.ok].filter((o): o is GoodNote => !!o);
+  const cons = detectConsolidate(ctx);
+  const shift = detectShift(ctx);
+  const d4 = d4Unless(shift.opp, cons.opps);
+  const found = [start.opp, early, d4, ...cons.opps, up.opp, down.opp, last].filter((o): o is Opportunity => !!o);
+  const ok = [start.ok, shift.opp ? null : shift.ok, cons.opps.length ? null : cons.ok, up.ok, down.ok].filter((o): o is GoodNote => !!o);
   const end = ctx.me.finishMs ?? m.endMs;
   const raceCov = coachCoverage(ctx.tr.t, ctx.gun, end);
   const dense = found.some((o) => o.coverage >= OK_WINDOW) || ok.length > 0;

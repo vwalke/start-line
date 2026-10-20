@@ -15,7 +15,8 @@ import { c31Race, fixtureRace, j105Race, j88Race, m24Race } from './helpers';
  * Coach phase 2 against the Good Trade debrief (2026 J/105 CBC, Oct 18; EDT = UTC−4), through the app's own
  * path: the worker's raw half (coachRaw: the wind and the start crossings from the raw fixes), the model on
  * the drawn tracks, then the debrief. Tolerance ±10 s where the fixture supports the item.
- * D4/D5 (shifts, consolidation) are phase 3, so the debrief's R1 #2, R2 #1 and R3 #1 are not expected here.
+ * Phase 3 adds D4/D5 (the debrief's R1 #2, R2 #1, R3 #1): their goldens are in coachShiftGolden.test.ts; here
+ * only the ranks they move (R1: the D5 card ranks first, R2: D4 above D1).
  */
 const GT = 'USA 96';
 const edt = (hhmmss: string): number => Date.parse(`2026-10-18T${hhmmss}-04:00`);
@@ -32,9 +33,10 @@ const card = (d: CoachDebrief, kind: string) => d.cards.find((c) => c.kind === k
 describe('Coach golden: Good Trade race 1 (gun 11:05 EDT)', () => {
   const { a, model, d } = setup(j105Race(1));
 
-  it('#1 "Slow off a great start" ≈ 30 s, with the D2 chip 4.4 vs 7.5 kn Relentless', () => {
-    const c = d.cards[0];
-    expect(c.kind).toBe('D3');
+  it('"Slow off a great start" ≈ 30 s, with the D2 chip 4.4 vs 7.5 kn Relentless', () => {
+    // Phase 3: #2. The D5 caught-leader card (45 s, medium: score 31.8) edges it (29.4 s, high); see coachShiftGolden.
+    const c = card(d, 'D3')!;
+    expect(d.cards.indexOf(c)).toBe(1);
     expect(c.variant).toBe('slow-start');
     // Got 29.4 s: the median gap to the top 3 (Patriot, Mirage, Crescendo) a minute after the crossing (+5.6 s) → at +5 min.
     expect(c.seconds).toBeGreaterThanOrEqual(30 - 10);
@@ -68,9 +70,9 @@ describe('Coach golden: Good Trade race 1 (gun 11:05 EDT)', () => {
     expect(html).toContain('✓ Upwind pointing 40° vs fleet 42°');
     // The start itself was fine (D1 measured, did not fire).
     expect(d.ok.some((n) => n.detector === 'D1')).toBe(true);
-    // One card only, and it says so.
-    expect(d.cards).toHaveLength(1);
-    expect(html).toContain('Only 1 clear gain with this data');
+    // Two cards (phase 3 adds D5), and it says so.
+    expect(d.cards.map((c) => c.kind)).toEqual(['D5', 'D3']);
+    expect(html).toContain('Only 2 clear gains with this data');
   });
 
   it('the header adds the seconds at stake; a selected card shades its window on the gap chart', () => {
@@ -100,7 +102,8 @@ describe('Coach golden: Good Trade race 2 (gun 12:25 EDT)', () => {
     expect([Math.round(c.facts.frontLo as number), Math.round(c.facts.frontHi as number)]).toEqual([6, 9]);
     expect(c.facts.favoured).toBe('pin');
     expect(secondsChip(c)).toBe('≈ 47 s');
-    expect(d.cards[0].kind).toBe('D1');
+    // Phase 3: the wrong-side shift (D4 ≈ 90 s) is #1, the start #2 — the debrief's order.
+    expect(d.cards.map((x) => x.kind).slice(0, 2)).toEqual(['D4', 'D1']);
   });
 
   it('the last run (D10): evaluated, but the ladder does not support the debrief’s 10–35 s — no card (see the note)', () => {
