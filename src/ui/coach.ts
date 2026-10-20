@@ -16,7 +16,6 @@ import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import type { RegattaDoc } from '../data/racesense/types';
 import { boatLabel, degLabel, duration, esc, localTime, ordinal, pct, tzLabel } from './format';
 import { infoHtml, warnChip, type Chip } from './info';
-import { placeColor } from './places';
 
 export const GROUP_PARAM = 'grp';
 export const BOAT_PARAM = 'boat';
@@ -187,6 +186,47 @@ export interface LadderLayout {
 
 /** How far past the median's range the group boats' own lines may stretch the scale, × that range. */
 export const EACH_HEADROOM = 0.5;
+/** Palette slots for the group's own lines; the median stays black. */
+export const LADDER_COLOR_SLOTS = 8;
+
+/** One stable colour per group boat for the whole chart (finish order, not the current leg). */
+export function ladderBoatColor(id: string, group: readonly string[]): string {
+  const i = group.indexOf(id);
+  return `var(--s${((i >= 0 ? i : 0) % LADDER_COLOR_SLOTS) + 1})`;
+}
+
+/** Legend label: "USA 328 Mirage", or the sail when that is the name. */
+export function coachLegendName(b: { sail: string; name: string }): string {
+  return b.name && b.name !== `#${b.sail}` ? `${b.sail} ${b.name}` : b.sail;
+}
+
+export interface LegSpan {
+  name: string;
+  fromMs: number;
+  toMs: number;
+  leg: number;
+}
+
+/**
+ * One span per course leg, from the gun through the chosen boat's roundings to
+ * the chart end (its finish, or last fix). Missing roundings stretch the
+ * neighbouring span; every leg still gets a label.
+ */
+export function ladderLegSpans(legs: readonly { name: string }[], gunMs: number, roundings: readonly { tMs: number; leg: number }[], endMs: number): LegSpan[] {
+  const n = legs.length;
+  if (!n) return [];
+  const edge: (number | null)[] = Array.from({ length: n + 1 }, () => null);
+  edge[0] = gunMs;
+  edge[n] = Math.max(endMs, gunMs);
+  for (const r of roundings) {
+    if (r.leg > 0 && r.leg < n) edge[r.leg] = r.tMs;
+  }
+  const known = (k: number, dir: -1 | 1): number => {
+    for (let i = k; i >= 0 && i <= n; i += dir) if (edge[i] != null) return edge[i]!;
+    return dir < 0 ? gunMs : edge[n]!;
+  };
+  return legs.map((leg, k) => ({ name: leg.name, fromMs: known(k, -1), toMs: known(k + 1, 1), leg: k }));
+}
 
 const niceStep = (span: number): number => [5, 10, 15, 30, 60, 120, 300].find((s) => span / s <= 6) ?? 600;
 
@@ -196,7 +236,7 @@ export function ladderLayout(ladder: RivalLadder, wind: { twdAt: (t: number) => 
   const narrow = W < 520;
   const padL = narrow ? 40 : 46;
   const padR = 12;
-  const padT = 16;
+  const padT = narrow ? 20 : 22;
   const gapH = narrow ? 200 : 250;
   const gapB = padT + gapH;
   const windT = gapB + 34;
@@ -317,14 +357,16 @@ export function ladderChart(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder,
     out.push(`<line class="cl-tick" x1="${x}" x2="${x}" y1="${L.padT}" y2="${L.windB}"/>`);
     out.push(`<text class="cl-axis" x="${x}" y="${L.windB + fs + 4}" font-size="${fs}" text-anchor="middle">${hm(t, tz)}</text>`);
   }
-  // Roundings.
+  // Roundings: plain dashed separators. Legs are labelled in the segment, not the mark.
   for (const r of ladder.roundings) {
     const x = r1(L.x(r.tMs));
-    const name = (a.legs[r.leg - 1]?.to ?? '').replace(/ mark$/i, '');
     out.push(`<line class="cl-mark" x1="${x}" x2="${x}" y1="${L.padT - 4}" y2="${L.windB}"><title>${esc(a.legs[r.leg - 1]?.to ?? 'Mark')} ${hm(r.tMs, tz)}</title></line>`);
-    out.push(`<text class="cl-mark-lbl" x="${r1(L.x(r.tMs) + 3)}" y="${L.padT - 5}" font-size="${fs - 1}">${esc(name)}</text>`);
   }
-  // Each group boat, thin, in its own colour (clipped to the panel), then the median, bold.
+  for (const s of ladderLegSpans(a.legs, L.t0, ladder.roundings, L.t1)) {
+    const x = (L.x(s.fromMs) + L.x(s.toMs)) / 2;
+    out.push(`<text class="cl-leg-lbl" data-leg="${s.leg}" x="${r1(x)}" y="${L.padT - 6}" font-size="${fs - 1}" text-anchor="middle">${esc(s.name)}</text>`);
+  }
+  // Each group boat, thin, one colour for the whole race (clipped to the panel), then the median, bold black.
   const clip = `cl-clip-${Math.round(L.W)}`;
   out.push(`<clipPath id="${clip}"><rect x="${L.padL}" y="${L.padT}" width="${L.W - L.padL - L.padR}" height="${L.gapB - L.padT}"/></clipPath><g clip-path="url(#${clip})">`);
   const byId = new Map(a.boats.map((b) => [b.id, b]));
@@ -332,7 +374,9 @@ export function ladderChart(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder,
     ladder.group.forEach((id, k) => {
       const b = byId.get(id);
       const d = runsPath(ladder.points, (i) => (ladder.points[i].each[k] == null ? null : -ladder.points[i].each[k]!), L);
-      if (d && b) out.push(`<path class="cl-each" d="${d}" stroke="${placeColor(b, a.boats.length)}"><title>${esc(boatLabel(b, id))}</title></path>`);
+      if (d && b) {
+        out.push(`<path class="cl-each" data-boat="${esc(id)}" d="${d}" stroke="${ladderBoatColor(id, ladder.group)}"><title>${esc(boatLabel(b, id))}</title></path>`);
+      }
     });
   }
   const med = runsPath(ladder.points, (i) => (ladder.points[i].behindS == null ? null : -ladder.points[i].behindS!), L);
@@ -395,11 +439,22 @@ export function ladderTipHtml(a: RaceAnalysis, m: CoachModel, ladder: RivalLadde
   return `${head}<br>${gap}<br>Wind ${degLabel(m.wind.twdAt(p.tMs))}${leg}`;
 }
 
-/** The chart's legend chips: the bold and thin lines, no data. */
+/** The chart's legend chips: the bold median, each group boat by name and colour, no data. */
 export function ladderChips(a: RaceAnalysis, ladder: RivalLadder, g: Group, each: boolean): Chip[] {
   const me = a.boats.find((b) => b.id === ladder.boat);
   const chips: Chip[] = [{ text: `${me ? `#${me.sail}` : ladder.boat} vs ${GROUP_SHORT[g.kind]} (median)`, swatch: 'bold' }];
-  if (each && ladder.group.length > 1) chips.push({ text: 'each boat' });
+  if (each) {
+    const byId = new Map(a.boats.map((b) => [b.id, b]));
+    for (const id of ladder.group) {
+      const b = byId.get(id);
+      chips.push({
+        text: b ? (ladder.group.length > 6 ? b.sail : coachLegendName(b)) : id,
+        swatch: 'line',
+        swatchColor: ladderBoatColor(id, ladder.group),
+        title: boatLabel(b, id),
+      });
+    }
+  }
   if (ladder.points.some((p) => p.behindS == null)) chips.push({ text: 'no data', swatch: 'band', title: `No fix within ${COACH_NEAR_FIX_S} s, or not on the same leg` });
   return chips;
 }

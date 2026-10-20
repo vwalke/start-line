@@ -42,7 +42,11 @@ export function placeOf(b: Ranked): number | null {
   return null;
 }
 
-/** The group's boats for `me` (never `me` itself), in finish order; ids not racing are dropped. */
+/**
+ * The group's boats for `me` (never `me` itself), in finish order; ids not racing
+ * are dropped. The set is fixed for the whole race: Top 3 / Near use the tracked
+ * finish (not who was ahead on each leg); mid-race ranks do not change it.
+ */
 export function groupIds(boats: readonly Ranked[], me: string, g: Group): string[] {
   const others = boats.filter((b) => b.id !== me);
   const byFinish = others.filter((b) => b.finishPos != null).sort((a, b) => a.finishPos! - b.finishPos!);

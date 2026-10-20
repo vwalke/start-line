@@ -10,7 +10,7 @@ import { MS_TO_KN, bearingVec, makeProjection, type Vec } from '../src/analysis/
 import { projectTrack } from '../src/analysis/prepare';
 import { j105Race } from './helpers';
 import type { BoatResult, LegResult } from '../src/analysis/types';
-import { coachHighlight, groupParam, nullSpans, gapWords, parseBoatParam, parseGroupParam, racePlaces } from '../src/ui/coach';
+import { coachHighlight, coachLegendName, groupParam, ladderBoatColor, ladderLegSpans, nullSpans, gapWords, parseBoatParam, parseGroupParam, racePlaces } from '../src/ui/coach';
 import { parseLastView, serializeLastView, startTab, resolveStart, type LastView } from '../src/ui/lastView';
 import { COACH_TABS, TABS, coachEnabled, initialTab, parseTab, tabForKey, tabFromHash, tabsFor } from '../src/ui/tabs';
 import type { RegattaDoc } from '../src/data/racesense/types';
@@ -240,9 +240,13 @@ describe('reference groups', () => {
     ({ id, finishPos, legs: [rank == null ? null : ({ rankAtEnd: rank } as LegResult)] }) as Pick<BoatResult, 'id' | 'finishPos' | 'legs'>;
   const boats = [b('A', 1), b('B', 2), b('C', 3), b('D', 4), b('E', 5), b('F', 6), b('G', 7), b('H', 8), b('X', null, 4), b('Y', null)];
 
-  it(`leaders: the first ${LEADERS_N} finishers other than me`, () => {
+  it(`leaders: the first ${LEADERS_N} finishers other than me, the same set on every leg`, () => {
     expect(groupIds(boats, 'E', { kind: 'leaders' })).toEqual(['A', 'B', 'C']);
     expect(groupIds(boats, 'B', { kind: 'leaders' })).toEqual(['A', 'C', 'D']);
+    // Mid-race ranks do not re-pick the set (not "best on this leg").
+    const mid = boats.map((x) => ({ ...x, legs: [{ rankAtEnd: 1 } as LegResult] }));
+    expect(groupIds(mid, 'E', { kind: 'leaders' })).toEqual(['A', 'B', 'C']);
+    expect(groupIds(mid, 'A', { kind: 'near' })).toEqual(groupIds(boats, 'A', { kind: 'near' }));
   });
 
   it(`near: finished within ±${NEAR_PLACES} places; no finish → the rank at its last mark; no place at all → none`, () => {
@@ -413,5 +417,30 @@ describe('Coach UI helpers', () => {
     expect(gapWords(29.4)).toBe('29 s behind');
     expect(gapWords(-67)).toBe('67 s ahead');
     expect(gapWords(0.2)).toBe('level');
+  });
+
+  it('ladderLegSpans: one label per course leg, first at the gun, last to the finish', () => {
+    const legs = [{ name: 'Beat 1' }, { name: 'Run 1' }, { name: 'Beat 2' }, { name: 'Run 2' }];
+    const gun = 1_000;
+    const end = 5_000;
+    const spans = ladderLegSpans(legs, gun, [{ tMs: 2_000, leg: 1 }, { tMs: 3_000, leg: 2 }, { tMs: 4_000, leg: 3 }], end);
+    expect(spans).toHaveLength(4);
+    expect(spans.map((s) => s.name)).toEqual(['Beat 1', 'Run 1', 'Beat 2', 'Run 2']);
+    expect(spans[0].fromMs).toBe(gun);
+    expect(spans[0].toMs).toBe(2_000);
+    expect(spans[3].fromMs).toBe(4_000);
+    expect(spans[3].toMs).toBe(end);
+    // A missing rounding still yields a label for every leg.
+    expect(ladderLegSpans(legs, gun, [{ tMs: 2_000, leg: 1 }], end)).toHaveLength(4);
+  });
+
+  it('each group boat keeps one colour; the legend uses the boat name', () => {
+    const group = ['USA 328', 'USA 29', 'USA 159'];
+    expect(ladderBoatColor('USA 328', group)).toBe('var(--s1)');
+    expect(ladderBoatColor('USA 29', group)).toBe('var(--s2)');
+    expect(ladderBoatColor('USA 159', group)).toBe('var(--s3)');
+    expect(ladderBoatColor('USA 328', group)).toBe(ladderBoatColor('USA 328', group));
+    expect(coachLegendName({ sail: 'USA 328', name: 'Mirage' })).toBe('USA 328 Mirage');
+    expect(coachLegendName({ sail: '96', name: '#96' })).toBe('96');
   });
 });

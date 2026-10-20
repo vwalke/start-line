@@ -3,7 +3,7 @@ import { analyzeRace } from '../src/analysis/analyze';
 import { buildCoach, coachWind, rivalLadder, type RivalLadder } from '../src/analysis/coach';
 import { groupIds } from '../src/analysis/coach/groups';
 import { COACH_MAX_SPAN_S, COACH_NEAR_FIX_S } from '../src/analysis/coach/tracks';
-import { coachChips, coachHeadHtml, ladderChart, ladderChips } from '../src/ui/coach';
+import { coachChips, coachHeadHtml, coachLegendName, ladderBoatColor, ladderChart, ladderChips, ladderLegSpans } from '../src/ui/coach';
 import { j105Race } from './helpers';
 
 /**
@@ -128,13 +128,55 @@ describe('Coach tab on the fixtures', () => {
     expect(svg.match(/class="cl-each"/g)).toHaveLength(l.group.length);
     expect(svg).toContain('class="cl-nodata"');
     expect(svg.match(/class="cl-mark"/g)!.length).toBe(l.roundings.length);
+    expect(svg).not.toContain('cl-mark-lbl');
     expect(svg).toContain('▲ s ahead');
     expect(svg).toContain('▼ s behind');
     expect(svg).toContain('Wind from, ° (fleet est.)');
     expect(svg).toContain('>11:10<');
     // Phone width still draws.
     expect(ladderChart(a, model, l, { kind: 'leaders' }, { widthPx: 340, each: false })).not.toContain('cl-each');
-    expect(ladderChips(a, l, { kind: 'leaders' }, true).map((c) => c.text)).toEqual(['#USA 96 vs top 3 (median)', 'each boat', 'no data']);
+    const chips = ladderChips(a, l, { kind: 'leaders' }, true);
+    expect(chips[0]).toMatchObject({ text: '#USA 96 vs top 3 (median)', swatch: 'bold' });
+    expect(chips.some((c) => c.text === 'no data')).toBe(true);
+  });
+
+  it('R3 W/L: one centred leg label per course leg, from the gun to the finish; rounding lines are unlabelled', () => {
+    const { a: a3, model: m3 } = setup(3);
+    expect(a3.legs.map((x) => x.name)).toEqual(['Beat 1', 'Run 1', 'Beat 2', 'Run 2']);
+    const l3 = rivalLadder(m3, a3, GT, { kind: 'leaders' })!;
+    const svg = ladderChart(a3, m3, l3, { kind: 'leaders' }, { widthPx: 900 });
+    const labels = [...svg.matchAll(/class="cl-leg-lbl"[^>]*>([^<]+)</g)].map((m) => m[1]);
+    expect(labels).toEqual(['Beat 1', 'Run 1', 'Beat 2', 'Run 2']);
+    expect(svg.match(/class="cl-leg-lbl"/g)).toHaveLength(a3.legs.length);
+    expect(svg).not.toMatch(/class="cl-leg-lbl"[^>]*>Windward/);
+    expect(svg).not.toMatch(/class="cl-leg-lbl"[^>]*>Leeward/);
+    const spans = ladderLegSpans(a3.legs, a3.meta.gunMs, l3.roundings, l3.points[l3.points.length - 1].tMs);
+    expect(spans).toHaveLength(4);
+    expect(spans[0].fromMs).toBe(a3.meta.gunMs);
+    expect(spans[3].toMs).toBe(l3.points[l3.points.length - 1].tMs);
+  });
+
+  it('the reference set is the finish-order top 3 on every leg, each with one stable colour', () => {
+    const { a: a3, model: m3 } = setup(3);
+    const finishers = a3.boats.filter((b) => b.id !== GT && b.finishPos != null).sort((p, q) => p.finishPos! - q.finishPos!);
+    const want = finishers.slice(0, 3).map((b) => b.id);
+    expect(groupIds(a3.boats, GT, { kind: 'leaders' })).toEqual(want);
+    const mid = a3.boats.map((b) => ({ ...b, legs: b.legs.map((x) => (x ? { ...x, rankAtEnd: 1 } : null)) }));
+    expect(groupIds(mid, GT, { kind: 'leaders' })).toEqual(want);
+    const l3 = rivalLadder(m3, a3, GT, { kind: 'leaders' })!;
+    expect(l3.group).toEqual(want);
+    expect(l3.points.every((p) => p.each.length === want.length)).toBe(true);
+    const svg = ladderChart(a3, m3, l3, { kind: 'leaders' }, { widthPx: 900 });
+    const strokes = new Map(
+      [...svg.matchAll(/class="cl-each" data-boat="([^"]+)"[^>]*stroke="([^"]+)"/g)].map((m) => [m[1], m[2]]),
+    );
+    expect([...strokes.keys()]).toEqual(want);
+    for (const id of want) expect(strokes.get(id)).toBe(ladderBoatColor(id, want));
+    expect(new Set(strokes.values()).size).toBe(want.length);
+    const chips = ladderChips(a3, l3, { kind: 'leaders' }, true);
+    const named = chips.filter((c) => c.swatch === 'line');
+    expect(named.map((c) => c.swatchColor)).toEqual(want.map((id) => ladderBoatColor(id, want)));
+    expect(named.map((c) => c.text)).toEqual(want.map((id) => coachLegendName(a3.boats.find((b) => b.id === id)!)));
   });
 
   it('an empty custom group says what to do instead of drawing', () => {

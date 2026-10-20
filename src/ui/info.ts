@@ -7,7 +7,7 @@
 import { esc } from './format';
 
 /** Legend swatches, drawn in CSS (style.css `.sw-*`). */
-export type Swatch = 'gap' | 'ext' | 'est' | 'nc' | 'dot' | 'bold' | 'band';
+export type Swatch = 'gap' | 'ext' | 'est' | 'nc' | 'dot' | 'bold' | 'band' | 'line';
 
 export interface Chip {
   text: string;
@@ -15,6 +15,8 @@ export interface Chip {
   warn?: boolean;
   /** A legend swatch drawn before the text. */
   swatch?: Swatch;
+  /** Colour for `swatch: 'line'` (a CSS colour; the swatch uses currentColor). */
+  swatchColor?: string;
   /** Extra detail on hover (never the only place a fact lives). */
   title?: string;
 }
@@ -30,7 +32,9 @@ export const warnChip = (text: string, title?: string): Chip => ({ text, warn: t
 
 function chipHtml(c: Chip): string {
   const cls = `chip${c.warn ? ' warn' : ''}${c.swatch ? ' key' : ''}`;
-  const sw = c.swatch ? `<i class="sw-${c.swatch}" aria-hidden="true"></i>` : '';
+  const sw = c.swatch
+    ? `<i class="sw-${c.swatch}"${c.swatchColor ? ` style="color:${esc(c.swatchColor)}"` : ''} aria-hidden="true"></i>`
+    : '';
   const warn = c.warn ? '<span aria-hidden="true">⚠ </span><span class="vh">Warning: </span>' : '';
   return `<li class="${cls}"${c.title ? ` title="${esc(c.title)}"` : ''}>${sw}${warn}${esc(c.text)}</li>`;
 }
