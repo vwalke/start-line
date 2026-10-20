@@ -60,6 +60,43 @@ Switching races keeps the tab.
   boat labels: Auto places them greedily (selected boat, then by start place)
   and leaves out any that would overlap another label or the line, so
   zooming in reveals more; hover or tap a boat for its name either way.
+- **Full screen** (`ui/fullscreen.ts`): the expand button at the top right
+  of the start chart, the track map and the place changes cards opens that
+  chart over the whole viewport, with its own controls in a compact top bar
+  (start chart: Fit / 2× / 4× / 8×, Colour, Names; map: the leg picker and
+  Colour) and its key (the speed scale, or each boat's colour for a fleet of
+  up to eight); the long caption stays behind. Pinch, pan and tap-to-select
+  work as inline, and the selected boat, zoom and Names are shared with the
+  page, so they carry in and back out. The overlay is a fixed layer
+  `100dvh` tall inside the safe-area insets (the page uses
+  `viewport-fit=cover`, with its own padding kept clear of a notch); where
+  the browser has element fullscreen it is also asked for, and where it
+  hasn't (iPhone Safari) or refuses, the overlay alone is used. Close with
+  the × button, Esc, the browser's own fullscreen exit, or the back
+  gesture: opening pushes one history entry (same URL and tab hash, marked
+  in its state) so Android / browser back closes the overlay rather than
+  leaving the page, and closing any other way pops it, so history doesn't
+  grow. While open the page underneath is inert and doesn't scroll (its
+  scroll position is restored), Tab stays inside, and focus returns to the
+  expand button on close. In full screen the start chart's Fit
+  (`startFullFrame`) frames the line and the bows at the gun with margins
+  for the names and the favoured-end label, then grows to the screen's own
+  aspect, so the fleet fills the width. The spare height goes below the
+  line, to the trails (the line sits near the top under just its margin for
+  names, PIN/RC and the wind arrow); only once every trail near the line is
+  shown is what's left split above and below. Text stays ~10 px at any size, so a
+  big screen draws the hulls to scale. Inline, Fit also takes in every trail
+  near the line and the chart keeps that frame's aspect, so a long line on a
+  phone is a thin strip (a 500 m line is ~0.5 px per metre at 390 px); in
+  landscape full screen the same start is drawn about 2.5× larger. In
+  portrait, a wide start shows a dismissible "Rotate to landscape for a
+  bigger view" (the orientation is never forced); the chart is redrawn on
+  every resize or rotation. The place changes chart fits the overlay's
+  height when that leaves each row at least 12 px (growing a small fleet's
+  rows up to 32 px); otherwise it keeps its usual rows and scrolls inside
+  the overlay. On closing, the page's scroll position and focus on the
+  expand button are restored once the browser has left native fullscreen
+  (Chrome resets both on its way out), and again on the next frame.
 - **Speed through the start** (Start tab, after the start chart;
   `analysis/startSog.ts`, `ui/startSog.ts`): each racing boat's speed over
   ground (the same 4 s mean the speed-coloured tracks use) against seconds

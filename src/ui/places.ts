@@ -81,14 +81,27 @@ export function placesCaption(a: RaceAnalysis, pc: PlaceChanges = placeChanges(a
 export interface PlacesOptions {
   /** The chart's width on screen, px (labels and spacing are sized for it). */
   widthPx?: number;
+  /**
+   * Full screen: the height to fit, px. The rows shrink (or grow, to PLACES_FIT_MAX_ROW) to fill it
+   * when that leaves each at least PLACES_FIT_MIN_ROW; else the usual rows, and the overlay scrolls.
+   */
+  heightPx?: number;
 }
+
+/** Full screen: the smallest row the chart shrinks to (names stay readable), and the largest it grows to. */
+export const PLACES_FIT_MIN_ROW = 12;
+export const PLACES_FIT_MAX_ROW = 32;
 
 /** The bump chart as SVG, sized in screen pixels. */
 export function placesChart(a: RaceAnalysis, highlight: string | null, opts: PlacesOptions = {}): string {
   const pc = placeChanges(a);
   const W = Math.max(300, Math.round(opts.widthPx ?? 720));
   const narrow = W < PLACES_NARROW_PX;
-  const fs = narrow ? 11 : 12;
+  const rows = pc.maxPlace;
+  // Room for the plot when fitting a height (the mark names below take up to ~60 px turned; settled below).
+  const fitRow = opts.heightPx ? (opts.heightPx - 10 - 60) / rows : 0;
+  // Names a size under the row height when the rows are fitted tight, never under 10 px.
+  const fs = Math.max(10, Math.min(narrow ? 11 : 12, fitRow >= PLACES_FIT_MIN_ROW ? Math.floor(fitRow) - 1 : 12));
   const byId = new Map(a.boats.map((b) => [b.id, b]));
   const finalLabel = (bp: BoatPlaces): string => {
     const b = byId.get(bp.id)!;
@@ -108,8 +121,8 @@ export function placesChart(a: RaceAnalysis, highlight: string | null, opts: Pla
   const rotate = headW > step - 8;
   const padT = 10;
   const padB = rotate ? Math.round(18 + headW * 0.5) : 24;
-  const rows = pc.maxPlace;
-  const rowH = Math.max(14, Math.min(26, 520 / rows));
+  const fitH = opts.heightPx ? (opts.heightPx - padT - padB) / rows : 0;
+  const rowH = fitH >= PLACES_FIT_MIN_ROW ? Math.min(PLACES_FIT_MAX_ROW, fitH) : Math.max(14, Math.min(26, 520 / rows));
   const H = Math.round(padT + rows * rowH + padB);
   const x = (k: number): number => (nCol > 1 ? padL + 8 + (k * (plotW - 16)) / (nCol - 1) : padL + plotW / 2);
   const y = (p: number): number => padT + (p - 0.5) * rowH;

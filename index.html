@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="Recall: a lean start + leg digest for a sailboat race, from Vakaros RaceSense public data." />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#16181c" />
@@ -54,7 +54,8 @@
             <button type="button" role="tab" id="tab-race" aria-controls="panel-race" aria-selected="false" tabindex="-1">Race</button>
           </div>
           <div id="panel-start" class="panel" role="tabpanel" aria-labelledby="tab-start" tabindex="-1">
-            <section class="card">
+            <section class="card has-fs">
+              <button type="button" class="fs-open" id="start-full" aria-label="Full screen start chart" title="Full screen" aria-haspopup="dialog" aria-controls="fs"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
               <h3>Start at the gun <span class="muted">(wind ↓ from top, estimated)</span></h3>
               <div class="start-tools">
                 <div id="start-zoom" class="zoom" role="group" aria-label="Start chart zoom" aria-controls="start-chart">
@@ -95,7 +96,8 @@
             </section>
           </div>
           <div id="panel-race" class="panel" role="tabpanel" aria-labelledby="tab-race" tabindex="-1" hidden>
-            <section class="card">
+            <section class="card has-fs">
+              <button type="button" class="fs-open" id="map-full" aria-label="Full screen track map" title="Full screen" aria-haspopup="dialog" aria-controls="fs"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
               <h3>Tracks by leg</h3>
               <div class="map-tools">
                 <div id="map-legend" class="legend" role="group" aria-label="Show one leg" aria-controls="map-chart"></div>
@@ -108,7 +110,8 @@
               </div>
               <p class="cap">GPS tracker tracks (bow offset is a few metres and omitted at this scale). <span id="map-split">Legs split at each boat's closest approach to the mark trackers.</span> Pick a leg above to show only it. Colour: Rank shades each boat by its elapsed-time rank (yellow and boldest fastest, fading to faint purple; Highlight greys all but the top 3 or 10, and a picked boat outside them is drawn in white (dark by day) with its rank; hover a track for its time). Colour: Boat speed shades every stretch of track by that boat's speed over ground at the time (4 s average; dark purple slow, through teal, to yellow-green fast; grey dashed = telemetry gap; hover a track for the boat, time, speed and leg). For the whole race, Scale: Per leg stretches the colours over each leg's own spread of fleet speeds, so beats and runs both show who was quick; Whole race uses one knot range for every leg. Select a boat in the boat list, a chart or a table row (on either tab) to highlight it everywhere.</p>
             </section>
-            <section id="places-card" class="card">
+            <section id="places-card" class="card has-fs">
+              <button type="button" class="fs-open" id="places-full" aria-label="Full screen place changes chart" title="Full screen" aria-haspopup="dialog" aria-controls="fs"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
               <h3 id="places-title">Place changes</h3>
               <div class="places-wrap">
                 <div id="places-chart" aria-labelledby="places-title"></div>
@@ -139,6 +142,16 @@
         Unofficial. Data: public Vakaros RaceSense feeds (race control + 5 Hz GPS), fetched per race and cached.
         Not affiliated with Vakaros. A <a href="https://walkeforward.com">Walke Forward</a> project.
       </footer>
+    </div>
+    <!-- Full screen for a chart (ui/fullscreen.ts): the card's chart and controls move in here while it's open. -->
+    <div id="fs" class="fs" role="dialog" aria-modal="true" aria-label="Full screen chart" hidden>
+      <div class="fs-bar">
+        <div id="fs-tools" class="fs-tools"></div>
+        <button type="button" id="fs-close" class="fs-close" aria-label="Close full screen" title="Close full screen (Esc)"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg></button>
+      </div>
+      <div id="fs-key" class="fs-key"><p id="fs-boat-key" class="speed-key fs-boat-key" hidden></p></div>
+      <div id="fs-body" class="fs-body"></div>
+      <p id="fs-rotate" class="fs-rotate" hidden><span>Rotate to landscape for a bigger view</span> <button type="button" id="fs-rotate-dismiss" aria-label="Dismiss rotate hint" title="Dismiss">×</button></p>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
