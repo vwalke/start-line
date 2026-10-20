@@ -3,7 +3,7 @@
  * our /api proxy (a Cloudflare Pages Function in production; Vite in dev)
  * so the browser Web Worker never has to CORS-fetch a third party.
  */
-import { DAY, HOUR, MINUTE, cachedJson } from '../cache';
+import { DAY, HOUR, MINUTE, cachedJson, cachedJsonFrom, type CacheOpts } from '../cache';
 import type { LandingResponse, RegattaResponse, TelemetryPage, WindResponse } from './types';
 
 export const PROXY_BASE = '/api';
@@ -16,13 +16,32 @@ export function fetchLanding(signal?: AbortSignal): Promise<LandingResponse> {
   return cachedJson<LandingResponse>(`${PROXY_BASE}/landing`, 10 * MINUTE, signal);
 }
 
-export function fetchRegatta(eventId: string, signal?: AbortSignal): Promise<RegattaResponse> {
-  // A finished event's document no longer changes; a live one does.
-  const ttl = (body: unknown): number => {
+function loadRegatta(eventId: string, opts: CacheOpts = {}): Promise<{ body: RegattaResponse; cached: boolean }> {
+  // A finished event's document no longer changes; a live one does. Judge by when this copy was
+  // fetched: one saved mid-event stays short-lived even after the event ends.
+  const ttl = (body: unknown, fetchedAt: number): number => {
     const end = (body as RegattaResponse).revisions?.at(-1)?.doc?.endDate;
-    return end && Date.now() - end > DAY ? 7 * DAY : 2 * MINUTE;
+    return end && fetchedAt - end > DAY ? 7 * DAY : 2 * MINUTE;
   };
-  return cachedJson<RegattaResponse>(`${PROXY_BASE}/regatta?event=${encodeURIComponent(eventId)}`, ttl, signal);
+  return cachedJsonFrom<RegattaResponse>(`${PROXY_BASE}/regatta?event=${encodeURIComponent(eventId)}`, ttl, opts);
+}
+
+export async function fetchRegatta(eventId: string, signal?: AbortSignal, opts: { fresh?: boolean } = {}): Promise<RegattaResponse> {
+  return (await loadRegatta(eventId, { ...opts, signal })).body;
+}
+
+/**
+ * The regatta, refetched once from the network (bypassing our caches) when a cached copy
+ * fails `usable`, e.g. one saved before any boat finished. A network copy is returned as is.
+ */
+export async function fetchUsableRegatta(
+  eventId: string,
+  usable: (r: RegattaResponse) => boolean,
+  signal?: AbortSignal,
+): Promise<RegattaResponse> {
+  const got = await loadRegatta(eventId, { signal });
+  if (!got.cached || usable(got.body)) return got.body;
+  return fetchRegatta(eventId, signal, { fresh: true });
 }
 
 /**
