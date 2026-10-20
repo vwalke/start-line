@@ -568,8 +568,15 @@ export function startApp(): void {
   });
   setTab(tab, { scroll: false, boot: true });
   // On a phone the boat strip sticks to the top; the tabs stick just under it.
+  // --tabs-h keeps the expand button sticky just below both.
   if (typeof ResizeObserver !== 'undefined') {
-    new ResizeObserver(() => els.digest.style.setProperty('--boatbar-h', `${els.boats.offsetHeight}px`)).observe(els.boats);
+    const stick = (): void => {
+      els.digest.style.setProperty('--boatbar-h', `${els.boats.offsetHeight}px`);
+      els.digest.style.setProperty('--tabs-h', `${els.tabs.offsetHeight}px`);
+    };
+    const ro = new ResizeObserver(stick);
+    ro.observe(els.boats);
+    ro.observe(els.tabs);
   }
 
   // Speed through the start: a crosshair and the speed under the pointer (the selected boat's, else the nearest line's).

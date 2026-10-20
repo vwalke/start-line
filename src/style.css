@@ -689,12 +689,23 @@ footer { font-size: 0.75rem; color: var(--ink-3); margin-top: 24px; }
   color: var(--ink-2);
   cursor: pointer;
 }
-.fs-open { position: absolute; top: 6px; right: 6px; }
+/* Above the sticky boat strip (z-index 3) and tabs (2), so the control stays tappable. */
+.fs-open { position: absolute; top: 6px; right: 6px; z-index: 4; }
 .fs-open svg, .fs-close svg { width: 16px; height: 16px; display: block; }
 .fs-open:hover, .fs-close:hover { border-color: var(--ink-3); color: var(--ink); }
 /* 44 px to tap on a touch screen. */
 @media (pointer: coarse) {
-  .fs-close { width: 44px; height: 44px; }
+  .fs-open, .fs-close { width: 44px; height: 44px; }
+  .card.has-fs > h3 { padding-right: 52px; }
+}
+/* Phone: stick just under the boat strip and tabs so the button doesn't sit under them. */
+@media (max-width: 900px) {
+  .card.has-fs > .fs-open {
+    position: sticky;
+    float: right;
+    top: calc(var(--boatbar-h, 0px) + var(--tabs-h, 40px) + 4px);
+    margin: -6px -8px 6px 8px;
+  }
 }
 
 /* Fixed and full-viewport: 100vh where dvh is unknown; inside the safe area (index.html has viewport-fit=cover). */
@@ -739,7 +750,8 @@ html.fs-on { overflow: hidden; }
 .fs-body > .panzoom { touch-action: none; border-radius: 0; }
 .fs-body > .panzoom:focus-visible { outline-offset: -2px; }
 /* The bump chart keeps its own height (tall fleets): it scrolls inside the overlay. */
-.fs[data-chart='places'] .fs-body { overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; padding: 4px 8px; }.fs-rotate {
+.fs[data-chart='places'] .fs-body { overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; padding: 4px 8px; }
+.fs-rotate {
   position: absolute;
   left: 50%;
   bottom: calc(12px + env(safe-area-inset-bottom, 0px));
