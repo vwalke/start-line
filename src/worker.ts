@@ -23,6 +23,8 @@ export type WorkerRequest =
       allCompetitors?: boolean;
       /** The event's class label from the landing list, for the class dimensions. */
       classLabel?: string;
+      /** Keep raw RaceData so the Coach tab can build the wind series. Off unless `?coach=1`. */
+      coach?: boolean;
     }
   /** Coach (lazy, on the tab's first open): the fleet wind series of the race last analysed, from its raw fixes. */
   | { id: number; type: 'coach-wind'; key: string };
@@ -73,7 +75,8 @@ async function handle(req: Extract<WorkerRequest, { type: 'live' }>): Promise<Ra
   }
   pages.length = 0;
   const analysis = analyzeRace(data, { allCompetitors: req.allCompetitors });
-  last = { key: coachRaceKey(req.eventId, req.division, req.raceNumber, !!req.allCompetitors), analysis, data };
+  // Without the flag the worker drops the raw tracks, as before this tab existed.
+  last = req.coach ? { key: coachRaceKey(req.eventId, req.division, req.raceNumber, !!req.allCompetitors), analysis, data } : null;
   return analysis;
 }
 

@@ -21,6 +21,23 @@ import { placeColor } from './places';
 export const GROUP_PARAM = 'grp';
 export const BOAT_PARAM = 'boat';
 
+/** `boat=` → a boat id; null for a missing or blank value. */
+export function parseBoatParam(raw: string | null | undefined): string | null {
+  const id = raw?.trim();
+  return id ? id : null;
+}
+
+/**
+ * The boat to highlight when Coach is on. A `boat=` deep-link wins over a saved
+ * lastView boat so a shared link opens that boat; an unknown id falls through.
+ */
+export function coachHighlight(urlBoat: string | null, savedBoat: string | null, known: Iterable<string>): string | null {
+  const ids = known instanceof Set ? known : new Set(known);
+  if (urlBoat && ids.has(urlBoat)) return urlBoat;
+  if (savedBoat && ids.has(savedBoat)) return savedBoat;
+  return null;
+}
+
 /** Below this race coverage the header warns, 0–1. */
 export const COACH_LOW_COVERAGE = 0.8;
 /** A hole at least this long gets the ⚠ no data chip, s. */

@@ -7,13 +7,12 @@
  * the main thread from the drawn tracks.
  */
 import { makeProjection, median } from '../geo';
-import { projectTrack } from '../prepare';
 import type { RaceAnalysis } from '../types';
 import type { RaceData } from '../../data/types';
 import { makeTwdAt } from '../wind';
 import { groupIds, type Group } from './groups';
 import { fleetVmg, gapSeries, type Course, type GapPoint } from './ladder';
-import { boundsOf, coachTracks, longestHole, type CoachTrack } from './tracks';
+import { boundsOf, coachTracks, longestHole, projectCoachTrack, type CoachTrack } from './tracks';
 import { fleetTwdSeries, type TwdSeries, type TwdSeriesData, twdSeriesFrom } from './twdSeries';
 
 /** Which race an analysis is (event, division, race, `nc=all`): how the main thread asks the worker for that race's wind. */
@@ -73,7 +72,7 @@ export function coachWind(a: RaceAnalysis, data: RaceData): TwdSeriesData | null
   for (const r of a.boats) {
     const b = byId.get(r.id);
     if (!b) continue;
-    const tr = projectTrack(b.track, proj);
+    const tr = projectCoachTrack(b.track, proj);
     tracks.push({ id: r.id, t: tr.t, x: tr.x, y: tr.y, bounds: boundsOf(r.legs, a.meta.gunMs, r.finishMs) });
   }
   const s = windSeries(a, tracks);

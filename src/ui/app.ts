@@ -18,6 +18,7 @@ import {
   coachChips,
   coachGroupHtml,
   coachHeadHtml,
+  coachHighlight,
   coachPickerHtml,
   defaultLadderGroup,
   groupParam,
@@ -26,6 +27,7 @@ import {
   ladderHover,
   ladderLayout,
   ladderTipHtml,
+  parseBoatParam,
   parseGroupParam,
   racePlaces,
   type LadderLayout,
@@ -393,7 +395,7 @@ export function startApp(): void {
   const query = new URLSearchParams(location.search);
   let coachGroup: Group = parseGroupParam(query.get(GROUP_PARAM)) ?? defaultLadderGroup();
   /** The coached boat, kept across races: the URL's, then the last one selected. */
-  let coachBoat: string | null = query.get(BOAT_PARAM);
+  let coachBoat: string | null = parseBoatParam(query.get(BOAT_PARAM));
   let coachEach = true;
   let coachCustomOpen = false;
   let coach: { a: RaceAnalysis; model: CoachModel | null } | null = null;
@@ -456,12 +458,19 @@ export function startApp(): void {
     setUrl({ [GROUP_PARAM]: groupParam(g) });
     renderCoach();
   }
+
+  /** Remember the coached boat in the URL (only with the flag). Clearing the highlight does not drop it. */
+  function syncCoachBoat(id: string | null): void {
+    if (!coachOn || !id) return;
+    coachBoat = id;
+    setUrl({ [BOAT_PARAM]: id });
+  }
   els.coachPick.addEventListener('change', (ev) => {
     const sel = (ev.target as HTMLElement).closest<HTMLSelectElement>('select#coach-boat');
     if (!sel) return;
     coachBoat = sel.value;
     highlight = sel.value;
-    setUrl({ [BOAT_PARAM]: coachBoat });
+    syncCoachBoat(sel.value);
     save();
     render();
     els.coachPick.querySelector<HTMLElement>('#coach-boat')?.focus();
@@ -912,6 +921,7 @@ export function startApp(): void {
 
   function toggleHighlight(id: string | null): void {
     highlight = highlight === id ? null : id;
+    if (highlight) syncCoachBoat(highlight);
     render();
     save();
   }
@@ -923,6 +933,7 @@ export function startApp(): void {
     const toggleRow = (tr: Element): void => {
       const id = tr.getAttribute('data-id');
       highlight = highlight === id ? null : id;
+      if (highlight) syncCoachBoat(highlight);
       save();
       renderKeepingFocus(wrap, focusSel(tr, 'data-id'));
     };
@@ -953,6 +964,7 @@ export function startApp(): void {
     if (item) {
       const id = item.getAttribute('data-id');
       highlight = highlight === id ? null : id;
+      if (highlight) syncCoachBoat(highlight);
       save();
       renderKeepingFocus(els.boats, focusSel(item, 'data-id'));
     } else if (el.closest('button[data-clear]')) {
@@ -1160,6 +1172,14 @@ export function startApp(): void {
       analysis = a;
       const v = restore ? applyView(a, restore) : null;
       highlight = v?.boat ?? null;
+      // A shared `boat=` wins over lastView so the link opens that boat.
+      if (coachOn) {
+        highlight = coachHighlight(coachBoat, highlight, a.boats.map((b) => b.id));
+        if (highlight) {
+          coachBoat = highlight;
+          setUrl({ [BOAT_PARAM]: highlight });
+        }
+      }
       ncOpen = false;
       sort = v?.sort ?? null;
       startSort = v?.startSort ?? null;
@@ -1183,7 +1203,7 @@ export function startApp(): void {
     const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: legSel, boat: highlight, sort, startSort }, restore);
     try {
       const classLabel = events.find((e) => e.eventId === id)?.classLabel;
-      if (!(await show(run({ type: 'live', eventId: id, regatta, division, raceNumber, allCompetitors, classLabel }), view))) return 'superseded';
+      if (!(await show(run({ type: 'live', eventId: id, regatta, division, raceNumber, allCompetitors, classLabel, ...(coachOn ? { coach: true } : {}) }), view))) return 'superseded';
       current = { eventId: id, division, raceNumber };
       setUrl({ event: id, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
       save();

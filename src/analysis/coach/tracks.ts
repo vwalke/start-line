@@ -4,8 +4,9 @@
  * (LegResult; a rounding a telemetry hole leaves in doubt is null). Positions
  * are read only next to real fixes, never across a hole.
  */
+import type { Track } from '../../data/types';
 import { COVERAGE_GAP_S } from '../coverage';
-import { bisectRight, type Vec } from '../geo';
+import { bisectRight, type Projection, type Vec } from '../geo';
 import type { RaceAnalysis } from '../types';
 
 /** Fixes further apart than this are a hole: no position is read between them (lib.py's pos_interp maxgap), s. */
@@ -65,6 +66,25 @@ export function boundsOf(legs: RaceAnalysis['boats'][number]['legs'], gunMs: num
   });
   if (finishMs != null && finishMs > gunMs) out[n] = finishMs;
   return out;
+}
+
+/**
+ * Positions only, for the worker's wind series. RaceData tracks are already
+ * sorted with duplicates removed, so this skips projectTrack's defensive
+ * re-sort and the heading/SOG fill (100 boats × 5 Hz would pay both).
+ */
+export function projectCoachTrack(track: Track, proj: Projection): Pick<CoachTrack, 't' | 'x' | 'y'> {
+  const n = track.t.length;
+  const t = new Float64Array(n);
+  const x = new Float64Array(n);
+  const y = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const p = proj.toXY(track.lat[i], track.lon[i]);
+    t[i] = track.t[i];
+    x[i] = p[0];
+    y[i] = p[1];
+  }
+  return { t, x, y };
 }
 
 /** Every racing boat's coach track, from the analysis's drawn segments (gun → end, ~1 Hz). */

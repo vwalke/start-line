@@ -4,11 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_GROUPS, LEADERS_N, NEAR_PLACES, defaultGroup, groupIds, placeOf, type Group } from '../src/analysis/coach/groups';
 import { GROUP_MIN_SHARE, LAYLINE_MAX_DEG, LAYLINE_MIN_DEG, RUN_LAYLINE_DEG, distToGo, fleetVmg, gapAt, gapSeries, laylineDeg, rung, type Course } from '../src/analysis/coach/ladder';
 import { lineCrossing } from '../src/analysis/coach/lineCross';
-import { COACH_MAX_SPAN_S, COACH_NEAR_FIX_S, boundsOf, legAt, longestHole, posAt, type CoachTrack } from '../src/analysis/coach/tracks';
+import { COACH_MAX_SPAN_S, COACH_NEAR_FIX_S, boundsOf, legAt, longestHole, posAt, projectCoachTrack, type CoachTrack } from '../src/analysis/coach/tracks';
 import { TWD_MIN_PER_TACK, TWD_MIN_SAMPLES, cogPairs, fleetTwdSeries, twdSeriesFrom } from '../src/analysis/coach/twdSeries';
-import { MS_TO_KN, bearingVec, type Vec } from '../src/analysis/geo';
+import { MS_TO_KN, bearingVec, makeProjection, type Vec } from '../src/analysis/geo';
+import { projectTrack } from '../src/analysis/prepare';
+import { j105Race } from './helpers';
 import type { BoatResult, LegResult } from '../src/analysis/types';
-import { groupParam, nullSpans, gapWords, parseGroupParam, racePlaces } from '../src/ui/coach';
+import { coachHighlight, groupParam, nullSpans, gapWords, parseBoatParam, parseGroupParam, racePlaces } from '../src/ui/coach';
 import { parseLastView, serializeLastView, startTab, resolveStart, type LastView } from '../src/ui/lastView';
 import { COACH_TABS, TABS, coachEnabled, initialTab, parseTab, tabForKey, tabFromHash, tabsFor } from '../src/ui/tabs';
 import type { RegattaDoc } from '../src/data/racesense/types';
@@ -259,6 +261,37 @@ describe('reference groups', () => {
   it('per-chart defaults: leaders for starts and shifts (and the rival ladder), boats near you for consolidation and the last leg', () => {
     expect(DEFAULT_GROUPS).toEqual({ rivalLadder: 'leaders', start: 'leaders', shift: 'leaders', consolidation: 'near', lastLeg: 'near' });
     expect(defaultGroup('lastLeg')).toEqual({ kind: 'near' });
+  });
+});
+
+describe('the boat in the URL (boat=)', () => {
+  it('parses a sail, and treats blank as missing', () => {
+    expect(parseBoatParam('USA 96')).toBe('USA 96');
+    expect(parseBoatParam('  USA 96  ')).toBe('USA 96');
+    for (const bad of [null, undefined, '', '  ']) expect(parseBoatParam(bad)).toBeNull();
+  });
+
+  it('a shared boat= wins over a saved lastView boat; unknown ids fall through', () => {
+    const known = ['USA 96', 'USA 242', 'USA 328'];
+    expect(coachHighlight('USA 96', 'USA 242', known)).toBe('USA 96');
+    expect(coachHighlight(null, 'USA 242', known)).toBe('USA 242');
+    expect(coachHighlight('GHOST', 'USA 242', known)).toBe('USA 242');
+    expect(coachHighlight('GHOST', 'ALSO', known)).toBeNull();
+    expect(coachHighlight(null, null, known)).toBeNull();
+  });
+});
+
+describe('projectCoachTrack: positions only, same XY as projectTrack', () => {
+  it('matches projectTrack x/y on a fixture boat, without needing heading or SOG', () => {
+    const data = j105Race(1);
+    const b = data.boats.find((x) => x.id === 'USA 96')!;
+    const proj = makeProjection(data.startLine.left);
+    const slim = projectCoachTrack(b.track, proj);
+    const full = projectTrack(b.track, proj);
+    expect(slim.t.length).toBe(full.t.length);
+    expect(slim.t[0]).toBe(full.t[0]);
+    expect(slim.x[10]).toBeCloseTo(full.x[10], 9);
+    expect(slim.y[10]).toBeCloseTo(full.y[10], 9);
   });
 });
 
