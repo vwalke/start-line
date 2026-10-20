@@ -252,9 +252,8 @@ export const ROTATE_ASPECT = 1.6;
  * The start chart's full-screen Fit for a `widthPx` × `heightPx` chart: the line and the
  * bows at the gun with px margins (and room for the favoured-end label on its extension),
  * grown to the chart's own aspect so the fleet fills the width (or height). Spare height
- * goes below the line, to the trails (the line sits near the top, under its margin for
- * names, PIN/RC and the wind arrow); only once every trail near the line is shown is the
- * rest split above and below. Spare width is centred on line, fleet and trails. Trails
+ * always goes below the line, to the trails (the line sits near the top, under its margin
+ * for names, PIN/RC and the wind arrow). Spare width is centred on line, fleet and trails. Trails
  * show only as far as they fit. The unit is ~1 css px (`refPx` is the width, at least the
  * narrow-text width), so names stay ~10 px at any size. `trails`: line, bows and the trails
  * near the line. `rotate`: portrait, and line + fleet much wider than tall (landscape would
@@ -310,14 +309,12 @@ export function startFullFrame(a: RaceAnalysis, widthPx: number, heightPx: numbe
     else W = H * aspect;
     mpp = W / widthPx;
   }
-  // The window holds `b`; across, as near the middle of line, fleet and trails as it can be. Down the page, the
-  // spare height goes to the trails (downwind, below the line): the top stays at `b`'s (just the top margin) unless
-  // every trail fits, and only then is what's left split above and below.
+  // The window holds `b`; across, as near the middle of line, fleet and trails as it can be. Down the
+  // page, spare height always goes to the trails (downwind, below the line): the top stays at `b`'s
+  // (just the top margin for names, PIN/RC and the wind arrow).
   const clamp = (c: number, lo: number, hi: number): number => Math.min(Math.max(c, lo), hi);
   const cx = clamp((Math.min(b.x0, trails.x0) + Math.max(b.x1, trails.x1)) / 2, b.x1 - W / 2, b.x0 + W / 2);
-  const uy0 = Math.min(b.y0, trails.y0);
-  const uy1 = Math.max(b.y1, trails.y1);
-  const cy = clamp(uy1 - uy0 <= H ? (uy0 + uy1) / 2 : b.y0 + H / 2, b.y1 - H / 2, b.y0 + H / 2);
+  const cy = clamp(b.y0 + H / 2, b.y1 - H / 2, b.y0 + H / 2);
   const box: Box = { x0: cx - W / 2, x1: cx + W / 2, y0: cy - H / 2, y1: cy + H / 2 };
   const rotate = heightPx > widthPx && (b.x1 - b.x0) / (b.y1 - b.y0) > ROTATE_ASPECT;
   return { box, refPx, core, trails, rotate };

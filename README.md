@@ -81,10 +81,9 @@ Switching races keeps the tab.
   expand button on close. In full screen the start chart's Fit
   (`startFullFrame`) frames the line and the bows at the gun with margins
   for the names and the favoured-end label, then grows to the screen's own
-  aspect, so the fleet fills the width. The spare height goes below the
-  line, to the trails (the line sits near the top under just its margin for
-  names, PIN/RC and the wind arrow); only once every trail near the line is
-  shown is what's left split above and below. Text stays ~10 px at any size, so a
+  aspect, so the fleet fills the width. The spare height always goes below
+  the line, to the trails (the line sits near the top under just its margin
+  for names, PIN/RC and the wind arrow). Text stays ~10 px at any size, so a
   big screen draws the hulls to scale. Inline, Fit also takes in every trail
   near the line and the chart keeps that frame's aspect, so a long line on a
   phone is a thin strip (a 500 m line is ~0.5 px per metre at 390 px); in

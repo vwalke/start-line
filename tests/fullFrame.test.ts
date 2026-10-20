@@ -50,7 +50,7 @@ describe('full-screen start frame', () => {
       });
 
       for (const [size, [W, H]] of Object.entries(FILL_SIZES)) {
-        it(`${size}: spare height goes below the line to the trails; split only once they all fit`, () => {
+        it(`${size}: spare height goes below the line to the trails; the line stays near the top`, () => {
           const f = startFullFrame(a, W, H);
           const pxPerM = W / w(f.box);
           const topPx = (f.core.y0 - f.box.y0) * pxPerM;
@@ -58,20 +58,11 @@ describe('full-screen start frame', () => {
           expect(inside(f.core, f.box)).toBe(true);
           // Trails are downwind of the line: below it, down the page.
           expect(f.trails.y1).toBeGreaterThan(f.core.y1);
-          // At least the top margin for names, PIN/RC and the wind arrow.
+          // The line sits at the top, with only its margin above (the favoured-end label's tip
+          // may lift it a little on a slanted line). Spare height is not split above the line.
           expect(topPx).toBeGreaterThanOrEqual(52 - 0.5);
-          if (f.trails.y1 > f.box.y1 + 1e-9) {
-            // Trails cut off below: the line sits at the top, with only its margin above (the
-            // favoured-end label's tip may lift it a little on a slanted line).
-            expect(topPx).toBeLessThan(52 + 40);
-            expect(bottomPx).toBeGreaterThan(topPx);
-          } else {
-            // Every trail shown: what's left is split evenly round line + margin + trails, so the
-            // space under the trails, mirrored at the top, still clears the 52 px margin.
-            const below = f.box.y1 - f.trails.y1;
-            expect(below).toBeGreaterThanOrEqual(-1e-9);
-            expect(f.box.y0 + below).toBeLessThanOrEqual(Math.min(f.trails.y0, f.core.y0 - 52 / pxPerM) + 0.5 / pxPerM);
-          }
+          expect(topPx).toBeLessThan(52 + 40);
+          expect(bottomPx).toBeGreaterThanOrEqual(30 - 0.5);
           // Never less trail than a window centred on line + fleet.
           const cy = (f.core.y0 + f.core.y1) / 2;
           const centred: Box = { x0: f.box.x0, x1: f.box.x1, y0: cy - h(f.box) / 2, y1: cy + h(f.box) / 2 };
