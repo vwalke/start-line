@@ -37,6 +37,7 @@ const leg = (timeS: number, distGapS: number | null = null): LegResult => ({
   vmgKn: 5,
   twaDeg: 40,
   rankAtEnd: null,
+  timeGapS: null,
   distM: 1852,
   tacks: 0,
   gybes: 0,
@@ -67,6 +68,8 @@ const boat = (id: string, legs: (LegResult | null)[], raceTimeS: number | null =
   legs,
   upwind: null,
   downwind: null,
+  headingSource: 'device',
+  headingOffDeg: null,
 });
 
 describe('leg ranking', () => {
@@ -429,7 +432,7 @@ describe('track map in Rank', () => {
     expect(un.length).toBeGreaterThan(0);
     expect(un.every((p) => p.includes('unranked') && p.includes('stroke-dasharray') && p.includes('did not complete'))).toBe(true);
     expect(ps[0]).toContain('unranked');
-    expect(speedKey(cut, 1, 'leg')).toContain('<span class="spd-none" aria-hidden="true"></span> leg not completed');  });
+    expect(speedKey(cut, 1, 'leg')).toContain('<span class="spd-none" aria-hidden="true"></span> no leg time');  });
 
   it('ranks every segment on its own leg for the whole race', () => {
     const svg = trackMap(a, null, null, { colour: 'rank' });
@@ -607,7 +610,7 @@ describe('a picked boat under Top N (M24 race 4)', () => {
     expect(key).toContain('<span class="spd-pick" aria-hidden="true"></span>');
     // the span still comes from the top 3 only: the same key, plus the picked entry
     expect(key).toMatch(/fastest → #3 on this leg/);
-    expect(key.replace(/ · <span class="spd-picked">.*$/s, '')).toBe(speedKey(a, leg, 'leg', 3));
+    expect(key.replace(/ · <span class="spd-picked"><span class="spd-pick"[^>]*><\/span>[^<]*<\/span>/, '')).toBe(speedKey(a, leg, 'leg', 3));
     expect(speedKey(a, leg, 'leg', 3)).not.toContain('picked:');
     expect(speedKey(a, leg, 'leg', 3, second)).not.toContain('picked:');
     expect(speedKey(a, leg, 'leg', 'all', slow)).not.toContain('picked:');

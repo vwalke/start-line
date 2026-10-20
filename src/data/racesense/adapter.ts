@@ -237,11 +237,61 @@ const FINISH_MEDIAN_MIN = 3;
 
 const num = (x: number | null | undefined): number | null => (x != null && Number.isFinite(x) && x > 0 ? x : null);
 
-/** Why a finish looks wrong against its race's medians, or null when it looks like a real one. */
-function implausibleFinish(f: Finish, medDist: number | null, medMax: number | null): string | null {
+/**
+ * The device's distance counter skips its own dropouts (a sparse tracker
+ * "sailed 1.1 km" of a 13 km race), so a short distance is excused when the
+ * boat's track explains it: it went at least FINISH_MIN_REACH_FRAC as far
+ * from the start line as the fleet's median (a committee boat never leaves
+ * it), and both the device's distance and the track's own path, plus the
+ * track's holes at the fleet's pace, make up FINISH_MIN_DIST_FRAC of the
+ * fleet's distance. A full track against a short counter stays implausible:
+ * no hole explains it.
+ */
+export const FINISH_MIN_REACH_FRAC = 0.5;
+/** Fixes further apart than this leave a hole (as analysis SPAN_MS), ms. */
+export const FINISH_HOLE_MS = 5_000;
+
+/** What one boat's own track shows from the gun to its finish. */
+export interface TrackEvidence {
+  /** Path length, holes bridged by a straight line (a lower bound), m. */
+  pathM: number;
+  /** Time in holes over FINISH_HOLE_MS, including before the first and after the last fix, ms. */
+  holeMs: number;
+  /** Furthest distance from `from` (the start line's middle), m. */
+  reachM: number;
+}
+
+/** A track's path, holes and reach over [gunMs, finishMs]; null with no fix in that window. */
+export function trackEvidence(rows: { ts: number; lat: number; lon: number }[], gunMs: number, finishMs: number, from: LatLon): TrackEvidence | null {
+  const w = rows.filter((r) => r.ts >= gunMs && r.ts <= finishMs);
+  if (!w.length) return null;
+  let pathM = 0;
+  let reachM = 0;
+  let holeMs = 0;
+  const hole = (ms: number): number => (ms > FINISH_HOLE_MS ? ms : 0);
+  w.forEach((r, i) => {
+    reachM = Math.max(reachM, metresBetween(from, r));
+    if (i) {
+      pathM += metresBetween(w[i - 1], r);
+      holeMs += hole(r.ts - w[i - 1].ts);
+    }
+  });
+  holeMs += hole(w[0].ts - gunMs) + hole(finishMs - w[w.length - 1].ts);
+  return { pathM, holeMs, reachM };
+}
+
+/** Does the track excuse a device distance `deviceM` under FINISH_MIN_DIST_FRAC × `medDist` (see FINISH_MIN_REACH_FRAC)? */
+export function trackExplainsDistance(ev: TrackEvidence, deviceM: number, raceMs: number, medDist: number, medReach: number | null): boolean {
+  if (medReach == null || !(raceMs > 0) || ev.reachM < FINISH_MIN_REACH_FRAC * medReach) return false;
+  const holesM = (ev.holeMs * medDist) / raceMs;
+  return Math.min(deviceM, ev.pathM) + holesM >= FINISH_MIN_DIST_FRAC * medDist;
+}
+
+/** Why a finish looks wrong against its race's medians, or null when it looks like a real one; `excuse` may waive a short distance. */
+function implausibleFinish(f: Finish, medDist: number | null, medMax: number | null, excuse?: (deviceM: number, medDist: number) => boolean): string | null {
   const d = num(f.distanceTraveled);
   const v = num(f.maxSpeed);
-  if (d != null && medDist != null && d < FINISH_MIN_DIST_FRAC * medDist) {
+  if (d != null && medDist != null && d < FINISH_MIN_DIST_FRAC * medDist && !excuse?.(d, medDist)) {
     return `the feed has it sailing ${(d / 1000).toFixed(1)} km against the fleet's ${(medDist / 1000).toFixed(1)} km`;
   }
   if (v != null && medMax != null && v > FINISH_MAX_SPEED_X * medMax) {
@@ -250,8 +300,16 @@ function implausibleFinish(f: Finish, medDist: number | null, medMax: number | n
   return null;
 }
 
-/** Event-wide results per sail number: every non-practice race of the division that has finishes. */
-export function entryResults(div: Division, race: Race): Map<string, EntryResults> {
+/**
+ * Event-wide results per sail number: every non-practice race of the division
+ * that has finishes. `excuse(sail, deviceM, medDist)` may waive a short distance in
+ * this race (the only one with telemetry: see trackExplainsDistance).
+ */
+export function entryResults(
+  div: Division,
+  race: Race,
+  excuse?: (sail: string, deviceM: number, medDist: number) => boolean,
+): Map<string, EntryResults> {
   const out = new Map<string, EntryResults>();
   const get = (sail: string): EntryResults => {
     let e = out.get(sail);
@@ -271,7 +329,7 @@ export function entryResults(div: Division, race: Race): Map<string, EntryResult
       e.racesWithResults++;
       const f = bySail.get(sail);
       if (!f) continue;
-      const why = implausibleFinish(f, medDist, medMax);
+      const why = implausibleFinish(f, medDist, medMax, r === race && excuse ? (d, m) => excuse(sail, d, m) : undefined);
       if (!why) e.plausibleFinishes++;
       if (r === race) {
         e.finishPlausible = !why;
@@ -523,18 +581,34 @@ export function buildRaceData(
   const finishes = new Map((race.finishes ?? []).map((f) => [f.sailNumber, f]));
   const ocs = new Set((st.ocsParticipants ?? []).filter((s) => !(st.clearedOcs ?? []).includes(s)));
   const defaultBowCm = div.offsetOverrideCm ?? 0;
-  const entries = entryResults(div, race);
+  const rowsOf = (sail: string): Row[] | undefined => {
+    const devs = bySail.get(sail);
+    if (devs?.size) return [...devs.values()].sort((a, b) => b.length - a.length)[0];
+    const serial = stats.get(sail)?.serialNumber || finishes.get(sail)?.serialNumber;
+    return serial ? bySn.get(snFromHex(serial)) : undefined;
+  };
+  // Each finisher's own track gun → finish, to excuse a device distance counter that skipped dropouts.
+  const [sLat, sLon] = st.startLine.leftEnd;
+  const [eLat, eLon] = st.startLine.rightEnd;
+  const lineMid = { lat: (sLat + eLat) / 2, lon: (sLon + eLon) / 2 };
+  const evidence = new Map<string, TrackEvidence>();
+  for (const [sail, f] of finishes) {
+    const rows = rowsOf(sail);
+    const fms = Date.parse(f.finishingTime);
+    const ev = rows && Number.isFinite(fms) ? trackEvidence(rows, gunMs, fms, lineMid) : null;
+    if (ev) evidence.set(sail, ev);
+  }
+  const reaches = [...evidence.values()].map((e) => e.reachM);
+  const medReach = reaches.length >= FINISH_MEDIAN_MIN ? median(reaches) : null;
+  const entries = entryResults(div, race, (sail, deviceM, medDist) => {
+    const ev = evidence.get(sail);
+    return !!ev && trackExplainsDistance(ev, deviceM, Date.parse(finishes.get(sail)!.finishingTime) - gunMs, medDist, medReach);
+  });
 
   const boats: Boat[] = [];
   for (const p of div.participants ?? []) {
     const sail = p.sailNumber;
-    let trackRows: Row[] | undefined;
-    const devs = bySail.get(sail);
-    if (devs?.size) trackRows = [...devs.values()].sort((a, b) => b.length - a.length)[0];
-    if (!trackRows) {
-      const serial = stats.get(sail)?.serialNumber || finishes.get(sail)?.serialNumber;
-      if (serial) trackRows = bySn.get(snFromHex(serial));
-    }
+    const trackRows = rowsOf(sail);
     if (!trackRows || trackRows.length < 10) continue;
     const fin = finishes.get(sail);
     const fms = fin ? Date.parse(fin.finishingTime) : NaN;

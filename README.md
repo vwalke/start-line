@@ -145,8 +145,9 @@ Switching races keeps the tab.
   Distances are whole metres with a thin-space thousands separator
   (`12 345`). Distance sums the GPS track point to point; where fixes are
   more than 5 s apart it's shown as `~` (approximate), and so is a tack or
-  gybe count where one bridges a gap. Data % below 90% is flagged ⚠ with how
-  much of the leg had data and the longest gap.
+  gybe count where one bridges a gap, and a leg time whose rounding falls in
+  one. A leg whose rounding is lost in a gap shows — (see Legs below). Data %
+  below 90% is flagged ⚠ with how much of the leg had data and the longest gap.
 - **Place changes** (Race tab, after the track map; `analysis/places.ts`,
   `ui/places.ts`): a bump chart of each boat's place at the start, at every
   mark rounding (named as the legs name them; a repeat is "M1 (2)") and at
@@ -290,7 +291,24 @@ Switching races keeps the tab.
   using a 90 s window that opens when the boat first comes within 45 m. Mark
   positions are followed over time, because committees re-lay marks between
   laps. If most finishers clearly didn't sail the listed course, it is
-  treated as shortened.
+  treated as shortened. A rounding inside a telemetry hole is interpolated
+  and its leg time marked `~`; one timed at the fix beside a hole over 60 s,
+  more than a minute's sail from the mark, is unknown. A leg over twice the
+  fleet's median with a hole that could hide a whole leg has likely lost
+  roundings, so it and the legs after it are unknown too. Unknown legs show
+  — and stay out of places at the mark, ▲/▼ and the Upwind/Downwind totals;
+  the track is still drawn (`analysis/legs.ts` `checkBounds`).
+- **Heading.** TWA, the heading at the gun and the bow offset use each
+  device's compass, unless it is a median of over 30° off the GPS course at
+  speed (a broken compass; leeway and current are a few degrees). Then the
+  course over ground stands in, the boat is left out of the wind estimate,
+  and the tables show `⚠ heading from GPS course`.
+- **Finishes** whose feed distance is under half the fleet's median, or whose
+  max speed is over 1.6× the fleet's, aren't ranked (spare and judge trackers
+  that "finish" from a committee boat, a media RIB). The device's distance
+  counter skips its own dropouts, so a short distance is excused when the
+  boat's track has holes that make up the difference and it went at least
+  half as far from the line as the fleet.
 - **DTL** comes from each boat's Vakaros device when its start row is valid.
   Our own figure, from the GPS antenna plus the class bow offset, is shown
   alongside as a check. The app flags it when the two disagree widely, which
@@ -352,8 +370,8 @@ src/
   ui/                        plain TS + SVG rendering
 functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing/regatta/wind/telemetry
 functions/_lib.ts            allowlist, query validation and cache TTL (not a route)
-tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5)
-scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88)
+tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1, j105_r2)
+scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88|j105|j105r1)
 ```
 
 The analysis only ever sees `RaceData`. A future `.vkx` upload
@@ -396,8 +414,10 @@ npm run lint && npm run typecheck && npm test
 Tests never touch the network. To regenerate the fixture from raw downloads,
 run `node scripts/make-fixture.mjs <dir-with-raw-json>`. Add `--preset c31` to
 rebuild the C31 Gold Cup race 10 fixture (the data-quality cases), `--preset m24`
-or `--preset j88` for the Melges 24 and J/88 ones. The fixtures keep `roll` and
-`pitch` (heel and trim) alongside the position columns.
+or `--preset j88` for the Melges 24 and J/88 ones, and `--preset j105` /
+`j105r1` for the J/105 CBC races 2 and 1 (a sparse tracker with a broken
+compass). The fixtures keep `roll` and `pitch` (heel and trim) alongside the
+position columns, except the J/105 ones.
 
 ## Cloudflare Pages setup
 

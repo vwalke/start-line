@@ -57,10 +57,22 @@ export interface ManoeuvreTrack {
   y: ArrayLike<number>;
 }
 
-/** Signed TWA (+ = starboard), displacement SOG (kn) and course over ground per fix; NaN where no window fits. */
+/** Signed TWA (+ = starboard) and displacement SOG (kn) per fix, from the course over ground; NaN where no window fits. */
 export function signedTwa(tr: ManoeuvreTrack, twdAt: (t: number) => number): { twa: Float64Array; sog: Float64Array } {
+  const { cog, sog } = cogSeries(tr);
+  const twa = new Float64Array(cog.length).fill(NaN);
+  for (let i = 0; i < cog.length; i++) {
+    if (Number.isNaN(cog[i])) continue;
+    twa[i] = wrap180(twdAt(tr.t[i]) - cog[i]);
+    if (twa[i] === -180) twa[i] = 180;
+  }
+  return { twa, sog };
+}
+
+/** Course over ground (°) and displacement SOG (kn) per fix over MAN_COG_WINDOW_MS, never across a gap; NaN where no window fits. */
+export function cogSeries(tr: ManoeuvreTrack): { cog: Float64Array; sog: Float64Array } {
   const n = tr.t.length;
-  const twa = new Float64Array(n).fill(NaN);
+  const cog = new Float64Array(n).fill(NaN);
   const sog = new Float64Array(n).fill(NaN);
   const half = MAN_COG_WINDOW_MS / 2;
   let lo = 0;
@@ -84,10 +96,54 @@ export function signedTwa(tr: ManoeuvreTrack, twdAt: (t: number) => number): { t
     const dx = tr.x[b] - tr.x[a];
     const dy = tr.y[b] - tr.y[a];
     sog[i] = (Math.hypot(dx, dy) / dt) * MS_TO_KN;
-    twa[i] = wrap180(twdAt(tr.t[i]) - vecBearing([dx, dy]));
-    if (twa[i] === -180) twa[i] = 180;
+    cog[i] = vecBearing([dx, dy]);
   }
-  return { twa, sog };
+  return { cog, sog };
+}
+
+/**
+ * A device heading this far off the course over ground (median |HDG − COG|
+ * at speed) is a broken or unset compass, not leeway or current (a few
+ * degrees: ≤ 16° median on 52 of the 54 J/105 tracks of one event, 85° and 115° on the broken compass).
+ */
+export const HDG_BAD_DEG = 30;
+/** Only fixes at least this fast (displacement SOG) are compared: COG is noise when slow, kn. */
+export const HDG_MIN_SOG_KN = 2;
+/** Fewer compared fixes than this and the heading is kept. */
+export const HDG_MIN_FIXES = 30;
+
+export interface HeadingCheck {
+  /** 'cog' when the device heading is replaced by the course over ground. */
+  source: 'device' | 'cog';
+  /** Median |HDG − COG| over the compared fixes, °; null with too few. */
+  offDeg: number | null;
+}
+
+/** Does this track's device heading agree with its GPS course? */
+export function headingCheck(tr: ManoeuvreTrack & { heading: ArrayLike<number> }): HeadingCheck {
+  const { cog, sog } = cogSeries(tr);
+  const d: number[] = [];
+  for (let i = 0; i < cog.length; i++) {
+    if (sog[i] >= HDG_MIN_SOG_KN && Number.isFinite(tr.heading[i])) d.push(Math.abs(wrap180(tr.heading[i] - cog[i])));
+  }
+  if (d.length < HDG_MIN_FIXES) return { source: 'device', offDeg: null };
+  d.sort((a, b) => a - b);
+  const m = d.length >> 1;
+  const offDeg = d.length % 2 ? d[m] : (d[m - 1] + d[m]) / 2;
+  return { source: offDeg > HDG_BAD_DEG ? 'cog' : 'device', offDeg };
+}
+
+/** The course over ground as a heading series: each fix with no window takes the nearest earlier one's (else the next one's). */
+export function cogHeading(tr: ManoeuvreTrack): Float64Array {
+  const { cog } = cogSeries(tr);
+  const out = Float64Array.from(cog);
+  let last = NaN;
+  for (let i = 0; i < out.length; i++) {
+    if (Number.isNaN(out[i])) out[i] = last;
+    else last = out[i];
+  }
+  for (let i = out.length - 2; i >= 0; i--) if (Number.isNaN(out[i])) out[i] = out[i + 1];
+  return out;
 }
 
 /** Times (ms) in (t0, t1] where the unwrapped TWA path from u0 to u1 crosses `base` + k·360; linear between samples. */

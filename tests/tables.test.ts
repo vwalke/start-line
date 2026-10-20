@@ -69,7 +69,9 @@ describe('C31 race 10: the start and legs tables', () => {
       expect(cellOf(legs, b.id, 'up.sog')).toBe(up.sogKn.toFixed(1));
       expect(cellOf(legs, b.id, 'up.twa')).toBe(`${Math.round(up.twaDeg)}°`);
       expect(cellOf(legs, b.id, 'up.dist')).toContain(fM(up.distM));
-      expect(cellOf(legs, b.id, 'up.time')).toMatch(new RegExp(`^\\d+:\\d\\d <small class="rk">${up.place}(st|nd|rd|th)</small>$`));
+      // ~ when a rounding is timed across a telemetry gap (the C31 tracks are mostly holes).
+      const time = up.timeApprox ? '<span class="gap" title="Approximate: a rounding in a telemetry gap"[^>]*>~\\d+:\\d\\d</span>' : '\\d+:\\d\\d';
+      expect(cellOf(legs, b.id, 'up.time')).toMatch(new RegExp(`^${time} <small class="rk">${up.place}(st|nd|rd|th)</small>$`));
       expect(cellOf(legs, b.id, 'up.tacks')).toContain(String(up.tacks));
       expect(cellOf(legs, b.id, 'dn.gybes')).toContain(String(dn.gybes));
       expect(cellOf(legs, b.id, 'dn.dq')).toContain(pct(dn.coverage));

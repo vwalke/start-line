@@ -210,6 +210,19 @@ export const heelNote = (a: RaceAnalysis, which: TableId): string =>
       ? 'Heel: leeward heel (+) at the gun, from the fix within 2 s.'
       : `Heel: leeward heel (+), time-weighted, turns left out. ⚠ under ${LOW_PCT}% data.`;
 
+const tag = (b: BoatResult): string => `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}`;
+
+/** ⚠ when a boat's heading comes from its GPS course (its compass is far off it), naming the boats in the title; null when none. */
+export function headingChip(a: RaceAnalysis): Chip | null {
+  const cog = a.boats.filter((b) => b.headingSource === 'cog');
+  if (!cog.length) return null;
+  const who = cog.map((b) => `${tag(b)}${b.headingOffDeg != null ? ` (${Math.round(b.headingOffDeg)}° off)` : ''}`).join(', ');
+  return warnChip(
+    cog.length > 1 ? `${cog.length} headings from GPS course` : `#${cog[0].sail} heading from GPS course`,
+    `Device heading far off the GPS course, so TWA and heading use course over ground: ${who}`,
+  );
+}
+
 /** The start table's key line: ⚠ disagreements and unchecked OCS, ~ and — when present; column definitions and each boat's caveats in the ⓘ. */
 export function startTableKey(a: RaceAnalysis): KeyLine & { notes: string[] } {
   const starts = a.boats.flatMap((b) => (b.start ? [b.start] : []));
@@ -226,9 +239,15 @@ export function startTableKey(a: RaceAnalysis): KeyLine & { notes: string[] } {
   if (blind) chips.push(warnChip(`${blind} OCS unchecked`, OCS_BLIND_NOTE));
   if (gap) chips.push({ text: `~ ${gap} across a gap`, title: 'Our check is interpolated across a telemetry gap' });
   if (noFix) chips.push({ text: `— ${noFix} no Vakaros fix` });
+  const hdg = headingChip(a);
+  if (hdg) chips.push(hdg);
   const notes = a.boats
-    .filter((b) => b.start && startNotes(b.start).length)
-    .map((b) => `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''} — ${startNotes(b.start!).map((n) => n.replace(/\.$/, '')).join('; ')}.`);
+    .filter((b) => b.start && (startNotes(b.start).length || b.headingSource === 'cog'))
+    .map((b) => {
+      const ns = startNotes(b.start!).map((n) => n.replace(/\.$/, ''));
+      if (b.headingSource === 'cog') ns.push('heading and TWA from the GPS course (device heading far off it)');
+      return `${tag(b)} — ${ns.join('; ')}.`;
+    });
   return {
     chips,
     bullets: [
@@ -258,14 +277,16 @@ export function legsTableKey(a?: RaceAnalysis): KeyLine {
       sums.some((s) => low(s.coverage) || (a.hasHeel && s.heelDeg != null && low(s.heelCoverage))) ||
       a.boats.some((b) => low(b.coverage));
     if (lowData) chips.push(warnChip('low data', `Data for under ${LOW_PCT}% of a leg (cells marked ⚠)`));
-    if (legs.some((l) => l.distGapS != null || l.manoeuvreGap) || a.boats.some((b) => b.distApprox)) chips.push({ text: '~ across a gap' });
+    const hdg = headingChip(a);
+    if (hdg) chips.push(hdg);
+    if (legs.some((l) => l.distGapS != null || l.timeGapS != null || l.manoeuvreGap) || a.boats.some((b) => b.distApprox)) chips.push({ text: '~ across a gap' });
     if (sums.some((s) => !s.complete)) chips.push({ text: 'partial = a leg missing' });
   }
   return {
     chips,
     bullets: [
       "TWA / VMG: estimates vs the wind from the fleet's tacks; TWA = steady median.",
-      'Dist: metres along the GPS track. Time: leg time, place at the mark.',
+      'Dist: metres along the track. Time: leg, place at mark; — lost in a gap.',
       `Data: share with fixes ≤ ${SPAN_MS / 1000} s apart; ⚠ under ${LOW_PCT}%; ~ bridges a gap.`,
       'Upwind / Downwind: beats or runs summed; partial = a leg missing, no place.',
       'Tacks on beats, gybes on runs (both on reaches); a side held 10 s.',
@@ -516,7 +537,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
       sort: (b) => S(b)?.timeS,
       first: 'asc',
       prec: 0 as const,
-      cell: val((s) => `${duration(s.timeS)} <small class="rk">${s.place != null ? ordinal(s.place) : s.complete ? '' : `partial ${s.legs}/${s.of}`}</small>`),
+      cell: val((s) => `${s.timeApprox ? gapSpan('Approximate: a rounding in a telemetry gap', duration(s.timeS)) : duration(s.timeS)} <small class="rk">${s.place != null ? ordinal(s.place) : s.complete ? '' : `partial ${s.legs}/${s.of}`}</small>`),
     },
     kind === 'upwind'
       ? {
@@ -635,7 +656,8 @@ function legColumns(a: RaceAnalysis): Col[] {
         cell: (b) => {
           const l = L(b);
           if (!l) return '—';
-          return `${duration(l.timeS)}${l.rankAtEnd ? ` <small class="rk">${ordinal(l.rankAtEnd)}</small>` : ''}`;
+          const t = l.timeGapS == null ? duration(l.timeS) : gapSpan(`Approximate: a rounding in a ${Math.round(l.timeGapS)} s telemetry gap`, duration(l.timeS));
+          return `${t}${l.rankAtEnd ? ` <small class="rk">${ordinal(l.rankAtEnd)}</small>` : ''}`;
         },
       },
     );
