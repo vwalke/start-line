@@ -64,6 +64,8 @@ export interface Boat {
    * analysis sets it aside as not racing, with this reason.
    */
   notRacing?: string;
+  /** Set when the track comes (in part) from the boat's own uploaded log (data/vkx/merge.ts). */
+  log?: BoatLog;
 }
 
 export type FinishSource = 'official' | 'racesense' | 'tracker';
@@ -84,6 +86,26 @@ export interface RaceResults {
   officialNoTrack?: string[];
   /** Tracked boats the official results don't list. */
   trackNoOfficial?: string[];
+}
+
+/** An uploaded boat log merged into the boat's track: what the chips say about it. */
+export interface BoatLog {
+  kind: 'vkx';
+  /** The log's own rate, Hz (10 for a Vakaros Atlas 2). */
+  rateHz: number;
+  /** The log's span in this race, ms, and its fixes there. */
+  fromMs: number;
+  toMs: number;
+  samples: number;
+  /** Rates the analysis uses: around the start, and elsewhere (merge.ts). */
+  startHz: number;
+  raceHz: number;
+  /** The boat's RACE_START timer event minus the gun, s; null with none near the gun. */
+  timerDeltaS: number | null;
+  /** The boat's pinged line ends' distance from the race's start line ends, m; null when not pinged. */
+  linePinM: number | null;
+  lineBoatM: number | null;
+  uploadedAt?: number;
 }
 
 /**

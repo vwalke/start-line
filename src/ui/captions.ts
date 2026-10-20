@@ -89,7 +89,10 @@ export function mapKey(a: RaceAnalysis, o: { highlight?: string | null; colour: 
   const chips: Chip[] = [{ text: split.chip }];
   if (a.marks.some((m) => m.estimated)) chips.push({ text: 'estimated mark', swatch: 'est' });
   if (pickedExcluded(a, o.highlight ?? null)) chips.push({ text: 'not racing', swatch: 'nc' });
+  const logged = a.boats.filter((b) => b.log);
+  for (const b of logged) chips.push({ text: `${b.sail} from boat log · ${b.log!.rateHz} Hz` });
   const bullets = ['GPS tracker tracks; the few-metre bow offset is left out.', split.info];
+  if (logged.length) bullets.push("A boat marked 'from boat log' is drawn from its own uploaded Vakaros log where it covers the race (shared publicly), not the public feed.");
   if (o.colour === 'leg') bullets.push('Pick a leg above to show only that leg.');
   else if (o.colour === 'rank') {
     bullets.push(

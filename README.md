@@ -488,7 +488,7 @@ so each is checked before it's used (`src/data/racesense/adapter.ts`,
 src/
   data/types.ts              RaceData: the normalized race model (the seam)
   data/racesense/            RaceSense source adapter (pure) + fetch/pagination
-  data/vkx.ts                documented stub for a future .vkx upload source
+  data/vkx/                  boat-log uploads: .vkx parser, compact payload, race/boat matching, merge, upload API client
   data/official/             Yachtscoring: parsing, sail numbers, matching, linking
   data/finishes.ts           finish-line crossings, tracker finishes, plausible official times
   data/raceList.ts           the race list: practice, hidden races, numbering
@@ -496,18 +496,22 @@ src/
   data/recovery.ts           glue: link request, per-race official input, probe fetcher
   data/cache.ts              memory + Cache API caching
   analysis/                  RaceData -> RaceAnalysis (geometry, legs, wind, tacks/gybes, heel, coverage, upwind/downwind summaries, place changes, findings)
-  worker.ts                  fetch + normalize + analyze, off the main thread
-  ui/                        plain TS + SVG rendering
+  worker.ts                  fetch + normalize (+ merge uploaded boat logs) + analyze, off the main thread
+  vkxWorker.ts               boat-log upload: parse, match, pack, off the main thread
+  ui/                        plain TS + SVG rendering (ui/vkxUpload.ts: the upload bar and dialog)
 functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing/regatta/wind/telemetry/ys
+functions/api/vkx/*.ts       boat-log upload routes (upload, list, data, delete)
 functions/_lib.ts            allowlist, query validation and cache TTL (not a route)
-tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1, j105_r2)
+functions/_vkx.ts            boat-log handlers, validation, feed check, R2 layout (not a route)
+tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1, j105_r2, vkx/)
 scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88|j105|j105r1)
 scripts/make-recovery-fixtures.ts  records tests/fixtures/recovery (Yachtscoring, probes, finishing bands; network once)
+scripts/make-vkx-fixture.mjs builds tests/fixtures/vkx from a boat log + regatta doc
+scripts/vkx-dev.mjs          `npm run dev:vkx`: Vite + the upload routes over an in-memory R2
 ```
 
-The analysis only ever sees `RaceData`. A future `.vkx` upload
-([spec](https://github.com/vakaros/vkx)) only needs to produce the same
-shape; see `src/data/vkx.ts`.
+The analysis only ever sees `RaceData`. An uploaded boat log is merged into
+its boat's `Track` before the analysis (`src/data/vkx/merge.ts`).
 
 The algorithms are ported from a Python prototype. Against its output for
 Benelux Sailing League Act III, J70 race 8
@@ -516,6 +520,124 @@ Benelux Sailing League Act III, J70 race 8
 - every start and leg metric within the tolerances (DTL ±1.5 m, speed ±0.3 kn,
   TWA ±6°, leg time ±10 s);
 - the finish order exactly.
+
+## Boat-log (.vkx) uploads
+
+A boat's own Vakaros log (`.vkx`, VKX 1.4, 10 Hz on an Atlas 2) can replace
+its gappy public track in a race. On the race header: **Add boat log (.vkx)**.
+
+**Uploads are public.** Anyone viewing the race sees the uploaded boat's
+full-rate track; there is no private option. The confirm dialog says
+"Shared publicly with everyone viewing this race".
+
+The flow, in a Web Worker (`src/vkxWorker.ts`):
+
+1. **Parse** (`src/data/vkx/parse.ts`): one DataView pass into typed arrays.
+   It reads position rows (0x02, with heading, heel and trim from the
+   body-fixed quaternion, which match the feed's heading, roll and pitch),
+   declination (0x03), timer events (0x04) and line pings (0x05). Every
+   other known row is skipped by length. An unknown key or a truncated row
+   stops it, keeping what it read and saying why. A non-.vkx file is
+   rejected at once. A 10.5 MB day log parses in ~25 ms warm (~50 ms
+   cold) in Node.
+2. **Races** (`match.ts`): every gunned race of the division, including
+   those the picker hides today (no finishes). A race counts as covered when
+   the log covers ≥ 50% of its gun → finish. With no finishes, the end is
+   estimated: gun + 2 h, or 5 min before the next gun.
+3. **Boat**: the log is compared with every boat's feed track in 8 × 50 s
+   windows spread over the race. At each feed fix the log is interpolated
+   (only between fixes ≤ 2 s apart).
+   - **Match:** median < 5 m on ≥ 30 fixes, and the runner-up ≥ 25 m
+     (and 5×) away.
+   - **Sparse:** fewer fixes (≥ 5), or two boats agree. The user confirms
+     the boat.
+   - **None:** the log is refused.
+   The feed is a subset of the device's own fixes, so the right boat agrees
+   to ~0.1 m.
+4. **Confirm**: chips for the boat, each race's coverage gain (e.g.
+   `R7 35% → 100%`; `≈` when estimated from the check windows), the rate and
+   the public-sharing line.
+5. **Upload** one payload per race. A delete token is kept in localStorage,
+   and **remove my upload** appears for that browser.
+
+**Payload** (`compact.ts`, "RVKX" v1): the boat's samples from 5 min before
+the gun to 2 min after the end, at the full 10 Hz. Columns are delta + varint
+coded:
+
+| Column | Encoding |
+| --- | --- |
+| time | ms, exact |
+| lat/lon | 1e-7°, exact |
+| SOG | cm/s |
+| COG, heading, heel, trim | 0.1° |
+
+All of it is gzipped, with a JSON header: ids, gun, device sn, sail, rate,
+counts, span, timer events and line pings from 1 h before the gun,
+declination, and the source file's SHA-256. USA 833 on Fri Sep 11 2026:
+R7 ≈ 410–465 KiB (67–76k samples), R8 327 KiB. One level is stored, not
+a decimated copy: a race is a single ~0.4 MB immutable, cached fetch.
+
+**Merge** (`merge.ts`): when a race loads, its upload list is fetched; this
+never blocks the first render. New payloads are fetched and the race re-runs
+with them:
+
+- Feed fixes inside the log's span are replaced. Fixes outside it, or in a
+  log hole > 2 s, are kept. There is no time shift: the clocks agree to
+  ~30 ms.
+- The analysis gets the log at 5 Hz from 130 s before to 30 s after the gun,
+  and 1 Hz elsewhere. At full rate one boat would outweigh the fleet's pooled
+  wind estimates and GPS jitter would lengthen its distance.
+- The map draws ≤ 1 Hz as before.
+- The boat gets a `10 Hz` tag in the boat list ("from boat log · 10 Hz") and
+  a chip on the map key. Coverage numbers reflect the log.
+- The boat's own timer and line are cross-checked:
+  - ⚠ `boat timer Δ +Xs` when its RACE_START is more than 3 s off the gun
+    (RaceSense records guns ~1 s after the boat's zero, so USA 833 shows −1 s
+    and no chip).
+  - ⚠ `line pin/boat end N m off` when a pinged end is more than 15 m from
+    the race's line.
+
+**Server** (`functions/_vkx.ts`), all JSON errors with `cache-control: no-store`:
+
+| Route | |
+| --- | --- |
+| `POST /api/vkx/upload` | body = one gzipped payload, `content-type: application/octet-stream`, ≤ 2 MB (413; 415 for another type). It is decoded with the client's code (12 MB unpacked cap) and validated: ids (400), then the samples (422). Timestamps must strictly increase, positions be in range, SOG ≤ 25 m/s, at most 0.1% of steps faster than 25 m/s (+10 m slack), rate ≤ 20 Hz, span 1 min–5 h, gun inside the window, and the header must agree with the body. Then the **anti-fake check**: the same 8 × 50 s windows of the device's feed are fetched from teleapi.regatta.app (same host and UA as the proxy, at most 8 GETs, stopping once 30 fixes agree), and the median must be < 5 m (422 `mismatch` / `too-few`), and that device must sail under the payload's sail number in the feed (422 `sail`: the client merges by sail). If teleapi can't be reached, 503 and nothing is stored. Newest wins per event/division/race/boat; the one replaced is kept as `.prev` (one level), unless the same uploader replaces their own (`x-replace-token`). Returns the delete token once. |
+| `GET /api/vkx/list?event&div[&race]` | the current uploads (boat, race, rate, counts, span, uploadedAt, size, sha, data URL). `cache-control: public, max-age=60`, and 60 s in the edge cache, purged (awaited) on upload/delete in that data centre. `&fresh=1` (the uploader's own re-read) skips the edge copy and refreshes it. |
+| `GET /api/vkx/data?event&div&race&sn&h` | the payload. `h` is its SHA-256, so the URL is content-addressed: `public, max-age=31536000, immutable` for browsers. It is deliberately not kept in the edge cache, so a removed upload stops being served (one R2 read per uncached fetch). A stale `h` (replaced upload) gives 404. |
+| `POST /api/vkx/delete` `{event, div, race, sn, token}` | removes the current upload and brings back the `.prev` one, if any. A token of an upload since replaced removes that `.prev`. Wrong token 403. |
+
+- **Missing binding:** with no `VKX_BUCKET`, every route answers 503. The
+  button then reads "⚠ uploads unavailable", disabled, and its ⓘ says why.
+  The same happens on an R2 error, offline, or in dev without the routes;
+  the rest of the app works as usual.
+- **R2 layout:** `v1/<eventId>/<base64url(division)>/<raceId>/<deviceSn>.bin`
+  (+ `.prev.bin`). The facts live in customMetadata: sha, token hash, sail,
+  name, rate, counts, span, gun, size, uploadedAt, source SHA-256, check
+  result.
+- **Ids:** `[A-Za-z0-9_-]` patterns. The race id is any 1–32 such
+  characters, so recovered races' ids fit as well as today's numbers.
+- **Delete tokens:** 32 random bytes. Only their SHA-256 is stored, and
+  they are compared in constant time.
+- **Rate limit:** 20 uploads per 10 min per client, in memory per isolate,
+  keyed by a salted hash of the IP that never leaves the isolate. It is
+  best-effort: isolates and data centres don't share it.
+- **Logging:** nothing identifying (no IPs, no user agents).
+- **Route precedence:** Pages serves the most specific route first, so
+  `functions/api/vkx/*.ts` (static paths) win over the catch-all
+  `functions/api/[[path]].ts`, which never sees `/api/vkx/*`.
+
+**Caveats**
+
+- The anti-fake check proves a log follows its boat's *public* track. It
+  stops wrong-boat uploads and off-course or edited tracks. It can't stop a
+  track built from the public feed itself; that feed is public anyway.
+- A race with no finishes has an estimated end, so its payload may run into
+  the next race's pre-start.
+- **R8 on Fri Sep 11 isn't in RaceSense's race list** (an orphan), and R7
+  has no finishes, so the picker hides it. Uploads for R7 work now
+  (`raceWindowsFromDoc` includes hidden races) and show once R7 is listed.
+  R8 needs the race-recovery work: pass its window as `extra` to
+  `raceWindowsFromDoc`.
 
 ## Local development
 
@@ -541,6 +663,25 @@ npm run lint && npm run typecheck && npm test
   feed. Typing never loads an event: pick one in the Event list, or press
   Enter when exactly one matches. Esc clears the search; `/` focuses it.
 - Deep links: `?event=<eventId>&div=<division>&race=<n>`, optionally with `#start` or `#race` for the tab (`race` is RaceSense's number, or a rebuilt race's `YYYYMMDDHHMM`). `&ys=<Yachtscoring event>`, `&ys=0` or `&ysc=<class>` set the official-results link. Add `&nc=all` to keep coach boats and spare trackers as competitors. By default they are set aside, judged from their event results and tracks (`src/analysis/participation.ts`), not from their names.
+
+**Boat-log uploads locally** (no Cloudflare): `npm run dev:vkx` starts Vite as
+usual plus the real `/api/vkx/*` handlers over an in-memory R2 bucket
+(`scripts/vkx-dev.mjs`; uploads vanish when it stops).
+
+| Flag | Effect |
+| --- | --- |
+| `--no-bucket` | shows the "uploads unavailable" state |
+| `--feed=fixture` | checks uploads against the committed feed fixture instead of teleapi (USA 833, Fri Sep 11 2026 only) |
+| `--fake-finish="USA 833@2026-09-11T13:32:30Z"` | **dev only:** patches the regatta document so J/70 Worlds R7 (no finishes in RaceSense) is listed, for screenshots. Clear localhost's site data afterwards: the patched document sits in Cache Storage. |
+
+`npm run dev` alone has no upload routes, so the button shows "uploads
+unavailable".
+
+The boat-log fixtures in `tests/fixtures/vkx/` come from
+`node scripts/make-vkx-fixture.mjs <log.vkx> <regatta.json> [--ro-feed rows.json]`
+(two small teleapi requests). The goldens on the full 10 MB log run when it
+is present (`VKX_SAMPLE=/path/to/ro-usa833-2026-09-11.vkx npm test`); the
+trimmed fixture's tests always run.
 
 Tests never touch the network. To regenerate the fixture from raw downloads,
 run `node scripts/make-fixture.mjs <dir-with-raw-json>`. Add `--preset c31` to
@@ -583,13 +724,49 @@ position columns, except the J/105 ones.
    stripping and a single origin, not for CORS. No settings change is needed.
 4. **No secrets or environment variables are needed.**
 5. Custom domain: `recall.walkeforward.com`.
+6. **Boat-log uploads: one R2 bucket, bound as `VKX_BUCKET`** (one-time).
+   Until it is bound, uploads show "⚠ uploads unavailable" and nothing else
+   changes.
+   1. Cloudflare dashboard → **R2 Object Storage** → **Create bucket** →
+      name `recall-vkx` (location: Automatic) → Create. R2 may first ask
+      you to enable it / add a payment method, even on the free tier.
+   2. **Workers & Pages** → the Recall Pages project → **Settings** →
+      **Bindings** → **Add** → **R2 bucket** → Variable name `VKX_BUCKET`,
+      bucket `recall-vkx`. Do it for **Production** and again for
+      **Preview** (each environment has its own bindings; a separate preview
+      bucket such as `recall-vkx-preview` keeps test uploads out of
+      production).
+   3. **Redeploy** (Deployments → latest → Retry deployment, or push).
+      Bindings apply to new deployments only.
+   4. Check: `https://recall.walkeforward.com/api/vkx/list?event=oRkxbTpSZPbSkrmKrbj2&div=Open`
+      returns `{"ok":true,"uploads":[]}` (503 means the binding isn't live).
 
-To test the function locally: `npx wrangler pages dev dist` after a build.
-Wrangler is intentionally not a dependency.
+   CLI equivalent: `npx wrangler r2 bucket create recall-vkx`. The binding
+   can then be set in the dashboard as above, or in a `wrangler.toml` (with
+   `pages_build_output_dir = "dist"` and
+   `[[r2_buckets]] binding = "VKX_BUCKET"`, `bucket_name = "recall-vkx"`).
+   A `wrangler.toml` then becomes the source of truth for the project's
+   settings, which is why the repo doesn't ship one.
+
+   R2's free tier (10 GB-month of storage, 1 million Class A and 10 million
+   Class B operations a month, no egress fees) covers this many times over:
+   a race upload is ~0.4 MB and 2–3 operations. Check the current pricing
+   page.
+
+   No CORS settings are needed (same-origin), and no public bucket access:
+   the bucket is read only through `/api/vkx/data`.
+
+To test the function locally: `npx wrangler pages dev dist` after a build;
+`npx wrangler pages dev dist --r2=VKX_BUCKET` adds a local (simulated,
+offline) R2 bucket for the upload routes (not run here: wrangler is
+intentionally not a dependency; `npm run dev:vkx` covers the same round trip).
 
 ## Known gaps (v1)
 
-- No `.vkx` upload yet; there is only the interface stub.
+- Boat-log uploads attach to races the regatta document has. A race RaceSense
+  doesn't list (e.g. J/70 Worlds Fri R8) waits for race recovery, and a race
+  with no finishes isn't in the picker yet (its upload is stored and shows
+  once it is).
 - Course order comes from the race committee's course list. Shortened
   courses and moved marks are handled, but unusual courses (offset marks
   rounded as one, reaching starts) may need manual review.

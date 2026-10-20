@@ -10,6 +10,7 @@ import { buildRaceData, currentDoc, findRace, listRaces, nextGunMs, telemetryWin
 import { eventFinished } from './data/recovery';
 import { fetchTelemetry, fetchWind } from './data/racesense/api';
 import type { RegattaResponse } from './data/racesense/types';
+import { mergeUploadBytes } from './data/vkx/merge';
 
 export type WorkerRequest =
   | {
@@ -27,6 +28,8 @@ export type WorkerRequest =
       coach?: boolean;
       /** This race's official results (linked by gun); places and codes win, times if plausible. */
       official?: OfficialRaceInput | null;
+      /** Uploaded boat logs for this race (gzipped payloads, data/vkx): merged into their boats' tracks. */
+      vkx?: { bytes: ArrayBuffer; uploadedAt: number }[];
     }
   /** Coach (lazy, on the tab's first open): the fleet wind series and start crossings of the race last analysed, from its raw fixes. */
   | { id: number; type: 'coach-raw'; key: string };
@@ -80,6 +83,7 @@ async function handle(req: Extract<WorkerRequest, { type: 'live' }>): Promise<Ra
     extra.length = 0;
   }
   pages.length = 0;
+  if (req.vkx?.length) data = await mergeUploadBytes(data, req.vkx);
   const analysis = analyzeRace(data, { allCompetitors: req.allCompetitors });
   // Without the flag the worker drops the raw tracks, as before this tab existed.
   last = req.coach ? { key: coachRaceKey(req.eventId, req.division, req.raceNumber, !!req.allCompetitors), analysis, data } : null;

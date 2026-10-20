@@ -552,6 +552,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       downwind: ranked ? kindSummary(legResults, legs, 'downwind') : null,
       headingSource: headings.get(b.id)?.source ?? 'device',
       headingOffDeg: headings.get(b.id)?.offDeg ?? null,
+      ...(b.log ? { log: b.log } : {}),
     };
 
     const segments: TrackSegment[] = [];
