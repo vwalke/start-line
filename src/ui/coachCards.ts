@@ -58,6 +58,13 @@ const windWord = (w: Fact): string => (w === 'light' ? 'light-air' : w === 'fres
 const peersPhrase = (f: Card['facts']): string =>
   f.peersAhead && f.placeLo != null && f.placeHi != null ? `the boats that finished ${ordinal(num(f.placeLo))}–${ordinal(num(f.placeHi))}` : 'the boats near you';
 
+/** When D5's peers aren't the page's reference set: "vs 5th–10th", or "vs boats near you". */
+export function d5RefChip(f: Card['facts']): string | null {
+  if (f.placeLo != null && f.placeHi != null) return `vs ${ordinal(num(f.placeLo))}–${ordinal(num(f.placeHi))}`;
+  if (f.peersAhead === 0) return 'vs boats near you';
+  return null;
+}
+
 /** "67 s up" / "level" / "20 s down": a gap as the boat sees it (+ = behind). */
 const upDown = (behindS: Fact): string => {
   const v = Math.round(num(behindS));
@@ -250,9 +257,11 @@ export function cardHtml(c: Card, i: number, a: RaceAnalysis, on: boolean, raceC
   const t = cardText(c, a.meta.tzOffsetMs);
   const when = windowChip(c, a);
   const secs = secondsChip(c);
+  const ref = c.kind === 'D5' ? d5RefChip(c.facts) : null;
   const chips = [
     `<li class="chip sec" title="Seconds at stake">${esc(secs)}</li>`,
     `<li><button type="button" class="chip opp-when" data-opp="${i}" aria-pressed="${on}" title="Show on the gap chart" aria-label="${esc(`${when}: show on the gap chart`)}">${esc(when)}</button></li>`,
+    ...(ref ? [chip(ref)] : []),
     ...t.chips.slice(0, KEY_CHIPS_MAX).map((x) => chip(x)),
     ...cardWarnings(c, a, raceCov).map(warnLi),
   ].join('');

@@ -5,7 +5,7 @@ import { ROUND_WINDOW_MS, SIDE_MIN_BOATS, classifyRounding, legStories, sidePaid
 import { MS_TO_KN, bearingVec, type Vec } from '../src/analysis/geo';
 import type { RaceAnalysis } from '../src/analysis/types';
 import type { RaceData } from '../src/data/types';
-import { LEG_STORY_BULLETS, legStoriesHtml, legStoryText } from '../src/ui/coachLegs';
+import { LEG_STORY_BULLETS, legStoriesHtml, legStoryText, placeChip } from '../src/ui/coachLegs';
 import { legsTable, progressCell, toggleSort } from '../src/ui/table';
 import { c31Race, fixtureRace, j105Race, j88Race, m24Race } from './helpers';
 
@@ -84,8 +84,10 @@ describe('leg stories: Good Trade, race 3', () => {
   it('places within the group: Good Trade 1st → 4th of the four on Beat 1 (Crescendo the top gainer)', () => {
     const s = top3[0];
     expect(s.mine).toMatchObject({ from: 1, to: 4, gain: -3 });
+    expect(s.placeOf).toBe(4);
     expect(s.gainers[0].id).toBe('USA 159');
     expect(s.moversFleet).toBe(false);
+    expect(placeChip(s, { kind: 'leaders' })).toBe('you 1st → 4th of 4 (vs Top 3)');
     // Places sum to zero over the set.
     const all = [...s.gainers, ...s.losers].reduce((t, m) => t + m.gain, 0);
     expect(Math.abs(all)).toBeLessThanOrEqual(3);
@@ -102,21 +104,25 @@ describe('leg stories: Good Trade, race 3', () => {
     // Everyone in one class: the class's mean gain within itself is zero.
     expect(r.bearAway.gain).toBeCloseTo(0, 6);
   });
-  it('fastest leg time and the boat’s rank; ⚠ low coverage on its legs', () => {
+  it('fastest leg time and the boat’s rank; ⚠ low coverage on the collapsed row', () => {
     const s = fleet[0];
     expect(s.fastest!.id).toBe('USA 328');
     expect(s.myTime!.of).toBeGreaterThan(10);
     expect(s.coverage!).toBeLessThan(0.5);
-    const t = legStoryText(s, a, 'USA 96');
-    expect(t.lines.flat().some((c) => c.cls === 'warn' && /^data \d+% on this leg$/.test(c.text))).toBe(true);
+    const t = legStoryText(s, a, 'USA 96', { kind: 'fleet' });
+    expect(t.summary.some((c) => c.cls === 'warn' && /^tracker \d+%$/.test(c.text))).toBe(true);
     expect(t.lines.flat().some((c) => c.text === 'marks est.')).toBe(true);
+    expect(placeChip(s, { kind: 'fleet' })).toMatch(/^you .+ of \d+$/);
+    expect(placeChip(s, { kind: 'fleet' })).not.toContain('vs');
   });
-  it('renders collapsed <details> cards under a short heading, one sentence each, no NaN', () => {
+  it('renders collapsed <details> cards under a short heading, chips only, no NaN', () => {
     const html = legStoriesHtml(top3, a, 'USA 96', { kind: 'leaders' });
     expect(html).toContain('<h3 id="coach-legs-title">Leg by leg</h3>');
     expect(html.match(/<details class="card coach-leg" data-leg="\d">/g)).toHaveLength(4);
     expect(html).not.toMatch(/ open>|NaN|undefined|null/);
-    expect(html.match(/<p class="leg-what">/g)).toHaveLength(4);
+    expect(html).toContain('of 4 (vs Top 3)');
+    // No restating paragraph: the chips and the ⓘ carry it.
+    expect(html).not.toContain('class="leg-what"');
     expect(legStoriesHtml(top3, a, 'USA 96', { kind: 'leaders' }, new Set([2]))).toContain('data-leg="2" open>');
     // ⓘ: closed by default.
     expect(html).toContain('<details class="info">');
@@ -135,6 +141,7 @@ describe('leg story text (templates)', () => {
     losers: [{ id: 'B', gain: -2, from: 3, to: 5 }],
     moversFleet: false,
     mine: { id: 'me', gain: 2, from: 4, to: 2 },
+    placeOf: 3,
     side: { verdict: 'right', n: 3, left: -0.7, right: 2.3, effect: 3, mineM: 120, of: 9, fleet: false },
     rounding: { gybeSet: { n: 2, gain: 1.1 }, bearAway: { n: 5, gain: -0.4 }, mine: 'gybe-set', of: 7, fleet: false },
     fastest: { id: 'A', timeS: 754 },
@@ -142,34 +149,36 @@ describe('leg story text (templates)', () => {
     coverage: 0.9,
     marksEstimated: false,
   };
-  it('chips: movers (coached boat highlighted), side, rounding, times', () => {
-    const t = legStoryText(base, a, 'me');
+  const g = { kind: 'leaders' as const };
+  it('chips: movers (coached boat highlighted), side numbers, rounding, times — no repeated verdict', () => {
+    const t = legStoryText(base, a, 'me', g);
     expect(t.lines[0]).toEqual([{ text: '▲ Mirage +3' }, { text: '▼ Rocket −2' }, { text: '▲ you +2', cls: 'me' }].map((c) => ({ cls: undefined, ...c })));
-    expect(t.lines[1].map((c) => c.text)).toEqual(['Right paid', '3 furthest right +2.3 places', 'you 120 m right']);
+    expect(t.lines[1].map((c) => c.text)).toEqual(['3 furthest right +2.3 places', 'you 120 m right']);
     expect(t.lines[2].map((c) => c.text)).toEqual(['gybe-set 2 of 7 · +1.1', 'bear-away 5 of 7 · −0.4']);
     expect(t.lines[2][0].cls).toBe('me');
     expect(t.lines[3].map((c) => c.text)).toEqual(['fastest Mirage 12:34', 'your time 3rd of 9']);
-    expect(t.summary).toEqual(['Right paid', 'you 4th → 2nd']);
+    expect(t.summary.map((c) => c.text)).toEqual(['Right paid', 'you 4th → 2nd of 3 (vs Top 3)']);
+    expect(t.sentence).toBe('');
   });
-  it('one sentence from conditional fragments', () => {
-    expect(legStoryText(base, a, 'me').sentence).toBe(
-      'Right paid: the 3 boats furthest right gained 2.3 places on average; gybe-setters +1.1 places, bear-aways −0.4; you gained 2 (4th → 2nd).',
-    );
-    const none = { ...base, side: { ...base.side!, verdict: 'none' as const }, rounding: null, mine: { id: 'me', gain: 0, from: 2, to: 2 } };
-    expect(legStoryText(none, a, 'me').sentence).toBe('No side paid; you held 2nd.');
-    const noSide = { ...base, side: null, rounding: { ...base.rounding!, gybeSet: { n: 0, gain: null } }, mine: null };
-    expect(legStoryText(noSide, a, 'me').sentence).toBe('Mirage gained most (+3); all 5 bore away.');
+  it('no restating sentence; held place is labelled of N', () => {
+    expect(legStoryText(base, a, 'me', g).sentence).toBe('');
+    const none = { ...base, side: { ...base.side!, verdict: 'none' as const }, rounding: null, mine: { id: 'me', gain: 0, from: 2, to: 2 }, placeOf: 3 };
+    expect(placeChip(none, g)).toBe('you held 2nd of 3 (vs Top 3)');
+    const t = legStoryText(none, a, 'me', g);
+    expect(t.summary.map((c) => c.text)).toEqual(['No side paid', 'you held 2nd of 3 (vs Top 3)']);
+    expect(t.sentence).toBe('');
   });
   it('the coached boat as a mover reads "you"; one exit only: no place delta', () => {
-    const t = legStoryText({ ...base, gainers: [{ id: 'me', gain: 1, from: 4, to: 3 }], mine: { id: 'me', gain: 1, from: 4, to: 3 }, rounding: { ...base.rounding!, gybeSet: { n: 0, gain: null }, bearAway: { n: 7, gain: 0 }, mine: 'bear-away' } }, a, 'me');
+    const t = legStoryText({ ...base, gainers: [{ id: 'me', gain: 1, from: 4, to: 3 }], mine: { id: 'me', gain: 1, from: 4, to: 3 }, rounding: { ...base.rounding!, gybeSet: { n: 0, gain: null }, bearAway: { n: 7, gain: 0 }, mine: 'bear-away' } }, a, 'me', g);
     expect(t.lines[0][0]).toEqual({ text: '▲ you +1', cls: 'me' });
     expect(t.lines[2].map((c) => c.text)).toEqual(['bear-away 7 of 7']);
   });
-  it('a group too small: the fleet chip; no data: a ⚠ chip', () => {
-    const t = legStoryText({ ...base, moversFleet: true, side: { ...base.side!, fleet: true }, coverage: null }, a, 'me');
-    expect(t.lines[0].at(-1)).toEqual({ text: 'whole fleet: group too small', cls: 'muted' });
-    expect(t.lines[1].at(-1)!.text).toBe('whole fleet: group too small');
-    expect(t.lines.at(-1)).toEqual([{ text: 'no tracked time on this leg', cls: 'warn' }]);
+  it('a group too small: the fleet chip once; thin tracker: a ⚠ chip on the closed row', () => {
+    const t = legStoryText({ ...base, moversFleet: true, side: { ...base.side!, fleet: true }, coverage: 0.15 }, a, 'me', g);
+    expect(t.lines.flat().filter((c) => c.text === 'whole fleet: group too small')).toHaveLength(1);
+    expect(t.summary.some((c) => c.cls === 'warn' && c.text === 'tracker 15%')).toBe(true);
+    const empty = legStoryText({ ...base, coverage: null }, a, 'me', g);
+    expect(empty.summary.some((c) => c.cls === 'warn' && c.text === 'no data')).toBe(true);
   });
 });
 
@@ -207,6 +216,18 @@ describe('progress ratio (legs table)', () => {
     // Sorted best first.
     const best = [...a.boats].filter((b) => b.legs[0]?.progress != null).sort((p, q) => q.legs[0]!.progress! - p.legs[0]!.progress!)[0];
     expect([...html.matchAll(/<tr data-id="([^"]+)"/g)].map((m) => m[1])[0]).toBe(best.id);
+  });
+});
+
+describe('leg stories: Good Trade, race 2 (sparse tracker)', () => {
+  it('a collapsed row with 15% coverage shows ⚠ tracker N%, not an empty-looking card', () => {
+    const { a, model } = setup(j105Race(2));
+    const st = legStories(a, model, 'USA 96', { kind: 'leaders' });
+    expect(st.every((s) => s.coverage != null && s.coverage < 0.2)).toBe(true);
+    for (const s of st) {
+      const t = legStoryText(s, a, 'USA 96', { kind: 'leaders' });
+      expect(t.summary.some((c) => c.cls === 'warn' && c.text === 'tracker 15%')).toBe(true);
+    }
   });
 });
 

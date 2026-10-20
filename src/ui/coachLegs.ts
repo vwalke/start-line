@@ -1,9 +1,10 @@
 /**
  * The Coach's leg stories (analysis/coach/legStory.ts): under the opportunity
  * cards, one collapsed card per leg. Closed, a card shows the leg, which side
- * paid and the coached boat's places; open, one line of chips per item —
- * movers, side, the windward-mark exit (runs), leg times — ⚠ caveats, and one
- * templated sentence. The rules sit behind the section's one ⓘ.
+ * paid, the coached boat's places in the group, and a ⚠ coverage chip when
+ * the tracker is thin; open, one line of chips per item — movers, side,
+ * the windward-mark exit (runs), leg times — and ⚠ caveats. The rules sit
+ * behind the section's one ⓘ. No restating sentence: chips carry the facts.
  */
 import { GROUP_LABEL } from './coach';
 import type { Group } from '../analysis/coach/groups';
@@ -13,7 +14,7 @@ import { duration, esc, ordinal, pct } from './format';
 import { infoHtml } from './info';
 
 export const LEG_STORY_BULLETS: readonly string[] = [
-  'Places: order at the marks, re-ranked inside the group you compare with (and you).',
+  'Places: re-ranked in the group (and you), labelled e.g. 1st → 4th of 4 (vs Top 3).',
   `Side: each boat's mean position across the wind over the leg, left/right looking upwind.`,
   `Left/Right paid: that third of the boats gained ${SIDE_MIN_EFFECT}+ places more than the other third (${SIDE_MIN_BOATS}+ boats).`,
   `Gybe-set: a gybe ${ROUND_LEAD_MS / 1000} s before to ${ROUND_WINDOW_MS / 1000} s after the windward mark; else a bear-away.`,
@@ -34,23 +35,46 @@ export function shortName(a: RaceAnalysis, id: string): string {
 
 const FLEET_CHIP = 'whole fleet: group too small';
 
+/** Short group label on a place chip: "vs Top 3". */
+const vsLabel = (g: Group): string =>
+  g.kind === 'leaders' ? 'Top 3' : g.kind === 'near' ? 'Near ±3' : g.kind === 'fleet' ? 'fleet' : 'your group';
+
+export type StoryChip = { text: string; cls?: 'me' | 'warn' | 'muted' };
+
 export interface LegStoryText {
-  /** Shown closed: side verdict, your places. */
-  summary: string[];
+  /** Shown closed: side verdict, your group places, ⚠ coverage when the tracker is thin. */
+  summary: StoryChip[];
   /** One line of chips per item; `me` marks the coached boat's chip, `warn` a caveat, `muted` a note. */
-  lines: { text: string; cls?: 'me' | 'warn' | 'muted' }[][];
+  lines: StoryChip[][];
+  /** Empty when the chips already say it; only a last-resort line. */
   sentence: string;
 }
 
-/** The leg's chips and its one sentence (conditional fragments, no free text). */
-export function legStoryText(s: LegStory, a: RaceAnalysis, boat: string): LegStoryText {
+/** The boat's group (or fleet) places: "you 1st → 4th of 4 (vs Top 3)". */
+export function placeChip(s: Pick<LegStory, 'mine' | 'placeOf' | 'moversFleet'>, g: Group): string | null {
+  const me = s.mine;
+  if (!me) return null;
+  const span = me.gain ? `${ordinal(me.from)} → ${ordinal(me.to)}` : `held ${ordinal(me.to)}`;
+  const vs = s.moversFleet || g.kind === 'fleet' ? '' : ` (vs ${vsLabel(g)})`;
+  return `you ${span} of ${s.placeOf}${vs}`;
+}
+
+/** The leg's chips. Explanations sit in the section ⓘ; caveats are ⚠ chips, not a paragraph. */
+export function legStoryText(s: LegStory, a: RaceAnalysis, boat: string, g: Group): LegStoryText {
   const name = (id: string): string => shortName(a, id);
   const me = s.mine;
   const lines: LegStoryText['lines'] = [];
-  const summary: string[] = [];
+  const summary: StoryChip[] = [];
+  // One "whole fleet" chip per card: the same fallback can apply to movers, side and rounding.
+  let fleetNoted = false;
+  const fleetChip = (): StoryChip | null => {
+    if (fleetNoted) return null;
+    fleetNoted = true;
+    return { text: FLEET_CHIP, cls: 'muted' };
+  };
 
   // Movers.
-  const movers: LegStoryText['lines'][number] = [
+  const movers: StoryChip[] = [
     ...s.gainers.map((m) => ({ text: `▲ ${m.id === boat ? 'you' : name(m.id)} ${signedN(m.gain)}`, cls: m.id === boat ? ('me' as const) : undefined })),
     ...s.losers.map((m) => ({ text: `▼ ${m.id === boat ? 'you' : name(m.id)} ${signedN(m.gain)}`, cls: m.id === boat ? ('me' as const) : undefined })),
   ];
@@ -58,25 +82,30 @@ export function legStoryText(s: LegStory, a: RaceAnalysis, boat: string): LegSto
     movers.push({ text: me.gain ? `${me.gain > 0 ? '▲' : '▼'} you ${signedN(me.gain)}` : `you held ${ordinal(me.to)}`, cls: 'me' });
   }
   if (!movers.length) movers.push({ text: 'no place changes' });
-  if (s.moversFleet) movers.push({ text: FLEET_CHIP, cls: 'muted' });
+  if (s.moversFleet) {
+    const fc = fleetChip();
+    if (fc) movers.push(fc);
+  }
   lines.push(movers);
 
-  // Side.
+  // Side — verdict lives on the summary; the open card only adds the numbers.
   const side = s.side;
   if (side) {
-    const verdict = side.verdict === 'none' ? 'No side paid' : `${cap(side.verdict)} paid`;
-    summary.push(verdict);
-    const l: LegStoryText['lines'][number] = [{ text: verdict }];
+    summary.push({ text: side.verdict === 'none' ? 'No side paid' : `${cap(side.verdict)} paid` });
+    const l: StoryChip[] = [];
     if (side.verdict !== 'none') l.push({ text: `${side.n} furthest ${side.verdict} ${signed1(side.verdict === 'right' ? side.right : side.left)} places` });
     if (side.mineM != null) l.push({ text: `you ${Math.round(Math.abs(side.mineM))} m ${side.mineM >= 0 ? 'right' : 'left'}`, cls: 'me' });
-    if (side.fleet) l.push({ text: FLEET_CHIP, cls: 'muted' });
-    lines.push(l);
+    if (side.fleet) {
+      const fc = fleetChip();
+      if (fc) l.push(fc);
+    }
+    if (l.length) lines.push(l);
   }
 
   // Leaving the windward mark.
   const r = s.rounding;
   if (r) {
-    const l: LegStoryText['lines'][number] = [];
+    const l: StoryChip[] = [];
     // A place delta only means something when both exits were used.
     const both = r.gybeSet.n > 0 && r.bearAway.n > 0;
     for (const [k, v, label] of [
@@ -85,38 +114,31 @@ export function legStoryText(s: LegStory, a: RaceAnalysis, boat: string): LegSto
     ] as const) {
       if (v.n) l.push({ text: `${label} ${v.n} of ${r.of}${both && v.gain != null ? ` · ${signed1(v.gain)}` : ''}`, cls: r.mine === k ? 'me' : undefined });
     }
-    if (r.fleet) l.push({ text: FLEET_CHIP, cls: 'muted' });
-    lines.push(l);
+    if (r.fleet) {
+      const fc = fleetChip();
+      if (fc) l.push(fc);
+    }
+    if (l.length) lines.push(l);
   }
 
   // Leg times.
-  const times: LegStoryText['lines'][number] = [];
+  const times: StoryChip[] = [];
   if (s.fastest) times.push({ text: `fastest ${name(s.fastest.id)} ${duration(s.fastest.timeS)}`, cls: s.fastest.id === boat ? 'me' : undefined });
   if (s.myTime && s.fastest?.id !== boat) times.push({ text: `your time ${ordinal(s.myTime.rank)} of ${s.myTime.of}`, cls: 'me' });
   if (times.length) lines.push(times);
 
-  // Caveats.
-  const warn: LegStoryText['lines'][number] = [];
-  if (s.coverage != null && s.coverage < STORY_LOW_COVERAGE) warn.push({ text: `data ${pct(s.coverage)} on this leg`, cls: 'warn' });
-  if (s.coverage == null) warn.push({ text: 'no tracked time on this leg', cls: 'warn' });
+  // Caveats: coverage is on the summary (a collapsed row with 15% data must not look empty).
+  const warn: StoryChip[] = [];
   if (s.marksEstimated) warn.push({ text: 'marks est.', cls: 'warn' });
   if (warn.length) lines.push(warn);
 
-  if (me) summary.push(me.gain ? `you ${ordinal(me.from)} → ${ordinal(me.to)}` : `you held ${ordinal(me.to)}`);
+  const places = placeChip(s, g);
+  if (places) summary.push({ text: places, cls: 'me' });
+  if (s.coverage != null && s.coverage < STORY_LOW_COVERAGE) summary.push({ text: `tracker ${pct(s.coverage)}`, cls: 'warn' });
+  else if (s.coverage == null) summary.push({ text: 'no data', cls: 'warn' });
 
-  // The sentence: side (or the top mover), the exit from the mark, the coached boat.
-  const parts: string[] = [];
-  if (side && side.verdict !== 'none') {
-    const g = side.verdict === 'right' ? side.right : side.left;
-    parts.push(`${cap(side.verdict)} paid: the ${side.n} boats furthest ${side.verdict} ${g >= 0 ? 'gained' : 'lost'} ${Math.abs(g).toFixed(1)} places on average`);
-  } else if (side) parts.push('No side paid');
-  else if (s.gainers[0]) parts.push(`${name(s.gainers[0].id)} gained most (${signedN(s.gainers[0].gain)})`);
-  if (r && r.gybeSet.n && r.bearAway.n && r.gybeSet.gain != null && r.bearAway.gain != null) {
-    parts.push(`gybe-setters ${signed1(r.gybeSet.gain)} places, bear-aways ${signed1(r.bearAway.gain)}`);
-  } else if (r) parts.push(r.gybeSet.n ? `all ${r.gybeSet.n} gybe-set` : `all ${r.bearAway.n} bore away`);
-  if (me) parts.push(me.gain > 0 ? `you gained ${me.gain} (${ordinal(me.from)} → ${ordinal(me.to)})` : me.gain < 0 ? `you lost ${-me.gain} (${ordinal(me.from)} → ${ordinal(me.to)})` : `you held ${ordinal(me.to)}`);
-  const sentence = parts.length ? `${parts.join('; ')}.` : 'Too little data on this leg.';
-  return { summary, lines, sentence };
+  const hasBody = lines.some((l) => l.length) || summary.length > 0;
+  return { summary, lines, sentence: hasBody ? '' : 'Too little data on this leg.' };
 }
 
 const li = (c: { text: string; cls?: string }): string =>
@@ -125,12 +147,12 @@ const li = (c: { text: string; cls?: string }): string =>
     : `<li class="chip${c.cls ? ` ${c.cls}` : ''}">${esc(c.text)}</li>`;
 
 /** One leg's card: a `<details>`, closed unless its leg is in `open`. */
-export function legStoryHtml(s: LegStory, a: RaceAnalysis, boat: string, open = false): string {
-  const t = legStoryText(s, a, boat);
+export function legStoryHtml(s: LegStory, a: RaceAnalysis, boat: string, g: Group, open = false): string {
+  const t = legStoryText(s, a, boat, g);
   return `<details class="card coach-leg" data-leg="${s.leg}"${open ? ' open' : ''}>
-    <summary><span class="leg-name">${esc(s.name)}</span><ul class="chips">${t.summary.map((x) => li({ text: x })).join('')}</ul></summary>
+    <summary><span class="leg-name">${esc(s.name)}</span><ul class="chips">${t.summary.map(li).join('')}</ul></summary>
     ${t.lines.map((l) => `<ul class="chips">${l.map(li).join('')}</ul>`).join('')}
-    <p class="leg-what">${esc(t.sentence)}</p>
+    ${t.sentence ? `<p class="leg-what">${esc(t.sentence)}</p>` : ''}
   </details>`;
 }
 
@@ -138,5 +160,5 @@ export function legStoryHtml(s: LegStory, a: RaceAnalysis, boat: string, open = 
 export function legStoriesHtml(stories: LegStory[], a: RaceAnalysis, boat: string, g: Group, open: ReadonlySet<number> = new Set(), infoOpen = false): string {
   if (!stories.length) return '';
   return `<div class="coach-legs-head"><h3 id="coach-legs-title">Leg by leg</h3><ul class="chips"><li class="chip">vs ${esc(GROUP_LABEL[g.kind])}</li><li class="chip-info">${infoHtml(LEG_STORY_BULLETS, { open: infoOpen })}</li></ul></div>
-  ${stories.map((s) => legStoryHtml(s, a, boat, open.has(s.leg))).join('')}`;
+  ${stories.map((s) => legStoryHtml(s, a, boat, g, open.has(s.leg))).join('')}`;
 }

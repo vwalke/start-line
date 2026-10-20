@@ -121,13 +121,15 @@ export interface LegStory {
   moversFleet: boolean;
   /** The coached boat's places on the leg within the movers' set; null without both. */
   mine: Mover | null;
+  /** How many boats the place ranks are among (the group + you, or the fleet). */
+  placeOf: number;
   side: SideStat | null;
   /** Downwind legs after a windward mark only. */
   rounding: RoundingStat | null;
   fastest: { id: string; timeS: number } | null;
   /** The coached boat's leg time rank among the boats with a time (the movers' set). */
   myTime: { rank: number; of: number; timeS: number } | null;
-  /** The coached boat's coverage of the leg, 0–1; null when it has no time on it. */
+  /** The coached boat's coverage of the leg, 0–1; falls back to its race coverage when it has no timed leg. */
   coverage: number | null;
   marksEstimated: boolean;
 }
@@ -256,11 +258,12 @@ export function legStories(a: RaceAnalysis, m: CoachModel, boat: string, g: Grou
       losers,
       moversFleet: mv.fleet,
       mine: movers.find((x) => x.id === boat) ?? null,
+      placeOf: mv.ids.length,
       side,
       rounding,
       fastest: timed[0] ?? null,
       myTime: mineT >= 0 ? { rank: mineT + 1, of: timed.length, timeS: timed[mineT].timeS } : null,
-      coverage: me.legs[li]?.coverage ?? (sp && tr ? coachCoverage(tr.t, sp[0], sp[1]) : null),
+      coverage: me.legs[li]?.coverage ?? (sp && tr ? coachCoverage(tr.t, sp[0], sp[1]) : (me.coverage ?? null)),
       marksEstimated,
     };
   });

@@ -5,7 +5,7 @@ import { coachDebrief } from '../src/analysis/coach/debrief';
 import { coachCtx } from '../src/analysis/coach/detectors/context';
 import { d5Peers } from '../src/analysis/coach/detectors/consolidate';
 import type { RaceData } from '../src/data/types';
-import { cardText, secondsChip, windowChip } from '../src/ui/coachCards';
+import { cardHtml, cardText, d5RefChip, secondsChip, windowChip } from '../src/ui/coachCards';
 import { j105Race } from './helpers';
 
 /**
@@ -101,12 +101,22 @@ describe('D5 golden: race 3 Beat 2, overstood the left corner (debrief ≈ 180 s
     expect(c.t1).toBeLessThanOrEqual(edt('15:00:30'));
   });
 
-  it('renders the §6 overstand template', () => {
+  it('renders the §6 overstand template, with a vs-peers chip (not the page Top 3)', () => {
     const t = cardText(c, a.meta.tzOffsetMs);
     expect(t.title).toBe('Overstood the left corner');
     expect(t.sentence).toBe('The left paid first, 68 s up on the boats that finished 5th–10th; then the wind swung back 12° and you were 117 s down.');
     expect(t.chips).toEqual(['1085 m left', 'layline from 1760 m', '68 s up → 117 s down']);
+    expect(d5RefChip(c.facts)).toBe('vs 5th–10th');
+    expect(cardHtml(c, 0, a, false)).toContain('vs 5th–10th');
     expect(t.tip).toContain('tack on the next header');
+  });
+
+  it('the ±3° wind term uses typical (start/mid/end) sep, not the 1 km peak, so the chip is ≈ 184 s', () => {
+    // Peak-only sep was 1085 m → 119–249 s (hi/lo > 2). Mid-window the boats are 709 m apart
+    // and the trough has no fix; typicalSep is the same D3 fix.
+    expect(c.secondsHi / Math.max(1, c.secondsLo)).toBeLessThanOrEqual(2);
+    expect(secondsChip(c)).toBe('≈ 184 s');
+    expect(c.windEst).toBe(true);
   });
 
   it('the D4 read of the same swing is left to D5; the phase-2 cards follow (D7, D3)', () => {

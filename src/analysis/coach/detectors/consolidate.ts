@@ -50,7 +50,7 @@ import {
   type Opportunity,
 } from '../opportunity';
 import type { CoachCtx } from './context';
-import { lateralSep } from './early';
+import { lateralSep, typicalSep } from './early';
 import { legWindow, signedSep } from './shift';
 
 export const D5_GAIN_S = 20;
@@ -252,7 +252,11 @@ export function detectConsolidate(ctx: CoachCtx): ConsolidateResult {
       const t1 = s.tTrough;
       const seconds = s.gTrough - s.gPeak;
       const cov = coachCoverage(ctx.tr.t, t0, t1);
-      const { noise, windS } = gapNoise(sepM, ctx.m.vmg[k], untrackedS(ctx.tr.t, t0, t1));
+      // Peak sep (often 1 km+ on a corner) is the story; the ±3° wind term uses the
+      // typical (start/mid/end) sep of the peak→trough window, as D3 does. Using the
+      // peak alone over-applies the term when the trough has no fix or the boats have
+      // closed (R3 Beat 2: 1085 m peak vs 709 m mid → a 119–249 s chip for an 184 s loss).
+      const { noise, windS } = gapNoise(typicalSep(ctx, refs, t0, t1), ctx.m.vmg[k], untrackedS(ctx.tr.t, t0, t1));
       const range = rangeOf(seconds, noise);
       const refTracks = refs.map((id) => ctx.m.tracks.get(id)).filter((x): x is CoachTrack => !!x);
       const shift = windSwing(w.twdAt, t0, t1);
