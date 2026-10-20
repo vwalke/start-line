@@ -257,6 +257,12 @@ export interface RaceAnalysis {
   marks: { name: string; xy: Vec[]; estimated?: boolean }[];
   legs: LegDef[];
   /**
+   * Where each leg starts and ends, in order: the start line's middle, each turn (as the legs
+   * were timed), the finish line's middle (else the start line's). n legs → n + 1 points.
+   * Optional: analyses from before the Coach tab have none.
+   */
+  legPts?: Vec[];
+  /**
    * How legs were split: 'course' (mark trackers in the feed's order),
    * 'tracks' (mark trackers, order inferred from the leaders), 'fleet'
    * (where the boats turned at the top and bottom of the course, snapped to

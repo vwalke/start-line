@@ -703,6 +703,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     finishLine,
     marks: drawnMarks,
     legs,
+    legPts: pts,
     legSource,
     wind,
     boats: results,

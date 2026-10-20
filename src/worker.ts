@@ -3,27 +3,37 @@
  * normalize it to RaceData, run the analysis, post back the result.
  */
 import { analyzeRace } from './analysis/analyze';
+import { coachRaceKey, coachWind } from './analysis/coach';
+import type { TwdSeriesData } from './analysis/coach/twdSeries';
 import type { RaceAnalysis } from './analysis/types';
+import type { RaceData } from './data/types';
 import { buildRaceData, currentDoc, findRace, listRaces, telemetryWindow } from './data/racesense/adapter';
 import { fetchTelemetry, fetchWind } from './data/racesense/api';
 import type { RegattaResponse } from './data/racesense/types';
 
-export type WorkerRequest = {
-  id: number;
-  type: 'live';
-  eventId: string;
-  regatta: RegattaResponse;
-  division: string;
-  raceNumber: number;
-  /** `nc=all`: keep coach/spare boats as competitors. */
-  allCompetitors?: boolean;
-  /** The event's class label from the landing list, for the class dimensions. */
-  classLabel?: string;
-};
+export type WorkerRequest =
+  | {
+      id: number;
+      type: 'live';
+      eventId: string;
+      regatta: RegattaResponse;
+      division: string;
+      raceNumber: number;
+      /** `nc=all`: keep coach/spare boats as competitors. */
+      allCompetitors?: boolean;
+      /** The event's class label from the landing list, for the class dimensions. */
+      classLabel?: string;
+      /** Keep raw RaceData so the Coach tab can build the wind series. Off unless `?coach=1`. */
+      coach?: boolean;
+    }
+  /** Coach (lazy, on the tab's first open): the fleet wind series of the race last analysed, from its raw fixes. */
+  | { id: number; type: 'coach-wind'; key: string };
 
 export type WorkerResponse =
   | { id: number; type: 'progress'; message: string }
   | { id: number; type: 'done'; analysis: RaceAnalysis }
+  /** `wind` null: that race isn't the one last analysed here (or has no course); the caller works it out from the drawn tracks. */
+  | { id: number; type: 'coach-wind'; wind: TwdSeriesData | null }
   | { id: number; type: 'error'; message: string };
 
 const ctx = self as unknown as {
@@ -31,7 +41,10 @@ const ctx = self as unknown as {
   onmessage: ((ev: MessageEvent<WorkerRequest>) => void) | null;
 };
 
-async function handle(req: WorkerRequest): Promise<RaceAnalysis> {
+/** The race last analysed, kept for the Coach tab's wind (its raw fixes are not posted back). */
+let last: { key: string; analysis: RaceAnalysis; data: RaceData } | null = null;
+
+async function handle(req: Extract<WorkerRequest, { type: 'live' }>): Promise<RaceAnalysis> {
   const progress = (message: string): void => ctx.postMessage({ id: req.id, type: 'progress', message });
   const doc = currentDoc(req.regatta);
   const ref = { division: req.division, raceNumber: req.raceNumber };
@@ -61,7 +74,10 @@ async function handle(req: WorkerRequest): Promise<RaceAnalysis> {
     extra.length = 0;
   }
   pages.length = 0;
-  return analyzeRace(data, { allCompetitors: req.allCompetitors });
+  const analysis = analyzeRace(data, { allCompetitors: req.allCompetitors });
+  // Without the flag the worker drops the raw tracks, as before this tab existed.
+  last = req.coach ? { key: coachRaceKey(req.eventId, req.division, req.raceNumber, !!req.allCompetitors), analysis, data } : null;
+  return analysis;
 }
 
 /** Each drawn track's typed-array buffers, once each (analyze.ts gives every array its own). */
@@ -77,6 +93,15 @@ function drawingBuffers(a: RaceAnalysis): Transferable[] {
 
 ctx.onmessage = (ev) => {
   const req = ev.data;
+  if (req.type === 'coach-wind') {
+    try {
+      const wind = last && last.key === req.key ? coachWind(last.analysis, last.data) : null;
+      ctx.postMessage({ id: req.id, type: 'coach-wind', wind });
+    } catch (err) {
+      ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) });
+    }
+    return;
+  }
   handle(req).then(
     // The drawn tracks (x, y, t, SOG per fix) are most of the payload: move their buffers rather than copy them.
     (analysis) => ctx.postMessage({ id: req.id, type: 'done', analysis }, drawingBuffers(analysis)),

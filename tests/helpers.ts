@@ -57,15 +57,16 @@ export const m24Race = (): RaceData => trimmedRace('./fixtures/m24_r4.json', 'M2
 export const j88Race = (): RaceData => trimmedRace('./fixtures/j88_r5.json', 'J88', 5);
 
 /** The J/105 fixtures' raw form (to edit the telemetry before building). */
-export const j105Fixture = (raceNumber: 1 | 2): Fixture =>
+export const j105Fixture = (raceNumber: 1 | 2 | 3): Fixture =>
   JSON.parse(readFileSync(here(`./fixtures/j105_r${raceNumber}.json`), 'utf8')) as Fixture;
 
 /**
- * 2026 J105 CBC race 1 or 2: no mark trackers; Good Trade (USA 96) is a sparse
+ * 2026 J105 CBC race 1, 2 or 3: no mark trackers; Good Trade (USA 96) is a sparse
  * tracker (a 45 min hole through Run 1 and Beat 2 of race 2) with a broken
  * compass (~115° off its course in race 1), plus 7 boats across the results.
+ * Race 3 (the Coach golden case): Good Trade plus the official 1st–9th finishers.
  */
-export function j105Race(raceNumber: 1 | 2, f: Fixture = j105Fixture(raceNumber)): RaceData {
+export function j105Race(raceNumber: 1 | 2 | 3, f: Fixture = j105Fixture(raceNumber)): RaceData {
   return buildRaceData(f.regatta, { division: 'J105', raceNumber }, [f.telemetry], { eventId: f.eventId, kind: 'fixture', wind: f.wind });
 }
 

@@ -2,6 +2,9 @@
  * The page: search/pick an event → race, run the worker, render the digest.
  * Live data only: if the feed or proxy fails we say so, with a way to retry.
  */
+import { buildCoach, coachRaceKey, rivalLadder, type CoachModel, type RivalLadder } from '../analysis/coach';
+import type { Group } from '../analysis/coach/groups';
+import type { TwdSeriesData } from '../analysis/coach/twdSeries';
 import { splitFindings } from '../analysis/findings';
 import { START_TRAIL_MS, type RaceAnalysis } from '../analysis/types';
 import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
@@ -9,6 +12,26 @@ import { fetchLanding, fetchUsableRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { boatList, findingsList } from './boats';
+import {
+  BOAT_PARAM,
+  GROUP_PARAM,
+  coachChips,
+  coachGroupHtml,
+  coachHeadHtml,
+  coachHighlight,
+  coachPickerHtml,
+  defaultLadderGroup,
+  groupParam,
+  ladderChart,
+  ladderChips,
+  ladderHover,
+  ladderLayout,
+  ladderTipHtml,
+  parseBoatParam,
+  parseGroupParam,
+  racePlaces,
+  type LadderLayout,
+} from './coach';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
 import {
   applyView,
@@ -46,7 +69,7 @@ import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
 import { attachTopScroll } from './hscroll';
 import { attachPanZoom } from './panzoom';
 import { PLACE_TIP_MOUSE_REACH, PLACE_TIP_TOUCH_REACH, nearestPlaceDot, placesChart, placesKey } from './places';
-import { DEFAULT_TAB, TABS, parseTab, tabForKey, tabFromHash, withTabHash, type Tab } from './tabs';
+import { DEFAULT_TAB, coachEnabled, parseTab, tabForKey, tabFromHash, tabsFor, withTabHash, type Tab } from './tabs';
 import { startSogSeries, type StartSogSeries } from '../analysis/startSog';
 import {
   START_SOG_WINDOW_KEY,
@@ -148,8 +171,15 @@ export function startApp(): void {
     boats: $('boat-list'),
     raceNotes: $('race-notes'),
     tabs: $('tabs'),
-    tabBtn: { start: $('tab-start'), race: $('tab-race') } as Record<Tab, HTMLElement>,
-    panel: { start: $('panel-start'), race: $('panel-race') } as Record<Tab, HTMLElement>,
+    tabBtn: { start: $('tab-start'), race: $('tab-race'), coach: $('tab-coach') } as Record<Tab, HTMLElement>,
+    panel: { start: $('panel-start'), race: $('panel-race'), coach: $('panel-coach') } as Record<Tab, HTMLElement>,
+    coachPick: $('coach-pick'),
+    coachTitle: $('coach-title'),
+    coachHead: $('coach-head'),
+    coachGroup: $('coach-group'),
+    coachLadder: $('coach-ladder'),
+    coachTip: $('coach-ladder-tip'),
+    coachLadderCap: $('coach-ladder-cap'),
     fs: $('fs'),
     fsTools: $('fs-tools'),
     fsKey: $('fs-key'),
@@ -164,8 +194,12 @@ export function startApp(): void {
   /** The URL's race, else the last one viewed (recall.lastView), else the latest. */
   const saved = readLastView();
   const plan = resolveStart(location.search, saved);
-  /** Start | Race: the URL hash, else the saved tab when restoring the saved view, else Start. */
-  let tab: Tab = startTab(location.hash, plan, saved);
+  /** The Coach tab is offered only with `?coach=1`. */
+  const coachOn = coachEnabled(location.search);
+  const tabs = tabsFor(coachOn);
+  els.tabBtn.coach.hidden = !coachOn;
+  /** Start | Race (| Coach): the URL hash, else the saved tab when restoring the saved view, else Start. */
+  let tab: Tab = startTab(location.hash, plan, saved, tabs);
   const params = plan.params;
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   let reqId = 0;
@@ -174,7 +208,14 @@ export function startApp(): void {
   const isSuperseded = (e: unknown): boolean => e instanceof Error && e.message === SUPERSEDED;
   worker.onmessage = (ev: MessageEvent<WorkerResponse>) => {
     const msg = ev.data;
-    if (msg.id !== reqId) return; // a newer request superseded this one
+    // Coach requests count down from -1, apart from the race loads.
+    const coachWait = coachPending.get(msg.id);
+    if (coachWait) {
+      coachPending.delete(msg.id);
+      coachWait(msg.type === 'coach-wind' ? msg.wind : null);
+      return;
+    }
+    if (msg.id !== reqId || msg.type === 'coach-wind') return; // a newer request superseded this one
     const p = pending.get(msg.id);
     if (msg.type === 'progress') setStatus(msg.message);
     else if (msg.type === 'done') p?.resolve(msg.analysis);
@@ -188,6 +229,16 @@ export function startApp(): void {
       pending.clear();
       pending.set(id, { resolve, reject });
       worker.postMessage({ ...req, id } as WorkerRequest);
+    });
+
+  let coachReq = 0;
+  const coachPending = new Map<number, (w: TwdSeriesData | null) => void>();
+  /** The worker's wind series for a race (null: it no longer holds that race, or failed; the coach then uses the drawn tracks). */
+  const coachWindOf = (key: string): Promise<TwdSeriesData | null> =>
+    new Promise((resolve) => {
+      const id = --coachReq;
+      coachPending.set(id, resolve);
+      worker.postMessage({ id, type: 'coach-wind', key } satisfies WorkerRequest);
     });
 
   let analysis: RaceAnalysis | null = null;
@@ -337,7 +388,166 @@ export function startApp(): void {
     for (const t of topScrolls) t.update();
     renderPlaces();
     renderStartSog();
+    renderCoach();
   }
+
+  // ---- Coach (behind ?coach=1): built lazily the first time the tab shows a race.
+  const query = new URLSearchParams(location.search);
+  let coachGroup: Group = parseGroupParam(query.get(GROUP_PARAM)) ?? defaultLadderGroup();
+  /** The coached boat, kept across races: the URL's, then the last one selected. */
+  let coachBoat: string | null = parseBoatParam(query.get(BOAT_PARAM));
+  let coachEach = true;
+  let coachCustomOpen = false;
+  let coach: { a: RaceAnalysis; model: CoachModel | null } | null = null;
+  let coachBuilding: RaceAnalysis | null = null;
+  let coachLadder: RivalLadder | null = null;
+  let coachLayout: LadderLayout | null = null;
+
+  /** The boat to coach: the selected one, else the remembered one, else the winner. */
+  function coachBoatId(a: RaceAnalysis): string | null {
+    for (const id of [highlight, coachBoat]) if (id && a.boats.some((b) => b.id === id)) return id;
+    return a.boats[0]?.id ?? null;
+  }
+
+  /** True when the coach model of `a` is ready; else starts building it (the wind from the worker) and re-renders when done. */
+  function ensureCoach(a: RaceAnalysis): boolean {
+    if (coach?.a === a) return true;
+    if (coachBuilding === a) return false;
+    coachBuilding = a;
+    const key = coachRaceKey(a.meta.eventId ?? '', a.meta.division, a.meta.raceNumber, !!a.allCompetitors);
+    void coachWindOf(key).then((w) => {
+      if (coachBuilding !== a) return;
+      coachBuilding = null;
+      coach = { a, model: buildCoach(a, w) };
+      if (analysis === a) renderCoach();
+    });
+    return false;
+  }
+
+  function renderCoach(): void {
+    const a = analysis;
+    if (!a || !coachOn || tab !== 'coach') return;
+    if (highlight && a.boats.some((b) => b.id === highlight)) coachBoat = highlight;
+    const boat = coachBoatId(a);
+    const me = a.boats.find((b) => b.id === boat);
+    els.coachPick.innerHTML = coachPickerHtml(a, boat, regatta && me ? racePlaces(currentDoc(regatta), a.meta.division, me.sail) : []);
+    els.coachTitle.textContent = me ? boatLabel(me, me.id) : '';
+    els.coachTip.hidden = true;
+    if (!ensureCoach(a)) {
+      renderKeepOpen(els.coachHead, (open) => coachHeadHtml(me ? coachChips(a, me, null) : [], open));
+      els.coachGroup.innerHTML = '';
+      els.coachLadder.innerHTML = '<p class="muted coach-none">Working out the wind…</p>';
+      renderKeyLine(els.coachLadderCap, { chips: [], bullets: [] });
+      return;
+    }
+    const model = coach!.model;
+    coachLadder = model && boat ? rivalLadder(model, a, boat, coachGroup) : null;
+    renderKeepOpen(els.coachHead, (open) => coachHeadHtml(me ? coachChips(a, me, coachLadder) : [], open));
+    els.coachGroup.innerHTML = coachGroupHtml(a, boat, coachGroup, coachEach, coachCustomOpen);
+    const widthPx = els.coachLadder.clientWidth || undefined;
+    els.coachLadder.innerHTML =
+      model && coachLadder
+        ? ladderChart(a, model, coachLadder, coachGroup, { widthPx, each: coachEach })
+        : `<p class="muted coach-none">${model ? 'Pick a boat.' : 'No course to measure against in this race.'}</p>`;
+    coachLayout = model && coachLadder ? ladderLayout(coachLadder, model.wind, a.meta.gunMs, widthPx, coachEach) : null;
+    renderKeyLine(els.coachLadderCap, { chips: coachLadder ? ladderChips(a, coachLadder, coachGroup, coachEach) : [], bullets: [] });
+  }
+
+  function setCoachGroup(g: Group): void {
+    coachGroup = g;
+    setUrl({ [GROUP_PARAM]: groupParam(g) });
+    renderCoach();
+  }
+
+  /** Remember the coached boat in the URL (only with the flag). Clearing the highlight does not drop it. */
+  function syncCoachBoat(id: string | null): void {
+    if (!coachOn || !id) return;
+    coachBoat = id;
+    setUrl({ [BOAT_PARAM]: id });
+  }
+  els.coachPick.addEventListener('change', (ev) => {
+    const sel = (ev.target as HTMLElement).closest<HTMLSelectElement>('select#coach-boat');
+    if (!sel) return;
+    coachBoat = sel.value;
+    highlight = sel.value;
+    syncCoachBoat(sel.value);
+    save();
+    render();
+    els.coachPick.querySelector<HTMLElement>('#coach-boat')?.focus();
+  });
+  els.coachPick.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement).closest('button[data-coach-race]');
+    const a = analysis;
+    if (!btn || !a) return;
+    const n = Number(btn.getAttribute('data-coach-race'));
+    if (!Number.isInteger(n) || n === a.meta.raceNumber) return;
+    els.race.value = `${a.meta.division}|${n}`;
+    // The same boat in the other race (the leg and sorts start clean).
+    void loadRace(a.meta.division, n, { leg: null, boat: coachBoatId(a), sort: null });
+  });
+  els.coachGroup.addEventListener('click', (ev) => {
+    const el = ev.target as HTMLElement;
+    const g = el.closest('button[data-coach-group]')?.getAttribute('data-coach-group');
+    if (g === 'leaders' || g === 'near' || g === 'fleet') {
+      setCoachGroup({ kind: g });
+      els.coachGroup.querySelector<HTMLElement>(`[data-coach-group="${g}"]`)?.focus();
+    } else if (el.closest('button[data-coach-each]')) {
+      coachEach = !coachEach;
+      renderCoach();
+      els.coachGroup.querySelector<HTMLElement>('[data-coach-each]')?.focus();
+    }
+  });
+  els.coachGroup.addEventListener('change', (ev) => {
+    const box = (ev.target as HTMLElement).closest<HTMLInputElement>('input[data-coach-custom]');
+    if (!box || !analysis) return;
+    const id = box.getAttribute('data-coach-custom')!;
+    // Boats of the group not in this race stay in it (a link may span races).
+    const prev = coachGroup.kind === 'custom' ? coachGroup.ids : [];
+    const ids = box.checked ? [...prev.filter((x) => x !== id), id] : prev.filter((x) => x !== id);
+    setCoachGroup({ kind: 'custom', ids });
+    els.coachGroup.querySelector<HTMLElement>(`[data-coach-custom="${CSS.escape(id)}"]`)?.focus();
+  });
+  els.coachGroup.addEventListener(
+    'toggle',
+    (ev) => {
+      if ((ev.target as HTMLElement).matches?.('details.coach-custom')) coachCustomOpen = (ev.target as HTMLDetailsElement).open;
+    },
+    true,
+  );
+  // The rival ladder: a crosshair and the gap under the pointer.
+  function showCoachTip(ev: PointerEvent): void {
+    const a = analysis;
+    const svg = els.coachLadder.querySelector('svg');
+    const hair = svg?.querySelector<SVGLineElement>('line.cl-hair');
+    const L = coachLayout;
+    if (!a || !svg || !hair || !coachLadder || !L || !coach?.model) return;
+    const rect = svg.getBoundingClientRect();
+    const px = (ev.clientX - rect.left) * (L.W / (rect.width || L.W));
+    const h = px >= L.padL && px <= L.W - L.padR ? ladderHover(coachLadder, L, px) : null;
+    if (!h) {
+      hair.setAttribute('visibility', 'hidden');
+      els.coachTip.hidden = true;
+      return;
+    }
+    const x = L.x(h.tMs).toFixed(1);
+    hair.setAttribute('x1', x);
+    hair.setAttribute('x2', x);
+    hair.setAttribute('visibility', 'visible');
+    els.coachTip.innerHTML = ladderTipHtml(a, coach.model, coachLadder, coachGroup, h.i);
+    els.coachTip.hidden = false;
+    const wrap = els.coachTip.parentElement!.getBoundingClientRect();
+    const left = ev.clientX - wrap.left;
+    const flip = left + 12 + els.coachTip.offsetWidth > wrap.width;
+    els.coachTip.style.left = `${Math.max(0, flip ? left - 12 - els.coachTip.offsetWidth : left + 12)}px`;
+    els.coachTip.style.top = `${Math.max(0, ev.clientY - wrap.top - els.coachTip.offsetHeight - 10)}px`;
+  }
+  els.coachLadder.addEventListener('pointermove', showCoachTip);
+  els.coachLadder.addEventListener('pointerdown', showCoachTip);
+  els.coachLadder.addEventListener('pointerleave', (ev) => {
+    if (ev.pointerType !== 'mouse') return;
+    els.coachTip.hidden = true;
+    els.coachLadder.querySelector('line.cl-hair')?.setAttribute('visibility', 'hidden');
+  });
 
   /** Speed through the start, sized for its card's width (re-run on resize). */
   function renderStartSog(): void {
@@ -515,6 +725,7 @@ export function startApp(): void {
     if (pw && pw !== contentW) {
       contentW = pw;
       if (tab === 'race') renderPlaces();
+      else if (tab === 'coach') renderCoach();
       else renderStartSog();
     }
     if (full) return queueFull();
@@ -535,17 +746,17 @@ export function startApp(): void {
       renderStart();
       renderStartSog();
       topScrolls[0].update();
-    } else {
+    } else if (t === 'race') {
       renderPlaces();
       topScrolls[1].update();
-    }
+    } else renderCoach();
   }
 
   /** Show tab `t`: tab and panel state, the URL hash (replaced, not pushed), the saved view; redraw its charts. */
   function setTab(t: Tab, opts: { focus?: boolean; scroll?: boolean; boot?: boolean } = {}): void {
     const changed = t !== tab;
     tab = t;
-    for (const k of TABS) {
+    for (const k of tabs) {
       const on = k === t;
       els.tabBtn[k].setAttribute('aria-selected', String(on));
       els.tabBtn[k].tabIndex = on ? 0 : -1;
@@ -553,7 +764,7 @@ export function startApp(): void {
     }
     // At boot a link without a hash stays as it is on Start (a restored Race tab gets its hash).
     const keep = opts.boot && !location.hash && t === DEFAULT_TAB;
-    if (!keep && tabFromHash(location.hash) !== t) history.replaceState(history.state, '', withTabHash(location.href, t));
+    if (!keep && tabFromHash(location.hash, tabs) !== t) history.replaceState(history.state, '', withTabHash(location.href, t));
     if (opts.focus) els.tabBtn[t].focus();
     remeasure(t);
     // Scrolled down past the panel's top: bring it to just under the (sticky) tabs.
@@ -566,17 +777,17 @@ export function startApp(): void {
   }
   els.tabs.addEventListener('click', (ev) => {
     const btn = (ev.target as HTMLElement).closest('[role="tab"]');
-    const t = parseTab(btn?.id.replace(/^tab-/, ''));
+    const t = parseTab(btn?.id.replace(/^tab-/, ''), tabs);
     if (t) setTab(t);
   });
   els.tabs.addEventListener('keydown', (ev) => {
-    const t = tabForKey(tab, ev.key);
+    const t = tabForKey(tab, ev.key, tabs);
     if (!t) return;
     ev.preventDefault();
     setTab(t, { focus: true });
   });
   addEventListener('hashchange', () => {
-    const t = tabFromHash(location.hash);
+    const t = tabFromHash(location.hash, tabs);
     if (t && t !== tab) setTab(t);
   });
   setTab(tab, { scroll: false, boot: true });
@@ -710,6 +921,7 @@ export function startApp(): void {
 
   function toggleHighlight(id: string | null): void {
     highlight = highlight === id ? null : id;
+    if (highlight) syncCoachBoat(highlight);
     render();
     save();
   }
@@ -721,6 +933,7 @@ export function startApp(): void {
     const toggleRow = (tr: Element): void => {
       const id = tr.getAttribute('data-id');
       highlight = highlight === id ? null : id;
+      if (highlight) syncCoachBoat(highlight);
       save();
       renderKeepingFocus(wrap, focusSel(tr, 'data-id'));
     };
@@ -751,6 +964,7 @@ export function startApp(): void {
     if (item) {
       const id = item.getAttribute('data-id');
       highlight = highlight === id ? null : id;
+      if (highlight) syncCoachBoat(highlight);
       save();
       renderKeepingFocus(els.boats, focusSel(item, 'data-id'));
     } else if (el.closest('button[data-clear]')) {
@@ -958,6 +1172,14 @@ export function startApp(): void {
       analysis = a;
       const v = restore ? applyView(a, restore) : null;
       highlight = v?.boat ?? null;
+      // A shared `boat=` wins over lastView so the link opens that boat.
+      if (coachOn) {
+        highlight = coachHighlight(coachBoat, highlight, a.boats.map((b) => b.id));
+        if (highlight) {
+          coachBoat = highlight;
+          setUrl({ [BOAT_PARAM]: highlight });
+        }
+      }
       ncOpen = false;
       sort = v?.sort ?? null;
       startSort = v?.startSort ?? null;
@@ -981,7 +1203,7 @@ export function startApp(): void {
     const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: legSel, boat: highlight, sort, startSort }, restore);
     try {
       const classLabel = events.find((e) => e.eventId === id)?.classLabel;
-      if (!(await show(run({ type: 'live', eventId: id, regatta, division, raceNumber, allCompetitors, classLabel }), view))) return 'superseded';
+      if (!(await show(run({ type: 'live', eventId: id, regatta, division, raceNumber, allCompetitors, classLabel, ...(coachOn ? { coach: true } : {}) }), view))) return 'superseded';
       current = { eventId: id, division, raceNumber };
       setUrl({ event: id, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
       save();

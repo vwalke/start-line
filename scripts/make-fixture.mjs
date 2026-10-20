@@ -16,6 +16,10 @@
 //        rate, 7 boats spread over the results every 4 s (1 s within ±60 s of the gun), only the course's marks,
 //        no IMU columns → tests/fixtures/j105_r2.json, j105_r1.json. They read the Good Trade debrief downloads
 //        (regatta.json, tele_r<n>_p<k>.json pages, wind_r<n>.json), e.g. from /workspace/goodtrade-debrief/data.
+//   j105r3: J/105 CBC 2026 race 3 for the Coach golden test: Good Trade at its own rate, the official 1st–9th
+//        finishers (the top 3 and the 4th–9th boats of the debrief's Beat 2 gap) every 4 s, the other 8 boats every
+//        10 s (the fleet's wind needs them all); every boat at full rate 44.5–47.5 min after the gun and every 2 s to
+//        50 min (Beat 2's swing) → tests/fixtures/j105_r3.json (~1.5 MB).
 // m24 and j88 read the survey downloads (regatta_<event>.json, tele_<event>_<div>_<race>.json
 // as an array of telemetry pages, wind_<event>_<YYYY-MM-DD>.json), e.g. from /workspace/legsplit-data.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -96,6 +100,23 @@ const j105 = (race) => ({
 });
 PRESETS.j105 = j105(2);
 PRESETS.j105r1 = j105(1);
+// Race 3 for the Coach golden test: Good Trade plus the official top 3 (Mirage, Crescendo, Rocket J Squirrel)
+// and the 4th–9th finishers the debrief's Beat 2 gap is measured against.
+PRESETS.j105r3 = {
+  ...j105(3),
+  note: 'Trimmed from public RaceSense data: 2026 J105 CBC, race 3 (Good Trade USA 96 at its own rate plus the official 1st–9th finishers; course marks only; no IMU). See scripts/make-fixture.mjs --preset j105r3.',
+  pick: undefined,
+  sails: ['USA 328', 'USA 29', 'USA 159', 'USA 523', 'USA 242', 'USA 64', 'USA 215', 'USA 250', 'USA 343'],
+  // The rest of the fleet, sparser: the fleet's wind (and its median VMG) needs every boat on the beat.
+  extra: ['USA 676', 'USA 517', 'USA 313', 'USA 55', 'USA 407', 'USA 527', 'USA 251', 'USA 322'],
+  extraStep: 10_000,
+  // Beat 2's swing: every fix from 2:54:30 to 2:57:30 pm EDT, 2 s on to 3:00 pm. Good Trade is right on the
+  // layline at 2:56, so the tack angle decides its gap there, and coarser fixes blur the fleet's tack clusters.
+  dense: [
+    { from: 44.5 * 60_000, to: 47.5 * 60_000, step: 0 },
+    { from: 47.5 * 60_000, to: 50 * 60_000, step: 2_000 },
+  ],
+};
 
 const args = process.argv.slice(2);
 const pi = args.indexOf('--preset');
@@ -176,7 +197,19 @@ for (const r of rows) {
   if (isMark && courseSns && !courseSns.has(r[idx.sn])) continue;
   const near = Math.abs(ts - gun) <= 60_000;
   const sail = r[idx.sail_number];
-  const step = isMark ? 20_000 : full.has(sail) ? 0 : near ? (preset.nearStep ?? 0) : extra.has(sail) ? (preset.extraStep ?? STEP) : STEP;
+  // `dense`: stretches of race (ms from the gun) kept at a finer step for every boat (the first that holds `ts`).
+  const dense = (preset.dense ?? []).find((d) => ts >= gun + d.from && ts <= gun + d.to);
+  const step = isMark
+    ? 20_000
+    : full.has(sail)
+      ? 0
+      : near
+        ? (preset.nearStep ?? 0)
+        : dense
+          ? dense.step
+          : extra.has(sail)
+            ? (preset.extraStep ?? STEP)
+            : STEP;
   const key = `${r[idx.role]}:${r[idx.sn]}`;
   const prev = lastKept.get(key);
   if (prev !== undefined && ts - prev < step) continue;

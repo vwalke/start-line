@@ -5,17 +5,28 @@
  * another race is picked. It lives in the URL hash (`#start` / `#race`,
  * replaced, never pushed) and in recall.lastView. A hash on the URL wins;
  * else the saved tab when the saved view is being restored; else Start.
+ *
+ * A third tab, Coach, exists only behind the `?coach=1` feature flag
+ * (`coachEnabled`): the functions take the tabs on offer, Start and Race by default.
  */
 
 export const TABS = ['start', 'race'] as const;
-export type Tab = (typeof TABS)[number];
+/** The tabs with the Coach flag on. */
+export const COACH_TABS = ['start', 'race', 'coach'] as const;
+export type Tab = (typeof COACH_TABS)[number];
 export const DEFAULT_TAB: Tab = 'start';
 
-/** A tab name, or null for anything else. */
-export const parseTab = (x: unknown): Tab | null => (x === 'start' || x === 'race' ? x : null);
+/** The Coach tab's feature flag: `?coach=1` in the URL. */
+export const COACH_FLAG = 'coach';
+export const coachEnabled = (search: string): boolean => new URLSearchParams(search).get(COACH_FLAG) === '1';
+/** The tabs on offer. */
+export const tabsFor = (coach: boolean): readonly Tab[] => (coach ? COACH_TABS : TABS);
+
+/** A tab name among `tabs`, or null for anything else. */
+export const parseTab = (x: unknown, tabs: readonly Tab[] = TABS): Tab | null => (typeof x === 'string' && (tabs as readonly string[]).includes(x) ? (x as Tab) : null);
 
 /** The tab a location hash names ("#race"), or null (no hash, or one the app doesn't use). */
-export const tabFromHash = (hash: string | null | undefined): Tab | null => parseTab((hash ?? '').replace(/^#/, ''));
+export const tabFromHash = (hash: string | null | undefined, tabs: readonly Tab[] = TABS): Tab | null => parseTab((hash ?? '').replace(/^#/, ''), tabs);
 
 export const tabHash = (t: Tab): string => `#${t}`;
 
@@ -23,18 +34,18 @@ export const tabHash = (t: Tab): string => `#${t}`;
  * The tab to open with: the URL's hash; else `saved` when the saved view is
  * being restored (the saved race, or a link to that same race); else Start.
  */
-export function initialTab(hash: string | null | undefined, saved: Tab | null | undefined, restoring: boolean): Tab {
-  return tabFromHash(hash) ?? (restoring ? (parseTab(saved) ?? DEFAULT_TAB) : DEFAULT_TAB);
+export function initialTab(hash: string | null | undefined, saved: Tab | null | undefined, restoring: boolean, tabs: readonly Tab[] = TABS): Tab {
+  return tabFromHash(hash, tabs) ?? (restoring ? (parseTab(saved, tabs) ?? DEFAULT_TAB) : DEFAULT_TAB);
 }
 
 /** The tab a key moves to from `cur` (arrows wrap; Home / End), or null for other keys. */
-export function tabForKey(cur: Tab, key: string): Tab | null {
-  const i = TABS.indexOf(cur);
+export function tabForKey(cur: Tab, key: string, tabs: readonly Tab[] = TABS): Tab | null {
+  const i = tabs.indexOf(cur);
   // A horizontal tablist: Left / Right only (Up / Down keep scrolling the page).
-  if (key === 'ArrowRight') return TABS[(i + 1) % TABS.length];
-  if (key === 'ArrowLeft') return TABS[(i - 1 + TABS.length) % TABS.length];
-  if (key === 'Home') return TABS[0];
-  if (key === 'End') return TABS[TABS.length - 1];
+  if (key === 'ArrowRight') return tabs[(i + 1) % tabs.length];
+  if (key === 'ArrowLeft') return tabs[(i - 1 + tabs.length) % tabs.length];
+  if (key === 'Home') return tabs[0];
+  if (key === 'End') return tabs[tabs.length - 1];
   return null;
 }
 

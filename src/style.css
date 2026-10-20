@@ -315,6 +315,8 @@ input[type='search']:disabled, select:disabled { opacity: 0.6; }
 .tabs [role='tab'][aria-selected='true'] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
 .tabs [role='tab'][aria-selected='true']:focus-visible { outline-color: var(--ink); }
 .panel[hidden] { display: none; }
+/* Coach is only offered with ?coach=1. */
+.tabs [role='tab'][hidden] { display: none; }
 .panel:focus { outline: none; }
 
 .boatbar {
@@ -821,3 +823,38 @@ html.fs-on { overflow: hidden; }
 @media (prefers-color-scheme: dark) {
   .fs-rotate { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); }
 }
+
+/* Coach tab (behind ?coach=1, ui/coach.ts). */
+.coach-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 8px; }
+.coach-pick .coach-boat select { width: auto; max-width: 100%; font-weight: 600; }
+.coach-races { font-size: 0.85rem; }
+.coach-races button small { margin-left: 3px; opacity: 0.8; }
+.coach-races button:disabled { cursor: not-allowed; color: var(--ink-3); }
+.coach-head h3:empty { display: none; }
+.coach-group { align-items: flex-start; margin-bottom: 6px; }
+.coach-custom { font-size: 0.8rem; color: var(--ink-2); }
+.coach-custom summary { cursor: pointer; padding: 3px 9px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); list-style: none; }
+.coach-custom summary::-webkit-details-marker { display: none; }
+.coach-custom summary::after { content: ' ▾'; }
+.coach-custom summary.on { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.coach-custom ul { list-style: none; margin: 4px 0 0; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); max-height: 240px; overflow: auto; columns: 2 180px; }
+.coach-custom li { break-inside: avoid; padding: 1px 0; }
+.coach-none { margin: 12px 0; }
+.coach-cards p { margin: 0; font-size: 0.85rem; }
+.sw-bold { width: 18px; height: 0; border-top: 3px solid var(--ink); }
+.sw-band { width: 14px; height: 10px; background: var(--grid); box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.sw-line { width: 18px; height: 0; border-top: 2px solid currentColor; }
+svg .cl-grid { stroke: var(--rule); stroke-width: 1; }
+svg .cl-zero { stroke: var(--ink-3); stroke-width: 1.2; }
+svg .cl-tick { stroke: var(--rule); stroke-width: 1; stroke-dasharray: 2 3; }
+svg .cl-axis, svg .cl-unit { fill: var(--ink-3); font-variant-numeric: tabular-nums; }
+svg .cl-dir { fill: var(--ink-2); font-weight: 600; }
+svg .cl-mark { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 4 3; }
+svg .cl-leg-lbl { fill: var(--ink-2); font-weight: 600; }
+svg .cl-nodata { fill: var(--grid); opacity: 0.8; }
+svg .cl-each { fill: none; stroke-width: 1.2; stroke-linejoin: round; opacity: 0.55; }
+svg .cl-med { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+svg .cl-dot { fill: var(--ink); }
+svg .cl-wind { fill: none; stroke: var(--ink-3); stroke-width: 1.6; stroke-linejoin: round; }
+svg .cl-wind.est { stroke-dasharray: 2 3; }
+svg .cl-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
