@@ -158,6 +158,22 @@ describe('full screen controller', () => {
     expect(history.i).toBe(0);
   });
 
+  it('reopen before the close\'s back() lands: the leftover pop does not close, and history stays one entry', () => {
+    const { fs, history, closes } = setup();
+    fs.open();
+    fs.close('button');
+    fs.open();
+    history.flush();
+    expect(fs.isOpen).toBe(true);
+    expect(closes).toEqual(['button']);
+    expect(history.i).toBe(1);
+    expect(isFullState(history.state)).toBe(true);
+    fs.close('escape');
+    history.flush();
+    expect(history.i).toBe(0);
+    expect(closes).toEqual(['button', 'escape']);
+  });
+
   it('falls back to the overlay when the Fullscreen API is missing', () => {
     const { fs } = setup({});
     fs.open();

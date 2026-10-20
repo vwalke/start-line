@@ -269,7 +269,9 @@ export function startApp(): void {
       if (v == null) u.searchParams.delete(k);
       else u.searchParams.set(k, v);
     }
-    history.replaceState(null, '', u);
+    // Keep the current state (the full-screen marker, if any) so a race-load URL
+    // update while the overlay is open doesn't leave a stuck history entry.
+    history.replaceState(history.state, '', u);
   }
 
   function render(): void {

@@ -137,9 +137,22 @@ export function createFullscreen(o: FullscreenOptions): FullscreenController {
     } else if (open && mode === 'native') close('native-exit');
   }
 
+  /** Put the open marker back (same URL). Used when a close's pending back() lands after a reopen. */
+  function pushMarker(): boolean {
+    try {
+      const s = o.history.state;
+      o.history.pushState({ ...(isObject(s) ? s : {}), [FULL_STATE_KEY]: true }, '', o.href());
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function onPop(): void {
     if (ownPop) {
       ownPop = false;
+      // Reopened before this close's back() landed: the entry just went; put it back.
+      if (open) pushed = pushMarker();
       return;
     }
     // Any history move while open (Android back, browser back) closes; the entry is already gone.
@@ -187,14 +200,12 @@ export function createFullscreen(o: FullscreenOptions): FullscreenController {
       if (open) return;
       open = true;
       mode = 'overlay';
-      ownPop = false;
       settling = null; // a late settle must not pull focus out of the new overlay
-      try {
-        const s = o.history.state;
-        o.history.pushState({ ...(isObject(s) ? s : {}), [FULL_STATE_KEY]: true }, '', o.href());
-        pushed = true;
-      } catch {
-        pushed = false; // no back-to-close, but the overlay still works
+      if (ownPop) {
+        // A previous close already called history.back(); that pop will re-push.
+        pushed = false;
+      } else {
+        pushed = pushMarker();
       }
       o.onOpen();
       const t = o.target;
