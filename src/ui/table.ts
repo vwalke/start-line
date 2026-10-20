@@ -342,7 +342,7 @@ function startColumns(a: RaceAnalysis): Col[] {
             "Distance to line from the boat's Vakaros device (feed dtlMm, bow-corrected; device start-fix timing). Primary figure. — = no usable fix; ⚠ = differs from our check by more than 3 m.",
           sort: (b) => b.start?.rcDtlM,
           first: 'asc',
-          prec: 1,
+          prec: 1 as const,
           cell: rcCell,
         },
         {
@@ -352,7 +352,7 @@ function startColumns(a: RaceAnalysis): Col[] {
             "Our independent estimate from the GPS track (bow offset along heading, sampled at the device's start fix). A check on the Vakaros figure, not the official number. ~ = interpolated across a telemetry gap.",
           sort: (b) => b.start?.dtlM,
           first: 'asc',
-          prec: 1,
+          prec: 1 as const,
           cell: oursCell,
           cls: 'num muted',
         },
@@ -364,7 +364,7 @@ function startColumns(a: RaceAnalysis): Col[] {
           title: 'Bow distance behind the line at the gun (bow-corrected). Negative = over. ~ = interpolated across a telemetry gap.',
           sort: (b) => b.start?.dtlM,
           first: 'asc',
-          prec: 1,
+          prec: 1 as const,
           cell: oursCell,
         },
       ];
@@ -381,7 +381,7 @@ function startColumns(a: RaceAnalysis): Col[] {
       better: 'low',
       sort: (b) => b.start?.lateS,
       first: 'asc',
-      prec: 1,
+      prec: 1 as const,
       cell: (b) => f1(b.start?.lateS),
     },
     {
@@ -390,7 +390,7 @@ function startColumns(a: RaceAnalysis): Col[] {
       title: '0% = pin (left) end, 100% = RC (right) end',
       sort: (b) => b.start?.linePosPct,
       first: 'asc',
-      prec: 0,
+      prec: 0 as const,
       cell: (b) => f0(b.start?.linePosPct),
       cls: 'num muted',
     },
@@ -401,7 +401,7 @@ function startColumns(a: RaceAnalysis): Col[] {
       better: 'high',
       sort: (b) => b.start?.speedKn,
       first: 'desc',
-      prec: 1,
+      prec: 1 as const,
       cell: (b) => f1(b.start?.speedKn),
     },
     {
@@ -410,7 +410,7 @@ function startColumns(a: RaceAnalysis): Col[] {
       title: 'S = starboard, P = port; vs the estimated wind. Sorts by angle off the wind, closest first.',
       sort: (b) => (b.start ? Math.abs(b.start.twaDeg) : null),
       first: 'asc',
-      prec: 0,
+      prec: 0 as const,
       cell: (b) => twaLabel(b.start?.twaDeg),
       cls: 'num muted',
     },
@@ -422,7 +422,7 @@ function startColumns(a: RaceAnalysis): Col[] {
             title: 'Leeward heel at the gun (the fix nearest the gun, within 2 s): + = heeled to leeward, − = to windward. — = none, or head to wind',
             sort: (b: BoatResult) => b.start?.heelAtGunDeg,
             first: 'desc' as const,
-            prec: 0,
+            prec: 0 as const,
             cell: (b: BoatResult) => (b.start?.heelAtGunDeg != null ? `<span class="heel">${f0(b.start.heelAtGunDeg)}°</span>` : '—'),
             cls: 'num muted',
           },
@@ -457,7 +457,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
       better: 'high',
       sort: (b) => S(b)?.vmgKn,
       first: 'desc',
-      prec: 2,
+      prec: 2 as const,
       cls: 'num leg',
       cell: val((s) => `<b>${f2(s.vmgKn)}</b>`),
     },
@@ -468,7 +468,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
       group,
       sort: (b) => S(b)?.sogKn,
       first: 'desc',
-      prec: 1,
+      prec: 1 as const,
       cell: val((s) => f1(s.sogKn)),
     },
     {
@@ -478,7 +478,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
       group,
       sort: (b) => S(b)?.twaDeg,
       first: kind === 'downwind' ? 'desc' : 'asc',
-      prec: 0,
+      prec: 0 as const,
       cell: val((s) => `${f0(s.twaDeg)}°`),
       cls: 'num muted',
     },
@@ -491,7 +491,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
             group,
             sort: (b: BoatResult) => S(b)?.heelDeg,
             first: 'desc' as const,
-            prec: 1,
+            prec: 1 as const,
             cell: val((s) => heelCell(s.heelDeg, s.heelCoverage, `${kind} legs`)),
           },
         ]
@@ -503,7 +503,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
       group,
       sort: (b) => S(b)?.distM,
       first: 'asc',
-      prec: 0,
+      prec: 0 as const,
       cell: val((s) => (s.distApprox ? gapSpan(`Approximate: a ${kind} leg bridges a telemetry gap. ${APPROX}.`, fM(s.distM)) : fM(s.distM))),
     },
     {
@@ -515,7 +515,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
       better: 'low',
       sort: (b) => S(b)?.timeS,
       first: 'asc',
-      prec: 0,
+      prec: 0 as const,
       cell: val((s) => `${duration(s.timeS)} <small class="rk">${s.place != null ? ordinal(s.place) : s.complete ? '' : `partial ${s.legs}/${s.of}`}</small>`),
     },
     kind === 'upwind'
@@ -574,7 +574,7 @@ function legColumns(a: RaceAnalysis): Col[] {
         better: 'high',
         sort: (b) => L(b)?.vmgKn,
         first: 'desc',
-        prec: 2,
+        prec: 2 as const,
         cls: 'num leg',
         cell: (b) => (L(b) ? `<b>${f2(L(b)!.vmgKn)}</b>` : '—'),
       },
@@ -585,7 +585,7 @@ function legColumns(a: RaceAnalysis): Col[] {
         group,
         sort: (b) => L(b)?.sogKn,
         first: 'desc',
-        prec: 1,
+        prec: 1 as const,
         cell: (b) => f1(L(b)?.sogKn),
       },
       {
@@ -596,7 +596,7 @@ function legColumns(a: RaceAnalysis): Col[] {
         // Upwind, closer to the wind first; downwind, deepest first.
         sort: (b) => L(b)?.twaDeg,
         first: leg.kind === 'downwind' ? 'desc' : 'asc',
-        prec: 0,
+        prec: 0 as const,
         cell: (b) => (L(b) ? `${f0(L(b)!.twaDeg)}°` : '—'),
         cls: 'num muted',
       },
@@ -609,7 +609,7 @@ function legColumns(a: RaceAnalysis): Col[] {
         group,
         sort: (b) => L(b)?.heelDeg,
         first: 'desc',
-        prec: 1,
+        prec: 1 as const,
         cell: (b) => (L(b) ? heelCell(L(b)!.heelDeg, L(b)!.heelCoverage, 'leg') : '—'),
       });
     }
@@ -621,7 +621,7 @@ function legColumns(a: RaceAnalysis): Col[] {
         group,
         sort: (b) => L(b)?.distM,
         first: 'asc',
-        prec: 0,
+        prec: 0 as const,
         cell: (b) => (L(b) ? legDistCell(L(b)!) : '—'),
       },
       {
@@ -631,7 +631,7 @@ function legColumns(a: RaceAnalysis): Col[] {
         group,
         sort: (b) => L(b)?.timeS,
         first: 'asc',
-        prec: 0,
+        prec: 0 as const,
         cell: (b) => {
           const l = L(b);
           if (!l) return '—';
@@ -684,7 +684,7 @@ function legColumns(a: RaceAnalysis): Col[] {
       group: race,
       sort: (b) => b.distM,
       first: 'asc',
-      prec: 0,
+      prec: 0 as const,
       cell: raceDistCell,
     },
     {
@@ -696,7 +696,7 @@ function legColumns(a: RaceAnalysis): Col[] {
       better: 'low',
       sort: (b) => b.raceTimeS,
       first: 'asc',
-      prec: 0,
+      prec: 0 as const,
       cell: (b) => `${duration(b.raceTimeS)}<span class="sub">${localTime(b.finishMs, a.meta.tzOffsetMs)}</span>`,
     },
     {
@@ -708,7 +708,7 @@ function legColumns(a: RaceAnalysis): Col[] {
       better: 'high',
       sort: (b) => b.sogAvgKn,
       first: 'desc',
-      prec: 2,
+      prec: 2 as const,
       cell: (b) => f2(b.sogAvgKn),
     },
     {

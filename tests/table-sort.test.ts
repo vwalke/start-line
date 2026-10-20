@@ -212,9 +212,16 @@ describe('Rank column', () => {
     expect(top).toMatch(
       new RegExp(`^<th class="num rank" scope="col" rowspan="2" title="Rank in the current sort, by ${a.legs[0].name} SOG kn ↓" aria-label="[^"]+">Rank<small>B1 SOG</small></th>`),
     );
-    expect(rankCol(html)).toEqual(a.boats.map((_, i) => String(i + 1)));
+    const shownSog = (v: SortVal) => shownVal(v, 1);
+    const ranksBy = (dir: 'asc' | 'desc') =>
+      sortBoats(a.boats, (b) => b.legs[0]?.sogKn, dir).map((b) =>
+        rankCell(sortRanks(a.boats, (x) => x.legs[0]?.sogKn, dir, shownSog).get(b.id)).replace(/<[^>]+>/g, ''),
+      );
+    expect(rankCol(html)).toEqual(ranksBy('desc'));
+    expect(rankCol(html)[0]).toMatch(/^=?1$/);
     const rev = legsTable(a, null, { key: 'L0.sog', dir: 'asc' });
-    expect(rankCol(rev)).toEqual(rankCol(html));
+    expect(rankCol(rev)).toEqual(ranksBy('asc'));
+    expect(rankCol(rev)[0]).toMatch(/^=?1$/);
     expect(rev).toContain('SOG kn ↑"');
     // Every row has one more cell than there are sort buttons.
     const nTd = (/<tr data-id[^>]*>(.*?)<\/tr>/.exec(html)![1].match(/<td/g) ?? []).length;
