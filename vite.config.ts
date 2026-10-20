@@ -2,8 +2,16 @@ import { defineConfig } from 'vitest/config';
 
 // In production /api/* is served by the Cloudflare Pages Function in
 // functions/api/. Locally (vite dev / vite preview) we proxy the same
-// paths to the two upstream hosts so no Cloudflare tooling is needed.
+// paths to the upstream hosts so no Cloudflare tooling is needed. (The dev
+// proxy has no allowlist and does not strip Yachtscoring's personal fields;
+// the app never reads them.)
 const apiProxy = {
+  '/api/ys': {
+    target: 'https://api.yachtscoring.com',
+    changeOrigin: true,
+    secure: true,
+    rewrite: (path: string) => path.replace(/^\/api\/ys/, '/v1/public'),
+  },
   '/api/telemetry': {
     target: 'https://teleapi.regatta.app',
     changeOrigin: true,

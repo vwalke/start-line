@@ -1,4 +1,4 @@
-import type { RcStatus } from '../data/types';
+import type { FinishSource, RaceResults, RcStatus } from '../data/types';
 import type { Vec } from './geo';
 
 /** How much track before the start fix the start chart draws behind each boat. */
@@ -145,6 +145,10 @@ export interface BoatResult {
   colorSlot: number;
   finishPos: number | null;
   finishMs: number | null;
+  /** Official scoring code (DSQ, DNF, …) when official results are linked; finishPos is then null. */
+  finishCode?: string;
+  /** Where finishMs came from, when the race's results were resolved ('tracker': a finish-line crossing, shown as ~). */
+  finishSource?: FinishSource;
   raceTimeS: number | null;
   sogAvgKn: number | null;
   /** Distance sailed gun → finish, m (the sum of the legs); null without a finish. */
@@ -255,6 +259,8 @@ export interface RaceAnalysis {
     sourceLabel: string;
     sourceKind: string;
     eventId?: string;
+    /** Where places and finish times came from (official results, tracker crossings), when resolved. */
+    results?: RaceResults;
   };
   line: LineInfo;
   finishLine: { left: Vec; right: Vec } | null;

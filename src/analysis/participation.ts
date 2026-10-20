@@ -214,6 +214,11 @@ export function classifyParticipation(data: RaceData): Map<string, Participation
 
   for (const s of stats) {
     const b = s.b;
+    // The source saw it wasn't in this race (data/finishes.ts awayFromStart).
+    if (b.notRacing) {
+      out.set(b.id, { status: 'non-competitor', reasons: [b.notRacing] });
+      continue;
+    }
     const host = dupOf.get(b.id);
     // A boat both trackers agree is the "host" is never also the duplicate of a third.
     if (host && !dupOf.has(host.id)) {

@@ -275,7 +275,8 @@ Switching races keeps the tab.
 | `racesense.vakaros.com/api/landing` | event list | via our `/api` proxy (no CORS upstream) |
 | `racesense.vakaros.com/api/regatta?event=` | divisions, entries, course & mark trackers, gun time, start line at the gun, OCS, race-control DTL, finishes | via `/api` proxy |
 | `racesense.vakaros.com/api/wind?v=3&…` | modelled wind, used only to cross-check | via `/api` proxy |
-| `teleapi.regatta.app/telemetry/event/{id}` | ~5 Hz GPS tracks for boats and marks, with heel (`roll`) and trim (`pitch`) | via `/api/telemetry/event/{id}` (same-origin proxy; one race window, paginated with `after`) |
+| `teleapi.regatta.app/telemetry/event/{id}` | ~5 Hz GPS tracks for boats and marks, with heel (`roll`) and trim (`pitch`), and each device's `race_number` / `race_stage` | via `/api/telemetry/event/{id}` (same-origin proxy; one race window, paginated with `after`) |
+| `api.yachtscoring.com/v1/public/…` | official race numbers, places, codes and (if plausible) finish times | via `/api/ys/…` (allowlisted, owner/crew fields stripped, edge-cached) |
 
 - **Unofficial.** These are public but undocumented feeds, read anonymously,
   and they may change without notice. Recall is not affiliated with
@@ -320,6 +321,122 @@ Switching races keeps the tab.
 - **Politeness:** responses are cached at the edge (Pages Function) and in the
   browser (Cache API). Finished races are cached for a long time, so a repeat
   visit makes no telemetry requests. There is no bulk downloading.
+
+## Race list, official results and rebuilt races
+
+The race picker lists every race with a gun and a start line, newest first,
+as short options: `Race 4 · Wed 11:40 · RS 5`, `Practice · Mon 09:55 · RS 1`,
+`Race 3 · Wed 08:55 · RS 4 · ~ tracker`, `Race 8 · Fri 09:55 · rebuilt`
+(Eastern time; the select's tooltip says EDT/EST; `RS n` is RaceSense's own
+number, shown when it differs). The race header shows the same name, with
+RaceSense's number as a small `RS n` tag, and one line of chips with an ⓘ
+"Results & numbering" (`#race-head`). The list first shows from RaceSense
+alone; official results and the feed check run afterwards and relabel it.
+
+**What is listed.** Zero-finisher races now appear: their finishes come from
+the official results or the tracks. Hidden: a race with no recorded start line
+or a gun more than a day outside the event's dates (AYC Fall Series J105 race 6:
+four starts on Oct 13, a week after the weekend, no line). **Practice:**
+RaceSense's `isPractice`; when linked, a race before official race 1 with no
+official race at its gun; when not linked, a lone zero-finisher race on the
+first racing day before the first day with finishes (J/70 Worlds Monday).
+
+**Official results (Yachtscoring)**, `src/data/official/`. Candidates come from
+one start-date search (event start − 10 days to end + 1 day), else a name
+search. They are scored on name words (acronyms count: "CBC" = "Chesapeake Bay
+Championship"), date overlap and venue (name 0.6, dates 0.3, venue 0.1; ≥ 0.35
+to be checked; best 3). Each is then checked on what can't be faked. Per
+RaceSense division, every class (circle + class) scores on:
+- start times (0.45): share of the division's guns with an official start within
+  2 min after the time-zone fix;
+- sail numbers (0.45): share of boats paired by sail over the smaller fleet,
+  from one race report;
+- class name (0.1).
+
+A class links only at ≥ 0.6, with ≥ 60% sails paired and a 0.15 margin over the
+next class. An automatically matched event must also beat the next candidate by
+0.15. Otherwise there is no link (`⚠ no official results linked`).
+
+- **Time zone:** Yachtscoring writes local wall clock with a `Z`, and its
+  `localGMTOffset` can be wrong (−5 in Annapolis in October). The offset is the
+  whole or half hour that lines up the most starts with RaceSense guns; ties go
+  to the RaceSense race's own offset.
+- **Races** match by gun (closest first, ≤ 2 min), then left-overs in order
+  between matched ones (≤ 45 min apart), never by number.
+- **Boats** pair by sail in tiers, each pairing unique keys only: country +
+  number; number without prefix ("USA"/"US"/"Uni"/"None"/country, spaces,
+  punctuation, leading zeros: "0005" = "USA 5"); digits only ("251-L" =
+  "USA 251"); boat name. Unpaired boats get a ⚠ chip, with the list behind the ⓘ.
+
+**Finishes.**
+- **Linked:** official places and codes (DSQ, DNF, OCS, …) are the places the
+  app uses. An AOK boat that RaceSense flagged OCS is cleared; a coded boat has
+  no place.
+- **Official times** are used only if plausible: ≥ 3 finishers have a
+  finish-line crossing within 10 min of their official time, the median gap is
+  ≤ 60 s, and every official finish is after the gun and before the next gun.
+  Otherwise the chip is `⚠ official places · tracker times`, and times come from
+  RaceSense's finish, else the crossing.
+- **Not linked:** RaceSense's finishes. A race with none gets **tracker
+  finishes**, marked `~` per boat in the boat list and `⚠ ~ tracker finishes` on
+  the race. A tracker finish is the first crossing of the finish line (its two
+  trackers, where they were at the time; the start line's trackers when the
+  course has no finish line) after the boat's own `race_stage` turned
+  `finishing` (its last leg), and not before the fleet's onset (20th
+  percentile) less a minute. Without stage rows it is the first crossing after
+  the boat's last time ≥ 70% of its furthest distance out. A track that doesn't
+  cross gets no finish.
+- Cascais race 2, with RaceSense finishes as truth: 98/100 reproduced, median
+  0.6 s off.
+- **Not in the race:** in such a race (no RaceSense finishes, no official
+  results), a tracker that stays over 1 km from the start line's middle from
+  5 min before the gun to 10 min after, and never finishes, is set aside as not
+  racing, with its reason, as coach boats are. It is then out of the start
+  view's Fit, the ranks and the findings. Cascais official race 4 had three
+  boats scored DNC that sat 4.9 km off.
+
+**Rebuilt races**, `src/data/orphans.ts`: races the tracks show but RaceSense
+doesn't list.
+- **Gun:** every telemetry row carries `race_number`/`race_stage`. A race's gun
+  is where its devices flip from `starting` to `in_progress`: the third-earliest
+  device, rounded to the second, stored +1 s because RaceSense's startTime is
+  hh:mm:01. A race number that starts again is a restart, and the later start
+  wins.
+- **Start line:** the start-line trackers' positions at the gun, else the
+  nearest listed race's line.
+- **Probe rule, linked:** one 60 s window at each official start RaceSense
+  lacks. A flip there gives the gun. No flip, but the division's boats moving,
+  gives a rebuild at the official start (`rebuilt · official gun`).
+- **Probe rule, not linked:** applies after the last listed race of each racing
+  day that has fewer races than the event's busiest day (practice-only days
+  skipped). It probes 10 s at 3 min after that gun, then every 30 min for up to
+  4 h until the feed goes quiet. Then it binary-searches each later race
+  number's last starting → in_progress bracket and refines with a 60 s window.
+- **Budget:** at most 48 requests per event, cached 30 days once the event is
+  over a day old. It runs after the list renders, with a progress chip
+  (`checking the feed 12/48`; `⚠ feed check incomplete` if the budget runs out).
+- **URL:** a rebuilt race's number is its gun's UTC minute, `YYYYMMDDHHMM`
+  (`race=202609111355`), which can't collide with RaceSense's small numbers.
+  Old `race=<RaceSense number>` links open the same race as before.
+
+**Manual link.** In the ⓘ, paste a `yachtscoring.com/emenu/<id>` link or the
+number (sets `ys=<id>`). **Off** sets `ys=0`; **Auto** drops `ys`.
+`ysc=<split id or circle|class>` picks the class. Both are kept in the URL and
+the saved last view, and dropped when another event is picked.
+
+**Failures** (Yachtscoring down, 4xx, malformed, no match) keep RaceSense
+numbering with a chip: `⚠ official results unavailable`, `⚠ no official results
+linked`, or `⚠ no official match` for one division. Nothing else changes.
+
+**Goldens** are in `tests/recoveryGolden.test.ts`. Their fixtures come from
+`npx vite-node scripts/make-recovery-fixtures.ts -- <cache-dir>`, which needs
+the network once.
+- J/105 CBC ↔ 50575: official places used, placeholder times rejected.
+- AYC Fall Series weekend 1 ↔ 50574: the Weekend 1 circle; J70 RaceSense race 1
+  = official race 2; official race 1 rebuilt.
+- J/70 Worlds (no Yachtscoring event): 10 races + practice, numbered in order;
+  official races 4 and 8 rebuilt. Tracker places vs Sailti's official places:
+  Spearman 0.97–1.00, ≥ 99% within ±2 places.
 
 ## Vakaros start data quality
 
@@ -366,14 +483,20 @@ src/
   data/types.ts              RaceData: the normalized race model (the seam)
   data/racesense/            RaceSense source adapter (pure) + fetch/pagination
   data/vkx.ts                documented stub for a future .vkx upload source
+  data/official/             Yachtscoring: parsing, sail numbers, matching, linking
+  data/finishes.ts           finish-line crossings, tracker finishes, plausible official times
+  data/raceList.ts           the race list: practice, hidden races, numbering
+  data/orphans.ts            rebuilt races from the feed's race stages (bounded probes)
+  data/recovery.ts           glue: link request, per-race official input, probe fetcher
   data/cache.ts              memory + Cache API caching
   analysis/                  RaceData -> RaceAnalysis (geometry, legs, wind, tacks/gybes, heel, coverage, upwind/downwind summaries, place changes, findings)
   worker.ts                  fetch + normalize + analyze, off the main thread
   ui/                        plain TS + SVG rendering
-functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing/regatta/wind/telemetry
+functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing/regatta/wind/telemetry/ys
 functions/_lib.ts            allowlist, query validation and cache TTL (not a route)
 tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1, j105_r2)
 scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88|j105|j105r1)
+scripts/make-recovery-fixtures.ts  records tests/fixtures/recovery (Yachtscoring, probes, finishing bands; network once)
 ```
 
 The analysis only ever sees `RaceData`. A future `.vkx` upload
@@ -394,7 +517,7 @@ Requires Node 20.19+ (CI uses Node 22).
 
 ```sh
 npm install
-npm run dev        # http://localhost:5173 (Vite proxies /api and /api/telemetry)
+npm run dev        # http://localhost:5173 (Vite proxies /api, /api/telemetry and /api/ys; the dev proxy has no allowlist or stripping)
 npm run build && npm run preview   # production build; preview proxies /api too
 npm run lint && npm run typecheck && npm test
 ```
@@ -411,7 +534,7 @@ npm run lint && npm run typecheck && npm test
   `/api/landing` returns every listed event at once, so this covers the whole
   feed. Typing never loads an event: pick one in the Event list, or press
   Enter when exactly one matches. Esc clears the search; `/` focuses it.
-- Deep links: `?event=<eventId>&div=<division>&race=<n>`, optionally with `#start` or `#race` for the tab. Add `&nc=all` to keep coach boats and spare trackers as competitors. By default they are set aside, judged from their event results and tracks (`src/analysis/participation.ts`), not from their names.
+- Deep links: `?event=<eventId>&div=<division>&race=<n>`, optionally with `#start` or `#race` for the tab (`race` is RaceSense's number, or a rebuilt race's `YYYYMMDDHHMM`). `&ys=<Yachtscoring event>`, `&ys=0` or `&ysc=<class>` set the official-results link. Add `&nc=all` to keep coach boats and spare trackers as competitors. By default they are set aside, judged from their event results and tracks (`src/analysis/participation.ts`), not from their names.
 
 Tests never touch the network. To regenerate the fixture from raw downloads,
 run `node scripts/make-fixture.mjs <dir-with-raw-json>`. Add `--preset c31` to
@@ -428,7 +551,7 @@ position columns, except the J/105 ones.
    **Node version:** set `NODE_VERSION=22`.
 3. **Functions:** `functions/` is picked up automatically, and
    `functions/api/[[path]].ts` serves `/api/landing`, `/api/regatta`,
-   `/api/wind` and `/api/telemetry/event/{id}`. It only forwards those.
+   `/api/wind`, `/api/telemetry/event/{id}` and `/api/ys/…`. It only forwards those.
    Query parameters are allowlisted and validated (event id, lat/lon, ISO
    dates; telemetry `after`/`before` as 10–16 digit ms, optional `limit`
    and `division`). Unknown paths and extra parameters are dropped or
@@ -439,6 +562,19 @@ position columns, except the J/105 ones.
    wind for 6 h (30 days for past days), and telemetry 7 days when
    `before` is more than a day ago else 60 s. Upstream errors and
    non-JSON landing/regatta/wind bodies are not cached.
+   `/api/ys/` goes to `https://api.yachtscoring.com/v1/public/`. GET only, and
+   exactly these paths: `event` (search: `name_contains`,
+   `startDate_gte`/`_lte` ≤ 62 days apart, `sort`, `size` ≤ 100), `event/:id`,
+   `event/:id/splits` (`getAllRows`), `/races` (`size`),
+   `/result-detail-report` (`raceNumber`, required), `/cumulative-result`,
+   `/boats` (`size`). Ids are numeric, unknown params are dropped, no request
+   headers are forwarded, and responses are buffered (2 MB cap) and must be
+   JSON. Owner, crew, skipper, contact and similar fields are stripped before
+   the response is cached or returned. Cache: searches 1 h; anything else
+   7 days once the event has been quiet for 2 days (end date, last start,
+   finish and edit), else 5 min; errors are not cached. Yachtscoring sends
+   `Access-Control-Allow-Origin: *`, so this route is for the edge cache, the
+   stripping and a single origin, not for CORS. No settings change is needed.
 4. **No secrets or environment variables are needed.**
 5. Custom domain: `recall.walkeforward.com`.
 
@@ -455,3 +591,18 @@ Wrangler is intentionally not a dependency.
   interpolated between beats.
 - Fleets of more than 8 boats fall back to neutral boat colours, with sail
   numbers as direct labels.
+- Official results come from Yachtscoring only. Sailti (e.g. the J/70 Worlds)
+  is a test golden, not a provider. One-design results often carry
+  placeholder finish times (J/105 CBC, AYC Fall Series): places are used,
+  times aren't.
+- The unlinked orphan scan only looks after the last race of a day that has
+  fewer races than the busiest day. A missing first race of a day is found
+  only when linked, at its official start.
+- A rebuilt race has no Vakaros start fixes (DTL comes from the tracks only)
+  and no OCS flags.
+- A rebuilt race uses the division's RaceSense course list, which can be wrong
+  for that day. At Cascais on Wednesday afternoon (official race 4) the listed
+  M1/M2 trackers (0x4B1C, 0x4947) sent nothing. The windward mark was tracker
+  0x408D, which isn't in the course list, so only the gate is tracked and the
+  legs come out as "Beat 1, Run 1". Mapping unlisted trackers to course marks
+  is not attempted.

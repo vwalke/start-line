@@ -62,9 +62,10 @@ export interface QueryErr {
 export type ProxyRoute =
   | { kind: 'racesense'; path: string }
   | { kind: 'telemetry'; eventId: string }
+  | { kind: 'ys'; resource: YsResource; path: string }
   | { kind: 'error'; status: number; error: string };
 
-/** landing / regatta / wind, or /telemetry/event/:id (streamed, larger). */
+/** landing / regatta / wind, /telemetry/event/:id (streamed, larger), or ys/… (Yachtscoring). */
 export function parseRoute(path: string): ProxyRoute {
   if (path in ALLOWED) return { kind: 'racesense', path };
   const m = /^telemetry\/event\/([^/]+)$/.exec(path);
@@ -72,7 +73,119 @@ export function parseRoute(path: string): ProxyRoute {
     if (!EVENT_ID.test(m[1])) return { kind: 'error', status: 400, error: 'Bad event' };
     return { kind: 'telemetry', eventId: m[1] };
   }
+  if (path.startsWith('ys/')) return parseYsRoute(path.slice(3));
   return { kind: 'error', status: 404, error: 'Unknown endpoint' };
+}
+
+// ---- Yachtscoring (official results). The API sends `Access-Control-Allow-Origin: *`, so this
+// route is for the edge cache, stripping personal fields and a single origin, not for CORS.
+
+export const YS_UPSTREAM = 'https://api.yachtscoring.com/v1/public/';
+export const HOUR = 3600;
+
+export type YsResource = 'search' | 'event' | 'splits' | 'races' | 'results' | 'cumulative' | 'boats';
+
+/** Numeric ids only (Yachtscoring event ids are 5 digits today). */
+const YS_ID = /^[1-9]\d{0,6}$/;
+const YS_SUB: Record<string, YsResource> = {
+  splits: 'splits',
+  races: 'races',
+  'result-detail-report': 'results',
+  'cumulative-result': 'cumulative',
+  boats: 'boats',
+};
+
+/** `event` (search), `event/:id`, `event/:id/{splits,races,result-detail-report,cumulative-result,boats}`. */
+export function parseYsRoute(path: string): ProxyRoute {
+  if (path === 'event') return { kind: 'ys', resource: 'search', path };
+  const m = /^event\/([^/]+)(?:\/([^/]+))?$/.exec(path);
+  if (!m) return { kind: 'error', status: 404, error: 'Unknown endpoint' };
+  if (!YS_ID.test(m[1])) return { kind: 'error', status: 400, error: 'Bad event' };
+  if (m[2] === undefined) return { kind: 'ys', resource: 'event', path };
+  const resource = YS_SUB[m[2]];
+  return resource ? { kind: 'ys', resource, path } : { kind: 'error', status: 404, error: 'Unknown endpoint' };
+}
+
+const YS_SIZE = (max: number) => (v: string) => /^\d{1,3}$/.test(v) && Number(v) >= 1 && Number(v) <= max;
+/** Known query params per resource, in canonical order; the upstream sees nothing else. */
+const YS_RULES: Record<YsResource, Record<string, (v: string) => boolean>> = {
+  search: {
+    name_contains: (v) => v.trim().length > 0 && v.length <= 60 && !/[<>{}\\]/.test(v),
+    startDate_gte: (v) => DATE.test(v),
+    startDate_lte: (v) => DATE.test(v),
+    sort: (v) => /^(startDate|endDate|name)\.(asc|desc)$/.test(v),
+    size: YS_SIZE(100),
+  },
+  event: {},
+  splits: { getAllRows: (v) => v === 'true' },
+  races: { size: YS_SIZE(200) },
+  results: { raceNumber: (v) => /^[1-9]\d{0,2}$/.test(v) },
+  cumulative: {},
+  boats: { size: YS_SIZE(200) },
+};
+
+/** Drop unknown params, validate the rest; a search needs a name or a date window, a race report its race. */
+export function buildYsQuery(resource: YsResource, search: URLSearchParams): QueryOk | QueryErr {
+  const rules = YS_RULES[resource];
+  const qs = new URLSearchParams();
+  for (const [k, ok] of Object.entries(rules)) {
+    const v = search.get(k);
+    if (v == null || v === '') continue;
+    if (!ok(v)) return { ok: false, status: 400, error: `Bad ${k}` };
+    qs.set(k, v);
+  }
+  if (resource === 'search' && !qs.has('name_contains') && !(qs.has('startDate_gte') && qs.has('startDate_lte'))) {
+    return { ok: false, status: 400, error: 'Missing name_contains or date window' };
+  }
+  if (resource === 'search' && qs.has('startDate_gte') && qs.has('startDate_lte')) {
+    const span = Date.parse(qs.get('startDate_lte')!) - Date.parse(qs.get('startDate_gte')!);
+    if (!(span >= 0) || span > 62 * DAY * 1000) return { ok: false, status: 400, error: 'Bad date window' };
+  }
+  if (resource === 'results' && !qs.has('raceNumber')) return { ok: false, status: 400, error: 'Missing raceNumber' };
+  return { ok: true, qs };
+}
+
+/**
+ * Keys that name or reach a person (owners, crew, skippers, contacts). Removed at any depth before
+ * a response is cached or returned; Recall needs sail numbers, boat names, classes, times and places only.
+ */
+export const YS_PERSONAL = /owner|crew|skipper|helm|captain|email|phone|mobile|contact|firstname|lastname|fullname|person|member|yachtclub|homeport|hometown|biography|photo|avatar|user/i;
+
+export function stripPersonal(x: unknown): unknown {
+  if (Array.isArray(x)) return x.map(stripPersonal);
+  if (x === null || typeof x !== 'object') return x;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(x as Record<string, unknown>)) {
+    if (YS_PERSONAL.test(k)) continue;
+    out[k] = stripPersonal(v);
+  }
+  return out;
+}
+
+const YS_DATE_KEYS = /^(startDate|endDate|startTime|finishTime|updatedAt|raceUpdatedAt|resultUpdatedAt)$/;
+
+/** The latest date-like value in a response (event end, race start, finish, last edit), ms; NaN if none. */
+export function latestDate(x: unknown, depth = 0): number {
+  if (depth > 8 || x === null || typeof x !== 'object') return NaN;
+  let best = NaN;
+  const take = (t: number): void => {
+    if (Number.isFinite(t) && !(t <= best)) best = t;
+  };
+  for (const [k, v] of Object.entries(x as Record<string, unknown>)) {
+    if (typeof v === 'string' && YS_DATE_KEYS.test(k)) take(Date.parse(v));
+    else if (v && typeof v === 'object') take(latestDate(v, depth + 1));
+  }
+  return best;
+}
+
+/**
+ * Searches: 1 h. Everything else: 7 days once the event has been quiet for 2 days (its end date,
+ * last start, last finish and last edit all older than that); 5 min while it is current.
+ */
+export function ysTtl(resource: YsResource, body: unknown, now = Date.now()): number {
+  if (resource === 'search') return HOUR;
+  const last = latestDate(body);
+  return Number.isFinite(last) && now - last > 2 * DAY * 1000 ? 7 * DAY : 5 * MIN;
 }
 
 /** Drop unknown params, validate the rest, require the ones each endpoint needs. */

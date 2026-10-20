@@ -528,12 +528,16 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     const covEnd = ranked ? (b.finishMs != null && b.finishMs > gun ? b.finishMs : lastEnd) : null;
     const raceCov = covEnd != null && covEnd > gun ? coverage(tr.t, gun, covEnd) : null;
     const pos = ranked ? finishOrder.indexOf(b.id) : -1;
+    // Official results: their place stands (the finish order by time can differ: penalties, a boat with no tracked finish).
+    const official = data.results?.places === 'official';
     const result: BoatResult = {
       id: b.id,
       sail: b.sail,
       name: b.name,
       colorSlot: ranked ? sailOrder.indexOf(b) : -1,
-      finishPos: pos >= 0 ? pos + 1 : null,
+      finishPos: official ? (ranked ? (b.officialPlace ?? null) : null) : pos >= 0 ? pos + 1 : null,
+      ...(b.officialCode ? { finishCode: b.officialCode } : {}),
+      ...(b.finishSource ? { finishSource: b.finishSource } : {}),
       finishMs: b.finishMs,
       raceTimeS,
       sogAvgKn,
@@ -699,6 +703,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       sourceLabel: data.source.label,
       sourceKind: data.source.kind,
       eventId: data.source.eventId,
+      ...(data.results ? { results: data.results } : {}),
     },
     line,
     finishLine,

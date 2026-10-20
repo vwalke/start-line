@@ -6,7 +6,8 @@ import { analyzeRace } from './analysis/analyze';
 import { coachRaceKey, coachRaw, type CoachRaw } from './analysis/coach';
 import type { RaceAnalysis } from './analysis/types';
 import type { RaceData } from './data/types';
-import { buildRaceData, currentDoc, findRace, listRaces, telemetryWindow } from './data/racesense/adapter';
+import { buildRaceData, currentDoc, findRace, listRaces, nextGunMs, telemetryWindow, type OfficialRaceInput } from './data/racesense/adapter';
+import { eventFinished } from './data/recovery';
 import { fetchTelemetry, fetchWind } from './data/racesense/api';
 import type { RegattaResponse } from './data/racesense/types';
 
@@ -24,6 +25,8 @@ export type WorkerRequest =
       classLabel?: string;
       /** Keep raw RaceData so the Coach tab can build the wind series. Off unless `?coach=1`. */
       coach?: boolean;
+      /** This race's official results (linked by gun); places and codes win, times if plausible. */
+      official?: OfficialRaceInput | null;
     }
   /** Coach (lazy, on the tab's first open): the fleet wind series and start crossings of the race last analysed, from its raw fixes. */
   | { id: number; type: 'coach-raw'; key: string };
@@ -48,7 +51,11 @@ async function handle(req: Extract<WorkerRequest, { type: 'live' }>): Promise<Ra
   const doc = currentDoc(req.regatta);
   const ref = { division: req.division, raceNumber: req.raceNumber };
   const win = telemetryWindow(doc, ref);
-  const finished = listRaces(doc).find((r) => r.division === ref.division && r.raceNumber === ref.raceNumber)?.finished ?? false;
+  // A race of an event over for a day is finished too, finishes or not (its windows can be cached long).
+  const finished =
+    (listRaces(doc, { practice: true }).find((r) => r.division === ref.division && r.raceNumber === ref.raceNumber)?.finished ?? false) || eventFinished(doc);
+  const nextGun = nextGunMs(doc, ref);
+  const resolve = { official: req.official ?? null, nextGunMs: nextGun };
   progress('Fetching tracks for this race…');
   const pages = await fetchTelemetry(req.eventId, req.division, win.after, win.before, {
     finished,
@@ -59,7 +66,7 @@ async function handle(req: Extract<WorkerRequest, { type: 'live' }>): Promise<Ra
   const gun = race.starts.at(-1)?.startTime ?? win.after;
   const wind = line ? await fetchWind((line.leftEnd[0] + line.rightEnd[0]) / 2, (line.leftEnd[1] + line.rightEnd[1]) / 2, gun) : undefined;
   progress('Crunching…');
-  let data = buildRaceData(req.regatta, ref, pages, { eventId: req.eventId, wind, classLabel: req.classLabel });
+  let data = buildRaceData(req.regatta, ref, pages, { eventId: req.eventId, wind, classLabel: req.classLabel, ...resolve });
   // Marks shared across divisions may not carry this division's tag: top up from a 1-minute unfiltered window.
   if (data.course.length === 0 && (findRace(doc, ref).div.courses?.[0]?.achievements?.length ?? 0) > 2) {
     progress('Fetching mark positions…');
@@ -69,7 +76,7 @@ async function handle(req: Extract<WorkerRequest, { type: 'live' }>): Promise<Ra
       const role = p.Fields.indexOf('role');
       return { Fields: p.Fields, Rows: role < 0 ? p.Rows : p.Rows.filter((r) => r[role] === 'mark') };
     });
-    data = buildRaceData(req.regatta, ref, [...pages, ...markOnly], { eventId: req.eventId, wind, classLabel: req.classLabel });
+    data = buildRaceData(req.regatta, ref, [...pages, ...markOnly], { eventId: req.eventId, wind, classLabel: req.classLabel, ...resolve });
     extra.length = 0;
   }
   pages.length = 0;
