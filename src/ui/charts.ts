@@ -162,9 +162,7 @@ export function startFitBox(a: RaceAnalysis, widthPx?: number): Box {
 export const isNarrowStart = (widthPx?: number): boolean => widthPx != null && widthPx > 0 && widthPx < NAME_MIN_W;
 
 function startFrame(a: RaceAnalysis, widthPx?: number) {
-  const rot = rotator(a.wind.twdAtGunDeg);
-  const L = rot(a.line.left);
-  const R = rot(a.line.right);
+  const { rot, L, R } = startGeom(a);
   const box: Box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
   grow(box, L);
   grow(box, R);
@@ -233,12 +231,108 @@ function roomForFavLabel(a: RaceAnalysis, L: Vec, R: Vec, box: Box, narrow: bool
   }
 }
 
-function startView(a: RaceAnalysis, v?: View, widthPx?: number) {
-  const { rot, L, R, box } = startFrame(a, widthPx);
+/**
+ * A start chart frame other than the inline Fit (full screen): its fit box, and the
+ * screen width its unit is relative to (the unit is ~1 css px at `refPx` wide).
+ */
+export interface StartFrame {
+  box: Box;
+  refPx: number;
+}
+
+/** Full screen: margins round the line and bows, css px (names, the PIN/RC labels and the wind arrow above). */
+const FULL_PAD_PX = 30;
+const FULL_PAD_TOP_PX = 52;
+/** Full screen: the favoured-end label may take at most this share of the width past its end. */
+const FULL_FAV_MAX = 0.22;
+/** Full screen in portrait: line + fleet framed this much wider than tall gets the rotate hint. */
+export const ROTATE_ASPECT = 1.6;
+
+/**
+ * The start chart's full-screen Fit for a `widthPx` × `heightPx` chart: the line and the
+ * bows at the gun with px margins (and room for the favoured-end label on its extension),
+ * grown to the chart's own aspect so the fleet fills the width (or height). Spare height
+ * always goes below the line, to the trails (the line sits near the top, under its margin
+ * for names, PIN/RC and the wind arrow). Spare width is centred on line, fleet and trails. Trails
+ * show only as far as they fit. The unit is ~1 css px (`refPx` is the width, at least the
+ * narrow-text width), so names stay ~10 px at any size. `trails`: line, bows and the trails
+ * near the line. `rotate`: portrait, and line + fleet much wider than tall (landscape would
+ * draw it bigger).
+ */
+export function startFullFrame(a: RaceAnalysis, widthPx: number, heightPx: number): StartFrame & { core: Box; trails: Box; rotate: boolean } {
+  const { rot, L, R } = startGeom(a);
+  const core: Box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+  grow(core, L);
+  grow(core, R);
+  for (const d of a.drawings) if (d.bow) grow(core, rot(d.bow));
+  if (!(widthPx > 0 && heightPx > 0)) return { box: startFrame(a).box, refPx: 600, core, trails: core, rotate: false };
+  const refPx = Math.max(widthPx, NAME_MIN_W);
+  const unitPx = widthPx / refPx;
+  const trails = { ...core };
+  const mid: Vec = [(L[0] + R[0]) / 2, (L[1] + R[1]) / 2];
+  const reach = Math.max(40, 0.8 * a.line.lengthM);
+  for (const d of a.drawings) {
+    for (let i = 0; i < d.trail.x.length; i++) {
+      const p = rot([d.trail.x[i], d.trail.y[i]]);
+      if (Math.hypot(p[0] - mid[0], p[1] - mid[1]) < reach) grow(trails, p);
+    }
+  }
+  // The favoured-end label's length along its extension, css px (its font as `startSnapshot` sizes it).
+  const fav = lineBias(a.line, a.wind.twdAtGunDeg).favored;
+  // The longest wording with the metres that takes at most FULL_FAV_MAX of the width; else none (it runs along the line).
+  const favFsUnits = 0.85 * NAME_FS * Math.max(1, NAME_MIN_W / widthPx);
+  const favPx =
+    fav === 'square'
+      ? 0
+      : (favouredTexts(a, startDims(a))
+          .filter((t) => /· \d+ m$/.test(t))
+          .map((t) => (FAV_GAP_PX + 6 + textWidth(t, favFsUnits)) * unitPx)
+          .find((px) => px <= FULL_FAV_MAX * widthPx) ?? 0);
+  const [end, other] = fav === 'left' ? [L, R] : [R, L];
+  const len = Math.hypot(end[0] - other[0], end[1] - other[1]) || 1;
+  const u: Vec = [(end[0] - other[0]) / len, (end[1] - other[1]) / len];
+  const aspect = widthPx / heightPx;
+  // Metres per css px; the margins and the label are in px, so settle it in a few passes.
+  let mpp = Math.max(core.x1 - core.x0, 1) / Math.max(widthPx - 2 * FULL_PAD_PX, 1);
+  let b: Box = core;
+  let W = 0;
+  let H = 0;
+  for (let pass = 0; pass < 5; pass++) {
+    b = { x0: core.x0 - FULL_PAD_PX * mpp, x1: core.x1 + FULL_PAD_PX * mpp, y0: core.y0 - FULL_PAD_TOP_PX * mpp, y1: core.y1 + FULL_PAD_PX * mpp };
+    if (favPx) {
+      const t = (favPx + 8) * mpp;
+      grow(b, [end[0] + u[0] * t, end[1] + u[1] * t]);
+    }
+    W = b.x1 - b.x0;
+    H = b.y1 - b.y0;
+    if (W / H > aspect) H = W / aspect;
+    else W = H * aspect;
+    mpp = W / widthPx;
+  }
+  // The window holds `b`; across, as near the middle of line, fleet and trails as it can be. Down the
+  // page, spare height always goes to the trails (downwind, below the line): the top stays at `b`'s
+  // (just the top margin for names, PIN/RC and the wind arrow).
+  const clamp = (c: number, lo: number, hi: number): number => Math.min(Math.max(c, lo), hi);
+  const cx = clamp((Math.min(b.x0, trails.x0) + Math.max(b.x1, trails.x1)) / 2, b.x1 - W / 2, b.x0 + W / 2);
+  const cy = clamp(b.y0 + H / 2, b.y1 - H / 2, b.y0 + H / 2);
+  const box: Box = { x0: cx - W / 2, x1: cx + W / 2, y0: cy - H / 2, y1: cy + H / 2 };
+  const rotate = heightPx > widthPx && (b.x1 - b.x0) / (b.y1 - b.y0) > ROTATE_ASPECT;
+  return { box, refPx, core, trails, rotate };
+}
+
+/** The line ends in chart coordinates (wind at the top) and the rotation that put them there. */
+function startGeom(a: RaceAnalysis) {
+  const rot = rotator(a.wind.twdAtGunDeg);
+  return { rot, L: rot(a.line.left), R: rot(a.line.right) };
+}
+
+function startView(a: RaceAnalysis, v?: View, widthPx?: number, frame?: StartFrame) {
+  const { rot, L, R } = startGeom(a);
+  const box = frame?.box ?? startFrame(a, widthPx).box;
   // A window onto the fit box with the same aspect.
   const vb = viewBox(box, clampView(box, v ?? fitView(box)));
   const view: Box = { x0: vb.x0, y0: vb.y0, x1: vb.x0 + vb.w, y1: vb.y0 + vb.h };
-  return { rot, L, R, box, view, unit: vb.w / 600 }; // unit: ~1 css px at 600 px wide
+  return { rot, L, R, box, view, unit: vb.w / (frame?.refPx ?? 600) }; // unit: ~1 css px at 600 (or refPx) wide
 }
 
 /** The class the hulls are sized from: the division's boat class, then its name, then the event's class label; with the name that matched. */
@@ -248,17 +342,17 @@ export const startClass = (a: RaceAnalysis): { name: string; dims: ClassDims } |
 const startDims = (a: RaceAnalysis): ClassDims | null => startClass(a)?.dims ?? null;
 
 /** The class dims when hulls are drawn to scale in this view (default Fit), else null (markers). */
-export function startHullScale(a: RaceAnalysis, v?: View, widthPx?: number): ClassDims | null {
+export function startHullScale(a: RaceAnalysis, v?: View, widthPx?: number, frame?: StartFrame): ClassDims | null {
   const dims = startDims(a);
-  return dims && dims.loaM / startView(a, v, widthPx).unit >= MIN_HULL_PX ? dims : null;
+  return dims && dims.loaM / startView(a, v, widthPx, frame).unit >= MIN_HULL_PX ? dims : null;
 }
 
 /** The start caption's scale note: hulls to scale (class, LOA), markers at this zoom, or no dimensions for the class. */
-export function startScaleCaption(a: RaceAnalysis, v?: View, widthPx?: number): string {
+export function startScaleCaption(a: RaceAnalysis, v?: View, widthPx?: number, frame?: StartFrame): string {
   const cls = startClass(a);
   if (!cls) return `Hulls not to scale: no dimensions for class "${a.meta.boatClass}". Arrows follow course over ground.`;
   const spec = `${cls.name}, ${f2(cls.dims.loaM)} m`;
-  return startHullScale(a, v, widthPx)
+  return startHullScale(a, v, widthPx, frame)
     ? `Hulls to scale (${spec}); they point along heading.`
     : `Markers not to scale at this zoom (${spec} hulls would be under ${MIN_HULL_PX} px; zoom in to draw them). Arrows follow course over ground.`;
 }
@@ -273,6 +367,8 @@ export interface StartOptions {
   names?: StartNames;
   /** The chart's width on screen, px; narrow charts get larger text. */
   widthPx?: number;
+  /** Full screen: draw in this frame (`startFullFrame`) instead of the inline Fit. */
+  frame?: StartFrame;
 }
 
 /**
@@ -282,7 +378,7 @@ export interface StartOptions {
  * dashed past each end with the favoured end labelled (ui/startLine.ts); names per `opts.names`.
  */
 export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: View, colour: StartColour = 'boat', opts: StartOptions = {}): string {
-  const { rot, L, R, box, view, unit } = startView(a, v, opts.widthPx);
+  const { rot, L, R, box, view, unit } = startView(a, v, opts.widthPx, opts.frame);
   const fleet = a.boats.length;
   const byId = new Map(a.boats.map((b) => [b.id, b]));
   const w = view.x1 - view.x0;
@@ -292,7 +388,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
   const tk = k * (opts.widthPx ? Math.max(1, NAME_MIN_W / opts.widthPx) : 1);
   const nameFs = NAME_FS * tk;
   const dtlFs = DTL_FS * tk;
-  const dims = startHullScale(a, v, opts.widthPx);
+  const dims = startHullScale(a, v, opts.widthPx, opts.frame);
   const minCls = startDims(a) && !dims ? ' boat-min' : '';
   const range = colour === 'speed' ? (startSogRange(a) ?? { lo: 0, hi: 1 }) : null;
   /** Speed: the whole fleet's trails batched by bin, the dimmed boats in their own group. */
@@ -449,6 +545,12 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     aria-label="${esc(label)}">
     ${bias.ext}${trails.join('')}${lineSvg}${bias.label}${boatSvg.join('')}
     ${windArrow(view, unit, k, 'wind (est.)')}${scaleBar(view, unit, k)}</svg>`;
+}
+
+/** Full screen, Colour: Boat: a compact key of each boat's colour (up to eight boats; a bigger fleet is one ink, named on the chart). */
+export function startBoatKey(a: RaceAnalysis): string {
+  if (a.boats.length > SLOTS) return '';
+  return a.boats.map((b) => `<span class="bk"><i style="background:${boatColor(b, a.boats.length)}"></i>${esc(b.sail)}</span>`).join('');
 }
 
 /** The fixed points a leg runs between: the line or previous mark, and its own mark or the finish. */

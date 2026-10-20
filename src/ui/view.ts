@@ -77,6 +77,14 @@ export function clientToChart(box: Box, v: View, rect: ClientRect, clientX: numb
   return [vb.x0 + (clientX - ox) / s, vb.y0 + (clientY - oy) / s];
 }
 
+/**
+ * `v` (a view on `from`) carried onto another fit box `to` (into full screen and back):
+ * Fit stays Fit; a zoom keeps its level and centre, clamped into `to`.
+ */
+export function carryView(from: Box | null, v: View, to: Box): View {
+  return !from || presetActive(from, v, 1) ? fitView(to) : clampView(to, v);
+}
+
 /** Whether a preset button (1 = Fit, else a zoom level) matches `v` exactly. */
 export function presetActive(box: Box, v: View, preset: number): boolean {
   if (preset === 1) {

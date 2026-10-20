@@ -228,12 +228,45 @@ describe('placesChart SVG', () => {
     expect(svg).toContain('stroke="var(--s8)"');
     expect(paths(svg)).toBe(40);
   });
+
+  describe('full screen: fitted to the overlay height', () => {
+    const base = a.boats[0];
+    const fleet = (n: number): RaceAnalysis =>
+      ({ ...a, boats: Array.from({ length: n }, (_, i) => ({ ...base, id: `x${i}`, sail: `${i + 1}`, name: `Boat ${i + 1}`, colorSlot: i, finishPos: i + 1, start: { ...base.start!, startPlace: n - i } })) }) as RaceAnalysis;
+    const size = (svg: string): [number, number] => /viewBox="0 0 (\d+) (\d+)"/.exec(svg)!.slice(1).map(Number) as [number, number];
+    const labelFs = (svg: string): number[] => [...svg.matchAll(/class="pc-lbl" x="[\d.]+" y="[\d.]+" font-size="(\d+)"/g)].map((m) => Number(m[1]));
+
+    it('fits a phone in landscape (844×~330) when the rows can be ≥ 12 px, names still ≥ 10 px', () => {
+      const svg = placesChart(fleet(20), null, { widthPx: 828, heightPx: 330 });
+      const [, h] = size(svg);
+      expect(h).toBeLessThanOrEqual(330);
+      expect(h).toBeGreaterThan(330 - 20);
+      expect(Math.min(...labelFs(svg))).toBeGreaterThanOrEqual(10);
+      // Right-hand names a row apart: no closer than their own size.
+      const ys = [...svg.matchAll(/class="pc-lbl" x="[\d.]+" y="([\d.]+)"/g)].map((m) => Number(m[1])).sort((p, q) => p - q);
+      for (let i = 1; i < ys.length; i++) expect(ys[i] - ys[i - 1]).toBeGreaterThanOrEqual(Math.max(...labelFs(svg)) - 0.05);
+    });
+
+    it('grows a small fleet to fill a tall screen (rows up to 32 px)', () => {
+      const h = size(placesChart(races.m24, null, { widthPx: 1400, heightPx: 900 }))[1];
+      expect(h).toBeGreaterThan(size(placesChart(races.m24, null, { widthPx: 1400 }))[1]);
+      expect(h).toBeLessThanOrEqual(900);
+    });
+
+    it('a big fleet that would need rows under 12 px keeps its usual rows (the overlay scrolls)', () => {
+      const big = fleet(49);
+      const fitted = placesChart(big, null, { widthPx: 828, heightPx: 330 });
+      expect(fitted).toBe(placesChart(big, null, { widthPx: 828 }));
+      expect(size(fitted)[1]).toBeGreaterThan(330);
+      expect(size(fitted)[1]).toBeGreaterThanOrEqual(49 * 14);
+    });
+  });
 });
 
 describe('places card', () => {
   const html = readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8');
   it('sits after the track map, self-contained', () => {
-    expect(html).toContain('<section id="places-card" class="card">');
+    expect(html).toContain('<section id="places-card" class="card has-fs">');
     expect(html).toContain('<div id="places-chart"');
     expect(html.indexOf('id="map-chart"')).toBeLessThan(html.indexOf('id="places-card"'));
     expect(html.indexOf('id="places-card"')).toBeLessThan(html.indexOf('id="race-findings-card"'));

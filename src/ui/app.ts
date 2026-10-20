@@ -24,7 +24,21 @@ import {
   type ViewState,
 } from './lastView';
 import { NC_ALL } from './params';
-import { isNarrowStart, legLegend, legSplitCaption, mapBox, startFitBox, startScaleCaption, startSnapshot, trackMap, trackSogIndex } from './charts';
+import {
+  isNarrowStart,
+  legLegend,
+  legSplitCaption,
+  mapBox,
+  startBoatKey,
+  startFitBox,
+  startFullFrame,
+  startScaleCaption,
+  startSnapshot,
+  trackMap,
+  trackSogIndex,
+  type StartFrame,
+} from './charts';
+import { createFullscreen, inertOthers, lockScroll, moveNodes, trapFocus, type ScrollLock } from './fullscreen';
 import { boatLabel, degLabel, duration, esc, f0, f1, gunTimeLine, localTime } from './format';
 import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
 import { biasCaption } from './startLine';
@@ -72,9 +86,17 @@ import {
   writePref,
 } from './speed';
 import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
-import { clampView, clientToChart, fitView, presetActive, type Box, type View } from './view';
+import { carryView, clampView, clientToChart, fitView, presetActive, type Box, type View } from './view';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/** The charts that open full screen, and the overlay's label for each. */
+type Full = 'start' | 'map' | 'places';
+const FULL_LABEL: Record<Full, string> = {
+  start: 'Start chart, full screen',
+  map: 'Track map, full screen',
+  places: 'Place changes, full screen',
+};
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -126,6 +148,15 @@ export function startApp(): void {
     tabs: $('tabs'),
     tabBtn: { start: $('tab-start'), race: $('tab-race') } as Record<Tab, HTMLElement>,
     panel: { start: $('panel-start'), race: $('panel-race') } as Record<Tab, HTMLElement>,
+    fs: $('fs'),
+    fsTools: $('fs-tools'),
+    fsKey: $('fs-key'),
+    fsBoatKey: $('fs-boat-key'),
+    fsBody: $('fs-body'),
+    fsClose: $('fs-close'),
+    fsRotate: $('fs-rotate'),
+    fsRotateDismiss: $('fs-rotate-dismiss'),
+    fullBtn: { start: $('start-full'), map: $('map-full'), places: $('places-full') } as Record<Full, HTMLElement>,
   };
 
   /** The URL's race, else the last one viewed (recall.lastView), else the latest. */
@@ -187,6 +218,8 @@ export function startApp(): void {
   let hover: { box: Box; ix: SogIndex } | null = null;
   let fitBox: Box | null = null;
   let view: View = { cx: 0, cy: 0, k: 1 };
+  /** The chart open full screen, if any (it shares the selection, zoom and names with the page). */
+  let full: Full | null = null;
   let regatta: RegattaResponse | null = null;
   /** The event whose races are loaded (and shown in the digest); '' until one loads. */
   let eventId = '';
@@ -236,7 +269,9 @@ export function startApp(): void {
       if (v == null) u.searchParams.delete(k);
       else u.searchParams.set(k, v);
     }
-    history.replaceState(null, '', u);
+    // Keep the current state (the full-screen marker, if any) so a race-load URL
+    // update while the overlay is open doesn't leave a stuck history entry.
+    history.replaceState(history.state, '', u);
   }
 
   function render(): void {
@@ -264,6 +299,7 @@ export function startApp(): void {
         ? sogKey(startSogRange(a), `Last ${START_TRAIL_MS / 1000} s before the gun; hulls at the gun`, hasGaps(a.drawings.map((d) => d.trail.t)))
         : '';
     els.startKey.hidden = startColour !== 'speed';
+    renderFullKey();
     els.map.innerHTML = trackMap(a, highlight, legSel, { colour: trackColour, rankBy, top: speedTop, sogScale });
     hover = null;
     els.mapTip.hidden = true;
@@ -317,7 +353,9 @@ export function startApp(): void {
   function renderPlaces(): void {
     const a = analysis;
     if (!a) return;
-    els.places.innerHTML = placesChart(a, highlight, { widthPx: els.places.clientWidth || undefined });
+    // Full screen: fitted to the overlay's height when the rows stay readable (#fs-body scrolls otherwise; 8 px of padding).
+    const heightPx = full === 'places' ? Math.max(0, els.fsBody.clientHeight - 8) || undefined : undefined;
+    els.places.innerHTML = placesChart(a, highlight, { widthPx: els.places.clientWidth || undefined, heightPx });
     els.placesTip.hidden = true;
   }
 
@@ -326,23 +364,38 @@ export function startApp(): void {
     const a = analysis;
     if (!a) return;
     const widthPx = els.start.clientWidth || undefined;
-    els.startScale.textContent = startScaleCaption(a, view, widthPx);
+    const frame = fullFrame ?? undefined;
+    els.startScale.textContent = startScaleCaption(a, view, widthPx, frame);
     // Names are placed for this zoom (zooming in spreads the boats and reveals more) and sized for this width.
-    els.start.innerHTML = startSnapshot(a, highlight, view, startColour, { names: startNames, widthPx });
+    els.start.innerHTML = startSnapshot(a, highlight, view, startColour, { names: startNames, widthPx, frame });
   }
 
   /** The Fit frame for the start chart's width class (narrow charts leave more room for the favoured-end label). */
   let fitNarrow = false;
-  function fitStart(a: RaceAnalysis): void {
-    const w = els.start.clientWidth;
-    fitNarrow = isNarrowStart(w);
-    fitBox = startFitBox(a, w || undefined);
-    setView(fitView(fitBox));
+  /** Full screen: the start chart's frame for the overlay's size (null inline). */
+  let fullFrame: StartFrame | null = null;
+  /** The rotate hint, once dismissed, stays away for the visit. */
+  let rotateDismissed = false;
+  /** Fit the start chart inline, or to the overlay's size while full screen; `carry` keeps the zoom (`carryView`) instead of going back to Fit. */
+  function fitStart(a: RaceAnalysis, carry = false): void {
+    const prev = fitBox;
+    if (full === 'start') {
+      const f = startFullFrame(a, els.start.clientWidth, els.start.clientHeight);
+      fullFrame = f;
+      fitBox = f.box;
+      els.fsRotate.hidden = !f.rotate || rotateDismissed;
+    } else {
+      const w = els.start.clientWidth;
+      fullFrame = null;
+      fitNarrow = isNarrowStart(w);
+      fitBox = startFitBox(a, w || undefined);
+    }
+    setView(carry ? carryView(prev, view, fitBox) : fitView(fitBox));
   }
   /** Refit (back to Fit) when the visible chart has crossed into the other width class. */
   function refitStart(): void {
     const w = els.start.clientWidth;
-    if (analysis && w && isNarrowStart(w) !== fitNarrow) fitStart(analysis);
+    if (analysis && full !== 'start' && w && isNarrowStart(w) !== fitNarrow) fitStart(analysis);
   }
 
   /** Boat speed: the nearest drawn fix under the pointer (the selected boat's, within 40 px; else anyone's within 8 px). */
@@ -453,6 +506,7 @@ export function startApp(): void {
       if (tab === 'race') renderPlaces();
       else renderStartSog();
     }
+    if (full) return queueFull();
     const w = els.start.clientWidth;
     if (!w || w === startW) return;
     startW = w;
@@ -516,8 +570,15 @@ export function startApp(): void {
   });
   setTab(tab, { scroll: false, boot: true });
   // On a phone the boat strip sticks to the top; the tabs stick just under it.
+  // --tabs-h keeps the expand button sticky just below both.
   if (typeof ResizeObserver !== 'undefined') {
-    new ResizeObserver(() => els.digest.style.setProperty('--boatbar-h', `${els.boats.offsetHeight}px`)).observe(els.boats);
+    const stick = (): void => {
+      els.digest.style.setProperty('--boatbar-h', `${els.boats.offsetHeight}px`);
+      els.digest.style.setProperty('--tabs-h', `${els.tabs.offsetHeight}px`);
+    };
+    const ro = new ResizeObserver(stick);
+    ro.observe(els.boats);
+    ro.observe(els.tabs);
   }
 
   // Speed through the start: a crosshair and the speed under the pointer (the selected boat's, else the nearest line's).
@@ -757,6 +818,123 @@ export function startApp(): void {
     toggleHighlight(g ? g.getAttribute('data-id') : null);
   });
 
+  // Full screen: the card's chart and its controls move into the overlay (their listeners go with them) and back.
+  let fullUndo: (() => void)[] = [];
+  let fullLock: ScrollLock | null = null;
+  /** The chart last closed, for putting focus back on its button. */
+  let fullClosed: Full | null = null;
+  /** Full screen, Colour: Boat: each boat's colour (small fleets); Speed has its own key. */
+  function renderFullKey(): void {
+    const key = full === 'start' && startColour === 'boat' && analysis ? startBoatKey(analysis) : '';
+    els.fsBoatKey.innerHTML = key;
+    els.fsBoatKey.hidden = !key;
+  }
+  /** Redraw what sizes itself to the overlay (the start chart keeps its zoom). */
+  function redrawFull(): void {
+    if (!analysis) return;
+    if (full === 'start') fitStart(analysis, true);
+    else if (full === 'places') renderPlaces();
+  }
+  let fullFrameReq = 0;
+  let fullSize = '';
+  /** On resize or rotation: redraw once the overlay has a new size. */
+  function queueFull(): void {
+    if (!full || fullFrameReq) return;
+    fullFrameReq = requestAnimationFrame(() => {
+      fullFrameReq = 0;
+      const size = `${els.fsBody.clientWidth}x${els.fsBody.clientHeight}`;
+      if (full && size !== fullSize) {
+        fullSize = size;
+        redrawFull();
+      }
+    });
+  }
+  const fullscreen = createFullscreen({
+    doc: document,
+    win: window,
+    history,
+    href: () => location.href,
+    target: els.fs,
+    onOpen: () => {
+      const f = full!;
+      const parts: Record<Full, [HTMLElement[], HTMLElement[], HTMLElement[]]> = {
+        start: [[els.startZoom.parentElement!], [els.startKey], [els.start]],
+        map: [[els.legend.parentElement!], [els.speedKey], [els.map.parentElement!]],
+        places: [[], [], [els.places.parentElement!]],
+      };
+      const [tools, key, body] = parts[f];
+      fullLock = lockScroll(window, document.body);
+      fullUndo = [inertOthers(document.body, els.fs), moveNodes(tools, els.fsTools), moveNodes(key, els.fsKey), moveNodes(body, els.fsBody)];
+      els.fs.setAttribute('aria-label', FULL_LABEL[f]);
+      els.fs.dataset.chart = f;
+      els.fs.hidden = false;
+      document.documentElement.classList.add('fs-on');
+      fullSize = `${els.fsBody.clientWidth}x${els.fsBody.clientHeight}`;
+      renderFullKey();
+      redrawFull();
+      els.fsClose.focus();
+    },
+    onClose: () => {
+      const f = full!;
+      full = null;
+      fullClosed = f;
+      els.fs.hidden = true;
+      els.fsRotate.hidden = true;
+      delete els.fs.dataset.chart;
+      renderFullKey();
+      // The page live again first (html overflow back, not inert, the chart back in its card and redrawn for it),
+      // then the body unlocked at the same scroll and focus back on the expand button. Leaving native fullscreen
+      // Chrome resets both on its way out, so `onSettled` puts them back again once it's out.
+      document.documentElement.classList.remove('fs-on');
+      for (const undo of fullUndo.reverse()) undo();
+      fullUndo = [];
+      if (analysis && f === 'start') {
+        fitStart(analysis, true);
+        startW = els.start.clientWidth;
+      } else if (f === 'places') renderPlaces();
+      fullLock?.release();
+      els.fullBtn[f].focus({ preventScroll: true });
+    },
+    onSettled: () => {
+      restoreAfterFull();
+      // And once more next frame, after any scroll or focus change of the exit itself.
+      requestAnimationFrame(restoreAfterFull);
+    },
+  });
+  /** Closed full screen: the page's scroll where it was and focus on the chart's expand button (unless reopened). */
+  function restoreAfterFull(): void {
+    if (full || !fullClosed) return;
+    fullLock?.rescroll();
+    const btn = els.fullBtn[fullClosed];
+    if (document.activeElement !== btn) btn.focus({ preventScroll: true });
+  }
+  for (const f of ['start', 'map', 'places'] as const) {
+    els.fullBtn[f].addEventListener('click', () => {
+      if (!analysis || fullscreen.isOpen) return;
+      full = f;
+      fullscreen.open();
+    });
+  }
+  els.fsClose.addEventListener('click', () => fullscreen.close('button'));
+  els.fsRotateDismiss.addEventListener('click', () => {
+    rotateDismissed = true;
+    els.fsRotate.hidden = true;
+  });
+  // Tab cycles within the overlay.
+  els.fs.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Tab') return;
+    const items = [...els.fs.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter(
+      (el) => el.getClientRects().length > 0,
+    );
+    const next = trapFocus(items, document.activeElement as HTMLElement | null, ev.shiftKey);
+    if (next) {
+      ev.preventDefault();
+      next.focus();
+    }
+  });
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(queueFull).observe(els.fsBody);
+  addEventListener('orientationchange', queueFull);
+
   let showGen = 0;
   /** Show an analysis with leg/boat/sort reset, or set from `restore` (dropping what this race lacks). False if superseded. */
   async function show(p: Promise<RaceAnalysis>, restore?: ViewState): Promise<boolean> {
@@ -901,7 +1079,7 @@ export function startApp(): void {
   });
   // "/" jumps to the search, as on many sites, unless the user is typing or choosing somewhere.
   document.addEventListener('keydown', (ev) => {
-    if (ev.key !== '/' || ev.ctrlKey || ev.metaKey || ev.altKey || els.search.disabled) return;
+    if (ev.key !== '/' || ev.ctrlKey || ev.metaKey || ev.altKey || els.search.disabled || full) return;
     const t = ev.target as HTMLElement | null;
     if (t?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])') || document.querySelector('dialog[open]')) return;
     ev.preventDefault();
