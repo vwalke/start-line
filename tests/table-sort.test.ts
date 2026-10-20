@@ -1,8 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import type { BoatResult } from '../src/analysis/types';
-import { compareValues, legsTable, nextSort, sortBoats, toggleSort, type SortVal } from '../src/ui/table';
-import { fixtureRace } from './helpers';
+import {
+  compareValues,
+  legsTable,
+  legsTableKey,
+  nextSort,
+  rankCell,
+  sortBoats,
+  sortRanks,
+  startTable,
+  startTableKey,
+  toggleSort,
+  type SortVal,
+} from '../src/ui/table';
+import { c31Race, fixtureRace, m24Race } from './helpers';
 
 const a = analyzeRace(fixtureRace());
 
@@ -128,5 +140,148 @@ describe('sorted metrics table (Benelux race 8)', () => {
     // Leg time keeps the place at the mark.
     const b = a.boats[0];
     expect(html).toMatch(new RegExp(`<tr data-id="${b.id}".*?<td class="num">\\d+:\\d\\d <small class="rk">\\d+(st|nd|rd|th)</small></td>`));
+  });
+});
+
+describe('sort ranks', () => {
+  type VB = BoatResult & { v: SortVal };
+  const mk = (id: string, v: SortVal): BoatResult => ({ id, v, finishPos: null, colorSlot: 0 }) as unknown as VB;
+  const val = (b: BoatResult): SortVal => (b as VB).v;
+  const ranks = (boats: BoatResult[], dir: 'asc' | 'desc'): Record<string, string> =>
+    Object.fromEntries([...sortRanks(boats, val, dir)].map(([id, r]) => [id, rankCell(r).replace(/<[^>]+>/g, '')]));
+
+  it('ranks 1 at the top of either direction', () => {
+    const boats = [mk('a', 3), mk('b', 1), mk('c', 2)];
+    expect(ranks(boats, 'asc')).toEqual({ b: '1', c: '2', a: '3' });
+    expect(ranks(boats, 'desc')).toEqual({ a: '1', c: '2', b: '3' });
+  });
+
+  it('shares a rank on ties, then skips (1, =2, =2, 4)', () => {
+    const boats = [mk('a', 5), mk('b', 7), mk('c', 7), mk('d', 9)];
+    expect(ranks(boats, 'asc')).toEqual({ a: '1', b: '=2', c: '=2', d: '4' });
+    expect(ranks(boats, 'desc')).toEqual({ d: '1', b: '=2', c: '=2', a: '4' });
+    expect(sortRanks(boats, val, 'asc').get('b')).toEqual({ n: 2, tied: true });
+    expect(rankCell({ n: 2, tied: true })).toBe('<span title="Tied 2nd">=2</span>');
+  });
+
+  it('leaves missing values unranked ("—"), without using up a place', () => {
+    const boats = [mk('a', null), mk('b', 4), mk('c', NaN), mk('d', undefined), mk('e', 2)];
+    for (const dir of ['asc', 'desc'] as const) {
+      const r = ranks(boats, dir);
+      expect([r.a, r.c, r.d]).toEqual(['—', '—', '—']);
+      expect([r.b, r.e].sort()).toEqual(['1', '2']);
+    }
+  });
+
+  it('ranks sail numbers as they sort (numerically)', () => {
+    const boats = [mk('x', '10'), mk('y', '9'), mk('z', 'GER42'), mk('w', '2')];
+    expect(ranks(boats, 'asc')).toEqual({ w: '1', y: '2', x: '3', z: '4' });
+    expect(ranks(boats, 'desc')).toEqual({ z: '1', x: '2', y: '3', w: '4' });
+  });
+});
+
+/** The Rank cell (first) of each row, in row order, tags stripped. */
+const rankCol = (html: string): string[] =>
+  [...html.matchAll(/<tr data-id="[^"]+"[^>]*><td class="num rank">(.*?)<\/td>/g)].map((m) => m[1].replace(/<[^>]+>/g, ''));
+
+describe('Rank column', () => {
+  it('is hidden in finish order (Fin already says it)', () => {
+    for (const html of [legsTable(a, null), startTable(a, null)]) {
+      expect(html).not.toContain('class="num rank"');
+      expect(html).not.toContain(' ranked"');
+    }
+  });
+
+  it('appears once sorted, leftmost, naming the sorted column; 1 at the top either way', () => {
+    const html = legsTable(a, null, { key: 'L0.sog', dir: 'desc' });
+    expect(html).toContain('<table class="metrics legs ranked"');
+    const top = /<thead><tr>(.*?)<\/tr>/.exec(html)![1];
+    expect(top).toMatch(
+      new RegExp(`^<th class="num rank" scope="col" rowspan="2" title="Rank in the current sort, by ${a.legs[0].name} SOG kn ↓" aria-label="[^"]+">Rank<small>SOG</small></th>`),
+    );
+    expect(rankCol(html)).toEqual(a.boats.map((_, i) => String(i + 1)));
+    const rev = legsTable(a, null, { key: 'L0.sog', dir: 'asc' });
+    expect(rankCol(rev)).toEqual(rankCol(html));
+    expect(rev).toContain('SOG kn ↑"');
+    // Every row has one more cell than there are sort buttons.
+    const nTd = (/<tr data-id[^>]*>(.*?)<\/tr>/.exec(html)![1].match(/<td/g) ?? []).length;
+    expect(html.match(/class="sort"/g)).toHaveLength(nTd - 1);
+  });
+
+  it('shows ties as "=n" (Beat 1 tacks: five on 2, one on 4)', () => {
+    const html = legsTable(a, null, { key: 'L0.tacks', dir: 'asc' });
+    expect(rankCol(html)).toEqual(['=1', '=1', '=1', '=1', '=1', '6']);
+    expect(rowIds(html).at(-1)).toBe('5');
+  });
+
+  it('shows "—" for a missing value; the start table has one header row', () => {
+    const c31 = analyzeRace(c31Race());
+    const html = startTable(c31, null, { key: 'start', dir: 'asc' });
+    expect(html).toContain('<th class="num rank" scope="col" title="Rank in the current sort, by Start place ↑"');
+    expect(rowIds(html)).toEqual(['ITA 78', 'AUT 3165', 'FRA 901', 'GER42']);
+    expect(rankCol(html)).toEqual(['1', '2', '3', '—']);
+  });
+
+  it('keeps a picked not-racing boat unranked and the racing ranks unchanged; selection still marks the row', () => {
+    const m24 = analyzeRace(m24Race());
+    const nc = m24.excluded[0].result.id;
+    const sort = { key: 'race', dir: 'asc' } as const;
+    const plain = legsTable(m24, null, sort);
+    const picked = legsTable(m24, nc, sort);
+    expect(rankCol(plain)).toEqual(m24.boats.map((_, i) => String(i + 1)));
+    expect(rankCol(picked)).toEqual([...rankCol(plain), '—']);
+    expect(picked).toMatch(new RegExp(`<tr data-id="${nc}" class="sel nc"[^>]*><td class="num rank">—</td>`));
+    expect(legsTable(m24, '874', sort)).toContain('<tr data-id="874" class="sel" tabindex="0"><td class="num rank">2</td>');
+  });
+
+  it('ranks by an upwind summary like any column (partial sums included)', () => {
+    const html = legsTable(a, null, { key: 'up.vmg', dir: 'desc' });
+    const n = a.boats.filter((b) => b.upwind?.vmgKn != null).length;
+    expect(rankCol(html).filter((r) => r !== '—')).toHaveLength(n);
+  });
+
+  it('is explained in one short ⓘ bullet per table', () => {
+    for (const k of [legsTableKey(a), startTableKey(a)]) expect(k.bullets).toContain('Rank: place in the current sort; =3 tied; — no value.');
+  });
+});
+
+describe('column-group dividers (Legs table)', () => {
+  const m24 = analyzeRace(m24Race());
+  const nc = m24.excluded[0].result.id;
+  const grpOf = (k: string): string | null => /^(L\d+|up|dn)\./.exec(k)?.[1] ?? (['fin', 'boat', 'lstart'].includes(k) ? null : 'race');
+  const cases: [string, string, number][] = [
+    ['finish order', legsTable(m24, nc), 0],
+    ['sorted (with Rank)', legsTable(m24, nc, { key: 'up.vmg', dir: 'desc' }), 1],
+  ];
+  for (const [name, html, off] of cases) {
+    it(`${name}: every group's first column has the divider, in both header rows and every body row`, () => {
+      const keys = [...html.matchAll(/data-sort="([^"]+)"/g)].map((m) => m[1]);
+      const first = keys.map((k, i) => grpOf(k) != null && grpOf(keys[i - 1] ?? '') !== grpOf(k));
+      const groups = keys.filter((_, i) => first[i]).map(grpOf);
+      expect(groups).toEqual([...m24.legs.map((l) => `L${l.index}`), 'up', 'dn', 'race']);
+      // Group headers (top row) and sub-headers.
+      expect(html.match(/<th class="grp" /g)).toHaveLength(groups.length);
+      keys.forEach((k, i) => {
+        const cls = new RegExp(`<th class="([^"]*)"[^>]*><button type="button" class="sort" data-sort="${k.replace('.', '\\.')}"`).exec(html)![1];
+        expect(cls.split(' ').includes('g0'), k).toBe(first[i]);
+      });
+      // Every body row, the not-racing row at the foot included.
+      const rows = [...html.matchAll(/<tr data-id="[^"]+"[^>]*>(.*?)<\/tr>/g)].map((m) => [...m[1].matchAll(/<td class="([^"]*)"/g)].map((c) => c[1]));
+      expect(rows).toHaveLength(m24.boats.length + 1);
+      for (const tds of rows) {
+        expect(tds).toHaveLength(keys.length + off);
+        keys.forEach((k, i) => expect(tds[i + off].split(' ').includes('g0'), k).toBe(first[i]));
+      }
+    });
+  }
+
+  it('keeps the Upwind and Downwind groups with all their columns', () => {
+    const html = legsTable(m24, null);
+    expect(html).toMatch(/title="Every beat added up \(reaches excluded\)">Upwind<\/th>/);
+    expect(html).toMatch(/title="Every run added up \(reaches excluded\)">Downwind<\/th>/);
+    const keys = [...html.matchAll(/data-sort="([^"]+)"/g)].map((m) => m[1]);
+    const heel = m24.hasHeel ? ['heel'] : [];
+    expect(keys.filter((k) => k.startsWith('up.'))).toEqual(['vmg', 'sog', 'twa', ...heel, 'dist', 'time', 'tacks', 'dq'].map((s) => `up.${s}`));
+    expect(keys.filter((k) => k.startsWith('dn.'))).toEqual(['vmg', 'sog', 'twa', ...heel, 'dist', 'time', 'gybes', 'dq'].map((s) => `dn.${s}`));
   });
 });

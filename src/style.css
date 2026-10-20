@@ -42,6 +42,8 @@
   --ink-3: #5b6675;
   --rule: #dde3ea;
   --rule-strong: #c3ccd7;
+  /* Table column-group dividers: 3.6:1 on surface (rule is 1.3:1). */
+  --divider: #7d8898;
   --grid: #e8edf2;
   --accent: #1f6bc4;
   --gold: #ffc94d;
@@ -83,6 +85,7 @@
     --ink-3: #9aa6b6;
     --rule: #262f3c;
     --rule-strong: #3a4756;
+    --divider: #6e7d90;
     --grid: #1f2732;
     --accent: #3987e5;
     --gold: #c9a147;
@@ -278,7 +281,7 @@ input[type='search']:disabled, select:disabled { opacity: 0.6; }
 .digest { display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: 16px; align-items: start; }
 .digest[hidden] { display: none; }
 .content { min-width: 0; }
-.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 10px; padding: 12px 14px; min-width: 0; }
 .card h3 { font-size: 0.95rem; margin: 0 0 6px; }
 .card + .card { margin-top: 16px; }
 
@@ -605,9 +608,10 @@ table.metrics {
 .metrics .partial b { font-weight: 400; }
 .metrics th { font-size: 0.75rem; font-weight: 600; color: var(--ink-2); text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; vertical-align: bottom; }
 .metrics th small { font-weight: 400; color: var(--ink-3); }
-/* Leg / race group headers span their sub-columns; a rule marks where each group starts. */
-.metrics th.grp { text-align: center; color: var(--ink); padding-bottom: 2px; border-left: 1px solid var(--rule); }
-.metrics .g0 { border-left: 1px solid var(--rule); }
+/* Leg / Upwind / Downwind / Race group headers span their sub-columns; a 2 px divider runs down where each
+   group starts (g0: header, sub-header and every row), so the groups read apart on a phone too. */
+.metrics th.grp { text-align: center; color: var(--ink); padding-bottom: 2px; border-left: 2px solid var(--divider); }
+.metrics .g0 { border-left: 2px solid var(--divider); }
 /* Fill the th so the whole header is the hit target, not just the label text. */
 .metrics th .sort {
   display: block;
@@ -631,7 +635,14 @@ table.metrics {
 .metrics td.boat, .metrics th.boat { text-align: left; }
 .metrics .sticky0, .metrics .sticky1 { position: sticky; background: var(--surface); z-index: 1; }
 .metrics .sticky0 { left: 0; min-width: 34px; }
-.metrics .sticky1 { left: 34px; }
+/* The pinned block's right edge: scrolled columns slide under a rule, not into the boat names. */
+.metrics .sticky1 { left: 34px; border-right: 1px solid var(--divider); }
+/* Rank (once sorted): pinned leftmost, narrow and plain; its sub-label names the sorted column. Fin and Boat shift over. */
+.metrics { --rank-w: 40px; }
+.metrics .rank { position: sticky; left: 0; z-index: 1; background: var(--surface); width: var(--rank-w); min-width: var(--rank-w); max-width: var(--rank-w); padding-left: 4px; padding-right: 6px; color: var(--ink-2); }
+.metrics th.rank small { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--accent); }
+.metrics.ranked .sticky0 { left: var(--rank-w); }
+.metrics.ranked .sticky1 { left: calc(var(--rank-w) + 34px); }
 .metrics td.muted { color: var(--ink-2); }
 .metrics .sub { display: block; font-size: 0.72rem; color: var(--ink-3); }
 .metrics td.leg b { font-weight: 600; }

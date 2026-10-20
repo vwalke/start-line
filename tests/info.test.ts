@@ -86,8 +86,9 @@ describe('key lines stay short', () => {
     ['map, speed', mapKey(j70, { colour: 'sog', leg: null }), 6],
     ['places', placesKey(j70), 6],
     ['start speed', startSogKey(startSogSeries(c31, 120), 120), 6],
-    ['start table', startTableKey(c31), 6],
-    ['legs table', legsTableKey(j70), 7],
+    // The tables carry one more: the Rank line.
+    ['start table', startTableKey(c31), 7],
+    ['legs table', legsTableKey(j70), 8],
   ];
   for (const [name, k, max] of keys) {
     it(`${name}: at most ${max} bullets of about 12 words`, () => {
