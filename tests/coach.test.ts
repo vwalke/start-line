@@ -10,7 +10,7 @@ import { MS_TO_KN, bearingVec, makeProjection, type Vec } from '../src/analysis/
 import { projectTrack } from '../src/analysis/prepare';
 import { j105Race } from './helpers';
 import type { BoatResult, LegResult } from '../src/analysis/types';
-import { coachHighlight, coachLegendName, groupParam, ladderBoatColor, ladderLegSpans, nullSpans, gapWords, parseBoatParam, parseGroupParam, racePlaces } from '../src/ui/coach';
+import { coachHighlight, coachLegendName, groupParam, ladderBoatColor, ladderLegSpans, mergeLadderLegLabels, nullSpans, gapWords, parseBoatParam, parseGroupParam, racePlaces } from '../src/ui/coach';
 import { parseLastView, serializeLastView, startTab, resolveStart, type LastView } from '../src/ui/lastView';
 import { COACH_TABS, TABS, coachEnabled, initialTab, parseTab, tabForKey, tabFromHash, tabsFor } from '../src/ui/tabs';
 import type { RegattaDoc } from '../src/data/racesense/types';
@@ -430,8 +430,24 @@ describe('Coach UI helpers', () => {
     expect(spans[0].toMs).toBe(2_000);
     expect(spans[3].fromMs).toBe(4_000);
     expect(spans[3].toMs).toBe(end);
-    // A missing rounding still yields a label for every leg.
+    // A missing rounding still yields a raw span for every leg; the chart merges the overlap.
     expect(ladderLegSpans(legs, gun, [{ tMs: 2_000, leg: 1 }], end)).toHaveLength(4);
+  });
+
+  it('mergeLadderLegLabels: identical / overlapping spans become one label (Beat 1 – Run 2)', () => {
+    const legs = [{ name: 'Beat 1' }, { name: 'Run 1' }, { name: 'Beat 2' }, { name: 'Run 2' }];
+    const gun = 1_000;
+    const end = 5_000;
+    // No roundings: every leg is the full t0–t1 span (a 45-min hole, Good Trade R2).
+    const none = ladderLegSpans(legs, gun, [], end);
+    expect(new Set(none.map((s) => `${s.fromMs}:${s.toMs}`)).size).toBe(1);
+    expect(mergeLadderLegLabels(none).map((s) => s.name)).toEqual(['Beat 1 – Run 2']);
+    // One known rounding: Beat 1 is its own span; the rest share the remainder.
+    const one = mergeLadderLegLabels(ladderLegSpans(legs, gun, [{ tMs: 2_000, leg: 1 }], end));
+    expect(one.map((s) => s.name)).toEqual(['Beat 1', 'Run 1 – Run 2']);
+    // All roundings known: one label per leg.
+    const all = mergeLadderLegLabels(ladderLegSpans(legs, gun, [{ tMs: 2_000, leg: 1 }, { tMs: 3_000, leg: 2 }, { tMs: 4_000, leg: 3 }], end));
+    expect(all.map((s) => s.name)).toEqual(['Beat 1', 'Run 1', 'Beat 2', 'Run 2']);
   });
 
   it('each group boat keeps one colour; the legend uses the boat name', () => {

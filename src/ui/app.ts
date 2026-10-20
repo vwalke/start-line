@@ -2,9 +2,9 @@
  * The page: search/pick an event → race, run the worker, render the digest.
  * Live data only: if the feed or proxy fails we say so, with a way to retry.
  */
-import { buildCoach, coachRaceKey, rivalLadder, type CoachModel, type RivalLadder } from '../analysis/coach';
+import { buildCoach, coachRaceKey, rivalLadder, type CoachModel, type CoachRaw, type RivalLadder } from '../analysis/coach';
+import { coachDebrief, type CoachDebrief } from '../analysis/coach/debrief';
 import type { Group } from '../analysis/coach/groups';
-import type { TwdSeriesData } from '../analysis/coach/twdSeries';
 import { splitFindings } from '../analysis/findings';
 import { START_TRAIL_MS, type RaceAnalysis } from '../analysis/types';
 import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
@@ -32,6 +32,7 @@ import {
   racePlaces,
   type LadderLayout,
 } from './coach';
+import { cardSpans, coachCardsHtml } from './coachCards';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
 import {
   applyView,
@@ -180,6 +181,7 @@ export function startApp(): void {
     coachLadder: $('coach-ladder'),
     coachTip: $('coach-ladder-tip'),
     coachLadderCap: $('coach-ladder-cap'),
+    coachCards: $('coach-cards'),
     fs: $('fs'),
     fsTools: $('fs-tools'),
     fsKey: $('fs-key'),
@@ -212,10 +214,10 @@ export function startApp(): void {
     const coachWait = coachPending.get(msg.id);
     if (coachWait) {
       coachPending.delete(msg.id);
-      coachWait(msg.type === 'coach-wind' ? msg.wind : null);
+      coachWait(msg.type === 'coach-raw' ? msg.raw : null);
       return;
     }
-    if (msg.id !== reqId || msg.type === 'coach-wind') return; // a newer request superseded this one
+    if (msg.id !== reqId || msg.type === 'coach-raw') return; // a newer request superseded this one
     const p = pending.get(msg.id);
     if (msg.type === 'progress') setStatus(msg.message);
     else if (msg.type === 'done') p?.resolve(msg.analysis);
@@ -232,13 +234,13 @@ export function startApp(): void {
     });
 
   let coachReq = 0;
-  const coachPending = new Map<number, (w: TwdSeriesData | null) => void>();
-  /** The worker's wind series for a race (null: it no longer holds that race, or failed; the coach then uses the drawn tracks). */
-  const coachWindOf = (key: string): Promise<TwdSeriesData | null> =>
+  const coachPending = new Map<number, (w: CoachRaw | null) => void>();
+  /** The worker's wind series and start crossings for a race (null: it no longer holds that race, or failed; the coach then uses the drawn tracks). */
+  const coachRawOf = (key: string): Promise<CoachRaw | null> =>
     new Promise((resolve) => {
       const id = --coachReq;
       coachPending.set(id, resolve);
-      worker.postMessage({ id, type: 'coach-wind', key } satisfies WorkerRequest);
+      worker.postMessage({ id, type: 'coach-raw', key } satisfies WorkerRequest);
     });
 
   let analysis: RaceAnalysis | null = null;
@@ -401,6 +403,9 @@ export function startApp(): void {
   let coach: { a: RaceAnalysis; model: CoachModel | null } | null = null;
   let coachBuilding: RaceAnalysis | null = null;
   let coachLadder: RivalLadder | null = null;
+  /** The boat's debrief for the race (cached per model and boat), and the card whose window the chart shades. */
+  let coachDeb: { model: CoachModel; boat: string; d: CoachDebrief | null } | null = null;
+  let coachSel: number | null = null;
   let coachLayout: LadderLayout | null = null;
 
   /** The boat to coach: the selected one, else the remembered one, else the winner. */
@@ -415,10 +420,10 @@ export function startApp(): void {
     if (coachBuilding === a) return false;
     coachBuilding = a;
     const key = coachRaceKey(a.meta.eventId ?? '', a.meta.division, a.meta.raceNumber, !!a.allCompetitors);
-    void coachWindOf(key).then((w) => {
+    void coachRawOf(key).then((raw) => {
       if (coachBuilding !== a) return;
       coachBuilding = null;
-      coach = { a, model: buildCoach(a, w) };
+      coach = { a, model: buildCoach(a, raw?.wind, raw?.crossMs ?? null) };
       if (analysis === a) renderCoach();
     });
     return false;
@@ -437,18 +442,27 @@ export function startApp(): void {
       renderKeepOpen(els.coachHead, (open) => coachHeadHtml(me ? coachChips(a, me, null) : [], open));
       els.coachGroup.innerHTML = '';
       els.coachLadder.innerHTML = '<p class="muted coach-none">Working out the wind…</p>';
+      els.coachCards.innerHTML = '';
       renderKeyLine(els.coachLadderCap, { chips: [], bullets: [] });
       return;
     }
     const model = coach!.model;
     coachLadder = model && boat ? rivalLadder(model, a, boat, coachGroup) : null;
-    renderKeepOpen(els.coachHead, (open) => coachHeadHtml(me ? coachChips(a, me, coachLadder) : [], open));
+    if (model && boat && (coachDeb?.model !== model || coachDeb.boat !== boat)) {
+      coachDeb = { model, boat, d: coachDebrief(a, model, boat) };
+      coachSel = null;
+    }
+    const deb = model && boat && coachDeb?.model === model ? coachDeb.d : null;
+    if (coachSel != null && !deb?.cards[coachSel]) coachSel = null;
+    renderKeepOpen(els.coachHead, (open) => coachHeadHtml(me ? coachChips(a, me, coachLadder, deb?.totalS ?? null, deb?.raceCov ?? null) : [], open));
     els.coachGroup.innerHTML = coachGroupHtml(a, boat, coachGroup, coachEach, coachCustomOpen);
     const widthPx = els.coachLadder.clientWidth || undefined;
+    const band = deb && coachSel != null ? cardSpans(deb.cards[coachSel]) : undefined;
     els.coachLadder.innerHTML =
       model && coachLadder
-        ? ladderChart(a, model, coachLadder, coachGroup, { widthPx, each: coachEach })
+        ? ladderChart(a, model, coachLadder, coachGroup, { widthPx, each: coachEach, highlight: band })
         : `<p class="muted coach-none">${model ? 'Pick a boat.' : 'No course to measure against in this race.'}</p>`;
+    els.coachCards.innerHTML = deb ? coachCardsHtml(a, deb, coachSel, me?.coverage ?? null) : '';
     coachLayout = model && coachLadder ? ladderLayout(coachLadder, model.wind, a.meta.gunMs, widthPx, coachEach) : null;
     renderKeyLine(els.coachLadderCap, { chips: coachLadder ? ladderChips(a, coachLadder, coachGroup, coachEach) : [], bullets: [] });
   }
@@ -484,6 +498,20 @@ export function startApp(): void {
     els.race.value = `${a.meta.division}|${n}`;
     // The same boat in the other race (the leg and sorts start clean).
     void loadRace(a.meta.division, n, { leg: null, boat: coachBoatId(a), sort: null });
+  });
+  // A card (or its window chip, the keyboard's way in) shades its window on the gap chart; again, or another card, changes it.
+  els.coachCards.addEventListener('click', (ev) => {
+    const el = ev.target as HTMLElement;
+    const card = el.closest<HTMLElement>('[data-opp]');
+    if (!card || el.closest('a, details')) return;
+    const i = Number(card.getAttribute('data-opp'));
+    if (!Number.isInteger(i)) return;
+    coachSel = coachSel === i ? null : i;
+    renderCoach();
+    els.coachCards.querySelector<HTMLElement>(`button.opp-when[data-opp="${i}"]`)?.focus({ preventScroll: true });
+    // On a phone the chart is above the cards: bring it into view when the band is switched on.
+    const r = els.coachLadder.getBoundingClientRect();
+    if (coachSel != null && (r.bottom < 0 || r.top > window.innerHeight)) els.coachLadder.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   });
   els.coachGroup.addEventListener('click', (ev) => {
     const el = ev.target as HTMLElement;

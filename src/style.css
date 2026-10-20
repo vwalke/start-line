@@ -840,7 +840,34 @@ html.fs-on { overflow: hidden; }
 .coach-custom ul { list-style: none; margin: 4px 0 0; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); max-height: 240px; overflow: auto; columns: 2 180px; }
 .coach-custom li { break-inside: avoid; padding: 1px 0; }
 .coach-none { margin: 12px 0; }
-.coach-cards p { margin: 0; font-size: 0.85rem; }
+/* Opportunity cards (ui/coachCards.ts): three across on a wide screen, stacked on a phone. */
+.coach-cards { margin-top: 16px; }
+.coach-fewer { margin: 0 0 8px; font-size: 0.85rem; }
+.coach-opps { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+@media (max-width: 900px) { .coach-opps { grid-template-columns: minmax(0, 1fr); } }
+.coach-opps > .card + .card { margin-top: 0; }
+.coach-opp { position: relative; padding-left: 50px; cursor: pointer; }
+.coach-opp.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.coach-opp .opp-n { position: absolute; left: 13px; top: 12px; width: 26px; height: 26px; border-radius: 50%; background: var(--ink); color: var(--surface); display: grid; place-items: center; font-weight: 800; font-size: 0.9rem; }
+.coach-opp h4 { margin: 2px 0 6px; font-size: 1rem; line-height: 1.25; }
+.coach-opp .chips { font-size: 0.78rem; }
+.coach-opp .opp-what { margin: 8px 0 0; font-size: 0.88rem; line-height: 1.4; color: var(--ink-2); }
+.coach-opp .opp-tip { margin: 8px 0 0; padding: 6px 10px; border-radius: 8px; background: var(--grid); color: var(--ink); font-size: 0.85rem; line-height: 1.4; }
+.coach-opp .opp-tip b { color: var(--accent); }
+/* The seconds at stake: red; caveats on a card: the notice colour, so they never read as the loss. */
+.coach-cards .chip.sec { background: var(--bad-bg); color: var(--bad); font-weight: 700; font-size: 0.85rem; box-shadow: none; }
+.coach-cards .chip.warn { background: var(--notice-bg); color: var(--ink); }
+.coach-cards .chip.good { background: var(--good-bg); color: var(--good); font-weight: 600; box-shadow: none; }
+.coach-cards button.chip { border: 0; font: inherit; cursor: pointer; }
+.coach-cards button.chip.opp-when:hover { color: var(--ink); }
+.coach-cards button.chip.opp-when[aria-pressed="true"] { background: var(--accent); color: var(--surface); box-shadow: none; }
+.coach-cards button.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.coach-ok .chips { font-size: 0.8rem; gap: 6px; }
+.coach-ok .ok-lbl { font-weight: 700; color: var(--ink); margin: 0 2px 0 4px; }
+.coach-ok .ok-lbl:first-child { margin-left: 0; }
+.coach-cards > .card.coach-ok { margin-top: 12px; }
+.coach-nodata p { margin: 0 0 6px; font-weight: 600; }
+svg .cl-hl { fill: var(--accent); opacity: 0.14; }
 .sw-bold { width: 18px; height: 0; border-top: 3px solid var(--ink); }
 .sw-band { width: 14px; height: 10px; background: var(--grid); box-shadow: inset 0 0 0 1px var(--rule-strong); }
 .sw-line { width: 18px; height: 0; border-top: 2px solid currentColor; }

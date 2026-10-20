@@ -13,7 +13,8 @@
 //   j88: J/88 North Americans race 5 (no mark trackers), 8 boats, every 3 s away from the gun → tests/fixtures/j88_r5.json
 //   j105 / j105r1: J/105 CBC 2026 race 2 / race 1 (no mark trackers; Good Trade USA 96 is a sparse tracker with
 //        a broken compass: a 45 min hole in race 2, heading ~115° off its course in race 1). Good Trade at its own
-//        rate, 7 boats spread over the results every 4 s (1 s within ±60 s of the gun), only the course's marks,
+//        rate, 7 boats spread over the results plus the tracked leaders (R1 Mirage, Crescendo; R2 Crescendo, Patriot)
+//        every 4 s, the rest of the fleet every 10 s (1 s within ±60 s of the gun), only the course's marks,
 //        no IMU columns → tests/fixtures/j105_r2.json, j105_r1.json. They read the Good Trade debrief downloads
 //        (regatta.json, tele_r<n>_p<k>.json pages, wind_r<n>.json), e.g. from /workspace/goodtrade-debrief/data.
 //   j105r3: J/105 CBC 2026 race 3 for the Coach golden test: Good Trade at its own rate, the official 1st–9th
@@ -98,8 +99,21 @@ const j105 = (race) => ({
   courseMarksOnly: true,
   drop: ['division', 'race_number', 'roll', 'pitch'],
 });
-PRESETS.j105 = j105(2);
-PRESETS.j105r1 = j105(1);
+/** The whole J/105 fleet: the Coach's detectors measure against the fleet (wind, crossing order, matched windows). */
+const J105_FLEET = ['USA 242', 'USA 96', 'USA 328', 'USA 159', 'USA 250', 'USA 322', 'USA 64', 'USA 29', 'USA 407', 'USA 517', 'USA 527', 'USA 523', 'USA 251', 'USA 676', 'USA 313', 'USA 215', 'USA 343', 'USA 55'];
+/** Races 1 and 2 for Coach phase 2: the 7 boats spread over the results (what `pick: 7` chose) plus the tracked leaders every 4 s, the rest of the fleet every 10 s. */
+const j105Coach = (race, sails) => ({
+  ...j105(race),
+  note: `Trimmed from public RaceSense data: 2026 J105 CBC, race ${race} (Good Trade USA 96 at its own rate, ${sails.length} boats every 4 s, the rest of the fleet every 10 s; course marks only; no IMU). See scripts/make-fixture.mjs --preset ${race === 2 ? 'j105' : 'j105r1'}.`,
+  pick: undefined,
+  sails,
+  extra: J105_FLEET.filter((s) => s !== 'USA 96' && !sails.includes(s)),
+  extraStep: 10_000,
+});
+// Race 2: + Crescendo and Patriot (tracked 2nd and 3rd, the boats just ahead of Good Trade on the last run).
+PRESETS.j105 = j105Coach(2, ['USA 328', 'USA 527', 'USA 215', 'USA 407', 'USA 313', 'USA 251', 'USA 159', 'USA 242']);
+// Race 1: + Mirage and Crescendo (tracked 2nd and 3rd: with Patriot, the top 3 the start is measured against).
+PRESETS.j105r1 = j105Coach(1, ['USA 242', 'USA 250', 'USA 64', 'USA 517', 'USA 523', 'USA 313', 'USA 343', 'USA 328', 'USA 159']);
 // Race 3 for the Coach golden test: Good Trade plus the official top 3 (Mirage, Crescendo, Rocket J Squirrel)
 // and the 4th–9th finishers the debrief's Beat 2 gap is measured against.
 PRESETS.j105r3 = {

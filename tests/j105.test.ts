@@ -18,7 +18,7 @@ describe('J/105 race 2: a sparse tracker that finished', () => {
     expect(data.boats.find((b) => b.id === GT)!.entry).toMatchObject({ finishPlausible: true });
     const gt = boat(a, GT);
     expect(gt.finishMs).toBe(Date.parse('2026-10-18T17:33:09.038Z'));
-    expect(gt.finishPos).toBe(2); // 4th of the full fleet's trackers; 2nd of this fixture's boats
+    expect(gt.finishPos).toBe(4); // 4th of the trackers that finished (Mirage, Crescendo, Patriot ahead)
     expect(a.notes.some((n) => n.kind === 'finish-unranked')).toBe(false);
   });
 
@@ -46,7 +46,8 @@ describe('J/105 race 2: a sparse tracker that finished', () => {
     // The track is still drawn: the drawing keeps its own split.
     expect(a.drawings.find((d) => d.id === GT)!.segments.length).toBeGreaterThan(0);
     // The others' windward roundings fall in 2–7 min holes: estimated across them (~), never dropped.
-    for (const b of a.boats.filter((x) => x.id !== GT)) {
+    // (Warbride and Relentless have no tracked finish: their last leg is open.)
+    for (const b of a.boats.filter((x) => x.id !== GT && x.finishMs != null)) {
       expect(b.legs.every((l) => l), b.id).toBe(true);
       expect(b.legs[0]!.timeGapS, b.id).toBeGreaterThan(5);
     }
