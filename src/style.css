@@ -418,9 +418,10 @@ svg .boat-min .min-ring { fill: none; }
 .panzoom.zoomed.grabbing, .panzoom.zoomed.grabbing svg .boat { cursor: grabbing; }
 .panzoom:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .hint { font-size: 0.75rem; color: var(--ink-3); margin: 6px 0 0; }
-/* The pinch hint (ui/hints.ts): touch only, until dismissed. */
-.touch-hint { display: flex; align-items: center; gap: 4px; }
+/* The pinch hint (ui/hints.ts): touch only, until dismissed. Text wraps at 390 px; × stays put. */
+.touch-hint { display: flex; align-items: flex-start; gap: 4px; }
 .touch-hint[hidden] { display: none; }
+.touch-hint > span { flex: 1 1 auto; min-width: 0; }
 .hint-x { flex: none; width: 28px; height: 28px; margin: -4px 0; border: 0; border-radius: 50%; background: none; color: var(--ink-3); font: inherit; font-size: 1rem; line-height: 1; cursor: pointer; }
 .hint-x:hover { color: var(--ink); background: var(--grid); }
 svg .startline { stroke: var(--ink); stroke-linecap: round; }
@@ -667,9 +668,9 @@ footer { font-size: 0.75rem; color: var(--ink-3); margin-top: 24px; }
 .table-notes { max-width: 100%; box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; }
 
 /* ---------- key lines (ui/info.ts): chips under a chart or table, then "How to read this" ---------- */
-.capline { margin: 6px 0 0; }
-.chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 0.75rem; line-height: 1.35; }
-.chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 999px; background: var(--grid); color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.capline { margin: 6px 0 0; min-width: 0; max-width: 100%; }
+.chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 0.75rem; line-height: 1.35; min-width: 0; }
+.chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; padding: 1px 7px; border-radius: 999px; background: var(--grid); color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: normal; overflow-wrap: anywhere; }
 /* A caveat stays in sight: the warning colours, never only in the ⓘ. */
 .chip.warn { background: var(--bad-bg); color: var(--bad); font-weight: 600; }
 /* Legend swatches read as a key, not a fact: no pill. */
@@ -682,7 +683,7 @@ footer { font-size: 0.75rem; color: var(--ink-3); margin-top: 24px; }
 .info > summary:hover { background: var(--grid); }
 .info[open] > summary { background: var(--grid); }
 .info-i { font-size: 0.95rem; line-height: 1; }
-.info-body { margin: 4px 0 2px; padding: 4px 10px 4px 8px; border-left: 2px solid var(--rule-strong); font-size: 0.8rem; line-height: 1.4; color: var(--ink-2); white-space: normal; }
+.info-body { margin: 4px 0 2px; padding: 4px 10px 4px 8px; border-left: 2px solid var(--rule-strong); font-size: 0.8rem; line-height: 1.4; color: var(--ink-2); white-space: normal; overflow-wrap: anywhere; }
 .info-body ul { margin: 0; padding-left: 16px; }
 .info-body li { margin: 2px 0; }
 .info-sub { margin: 6px 0 2px; font-weight: 600; color: var(--ink); }
@@ -765,13 +766,13 @@ html.fs-on { overflow: hidden; }
 .fs-tools .zoom button, .fs-tools .seg button, .fs-tools .legend .key { padding: 3px 8px; font-size: 0.78rem; }
 .fs-tools .seg { font-size: 0.78rem; }
 .fs-close { flex: none; margin-left: auto; }
-.fs-key { flex: none; padding: 0 10px; }
+.fs-key { flex: none; min-width: 0; padding: 0 10px; }
 .fs-key .speed-key { margin: 3px 0; font-size: 0.75rem; }
 .fs-key .speed-key .spd-bar { width: 72px; }
 /* The card's key line comes along (ui/app.ts): compact, and an open ⓘ scrolls rather than squeezing the chart away. */
 .fs-key .capline { margin: 3px 0; }
 .fs-key .chips { font-size: 0.72rem; }
-.fs-key .info-body { max-height: 35vh; overflow-y: auto; }
+.fs-key .info-body { max-height: 35vh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .fs-key:not(:has(.speed-key:not([hidden]), .capline)) { display: none; }
 .fs-boat-key { gap: 2px 10px; }
 .fs-boat-key .bk { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--ink); }
