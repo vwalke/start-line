@@ -8,7 +8,7 @@ import type { RaceListItem } from '../data/racesense/adapter';
 import { parsePickerParams, type PickerParams } from './params';
 import { readPref, removePref, writePref } from './speed';
 import { sortTable, type SortState } from './table';
-import { initialTab, parseTab, type Tab } from './tabs';
+import { COACH_TABS, TABS, initialTab, parseTab, type Tab } from './tabs';
 
 export const LAST_VIEW_KEY = 'recall.lastView';
 /** As the /api proxy accepts (functions/_lib.ts). */
@@ -68,8 +68,8 @@ export function parseLastView(raw: string | null | undefined): LastView | null {
   const startSort = parseSort(x.startSort);
   if (startSort) out.startSort = startSort;
   if (x.allCompetitors) out.allCompetitors = true;
-  // Added with the tabs: optional, and an unknown one is just dropped.
-  const tab = parseTab(x.tab);
+  // Added with the tabs: optional, and an unknown one is just dropped (Coach is kept: whether it opens depends on the flag).
+  const tab = parseTab(x.tab, COACH_TABS);
   if (tab) out.tab = tab;
   return out;
 }
@@ -142,8 +142,8 @@ export function resolveStart(search: string, saved: LastView | null): StartPlan 
  * The tab to boot on: the URL hash wins; else the saved tab when the plan restores the saved view
  * (the saved race, or a link to that same race); else Start (a link to another race, or nothing saved).
  */
-export const startTab = (hash: string, plan: StartPlan, saved: LastView | null): Tab =>
-  initialTab(hash, saved?.tab, plan.source === 'saved' || (plan.source === 'url' && plan.view !== undefined));
+export const startTab = (hash: string, plan: StartPlan, saved: LastView | null, tabs: readonly Tab[] = TABS): Tab =>
+  initialTab(hash, saved?.tab, plan.source === 'saved' || (plan.source === 'url' && plan.view !== undefined), tabs);
 
 /** The race to open: the wanted one if listed; else (unless `strict`, for a restore) the fallback. */
 export function pickRace(

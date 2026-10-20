@@ -52,6 +52,8 @@
           <div id="tabs" class="tabs" role="tablist" aria-label="Digest">
             <button type="button" role="tab" id="tab-start" aria-controls="panel-start" aria-selected="true" tabindex="0">Start</button>
             <button type="button" role="tab" id="tab-race" aria-controls="panel-race" aria-selected="false" tabindex="-1">Race</button>
+            <!-- Behind the ?coach=1 flag (ui/tabs.ts coachEnabled). -->
+            <button type="button" role="tab" id="tab-coach" aria-controls="panel-coach" aria-selected="false" tabindex="-1" hidden>Coach</button>
           </div>
           <div id="panel-start" class="panel" role="tabpanel" aria-labelledby="tab-start" tabindex="-1">
             <section class="card has-fs">
@@ -128,6 +130,25 @@
               <div id="table" class="tablewrap"></div>
               <p class="table-hint">Swipe the table sideways to see later legs →</p>
               <div id="legs-notes" class="capline table-notes"></div>
+            </section>
+          </div>
+          <div id="panel-coach" class="panel" role="tabpanel" aria-labelledby="tab-coach" tabindex="-1" hidden>
+            <section id="coach-head-card" class="card coach-head">
+              <div id="coach-pick" class="coach-pick"></div>
+              <h3 id="coach-title"></h3>
+              <div class="capline" id="coach-head"></div>
+            </section>
+            <section id="coach-ladder-card" class="card">
+              <h3 id="coach-ladder-title">Gap to rivals</h3>
+              <div id="coach-group" class="segs coach-group" aria-controls="coach-ladder"></div>
+              <div class="places-wrap">
+                <div id="coach-ladder" aria-labelledby="coach-ladder-title"></div>
+                <div id="coach-ladder-tip" class="map-tip" role="status" aria-live="off" hidden></div>
+              </div>
+              <div class="capline" id="coach-ladder-cap"></div>
+            </section>
+            <section id="coach-cards" class="card coach-cards">
+              <p class="muted">Opportunity cards coming in the next update.</p>
             </section>
           </div>
         </div>
