@@ -4,6 +4,7 @@
  */
 import { buildCoach, coachRaceKey, rivalLadder, type CoachModel, type CoachRaw, type RivalLadder } from '../analysis/coach';
 import { coachDebrief, type CoachDebrief } from '../analysis/coach/debrief';
+import { legStories } from '../analysis/coach/legStory';
 import type { Group } from '../analysis/coach/groups';
 import { splitFindings } from '../analysis/findings';
 import { START_TRAIL_MS, type RaceAnalysis } from '../analysis/types';
@@ -33,6 +34,7 @@ import {
   type LadderLayout,
 } from './coach';
 import { cardSpans, coachCardsHtml } from './coachCards';
+import { legStoriesHtml } from './coachLegs';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
 import {
   applyView,
@@ -182,6 +184,7 @@ export function startApp(): void {
     coachTip: $('coach-ladder-tip'),
     coachLadderCap: $('coach-ladder-cap'),
     coachCards: $('coach-cards'),
+    coachLegs: $('coach-legs'),
     fs: $('fs'),
     fsTools: $('fs-tools'),
     fsKey: $('fs-key'),
@@ -443,6 +446,7 @@ export function startApp(): void {
       els.coachGroup.innerHTML = '';
       els.coachLadder.innerHTML = '<p class="muted coach-none">Working out the wind…</p>';
       els.coachCards.innerHTML = '';
+      els.coachLegs.innerHTML = '';
       renderKeyLine(els.coachLadderCap, { chips: [], bullets: [] });
       return;
     }
@@ -463,6 +467,10 @@ export function startApp(): void {
         ? ladderChart(a, model, coachLadder, coachGroup, { widthPx, each: coachEach, highlight: band })
         : `<p class="muted coach-none">${model ? 'Pick a boat.' : 'No course to measure against in this race.'}</p>`;
     els.coachCards.innerHTML = deb ? coachCardsHtml(a, deb, coachSel, me?.coverage ?? null) : '';
+    // Leg stories over the picked group; the legs open now stay open.
+    const openLegs = new Set([...els.coachLegs.querySelectorAll<HTMLElement>('details.coach-leg[open]')].map((d) => Number(d.dataset.leg)));
+    const stories = model && boat ? legStories(a, model, boat, coachGroup) : [];
+    renderKeepOpen(els.coachLegs, (open) => (boat ? legStoriesHtml(stories, a, boat, coachGroup, openLegs, open) : ''));
     coachLayout = model && coachLadder ? ladderLayout(coachLadder, model.wind, a.meta.gunMs, widthPx, coachEach) : null;
     renderKeyLine(els.coachLadderCap, { chips: coachLadder ? ladderChips(a, coachLadder, coachGroup, coachEach) : [], bullets: [] });
   }

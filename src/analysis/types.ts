@@ -35,6 +35,11 @@ export interface LegResult {
   timeGapS: number | null;
   /** Distance sailed along the GPS track, m. */
   distM: number;
+  /**
+   * Progress ratio (Chris's Progress ÷ Dist): the straight line from where the boat started the leg to where it
+   * ended it (its rounding, or its finish) ÷ the distance it sailed; 0–1, null when it sailed no distance.
+   */
+  progress: number | null;
   /** Longest telemetry hole (> SPAN_MS) the distance bridges with a straight line, s; null = none. */
   distGapS: number | null;
   /** Tacks and gybes on the leg (analysis/manoeuvres.ts). */

@@ -499,6 +499,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
         rankAtEnd: null,
         timeGapS: bGaps.length ? Math.max(...bGaps) : null,
         ...dist,
+        progress: dist.distM > 0 ? Math.hypot(disp[0], disp[1]) / dist.distM : null,
         tacks: mv?.tacks ?? 0,
         gybes: mv?.gybes ?? 0,
         manoeuvreGap: mv?.gap ?? false,
