@@ -31,6 +31,8 @@ export interface LegResult {
   twaDeg: number;
   /** Rank at the end of this leg among boats that completed it. */
   rankAtEnd: number | null;
+  /** A rounding at either end is timed inside (or at the fix next to) a telemetry hole over SPAN_MS: that hole, s; null = clear (legs.ts checkBounds). */
+  timeGapS: number | null;
   /** Distance sailed along the GPS track, m. */
   distM: number;
   /** Longest telemetry hole (> SPAN_MS) the distance bridges with a straight line, s; null = none. */
@@ -70,6 +72,8 @@ export interface KindSummary {
   distM: number;
   /** Some leg's distance bridges a telemetry gap. */
   distApprox: boolean;
+  /** Some leg's rounding is timed across a telemetry gap. */
+  timeApprox: boolean;
   sogKn: number;
   vmgKn: number;
   twaDeg: number;
@@ -151,6 +155,10 @@ export interface BoatResult {
   /** The upwind and downwind legs added up; null when the race has none of that kind or the boat completed none. */
   upwind: KindSummary | null;
   downwind: KindSummary | null;
+  /** Where heading-based figures (TWA, start heading, bow) come from: the device, or the GPS course when the compass is far off it (manoeuvres.ts headingCheck). */
+  headingSource: 'device' | 'cog';
+  /** Median |device heading − course over ground| at speed, °; null with too few fixes. */
+  headingOffDeg: number | null;
 }
 
 export interface WindEstimate {

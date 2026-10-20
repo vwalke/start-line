@@ -43,6 +43,18 @@ describe('Melges 24 Worlds race 4: Windward Mark and OFFSET never transmit', () 
     expectContiguous(a);
   });
 
+  it('re-times a windward rounding found at the fix beside a 2–6 min hole inside the hole, marked ~', () => {
+    // 619, 629 and 708 were still 100–150 s of sailing from the turn at that fix: [fix, hole] in s after the gun.
+    const cases: [string, number, number][] = [['619', 1280, -335], ['629', 1040, 136], ['708', 1027, 125]];
+    for (const [id, fix, hole] of cases) {
+      const l = a.boats.find((x) => x.id === id)!.legs[0]!;
+      const s = (l.endMs - a.meta.gunMs) / 1000;
+      expect(Math.round(l.timeGapS!)).toBe(Math.abs(hole));
+      expect(s).toBeGreaterThan(Math.min(fix, fix + hole) + 1);
+      expect(s).toBeLessThan(Math.max(fix, fix + hole) - 1);
+    }
+  });
+
   it('turns the winner 870 at about 16, 26 and 44 min', () => {
     const w = a.boats.find((b) => b.sail === '870')!;
     expect(w.finishPos).toBe(1);

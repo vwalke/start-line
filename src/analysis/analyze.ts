@@ -28,10 +28,10 @@ import {
   type Vec,
 } from './geo';
 import { fleetTurns, isOffset, legCourse, legsAgree, snapTurns } from './course';
-import { inferRoundings, splitLegs, type Waypoint } from './legs';
+import { checkBounds, inferRoundings, legMedians, splitLegs, targetsOf, type Targets, type Waypoint } from './legs';
 import { SQUARE_LINE_M } from './line';
 import { heelAt, heelSeries, heelStats } from './heel';
-import { detectManoeuvres, manoeuvresByLeg, signedTwa } from './manoeuvres';
+import { cogHeading, detectManoeuvres, headingCheck, manoeuvresByLeg, signedTwa, type HeadingCheck } from './manoeuvres';
 import { classifyParticipation } from './participation';
 import { projectTrack, rangeIdx, type XYTrack } from './prepare';
 import { smoothSog } from './smooth';
@@ -119,7 +119,20 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   const ldir = scale(lineVec, 1 / lineLen);
   const lineMid = centroid([L, R]);
 
-  const tracks = new Map<string, XYTrack>(data.boats.map((b) => [b.id, projectTrack(b.track, proj)]));
+  // A compass far off the GPS course (manoeuvres.ts headingCheck) is replaced by the course
+  // over ground for everything heading feeds: TWA, the start heading and bow, the hull.
+  const headings = new Map<string, HeadingCheck>();
+  const prepare = (b: Boat): XYTrack => {
+    const tr = projectTrack(b.track, proj);
+    const hc = headingCheck(tr);
+    headings.set(b.id, hc);
+    if (hc.source === 'cog') tr.heading = cogHeading(tr);
+    return tr;
+  };
+  const tracks = new Map<string, XYTrack>(data.boats.map((b) => [b.id, prepare(b)]));
+  // …but such a boat's course is no tack heading: it stays out of the wind estimate (unless every boat is one).
+  const compass = data.boats.filter((b) => headings.get(b.id)!.source === 'device');
+  const windBoats = new Set((compass.length ? compass : data.boats).map((b) => b.id));
   const finishLine = data.finishLine
     ? { left: proj.toXY(data.finishLine.left.lat, data.finishLine.left.lon), right: proj.toXY(data.finishLine.right.lat, data.finishLine.right.lon) }
     : null;
@@ -192,7 +205,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     const hs: number[] = [];
     for (const b of data.boats) {
       const tr = tracks.get(b.id)!;
-      for (const i of steadyIndices(tr, gun + 40_000, gun + 8 * 60_000)) hs.push(tr.heading[i]);
+      if (windBoats.has(b.id)) for (const i of steadyIndices(tr, gun + 40_000, gun + 8 * 60_000)) hs.push(tr.heading[i]);
     }
     const early = estimateTwd(hs);
     const retry = early ? fleetTurns(fleetBoats, gun, bearingVec(early.twdDeg)) : null;
@@ -216,6 +229,16 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     return wp ? centroid(wp.at ? wp.at(fleet.turns[k].tMs) : wp.xy) : fleet.turns[k].xy;
   };
 
+  // Roundings a telemetry hole leaves in doubt: approximate (~), or unknown so the
+  // leg is left out (—) rather than timed to the next fix. Drawing keeps `times`.
+  const medians = legMedians(times.values());
+  const roundAt = Array.from({ length: nLegs - 1 }, (_, k): Targets => {
+    const wp = turnMarks ? turnMarks[k] : wps[k];
+    return wp ? targetsOf(wp) : [fleet.turns[k].xy];
+  });
+  const checked = new Map([...times].map(([id, tt]) => [id, checkBounds(tracks.get(id)!, tt, medians, roundAt)]));
+  const legTimes = new Map([...checked].map(([id, c]) => [id, c.tt]));
+
   // Course side: toward the first mark, else where the fleet is a minute after the gun.
   let nrm: Vec = [-ldir[1], ldir[0]];
   const firstTarget = nLegs > 1 ? turnXY(0) : null;
@@ -236,13 +259,13 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   // Leg 1 alone: gun → each boat's first turn; with no turns, the first 8 min (at most half the race).
   const leg1 = new Map<string, (number | null)[]>();
   for (const b of data.boats) {
-    const tt = times.get(b.id)!;
+    const tt = legTimes.get(b.id)!;
     const end = nLegs > 1 ? tt[1] : Math.min(gun + 8 * 60_000, b.finishMs != null ? (gun + b.finishMs) / 2 : gun + 8 * 60_000);
     leg1.set(b.id, [gun, end]);
   }
-  const courses = legBearings.map((fb, li) => (li === 0 && nLegs === 1 ? legCourse(tracks, leg1, 0) : legCourse(tracks, times, li)) ?? fb);
+  const courses = legBearings.map((fb, li) => (li === 0 && nLegs === 1 ? legCourse(tracks, leg1, 0) : legCourse(tracks, legTimes, li)) ?? fb);
 
-  /** Steady headings of every boat over leg `li` (of `tm`), and the leg's mean mid-time. */
+  /** Steady headings over leg `li` (of `tm`) of every boat with a working compass, and the leg's mean mid-time over all. */
   const steady = (tm: Map<string, (number | null)[]>, li: number): { hs: number[]; mid: number | null } => {
     const hs: number[] = [];
     const mids: number[] = [];
@@ -252,12 +275,13 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       const e = tt[li + 1];
       if (a == null || e == null) continue;
       mids.push((a + e) / 2);
+      if (!windBoats.has(b.id)) continue;
       const tr = tracks.get(b.id)!;
       for (const i of steadyIndices(tr, a, e)) hs.push(tr.heading[i]);
     }
     return { hs, mid: mids.length ? mids.reduce((x, y) => x + y, 0) / mids.length : null };
   };
-  const legSteady = Array.from({ length: nLegs }, (_, li) => steady(times, li));
+  const legSteady = Array.from({ length: nLegs }, (_, li) => steady(legTimes, li));
 
   // Prior wind: the first leg is nearly always a beat, so its tacks (if they
   // straddle its course); else the model if it roughly agrees; else dead upwind.
@@ -345,8 +369,18 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   const finishOrder = finishers.map((b) => b.id);
   const results: BoatResult[] = [];
   const drawings: BoatDrawing[] = [];
-  /** One boat's figures and drawing. Unranked (a boat set aside): start figures only, no legs or finish place. */
-  const measure = (b: Boat, tr: XYTrack, tt: (number | null)[], ranked: boolean): { result: BoatResult; drawing: BoatDrawing } => {
+  /**
+   * One boat's figures and drawing. Unranked (a boat set aside): start figures only, no legs or finish place.
+   * `tt` times the legs (checked: unknown roundings null), `drawTt` splits the drawn track, `gapS` marks approximate roundings.
+   */
+  const measure = (
+    b: Boat,
+    tr: XYTrack,
+    tt: (number | null)[],
+    ranked: boolean,
+    drawTt = tt,
+    gapS: (number | null)[] = [],
+  ): { result: BoatResult; drawing: BoatDrawing } => {
     let start: StartResult | null = null;
     let trail: DrawnTrack = { x: new Float32Array(0), y: new Float32Array(0), t: new Float64Array(0), sog: new Float32Array(0) };
     // Smoothed at the full rate, before the drawn tracks are thinned to ~1 Hz.
@@ -354,7 +388,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     let courseAtGun: number | null = null;
     let headingAtSample: number | null = null;
     // Tacks and gybes from the gun to the last leg end this boat reached (split by leg below).
-    const ends = tt.filter((x): x is number => x != null);
+    const ends = drawTt.filter((x): x is number => x != null);
     const lastEnd = ends.length > 1 ? ends[ends.length - 1] : null;
     const manoeuvres = ranked && lastEnd != null ? detectManoeuvres(tr, twdAt, gun, lastEnd) : [];
     // Leeward heel per fix (analysis/heel.ts), blanked around those manoeuvres; null when the feed has no roll.
@@ -450,6 +484,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       if (!idx.length) idx = Array.from({ length: i1 - i0 }, (_, k) => i0 + k);
       const twa = median(idx.map((k) => Math.abs(wrap180(twdl - tr.heading[k]))));
       const dist = pathDistance(tr.t, tr.x, tr.y, a, e);
+      const bGaps = [gapS[li], gapS[li + 1]].filter((g): g is number => g != null);
       const mv = moves[li];
       const cov = coverage(tr.t, a, e);
       const hs = heel ? heelStats(heel, a, e) : null;
@@ -462,6 +497,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
         vmgKn: vmg,
         twaDeg: twa,
         rankAtEnd: null,
+        timeGapS: bGaps.length ? Math.max(...bGaps) : null,
         ...dist,
         tacks: mv?.tacks ?? 0,
         gybes: mv?.gybes ?? 0,
@@ -508,12 +544,14 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       legs: legResults,
       upwind: ranked ? kindSummary(legResults, legs, 'upwind') : null,
       downwind: ranked ? kindSummary(legResults, legs, 'downwind') : null,
+      headingSource: headings.get(b.id)?.source ?? 'device',
+      headingOffDeg: headings.get(b.id)?.offDeg ?? null,
     };
 
     const segments: TrackSegment[] = [];
     for (let li = 0; li < nLegs; li++) {
-      const a = tt[li];
-      const e = tt[li + 1] ?? (li === nLegs - 1 && tt[li] != null ? tr.t[tr.t.length - 1] : null);
+      const a = drawTt[li];
+      const e = drawTt[li + 1] ?? (li === nLegs - 1 && drawTt[li] != null ? tr.t[tr.t.length - 1] : null);
       if (a == null || e == null) continue;
       const [i0, i1] = rangeIdx(tr.t, a, e);
       const xs: number[] = [];
@@ -546,7 +584,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     return { result, drawing };
   };
   for (const b of data.boats) {
-    const m = measure(b, tracks.get(b.id)!, times.get(b.id)!, true);
+    const m = measure(b, tracks.get(b.id)!, legTimes.get(b.id)!, true, times.get(b.id)!, checked.get(b.id)!.gapS);
     results.push(m.result);
     drawings.push(m.drawing);
   }
@@ -560,7 +598,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     return k === nLegs ? Math.max(...ts) : median(ts);
   });
   const excluded = setAside.map((b) => {
-    const m = measure(b, projectTrack(b.track, proj), fleetTimes, false);
+    const m = measure(b, prepare(b), fleetTimes, false);
     return { ...m, reasons: participation.get(b.id)!.reasons };
   });
 
@@ -581,10 +619,13 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     Object.assign(r.start, assessStart(r.start), { ocs: false, over: false, ocsBlind: false, warn: null, startPlace: null });
   }
 
-  // Rank at each mark.
+  // Rank at each mark: among every boat with a known time there (its leg may be unknown when only its start was lost).
   for (let li = 0; li < nLegs; li++) {
-    const done = results.filter((r) => r.legs[li]).sort((a, b) => a.legs[li]!.endMs - b.legs[li]!.endMs);
-    done.forEach((r, k) => (r.legs[li]!.rankAtEnd = k + 1));
+    const at = (r: BoatResult): number | null => legTimes.get(r.id)![li + 1];
+    const done = results.filter((r) => at(r) != null).sort((a, b) => at(a)! - at(b)!);
+    done.forEach((r, k) => {
+      if (r.legs[li]) r.legs[li]!.rankAtEnd = k + 1;
+    });
   }
   placeSummaries(results, 'upwind');
   placeSummaries(results, 'downwind');

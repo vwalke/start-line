@@ -35,6 +35,7 @@ export function kindSummary(legs: (LegResult | null)[], defs: LegDef[], kind: Su
     timeS,
     distM,
     distApprox: done.some((l) => l.distGapS != null),
+    timeApprox: done.some((l) => l.timeGapS != null),
     sogKn: distM / M_PER_NM / (timeS / 3600),
     vmgKn: wmean((l) => l.vmgKn),
     twaDeg: wmean((l) => l.twaDeg),

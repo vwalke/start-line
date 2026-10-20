@@ -14,6 +14,7 @@ const leg = (timeS: number, o: Partial<LegResult> = {}): LegResult => ({
   vmgKn: 5,
   twaDeg: 40,
   rankAtEnd: null,
+  timeGapS: null,
   distM: 1000,
   distGapS: null,
   tacks: 0,
