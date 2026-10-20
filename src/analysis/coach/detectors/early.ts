@@ -46,6 +46,17 @@ export function lateralSep(ctx: CoachCtx, ids: string[], t: number): number | nu
   return Math.abs(dot(sub(p, [median(q.map((v) => v[0])), median(q.map((v) => v[1]))]), across));
 }
 
+/**
+ * Typical across-wind separation in a window: the median of the start, mid and
+ * end reads. The end-of-window spread (boats on opposite sides of the beat)
+ * must not inflate the ±3° wind-error term on a start / early-lane Δgap, where
+ * the boats were still close.
+ */
+export function typicalSep(ctx: CoachCtx, ids: string[], t0: number, t1: number): number {
+  const seps = [t0, (t0 + t1) / 2, t1].map((t) => lateralSep(ctx, ids, t)).filter((x): x is number => x != null);
+  return seps.length ? median(seps) : 0;
+}
+
 export function detectEarly(ctx: CoachCtx, start: { crossMs: number | null; d1Fired: boolean }, rolled: AttachedChip | null): Opportunity | null {
   const t0 = start.crossMs ?? ctx.gun + Math.max(0, ctx.me.start?.lateS ?? 0) * 1000;
   const t1 = t0 + D3_WINDOW_MS;
@@ -67,7 +78,7 @@ export function detectEarly(ctx: CoachCtx, start: { crossMs: number | null; d1Fi
   const tackRule = tacks.length >= D3_MIN_TACKS && fleetTacks <= D3_FLEET_MAX;
   if (!tackRule && dgap < D3_GAP_S) return null;
   const cov = coachCoverage(ctx.tr.t, t0, t1);
-  const sep = lateralSep(ctx, refs, dg.t1) ?? 0;
+  const sep = typicalSep(ctx, refs, dg.t0, dg.t1);
   const { noise, windS } = gapNoise(sep, ctx.m.vmg[0], untrackedS(ctx.tr.t, t0, t1));
   const seconds = Math.max(0, dgap);
   const variant = rolled && !start.d1Fired ? 'slow-start' : tacks.length >= D3_MIN_TACKS ? 'tacks' : 'lane';

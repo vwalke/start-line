@@ -8,7 +8,7 @@
  * A card's window chip is a toggle button: pressed, the gap chart shades the
  * card's window (a click anywhere on the card does the same).
  */
-import type { CoachDebrief } from '../analysis/coach/debrief';
+import { RACE_MIN_COVERAGE, type CoachDebrief } from '../analysis/coach/debrief';
 import type { Fact, GoodNote } from '../analysis/coach/opportunity';
 import type { Card } from '../analysis/coach/rank';
 import type { RaceAnalysis } from '../analysis/types';
@@ -120,8 +120,17 @@ export function cardText(c: Card): CardText {
       const runs = num(f.runs) > 1 ? 'runs' : 'run';
       const w = windWord(f.wind);
       const top = f.tTwa != null;
+      const boatTwa = num(f.twa);
+      const refTwa = top ? num(f.tTwa) : num(f.fTwa);
+      const deeper = boatTwa > refTwa;
+      const hotter = boatTwa < refTwa;
+      // Angle chip only when it supports the claim: too deep / too hot, or a
+      // speed card where the boat was actually deeper. Higher than the top 3
+      // on a "slow on the run" card is noise.
+      const angleOk = c.variant === 'hot' ? hotter : deeper;
+      const angle = top ? `${r0(f.twa)}° vs top-3 ${r0(f.tTwa)}°` : `${r0(f.twa)}° vs fleet ${r0(f.fTwa)}°`;
       const chips = [
-        top ? `${r0(f.twa)}° vs top-3 ${r0(f.tTwa)}°` : `${r0(f.twa)}° vs fleet ${r0(f.fTwa)}°`,
+        ...(angleOk ? [angle] : []),
         top && f.tSog != null ? `${kn(f.sog)} vs ${kn(f.tSog)} kn` : `${kn(f.sog)} vs ${kn(f.fSog)} kn`,
         `VMG ${kn(f.vmg)} vs fleet ${kn(f.fVmg)} kn`,
       ];
@@ -159,8 +168,8 @@ export function cardText(c: Card): CardText {
   }
 }
 
-/** The ⚠ chips (spec §5): medium → what capped it (`data 58%`, `marks est.`…); low → `low confidence` and its reason; `wind est.`. */
-export function cardWarnings(c: Card, a: RaceAnalysis): string[] {
+/** The ⚠ chips (spec §5): medium → what capped it (`data 58%`, `marks est.`…); low → `low confidence` and its reason; `wind est.`; race under 25 % → `low data`. */
+export function cardWarnings(c: Card, a: RaceAnalysis, raceCov?: number | null): string[] {
   const out: string[] = [];
   const why = (): string =>
     c.limit === 'data' ? `data ${pct(c.coverage)}` : c.limit === 'marks' ? 'marks est.' : c.limit === 'wind' ? 'wind est.' : 'few boats to compare';
@@ -174,6 +183,7 @@ export function cardWarnings(c: Card, a: RaceAnalysis): string[] {
     } else out.push(why());
   }
   if (c.windEst && !out.includes('wind est.')) out.push('wind est.');
+  if (raceCov != null && raceCov < RACE_MIN_COVERAGE) out.push('low data');
   return out;
 }
 
@@ -190,7 +200,7 @@ const chip = (text: string, cls = ''): string => `<li class="chip${cls ? ` ${cls
 const warnLi = (text: string): string => `<li class="chip warn"><span aria-hidden="true">⚠ </span><span class="vh">Warning: </span>${esc(text)}</li>`;
 
 /** One card. `on`: its window is shaded on the chart. */
-export function cardHtml(c: Card, i: number, a: RaceAnalysis, on: boolean): string {
+export function cardHtml(c: Card, i: number, a: RaceAnalysis, on: boolean, raceCov?: number | null): string {
   const t = cardText(c);
   const when = windowChip(c, a);
   const secs = secondsChip(c);
@@ -198,7 +208,7 @@ export function cardHtml(c: Card, i: number, a: RaceAnalysis, on: boolean): stri
     `<li class="chip sec" title="Seconds at stake">${esc(secs)}</li>`,
     `<li><button type="button" class="chip opp-when" data-opp="${i}" aria-pressed="${on}" title="Show on the gap chart" aria-label="${esc(`${when}: show on the gap chart`)}">${esc(when)}</button></li>`,
     ...t.chips.slice(0, KEY_CHIPS_MAX).map((x) => chip(x)),
-    ...cardWarnings(c, a).map(warnLi),
+    ...cardWarnings(c, a, raceCov).map(warnLi),
   ].join('');
   return `<article class="card coach-opp${on ? ' on' : ''}" data-opp="${i}" data-kind="${c.kind}" aria-labelledby="coach-opp-${i}">
     <span class="opp-n" aria-hidden="true">${i + 1}</span>
@@ -219,7 +229,7 @@ export function coachCardsHtml(a: RaceAnalysis, d: CoachDebrief, selected: numbe
   }
   const n = d.cards.length;
   const fewer = n < 3 ? `<p class="coach-fewer muted">${n ? esc(fewerLine(n)) : 'No clear gains with this data'}</p>` : '';
-  const cards = n ? `<div class="coach-opps">${d.cards.map((c, i) => cardHtml(c, i, a, selected === i)).join('')}</div>` : '';
+  const cards = n ? `<div class="coach-opps">${d.cards.map((c, i) => cardHtml(c, i, a, selected === i, d.raceCov)).join('')}</div>` : '';
   const ok = d.ok.flatMap(goodTexts).map((x) => chip(`✓ ${x}`, 'good'));
   const plus = d.plus.flatMap(goodTexts).map((x) => chip(`➕ ${x}`, 'good'));
   const row =

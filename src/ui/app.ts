@@ -454,7 +454,7 @@ export function startApp(): void {
     }
     const deb = model && boat && coachDeb?.model === model ? coachDeb.d : null;
     if (coachSel != null && !deb?.cards[coachSel]) coachSel = null;
-    renderKeepOpen(els.coachHead, (open) => coachHeadHtml(me ? coachChips(a, me, coachLadder, deb?.totalS ?? null) : [], open));
+    renderKeepOpen(els.coachHead, (open) => coachHeadHtml(me ? coachChips(a, me, coachLadder, deb?.totalS ?? null, deb?.raceCov ?? null) : [], open));
     els.coachGroup.innerHTML = coachGroupHtml(a, boat, coachGroup, coachEach, coachCustomOpen);
     const widthPx = els.coachLadder.clientWidth || undefined;
     const band = deb && coachSel != null ? cardSpans(deb.cards[coachSel]) : undefined;

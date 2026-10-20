@@ -10,6 +10,7 @@
  * the boat as `boat=<id>`, next to the race (`event`, `div`, `race`).
  */
 import { DEFAULT_GROUPS, NEAR_PLACES, type Group, type GroupKind } from '../analysis/coach/groups';
+import { RACE_MIN_COVERAGE } from '../analysis/coach/debrief';
 import type { CoachModel, RivalLadder } from '../analysis/coach';
 import { COACH_NEAR_FIX_S } from '../analysis/coach/tracks';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
@@ -106,7 +107,13 @@ export function coachPickerHtml(a: RaceAnalysis, boat: string | null, races: { r
 const hm = (ms: number, tz: number): string => localTime(ms, tz).slice(0, 5);
 
 /** The header: place, gun time (venue clock), ⚠ tracker coverage, ⚠ longest hole, ⚠ heading from GPS course. */
-export function coachChips(a: RaceAnalysis, b: BoatResult, ladder: RivalLadder | null, atStakeS: number | null = null): Chip[] {
+export function coachChips(
+  a: RaceAnalysis,
+  b: BoatResult,
+  ladder: RivalLadder | null,
+  atStakeS: number | null = null,
+  raceCov: number | null = null,
+): Chip[] {
   const tz = a.meta.tzOffsetMs;
   const chips: Chip[] = [];
   chips.push(b.finishPos != null ? { text: `${ordinal(b.finishPos)} of ${a.boats.length}`, title: 'Place by the tracked finish' } : warnChip('no tracked finish'));
@@ -116,7 +123,9 @@ export function coachChips(a: RaceAnalysis, b: BoatResult, ladder: RivalLadder |
   }
   chips.push({ text: `gun ${hm(a.meta.gunMs, tz)}`, title: `Venue time (${tzLabel(tz)})` });
   if (atStakeS != null && atStakeS > 0) chips.push({ text: `≈ ${Math.round(atStakeS)} s at stake`, title: 'Seconds at stake over the cards below' });
-  if (b.coverage != null && b.coverage < COACH_LOW_COVERAGE) chips.push(warnChip(`tracker ${pct(b.coverage)}`, 'Share of the race the tracker covered'));
+  const cov = b.coverage ?? raceCov;
+  if (cov != null && cov < COACH_LOW_COVERAGE) chips.push(warnChip(`tracker ${pct(cov)}`, 'Share of the race the tracker covered'));
+  else if (raceCov != null && raceCov < RACE_MIN_COVERAGE) chips.push(warnChip(`tracker ${pct(raceCov)}`, 'Share of the race the tracker covered'));
   const h = ladder?.hole;
   if (h && (h.toMs - h.fromMs) / 1000 >= COACH_HOLE_CHIP_S) {
     chips.push(warnChip(`no data ${hm(h.fromMs, tz)}–${hm(h.toMs, tz)}`, `Longest gap in this boat's track: ${duration((h.toMs - h.fromMs) / 1000)}`));
@@ -215,7 +224,8 @@ export interface LegSpan {
 /**
  * One span per course leg, from the gun through the chosen boat's roundings to
  * the chart end (its finish, or last fix). Missing roundings stretch the
- * neighbouring span; every leg still gets a label.
+ * neighbouring span — those identical or overlapping stretches are merged into
+ * one label when drawn (`mergeLadderLegLabels`).
  */
 export function ladderLegSpans(legs: readonly { name: string }[], gunMs: number, roundings: readonly { tMs: number; leg: number }[], endMs: number): LegSpan[] {
   const n = legs.length;
@@ -231,6 +241,32 @@ export function ladderLegSpans(legs: readonly { name: string }[], gunMs: number,
     return dir < 0 ? gunMs : edge[n]!;
   };
   return legs.map((leg, k) => ({ name: leg.name, fromMs: known(k, -1), toMs: known(k + 1, 1), leg: k }));
+}
+
+const spansOverlap = (a: Pick<LegSpan, 'fromMs' | 'toMs'>, b: Pick<LegSpan, 'fromMs' | 'toMs'>): boolean =>
+  a.fromMs < b.toMs && b.fromMs < a.toMs;
+
+/**
+ * Legs that share a span (no known rounding between them — a data hole, or
+ * none at all) become one label, e.g. `Beat 1 – Run 2`. Adjacent but distinct
+ * spans stay separate.
+ */
+export function mergeLadderLegLabels(spans: readonly LegSpan[]): LegSpan[] {
+  const groups: { span: LegSpan; names: string[] }[] = [];
+  for (const s of spans) {
+    const prev = groups[groups.length - 1];
+    if (prev && spansOverlap(prev.span, s)) {
+      prev.span.fromMs = Math.min(prev.span.fromMs, s.fromMs);
+      prev.span.toMs = Math.max(prev.span.toMs, s.toMs);
+      prev.names.push(s.name);
+    } else {
+      groups.push({ span: { ...s }, names: [s.name] });
+    }
+  }
+  return groups.map((g) => ({
+    ...g.span,
+    name: g.names.length === 1 ? g.names[0] : `${g.names[0]} – ${g.names[g.names.length - 1]}`,
+  }));
 }
 
 const niceStep = (span: number): number => [5, 10, 15, 30, 60, 120, 300].find((s) => span / s <= 6) ?? 600;
@@ -377,7 +413,7 @@ export function ladderChart(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder,
     const x = r1(L.x(r.tMs));
     out.push(`<line class="cl-mark" x1="${x}" x2="${x}" y1="${L.padT - 4}" y2="${L.windB}"><title>${esc(a.legs[r.leg - 1]?.to ?? 'Mark')} ${hm(r.tMs, tz)}</title></line>`);
   }
-  for (const s of ladderLegSpans(a.legs, L.t0, ladder.roundings, L.t1)) {
+  for (const s of mergeLadderLegLabels(ladderLegSpans(a.legs, L.t0, ladder.roundings, L.t1))) {
     const x = (L.x(s.fromMs) + L.x(s.toMs)) / 2;
     out.push(`<text class="cl-leg-lbl" data-leg="${s.leg}" x="${r1(x)}" y="${L.padT - 6}" font-size="${fs - 1}" text-anchor="middle">${esc(s.name)}</text>`);
   }

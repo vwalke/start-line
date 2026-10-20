@@ -3,7 +3,7 @@ import type { CoachModel } from '../src/analysis/coach';
 import { coachDebrief } from '../src/analysis/coach/debrief';
 import { type CoachCtx } from '../src/analysis/coach/detectors/context';
 import { detectAngles, legAngles } from '../src/analysis/coach/detectors/angles';
-import { D3_GAP_S, detectEarly } from '../src/analysis/coach/detectors/early';
+import { D3_GAP_S, detectEarly, typicalSep } from '../src/analysis/coach/detectors/early';
 import { D10_AHEAD_S, detectLastLeg, meanSogKn } from '../src/analysis/coach/detectors/lastLeg';
 import { detectRolled } from '../src/analysis/coach/detectors/rolled';
 import { D1_LATE_S, detectStart, startOrder } from '../src/analysis/coach/detectors/start';
@@ -323,6 +323,9 @@ describe('D3 early lane / tacks', () => {
     expect(o.t1).toBe(crossMs.me + 300_000);
     expect(o.seconds).toBeCloseTo(24, 6); // 27 − 3 (one-minute reads)
     expect(o.refBoats).toEqual(['a', 'b', 'c']);
+    // Boats start together: the ±3° term does not inflate a start/early-lane window.
+    expect(o.secondsHi - o.seconds).toBeCloseTo(NOISE_BASE_S, 5);
+    expect(o.windEst).toBeFalsy();
     // Under D3_GAP_S and no tacks: nothing.
     const flat = (_: string[], from: number, to: number) => ramp(from, to, (s) => (s / 300) * (D3_GAP_S - 2));
     expect(detectEarly(world({ boats, tracks: boats.map((b) => straight(b.id)), crossMs, gaps: flat }).ctx, { crossMs: crossMs.me, d1Fired: false }, null)).toBeNull();
@@ -342,6 +345,22 @@ describe('D3 early lane / tacks', () => {
     expect(s.chips).toEqual([rolled]);
     // After a bad start (D1 fired) it isn't a "great start".
     expect(detectEarly(w.ctx, { crossMs: crossMs.me, d1Fired: true }, rolled)!.variant).toBe('tacks');
+  });
+
+  it('typicalSep: the median of start / mid / end, so a late spread does not set the wind-error term', () => {
+    const t0 = GUN;
+    const t1 = GUN + 300_000;
+    const w = world({
+      boats,
+      tracks: [
+        sail('me', { twa: [42, 145], kn: [6, 6], roundAt: 900_000, end: 900_000, boardS: 600 }),
+        ...['a', 'b', 'c'].map((id, k) => sail(id, { twa: [42, 145], kn: [6, 6], roundAt: 900_000, end: 900_000, boardS: 600, x0: 20 + k })),
+      ],
+      crossMs,
+    });
+    const sep = typicalSep(w.ctx, ['a', 'b', 'c'], t0, t1);
+    expect(sep).toBeGreaterThan(0);
+    expect(sep).toBeLessThan(80);
   });
 });
 
@@ -384,6 +403,24 @@ describe('D6 / D7 matched windows', () => {
     const t = cardText({ ...r.opp!, score: 1, limit: null });
     expect(t.title).toBe('Too deep on the light-air run');
     expect(t.chips[0]).toBe('160° vs top-3 145°');
+  });
+
+  it('speed-type downwind: the angle chip only when it supports the claim', () => {
+    const card = (o: Partial<Card>): Card => ({ ...opp(o), score: 30, limit: null, ...o }) as Card;
+    const slowHigh = cardText(
+      card({ kind: 'D7', variant: 'slow', facts: { twa: 150, tTwa: 154, sog: 5.5, tSog: 6.3, vmg: 4.8, fVmg: 5.4, wind: 'medium', runs: 1 } }),
+    );
+    expect(slowHigh.title).toBe('Slow on the medium-air run');
+    expect(slowHigh.chips.some((x) => /°/.test(x))).toBe(false);
+    expect(slowHigh.chips[0]).toBe('5.5 vs 6.3 kn');
+    const deep = cardText(
+      card({ kind: 'D7', variant: 'deep', facts: { twa: 153, tTwa: 143, sog: 4.7, tSog: 5.5, vmg: 4.1, fVmg: 4.4, wind: 'light', runs: 1 } }),
+    );
+    expect(deep.chips[0]).toBe('153° vs top-3 143°');
+    const deepButHotter = cardText(
+      card({ kind: 'D7', variant: 'deep', facts: { twa: 140, tTwa: 150, sog: 4, tSog: 5, vmg: 3, fVmg: 4, wind: 'light', runs: 1 } }),
+    );
+    expect(deepButHotter.chips.some((x) => /° vs/.test(x))).toBe(false);
   });
 });
 
@@ -491,6 +528,9 @@ describe('templates and cards (spec §6, mockup)', () => {
       'no data 13–17 min',
     ]);
     expect(cardWarnings(card({ windEst: true }), a)).toEqual(['wind est.']);
+    expect(cardWarnings(card({}), a, 0.15)).toEqual(['low data']);
+    expect(cardWarnings(card({ windEst: true }), a, 0.15)).toEqual(['wind est.', 'low data']);
+    expect(cardWarnings(card({}), a, 0.4)).toEqual([]);
   });
   it('cards, the "only N" line, the ✓ row, the no-data line', () => {
     const c = card({ kind: 'D1', variant: 'second-row', seconds: 47, secondsLo: 42, secondsHi: 52, facts: { dtl: 64, crossS: 56, crossRank: 17, n: 18, frontLo: 6, frontHi: 9 } });

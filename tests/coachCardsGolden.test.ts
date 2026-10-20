@@ -51,6 +51,10 @@ describe('Coach golden: Good Trade race 1 (gun 11:05 EDT)', () => {
     expect(t.sentence).toContain('Relentless, bow-level 20 m to windward, rolled you at 7.5 kn and 2 early tacks');
     expect(windowChip(c, a)).toBe('11:05–11:10');
     expect(c.confidence).toBe('high');
+    // Typical lateral sep in the first 5 min is tens of metres, not the 400 m
+    // end-of-window spread: ±5 s + a small wind term, so ≈ mid, not 14–44 s.
+    expect(secondsChip(c)).toMatch(/^≈ \d+ s$/);
+    expect(c.secondsHi / Math.max(1, c.secondsLo)).toBeLessThanOrEqual(2);
   });
 
   it('D6 does not fire: the ✓ upwind chip, pointing ≈ 39° vs the fleet ≈ 43° (debrief 39 vs 43)', () => {
@@ -127,12 +131,29 @@ describe('Coach golden: Good Trade race 2 (gun 12:25 EDT)', () => {
     expect(c.seconds).toBeLessThanOrEqual(45);
     expect(c.facts.vmg as number).toBeLessThan(c.facts.fVmg as number);
     expect(c.confidence).toBe('medium');
+    // Higher than the top 3: the angle chip would contradict "slow", so drop it.
+    expect((c.facts.twa as number) - (c.facts.tTwa as number)).toBeLessThan(0);
+    expect(cardText(c).chips.some((x) => /°/.test(x))).toBe(false);
   });
 
-  it('15 % race coverage still gets a debrief: its start and last run are densely tracked', () => {
-    expect(a.boats.find((b) => b.id === GT)!.coverage!).toBeLessThan(0.25);
+  it('15 % race coverage still gets a debrief, with ⚠ tracker and a low-data chip on each card', () => {
+    const me = a.boats.find((b) => b.id === GT)!;
+    expect(me.coverage!).toBeLessThan(0.25);
+    expect(d.raceCov).toBeLessThan(0.25);
     expect(d.noData).toBe(false);
     expect(d.cards.length).toBeGreaterThan(0);
+    const html = coachCardsHtml(a, d, null, me.coverage);
+    expect(html.match(/low data/g)?.length).toBe(d.cards.length);
+    const l = rivalLadder(model, a, GT, { kind: 'leaders' })!;
+    expect(coachChips(a, me, l, d.totalS, d.raceCov).some((c) => c.warn && c.text.startsWith('tracker '))).toBe(true);
+  });
+
+  it('no known roundings: one merged leg label, not four stacked on the same x', () => {
+    const l = rivalLadder(model, a, GT, { kind: 'leaders' })!;
+    expect(l.roundings).toEqual([]);
+    const svg = ladderChart(a, model, l, { kind: 'leaders' }, { widthPx: 900 });
+    const labels = [...svg.matchAll(/class="cl-leg-lbl"[^>]*>([^<]+)</g)].map((m) => m[1]);
+    expect(labels).toEqual(['Beat 1 – Run 2']);
   });
 });
 
