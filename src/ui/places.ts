@@ -10,6 +10,7 @@
 import { placeChanges, type BoatPlaces, type PlaceChanges } from '../analysis/places';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { boatColor } from './charts';
+import { warnChip, type Chip, type KeyLine } from './info';
 import { boatLabel, esc, ordinal } from './format';
 import { textWidth } from './labels';
 
@@ -64,18 +65,30 @@ export function shortName(b: BoatResult, narrow: boolean, max = 16): string {
   return b.name.length > max ? `${b.name.slice(0, max - 1).trimEnd()}…` : b.name;
 }
 
-/** The chart's caption: how places are counted, and who is missing where. */
-export function placesCaption(a: RaceAnalysis, pc: PlaceChanges = placeChanges(a)): string {
-  const parts = [
-    'Start: place among clean starters (an OCS boat, or one with no reliable start figure, has no start point).',
-    pc.columns.length > 2
-      ? `Each mark: the order the boats rounded it, from the leg splits${a.legSource === 'fleet' ? ' (marks without a tracker are placed from where the fleet turned)' : ''}; a boat with no rounding time there (a telemetry gap) is left out of that mark's order, so the others close up, and its line is dashed grey across it.`
-      : 'No mark roundings in this race (one leg), so Start → Finish only.',
-    'Finish: the finish order. A DNF line stops at the last mark reached.',
-  ];
+/** The chart's key line: ⚠ who has no rounding time where (with the dashed swatch); the counting rules in the ⓘ. */
+export function placesKey(a: RaceAnalysis, pc: PlaceChanges = placeChanges(a)): KeyLine {
   const gaps = pc.columns.map((c, k) => (pc.missing[k] ? `${c.label} (${pc.missing[k]})` : '')).filter(Boolean);
-  if (gaps.length) parts.push(`No rounding time for some boats at ${gaps.join(', ')}.`);
-  return parts.join(' ');
+  // One or two marks stay named; more would overflow a 390 px chip row, so the count goes on the chip and the names in the title.
+  const chips: Chip[] = gaps.length
+    ? [
+        warnChip(
+          gaps.length <= 2 ? `no time at ${gaps.join(', ')}` : `no time at ${gaps.length} marks`,
+          `Boats with no rounding time at ${gaps.join(', ')}; the others close up`,
+        ),
+        { text: 'no rounding time', swatch: 'gap' },
+      ]
+    : [];
+  const marks = pc.columns.length > 2;
+  return {
+    chips,
+    bullets: [
+      'Start: place among clean starters (OCS or no start figure: no point).',
+      marks ? `Marks: rounding order, ${a.legSource === 'fleet' ? 'placed from where the fleet turned' : 'from the leg splits'}.` : 'One leg: Start → Finish only.',
+      ...(marks ? ['Grey dashed: no rounding time there; the others close up.'] : []),
+      'Finish: the finish order. A DNF line stops at the last mark reached.',
+      'Hover or tap a dot for place and gain; tap a line to select.',
+    ],
+  };
 }
 
 export interface PlacesOptions {

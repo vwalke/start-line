@@ -217,6 +217,18 @@ export interface Finding {
   boatIds?: string[];
 }
 
+/** A data caveat about the race: its full sentence (`text`) and what a short chip and bullet need. */
+export type RaceNote =
+  | { kind: 'legs-fleet'; text: string; silent: string[]; tracked: string[]; est: string[]; offset: boolean }
+  | { kind: 'leg-order'; text: string }
+  | { kind: 'shortened'; text: string; dropped: string[] }
+  | { kind: 'wind-model'; text: string }
+  | { kind: 'wind-assumed'; text: string; modelDeg: number | null }
+  | { kind: 'marks-moved'; text: string; names: string[] }
+  | { kind: 'dtl-off'; text: string; medianM: number }
+  | { kind: 'not-racing'; text: string; n: number }
+  | { kind: 'finish-unranked'; text: string; boat: string; why: string };
+
 export interface RaceAnalysis {
   meta: {
     eventName: string;
@@ -256,6 +268,9 @@ export interface RaceAnalysis {
   /** Set when everyone was kept as a competitor on request (`nc=all`): how many would otherwise be excluded. */
   allCompetitors?: { flagged: number };
   findings: Finding[];
+  /** The data caveats, typed (the UI's chips and ⓘ bullets come from these). */
+  notes: RaceNote[];
+  /** The same caveats as full sentences (`notes[i].text`). */
   warnings: string[];
   /** Some competitor has heel figures (the feed carries roll); false for older feeds, and the heel columns are hidden. */
   hasHeel: boolean;

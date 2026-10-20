@@ -6,7 +6,8 @@ import type { RaceAnalysis } from '../src/analysis/types';
 import { classifyLeg, straddles } from '../src/analysis/wind';
 import { buildRaceData, parseTelemetry } from '../src/data/racesense/adapter';
 import type { CourseMark, RaceData } from '../src/data/types';
-import { legSplitCaption, trackMap } from '../src/ui/charts';
+import { legSplit, trackMap } from '../src/ui/charts';
+import { mapKey, raceNotesKey } from '../src/ui/captions';
 import { c31Race, fixtureRace, j88Race, loadFixture, m24Race } from './helpers';
 
 const names = (a: RaceAnalysis): string[] => a.legs.map((l) => l.name);
@@ -56,15 +57,34 @@ describe('Melges 24 Worlds race 4: Windward Mark and OFFSET never transmit', () 
     expect(a.warnings.join(' ')).not.toMatch(/Not enough steady upwind sailing/);
   });
 
+  it('shows the notes as chips (⚠ legs split from turns first) and the why as short ⓘ bullets', () => {
+    const k = raceNotesKey(a);
+    const texts = k.chips.map((c) => `${c.warn ? '⚠ ' : ''}${c.text}`);
+    expect(texts[0]).toBe('⚠ legs split from turns');
+    expect(texts).toContain('windward mark est.');
+    expect(texts).toContain(`${a.excluded.length} not racing`);
+    expect(k.bullets).toEqual([
+      'Legs split where each boat turned at the top and bottom.',
+      'No tracker positions from Windward Mark and OFFSET.',
+      "Tracked marks (Gate) don't give the rounding order.",
+      'Windward mark placed from the tracks (est.).',
+      'The offset mark counts as part of the following run.',
+      'Not racing: coach or spare trackers, listed under the boat list.',
+    ]);
+    // The full sentence stays as the chip's title.
+    expect(k.chips[0].title).toBe(a.warnings.find((t) => t.startsWith('Legs are split')));
+    expect(a.notes.map((n) => n.text)).toEqual(a.warnings);
+  });
+
   it('draws the windward mark hollow as an estimate and the Gate where it was rounded', () => {
     expect(a.marks.filter((m) => m.estimated).map((m) => m.name)).toEqual(['Windward mark']);
     const svg = trackMap(a, null);
     expect(svg).toContain('>Windward (est.)</text>');
     expect(svg).toMatch(/<circle class="mark est"[^>]*stroke-dasharray/);
     expect(svg).toContain('>Gate</text>');
-    expect(legSplitCaption(a)).toBe(
-      'Legs split where each boat turned at the top and bottom of the course (snapped to the mark trackers where present); hollow marks are estimated from the tracks.',
-    );
+    expect(legSplit(a)).toEqual({ chip: 'legs: fleet turns', info: 'Legs split where each boat turned (snapped to mark trackers where present).' });
+    // Hollow marks: a legend swatch on the map's key line, not a sentence.
+    expect(mapKey(a, { colour: 'leg' }).chips).toContainEqual({ text: 'estimated mark', swatch: 'est' });
   });
 });
 
@@ -75,7 +95,8 @@ describe('Benelux race 8: complete marks in rounding order', () => {
     expect(a.legs.map((l) => l.to)).toEqual(['M1', 'Gate', 'M1', 'Finish']);
     expect(a.legSource).toBe('course');
     expect(a.marks.some((m) => m.estimated)).toBe(false);
-    expect(legSplitCaption(a)).toBe("Legs split at each boat's closest approach to the mark trackers.");
+    expect(legSplit(a)).toEqual({ chip: 'legs: mark trackers', info: "Legs split at each boat's closest approach to the mark trackers." });
+    expect(mapKey(a, { colour: 'leg' }).chips.some((c) => c.swatch === 'est')).toBe(false);
     expect(a.warnings).toEqual([]);
   });
 });
@@ -101,6 +122,8 @@ describe('J/88 North Americans race 5: no mark trackers', () => {
     expect(svg).toContain('>Windward (est.)</text>');
     expect(svg).toContain('>Leeward (est.)</text>');
     expect(a.warnings.join(' ')).toContain('the feed has no mark trackers for this course');
+    expect(raceNotesKey(a).bullets).toContain('The feed has no mark trackers for this course.');
+    expect(raceNotesKey(a).chips.map((c) => c.text)).toEqual(['legs split from turns', 'windward mark est.', 'leeward mark est.']);
   });
 });
 

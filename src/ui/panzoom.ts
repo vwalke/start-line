@@ -15,6 +15,8 @@ export interface PanZoomOptions {
   getRect?: () => ClientRect;
   /** A clean tap (no drag/pinch), after any double-tap handling. */
   onTap?: (ev: PointerEvent) => void;
+  /** A touch pinch, pan or double-tap was used (e.g. to retire the gesture hint). */
+  onGesture?: () => void;
 }
 
 const TAP_SLOP_PX = 6;
@@ -98,6 +100,7 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
       const d1 = Math.hypot(cur.x - o.x, cur.y - o.y);
       const m0 = { x: (prev.x + o.x) / 2, y: (prev.y + o.y) / 2 };
       const m1 = { x: (cur.x + o.x) / 2, y: (cur.y + o.y) / 2 };
+      opts.onGesture?.();
       update((box, v) => {
         const [ax, ay] = toChart(box, v, m0.x, m0.y);
         const z = zoomAbout(v, d0 > 0 && d1 > 0 ? d1 / d0 : 1, ax, ay);
@@ -105,6 +108,7 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
         return pan(z, ax - bx, ay - by);
       });
     } else if (opts.getView().k > 1) {
+      if (ev.pointerType !== 'mouse') opts.onGesture?.();
       update((box, v) => {
         const [ax, ay] = toChart(box, v, prev.x, prev.y);
         const [bx, by] = toChart(box, v, cur.x, cur.y);
@@ -130,7 +134,10 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
       lastTouchUp = t;
       const dbl = lastTap && t - lastTap.t < DOUBLE_TAP_MS && Math.hypot(ev.clientX - lastTap.x, ev.clientY - lastTap.y) < DOUBLE_TAP_PX;
       lastTap = dbl ? null : { t, x: ev.clientX, y: ev.clientY };
-      if (dbl) return doubleTap(ev.clientX, ev.clientY);
+      if (dbl) {
+        opts.onGesture?.();
+        return doubleTap(ev.clientX, ev.clientY);
+      }
     }
     opts.onTap?.(ev);
   }

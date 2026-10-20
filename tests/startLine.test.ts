@@ -9,7 +9,9 @@ import {
   alongLabelBox,
   alongLineLabel,
   biasBasis,
-  biasCaption,
+  biasBullets,
+  lineChips,
+  windChip,
   favouredText,
   favouredTexts,
   lineExtensions,
@@ -197,11 +199,30 @@ describe('favoured end text', () => {
     expect(startFitBox(j70, 0)).toEqual(startFitBox(j70));
   });
 
-  it('puts the degrees in the caption with the wind source and sensitivity', () => {
-    expect(biasCaption(j70)).toMatch(/^pin end favoured by \d+° ≈ 17 m \(wind estimated from the fleet's tacks, high confidence; ±5° of wind ≈ ±9 m\)$/);
-    // The C31's weather model is ~60° off the tacks: medium.
-    expect(biasCaption(c31)).toContain('medium confidence');
+  it('chips the line, the favoured end in degrees and metres, and the wind with its confidence', () => {
+    const [len, fav, wind] = lineChips(j70);
+    expect(len.text).toMatch(/^Line \d+ m$/);
+    expect(fav.text).toMatch(/^Pin fav\. \d+° · 17 m$/);
+    expect(wind).toMatchObject({ text: 'wind est. (high)' });
+    expect(wind.warn).toBeUndefined();
+    // The C31's weather model is ~60° off the tacks: medium, still a plain chip; the detail is its title.
+    expect(windChip(c31)).toMatchObject({ text: 'wind est. (medium)' });
+    expect(windChip(c31).title).toBe(biasBasis(c31));
     expect(biasBasis(c31)).toMatch(/821 steady upwind headings on leg 1, tack angle 70°; weather model \d+° off/);
+  });
+
+  it('puts the wind source and the sensitivity in the ⓘ bullet', () => {
+    expect(biasBullets(j70)).toEqual([expect.stringMatching(/^Favoured end vs wind \d+° from the fleet's tacks; ±5° of wind ≈ ±9 m\.$/)]);
+  });
+
+  it('promotes a low-confidence wind to a ⚠ chip', () => {
+    const course = { ...j70, wind: { ...j70.wind, method: 'course' as const } };
+    expect(windChip(course)).toMatchObject({ text: 'wind assumed', warn: true });
+    expect(lineChips(course)[2].warn).toBe(true);
+    expect(biasBullets(course)[0]).toContain('(first leg assumed upwind)');
+    const model = { ...j70, wind: { ...j70.wind, method: 'model' as const } };
+    expect(windChip(model)).toMatchObject({ text: 'model wind (medium)' });
+    expect(windChip(model).warn).toBeUndefined();
   });
 });
 

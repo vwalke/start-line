@@ -6,10 +6,12 @@
  * tables sort independently, and their column keys are unique across both.
  */
 import { LOW_COVERAGE } from '../analysis/coverage';
-import type { BoatResult, KindSummary, LegKind, LegResult, RaceAnalysis } from '../analysis/types';
-import { SPAN_MS, startNotes } from '../analysis/validity';
+import type { BoatResult, KindSummary, LegKind, LegResult, RaceAnalysis, StartResult } from '../analysis/types';
+import { OCS_BLIND_NOTE, SPAN_MS, startNotes } from '../analysis/validity';
 import { boatColor, pickedExcluded } from './charts';
 import { duration, esc, f0, f1, f2, fM, localTime, ordinal, pct, twaLabel } from './format';
+import { capHtml, infoHtml, warnChip, type Chip, type KeyLine } from './info';
+import { windChip } from './startLine';
 
 export type SortDir = 'asc' | 'desc';
 /** Which column the rows are sorted by (null = finish order, as analysed). */
@@ -152,34 +154,91 @@ export function heelCell(heelDeg: number | null | undefined, cover: number | nul
   return `<span class="heel dq-low" title="${esc(title)}" aria-label="${esc(`Low data: ${title}`)}">⚠ ${body}</span>`;
 }
 
-/** One line for a table's key: what Heel is, or that this feed has none (the columns are hidden). */
-export const heelNote = (a: RaceAnalysis): string =>
-  a.hasHeel
-    ? `Heel: leeward heel from each tracker's motion sensor, + to leeward, − to windward. Per leg and upwind / downwind it is the time-weighted average, leaving out 5 s either side of each tack or gybe; at the gun, the fix nearest the gun (within 2 s). ⚠ = heel data for under ${Math.round(LOW_COVERAGE * 100)}% of the time.`
-    : 'Heel: not in this feed (older events send no roll from the trackers), so the heel columns are hidden.';
+const LOW_PCT = Math.round(LOW_COVERAGE * 100);
+const SORT_NOTE = 'Tap a heading to sort (↑/↓), again to reverse. ▲ best, ▼ worst.';
 
-/** One boat's caveats about its start, so they're readable without hover. */
-export function startNotesHtml(a: RaceAnalysis): string {
-  const items = a.boats
+/** The ⓘ line on Heel: what it is (at the gun, or averaged per leg), or that this feed has none (the columns are hidden). */
+export const heelNote = (a: RaceAnalysis, which: TableId): string =>
+  !a.hasHeel
+    ? 'Heel: not in this feed, so the heel columns are hidden.'
+    : which === 'start'
+      ? 'Heel: leeward heel (+) at the gun, from the fix within 2 s.'
+      : `Heel: leeward heel (+), time-weighted, turns left out. ⚠ under ${LOW_PCT}% data.`;
+
+/** The start table's key line: ⚠ disagreements and unchecked OCS, ~ and — when present; column definitions and each boat's caveats in the ⓘ. */
+export function startTableKey(a: RaceAnalysis): KeyLine & { notes: string[] } {
+  const starts = a.boats.flatMap((b) => (b.start ? [b.start] : []));
+  const count = (f: (s: StartResult) => unknown): number => starts.filter(f).length;
+  const chips: Chip[] = [];
+  const warn = count((s) => s.warn);
+  const blind = count((s) => s.ocsBlind);
+  const gap = count((s) => s.dtlNote);
+  const noFix = count((s) => s.rcDtlM == null && s.rcNote);
+  // The race-wide warning (with the race findings, on the Race tab) belongs by the DTL columns too.
+  const fleetOff = a.notes.find((n) => n.kind === 'dtl-off');
+  if (fleetOff) chips.push(warnChip('Vakaros DTL off vs GPS', fleetOff.text));
+  if (warn) chips.push(warnChip(`${warn} Vakaros ≠ ours`, 'Vakaros and our check disagree by more than 3 m'));
+  if (blind) chips.push(warnChip(`${blind} OCS unchecked`, OCS_BLIND_NOTE));
+  if (gap) chips.push({ text: `~ ${gap} across a gap`, title: 'Our check is interpolated across a telemetry gap' });
+  if (noFix) chips.push({ text: `— ${noFix} no Vakaros fix` });
+  const notes = a.boats
     .filter((b) => b.start && startNotes(b.start).length)
-    .map((b) => {
-      const text = startNotes(b.start!).map((n) => n.replace(/\.$/, '')).join('; ') + '.';
-      return `<li><b>#${esc(b.sail)}</b>${b.name !== `#${b.sail}` ? ` ${esc(b.name)}` : ''} — ${esc(text)}</li>`;
-    });
-  const key = 'Start: place among clean starters; V = Vakaros device, ours = our track check. ~ = interpolated across a data gap; ⚠ = Vakaros and ours disagree.';
-  return `<div class="table-notes"><p>${esc(key)}</p><p class="heel-note">${esc(heelNote(a))}</p>${items.length ? `<p>Notes:</p><ul>${items.join('')}</ul>` : ''}</div>`;
+    .map((b) => `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''} — ${startNotes(b.start!).map((n) => n.replace(/\.$/, '')).join('; ')}.`);
+  return {
+    chips,
+    bullets: [
+      'Start: place among clean starters (V = Vakaros, ours = our check).',
+      'DTL (Vakaros): the device figure, bow-corrected; the primary number.',
+      'Check: our GPS estimate; ~ = across a gap; ⚠ = disagrees.',
+      'Late: our DTL ÷ speed to the line. Line pos: 0% pin, 100% RC.',
+      heelNote(a, 'start'),
+      SORT_NOTE,
+    ],
+    notes,
+  };
 }
 
-/** The legs table's key: Data % and the threshold, the ~ marks, partial summaries, and Heel when the race is given. */
-export function legsNotesHtml(a?: RaceAnalysis): string {
-  const lines = [
-    `Data: the share of the leg (or of the race) where this boat's GPS fixes are at most ${SPAN_MS / 1000} s apart. ⚠ below ${Math.round(LOW_COVERAGE * 100)}%: distance, speed and tack/gybe counts there rest on less of the track, and turns inside a long hole can't be seen.`,
-    `~ on a distance: bridges a telemetry gap over ${SPAN_MS / 1000} s (a straight line across it). ~ on a tack or gybe count: one of them bridges a gap.`,
-    'Upwind / Downwind: every beat (run) added up; reaches are in neither. Place is by total time among boats that sailed every leg of that kind; partial = a leg is missing, so no place.',
-    'Tacks are counted on beats and gybes on runs (both on reaches): a change of side through head-to-wind or dead downwind held for 10 s, from the GPS track.',
-  ];
-  const heel = a ? `<p class="heel-note">${esc(heelNote(a))}</p>` : '';
-  return `<div class="table-notes">${lines.map((l) => `<p>${esc(l)}</p>`).join('')}${heel}</div>`;
+/** The legs table's key line: TWA/VMG are estimates (⚠ when the wind is low confidence), ⚠ low data, ~ and partial when present. */
+export function legsTableKey(a?: RaceAnalysis): KeyLine {
+  const chips: Chip[] = [];
+  if (a) {
+    const wind = windChip(a);
+    chips.push(wind.warn ? { ...wind, text: `TWA/VMG: ${wind.text}` } : { text: 'TWA/VMG est.', title: wind.title });
+    const sums = a.boats.flatMap((b) => [b.upwind, b.downwind]).filter((s): s is KindSummary => s != null);
+    const legs = a.boats.flatMap((b) => b.legs).filter((l): l is LegResult => l != null);
+    const low = (c: number | null | undefined): boolean => c != null && Number.isFinite(c) && c < LOW_COVERAGE;
+    const lowData =
+      legs.some((l) => low(l.coverage) || (a.hasHeel && l.heelDeg != null && low(l.heelCoverage))) ||
+      sums.some((s) => low(s.coverage) || (a.hasHeel && s.heelDeg != null && low(s.heelCoverage))) ||
+      a.boats.some((b) => low(b.coverage));
+    if (lowData) chips.push(warnChip('low data', `Data for under ${LOW_PCT}% of a leg (cells marked ⚠)`));
+    if (legs.some((l) => l.distGapS != null || l.manoeuvreGap) || a.boats.some((b) => b.distApprox)) chips.push({ text: '~ across a gap' });
+    if (sums.some((s) => !s.complete)) chips.push({ text: 'partial = a leg missing' });
+  }
+  return {
+    chips,
+    bullets: [
+      "TWA / VMG: estimates vs the wind from the fleet's tacks; TWA = steady median.",
+      'Dist: metres along the GPS track. Time: leg time, place at the mark.',
+      `Data: share with fixes ≤ ${SPAN_MS / 1000} s apart; ⚠ under ${LOW_PCT}%; ~ bridges a gap.`,
+      'Upwind / Downwind: beats or runs summed; partial = a leg missing, no place.',
+      'Tacks on beats, gybes on runs (both on reaches); a side held 10 s.',
+      ...(a ? [heelNote(a, 'legs')] : []),
+      SORT_NOTE,
+    ],
+  };
+}
+
+/** The start table's key line and ⓘ (column definitions, then each boat's start caveats so they're readable without hover). */
+export function startNotesHtml(a: RaceAnalysis, open = false): string {
+  const k = startTableKey(a);
+  return capHtml(k.chips, infoHtml(k.bullets, { open, more: { title: 'Per boat', items: k.notes } }));
+}
+
+/** The legs table's key line and ⓘ. */
+export function legsNotesHtml(a?: RaceAnalysis, open = false): string {
+  const k = legsTableKey(a);
+  return capHtml(k.chips, infoHtml(k.bullets, { open }));
 }
 
 function finCol(key: string, sticky = 'sticky0'): Col {

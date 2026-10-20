@@ -465,8 +465,10 @@ describe('whole race in Boat speed, scaled per leg', () => {
     expect(key).not.toContain(' kn</span><span class="spd-bar'); // no knots on the shared bar
     // Gap note is one flex item, before the 100%-width legs list (not a stray "·" after it).
     expect(hasGaps(segmentTimes(a, null))).toBe(true);
-    expect(key).toContain('<span> · <span class="spd-none" aria-hidden="true"></span> grey dashed = telemetry gap</span><span class="sog-legs">');
-    expect(key.indexOf('grey dashed = telemetry gap')).toBeLessThan(key.indexOf('class="sog-legs"'));
+    expect(key).toContain('<span class="key-sw" title="Telemetry gap: fixes over 5 s apart"><span class="spd-none" aria-hidden="true"></span> no data</span><span class="sog-legs">');
+    expect(key.indexOf('no data')).toBeLessThan(key.indexOf('class="sog-legs"'));
+    // The method (4 s mean, percentiles) lives in the map's ⓘ, not the key.
+    expect(key).not.toContain('percentile');
     // Whole race keeps the kn-labelled key
     expect(sogKey(trackSogRange(a, null), 'Whole race')).toContain(`<span class="sog-lo">${trackSogRange(a, null)!.lo.toFixed(1)} kn</span>`);
   });

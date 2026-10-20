@@ -3,8 +3,9 @@ import { analyzeRace } from '../src/analysis/analyze';
 import { primaryDtlM } from '../src/analysis/findings';
 import { OCS_BLIND_NOTE } from '../src/analysis/validity';
 import { currentDoc } from '../src/data/racesense/adapter';
-import { startClass, startHullScale, startScaleCaption, startSnapshot } from '../src/ui/charts';
-import { startNotesHtml, startTable } from '../src/ui/table';
+import { startClass, startHullScale, startScale, startSnapshot } from '../src/ui/charts';
+import { startKey } from '../src/ui/captions';
+import { startNotesHtml, startTable, startTableKey } from '../src/ui/table';
 import { c31Fixture, c31Race } from './helpers';
 
 // C31 Gold Cup race 10 (trimmed to four boats). The Vakaros feed carried a stale
@@ -137,14 +138,25 @@ describe('C31 race 10: start table', () => {
     expect(html).not.toContain('class="warn"');
   });
 
-  it('lists the notes under the table for touch screens', () => {
-    expect(html).toContain('V = Vakaros device, ours = our track check');
+  it('lists every boat note in the ⓘ under the table (readable without hover)', () => {
+    expect(html).toContain('(V = Vakaros, ours = our check)');
+    expect(html).toContain('<p class="info-sub">Per boat</p>');
     expect(html).toContain(
-      `<li><b>#GER42</b> Black Pearl — Vakaros reported no start fix (stale race 9 data); our check interpolated across a 17 s data gap; ${OCS_BLIND_NOTE}.</li>`,
+      `<li>#GER42 Black Pearl — Vakaros reported no start fix (stale race 9 data); our check interpolated across a 17 s data gap; ${OCS_BLIND_NOTE}.</li>`,
     );
-    expect(html).toContain('<li><b>#ITA 78</b> Milkwave — our check interpolated across a 32 s data gap.</li>');
-    expect(html).toContain('<li><b>#AUT 3165</b> Stella Maris — Vakaros reported no distance for this boat.</li>');
-    expect(html).not.toContain('<li><b>#FRA 901</b>');
+    expect(html).toContain('<li>#ITA 78 Milkwave — our check interpolated across a 32 s data gap.</li>');
+    expect(html).toContain('<li>#AUT 3165 Stella Maris — Vakaros reported no distance for this boat.</li>');
+    expect(html).not.toContain('<li>#FRA 901');
+  });
+
+  it('keeps the start caveats visible as chips: ⚠ unchecked OCS, ~ gaps, — no Vakaros fix', () => {
+    expect(startTableKey(analysis).chips).toEqual([
+      { text: '1 OCS unchecked', warn: true, title: OCS_BLIND_NOTE },
+      { text: '~ 2 across a gap', title: 'Our check is interpolated across a telemetry gap' },
+      { text: '— 2 no Vakaros fix' },
+    ]);
+    // The start chart flags the same gaps at the gun.
+    expect(startKey(analysis, { scale: startScale(analysis) }).chips).toContainEqual(expect.objectContaining({ text: '2 with a gap at the gun', warn: true }));
   });
 
   it('shows ⚠ when Vakaros and ours disagree by more than 3 m, and a genuine 0.0', () => {
@@ -159,7 +171,9 @@ describe('C31 race 10: start table', () => {
     const t = startTable(a, null) + startNotesHtml(a);
     const warn = 'Vakaros 7.6 m vs ours 12.9 m (5.3 m apart) — one of them is off (feed, GPS or bow offset).';
     expect(cells(t, 'FRA 901')[VAK]).toBe(`<span class="warn" title="${warn}" aria-label="disagrees with our check">⚠</span>7.6`);
-    expect(t).toContain(`<li><b>#FRA 901</b> Outrage — ${warn}</li>`);
+    // The boat's caveat in the table's ⓘ, and the disagreement promoted to a visible ⚠ chip.
+    expect(t).toContain(`<li>#FRA 901 Outrage — ${warn}</li>`);
+    expect(startTableKey(a).chips).toContainEqual(expect.objectContaining({ text: '1 Vakaros ≠ ours', warn: true }));
     // Black Pearl with a genuine 0 (bit 1 set): valid, shown as 0.0 and ranked first.
     expect(cells(t, 'GER42')[VAK]).toBe('0.0');
     expect(cells(t, 'GER42')[START]).toContain('1 <small class="rk-src" title="Vakaros device">V</small>');
@@ -209,7 +223,7 @@ describe('C31 race 10: Cape 31 hulls to scale', () => {
     const svg = startSnapshot(analysis, null);
     expect((svg.match(/<path class="hull" d="M/g) ?? []).length).toBe(analysis.drawings.length);
     expect(svg).not.toContain('boat-min');
-    expect(startScaleCaption(analysis)).toBe('Hulls to scale (Cape 31, 9.55 m); they point along heading.');
+    expect(startScale(analysis)).toEqual({ chip: 'hulls to scale', info: 'Hulls to scale (Cape 31, 9.55 m), pointing along heading.' });
   });
 
   it('falls back to the division name, then the event class label', () => {

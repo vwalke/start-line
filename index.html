@@ -67,9 +67,10 @@
                 <div id="start-colour" class="segs" aria-controls="start-chart"></div>
               </div>
               <p id="start-speed-key" class="speed-key" hidden></p>
-              <div id="start-chart" class="panzoom" tabindex="0" role="group" aria-label="Start chart. Arrow keys pan, plus and minus zoom, 0 resets." aria-describedby="start-hint"></div>
-              <p class="hint" id="start-hint"><span class="hint-touch">Pinch to zoom · drag to pan when zoomed · double-tap to zoom in</span><span class="hint-fine">Drag to pan · Ctrl/⌘ + scroll or trackpad pinch to zoom · double-click to zoom in</span></p>
-              <p class="cap"><span id="start-caption"></span> <span id="start-scale"></span> Names: Auto leaves out a name that would overlap another or the line (hover or tap the boat for it; zoom in to see more), All shows every name, Off only the selected boat's. The favoured end is measured against the estimated wind at the gun; hover its label for the wind source.</p>
+              <div id="start-chart" class="panzoom" tabindex="0" role="group" aria-label="Start chart. Arrow keys pan, plus and minus zoom, 0 resets."></div>
+              <!-- Touch only, until dismissed (ui/hints.ts). -->
+              <p class="hint touch-hint" id="start-hint" hidden><span>Pinch to zoom · drag to pan · double-tap to zoom in</span><button type="button" id="start-hint-dismiss" class="hint-x" aria-label="Dismiss zoom hint" title="Dismiss">×</button></p>
+              <div class="capline" id="start-cap"></div>
               <div id="start-findings-box" class="findings-box" hidden>
                 <h4 id="start-findings-title">Start findings</h4>
                 <ul id="start-findings" class="findings" aria-labelledby="start-findings-title"></ul>
@@ -82,17 +83,14 @@
                 <div id="start-sog-chart" aria-labelledby="start-sog-title"></div>
                 <div id="start-sog-tip" class="map-tip" role="status" aria-live="off" hidden></div>
               </div>
-              <p class="cap" id="start-sog-caption"></p>
+              <div class="capline" id="start-sog-cap"></div>
             </section>
             <section id="start-table-card" class="card">
               <h3>Start by boat</h3>
               <div class="hscroll" id="start-table-top" aria-hidden="true" hidden><div></div></div>
               <div id="start-table" class="tablewrap"></div>
               <p class="table-hint">Swipe the table sideways for more →</p>
-              <div id="start-notes"></div>
-              <div class="key-notes">
-                <p><b>Start</b>: place among clean starters (V = Vakaros, ours = our check). <b>DTL (Vakaros)</b>: the boat's own device figure from the feed, bow-corrected; the primary number (— = no usable fix). <b>Check</b>: our estimate from the GPS track (bow offset along heading, at the device's start fix ~0.9 s before the gun; ~ = interpolated across a telemetry gap). <b>Late</b>: our DTL ÷ speed toward the line (blank when our check is interpolated). <b>Line pos</b>: 0% pin, 100% RC. <b>Heel</b>: leeward heel at the gun. ▲ best / ▼ worst in column. Click a column heading to sort (↑/↓); click again to reverse.</p>
-              </div>
+              <div id="start-notes" class="capline table-notes"></div>
             </section>
           </div>
           <div id="panel-race" class="panel" role="tabpanel" aria-labelledby="tab-race" tabindex="-1" hidden>
@@ -108,7 +106,7 @@
                 <div id="map-chart"></div>
                 <div id="map-tip" class="map-tip" role="status" aria-live="off" hidden></div>
               </div>
-              <p class="cap">GPS tracker tracks (bow offset is a few metres and omitted at this scale). <span id="map-split">Legs split at each boat's closest approach to the mark trackers.</span> Pick a leg above to show only it. Colour: Rank shades each boat by its elapsed-time rank (yellow and boldest fastest, fading to faint purple; Highlight greys all but the top 3 or 10, and a picked boat outside them is drawn in white (dark by day) with its rank; hover a track for its time). Colour: Boat speed shades every stretch of track by that boat's speed over ground at the time (4 s average; dark purple slow, through teal, to yellow-green fast; grey dashed = telemetry gap; hover a track for the boat, time, speed and leg). For the whole race, Scale: Per leg stretches the colours over each leg's own spread of fleet speeds, so beats and runs both show who was quick; Whole race uses one knot range for every leg. Select a boat in the boat list, a chart or a table row (on either tab) to highlight it everywhere.</p>
+              <div class="capline" id="map-cap"></div>
             </section>
             <section id="places-card" class="card has-fs">
               <button type="button" class="fs-open" id="places-full" aria-label="Full screen place changes chart" title="Full screen" aria-haspopup="dialog" aria-controls="fs"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
@@ -117,22 +115,19 @@
                 <div id="places-chart" aria-labelledby="places-title"></div>
                 <div id="places-tip" class="map-tip" role="status" aria-live="off" hidden></div>
               </div>
-              <p class="cap"><span id="places-caption"></span> Hover or tap a dot for the place there and the places gained or lost since the mark before; tap a line or name to select that boat.</p>
+              <div class="capline" id="places-cap"></div>
             </section>
             <section id="race-findings-card" class="card">
               <h3 id="race-findings-title">Race findings</h3>
               <ul id="findings" class="findings" aria-labelledby="race-findings-title"></ul>
-              <ul id="warnings" class="warnings" hidden></ul>
+              <div id="race-notes" class="capline race-notes" hidden></div>
             </section>
             <section id="legs-table-card" class="card">
               <h3>Legs by boat</h3>
               <div class="hscroll" id="table-top" aria-hidden="true" hidden><div></div></div>
               <div id="table" class="tablewrap"></div>
               <p class="table-hint">Swipe the table sideways to see later legs →</p>
-              <div id="legs-notes"></div>
-              <div class="key-notes">
-                <p><b>Start</b>: place among clean starters (the Start tab's table has the detail). <b>TWA / VMG are estimates.</b> The boats carry no wind sensor; wind direction comes from the fleet's steady upwind tack headings (cross-checked against a weather model). VMG = distance made good along the wind ÷ leg time. Leg TWA = median |TWA| while sailing steadily. <b>Dist</b>: distance sailed along the GPS track, metres (~ = bridges a telemetry gap of more than 5 s). <b>Time</b>: leg time and place at the mark. <b>Tacks / Gybes</b> and <b>Data %</b>: see above. ▲ best / ▼ worst in column. Click a column heading to sort (↑/↓); click again to reverse.</p>
-              </div>
+              <div id="legs-notes" class="capline table-notes"></div>
             </section>
           </div>
         </div>

@@ -23,7 +23,7 @@
  * its telemetry gaps and, by day, one casing path: bounded per boat however
  * long the race, never one element per fix.
  */
-import { SOG_GAP_MS, SOG_SMOOTH_MS } from '../analysis/smooth';
+import { SOG_GAP_MS } from '../analysis/smooth';
 import type { RaceAnalysis } from '../analysis/types';
 import { esc, f1 } from './format';
 import { contrast, SPEED_BG, type SogScale } from './speed';
@@ -429,27 +429,28 @@ const gradient = (scheme: 'light' | 'dark'): string =>
 
 const bar = (lo: string, hi: string): string =>
   `<span class="sog-lo">${lo}</span><span class="spd-bar sog-bar" style="--g:${gradient('light')};--gd:${gradient('dark')}" aria-hidden="true"></span><span class="sog-hi">${hi}</span>`;
-// One flex item (speed-key wraps): a leading " · " as its own node sat on a
-// new line after .sog-legs (flex-basis: 100%), looking like a stray bullet.
-const gapNote = (gaps: boolean): string =>
-  gaps ? `<span> · <span class="spd-none" aria-hidden="true"></span> grey dashed = telemetry gap</span>` : '';
+/** A legend swatch and its label as one flex item (speed-key wraps), e.g. the dashed grey "no data". */
+export const keySwatch = (cls: string, label: string, title = ''): string =>
+  `<span class="key-sw"${title ? ` title="${esc(title)}"` : ''}><span class="${cls}" aria-hidden="true"></span> ${esc(label)}</span>`;
 
-/** "4.0 kn [bar] 8.0 kn" and what it spans; the gaps note when the drawing has any. */
+const gapNote = (gaps: boolean): string => (gaps ? keySwatch('spd-none', 'no data', `Telemetry gap: fixes over ${SOG_GAP_MS / 1000} s apart`) : '');
+
+/** "4.0 kn [bar] 8.0 kn", "SOG · what it spans", and the "no data" swatch when the drawing has gaps (the method is in the ⓘ). */
 export function sogKey(r: SogRange | null, what: string, gaps = false): string {
   if (!r) return `<span class="muted">No speed data to colour by.</span>`;
   return `${bar(`${f1(r.lo)} kn`, `${f1(r.hi)} kn`)}
-    <span class="muted">${esc(what)} (SOG, ${SOG_SMOOTH_MS / 1000} s mean; 5th–95th percentile)</span>${gapNote(gaps)}`;
+    <span class="muted">SOG · ${esc(what)}</span>${gapNote(gaps)}`;
 }
 
 /**
  * Whole race, Per leg: one bar with no knots on it (its ends mean something
  * different on each leg), "slow → fast within each leg", then each leg's range.
- * The gap note stays on the first line with the description; .sog-legs wraps
+ * The gap swatch stays on the first line with the description; .sog-legs wraps
  * below (flex-basis: 100%).
  */
 export function sogLegKey(a: RaceAnalysis, gaps = false): string {
   const list = legRangeList(a);
   if (!list) return `<span class="muted">No speed data to colour by.</span>`;
   return `${bar('slow', 'fast')}
-    <span>slow → fast within each leg</span> <span class="muted">(SOG, ${SOG_SMOOTH_MS / 1000} s mean; each leg's 5th–95th percentile)</span>${gapNote(gaps)}<span class="sog-legs">${esc(list)}</span>`;
+    <span>slow → fast within each leg</span>${gapNote(gaps)}<span class="sog-legs">${esc(list)}</span>`;
 }

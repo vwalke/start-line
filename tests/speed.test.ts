@@ -429,8 +429,7 @@ describe('track map in Rank', () => {
     expect(un.length).toBeGreaterThan(0);
     expect(un.every((p) => p.includes('unranked') && p.includes('stroke-dasharray') && p.includes('did not complete'))).toBe(true);
     expect(ps[0]).toContain('unranked');
-    expect(speedKey(cut, 1, 'leg')).toContain('grey dashed');
-  });
+    expect(speedKey(cut, 1, 'leg')).toContain('<span class="spd-none" aria-hidden="true"></span> leg not completed');  });
 
   it('ranks every segment on its own leg for the whole race', () => {
     const svg = trackMap(a, null, null, { colour: 'rank' });

@@ -48,6 +48,7 @@ import {
   type LegResult,
   type LineInfo,
   type RaceAnalysis,
+  type RaceNote,
   type StartResult,
   type TrackSegment,
   type WindEstimate,
@@ -63,7 +64,7 @@ const KIND_NAME: Record<LegKind, string> = { upwind: 'Beat', downwind: 'Run', re
 const listOf = (xs: string[]): string => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 /** Why the legs come from the fleet's turns rather than the mark trackers, in plain words. */
-function fleetWarning(data: RaceData, courseWps: Waypoint[], turnMarks: (Waypoint | null)[], legs: LegDef[]): string {
+function fleetWarning(data: RaceData, courseWps: Waypoint[], turnMarks: (Waypoint | null)[], legs: LegDef[]): RaceNote {
   const silent = [...new Set(data.courseUntracked ?? [])];
   const tracked = [...new Set(courseWps.map((w) => w.name))];
   const why: string[] = [];
@@ -72,11 +73,11 @@ function fleetWarning(data: RaceData, courseWps: Waypoint[], turnMarks: (Waypoin
   if (!silent.length && !tracked.length) why.push('the feed has no mark trackers for this course');
   const est = [...new Set(legs.filter((_, i) => i < turnMarks.length && !turnMarks[i]).map((l) => l.to.toLowerCase()))];
   const offset = courseWps.some(isOffset) || silent.some((n) => /offset/i.test(n));
-  return (
+  const text =
     `Legs are split where each boat turned at the top and bottom of the course, because ${why.join(' and ')}.` +
     (est.length ? ` The ${listOf(est)} ${est.length > 1 ? 'are' : 'is'} placed from the tracks (est.).` : '') +
-    (offset ? ' The offset mark is counted as part of the following run.' : '')
-  );
+    (offset ? ' The offset mark is counted as part of the following run.' : '');
+  return { kind: 'legs-fleet', text, silent, tracked, est, offset };
 }
 
 export { START_TRAIL_MS };
@@ -89,7 +90,7 @@ export interface AnalyzeOptions {
 const tagOf = (b: Boat): string => (b.name && b.name !== `#${b.sail}` ? `#${b.sail} (${b.name})` : `#${b.sail}`);
 
 export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAnalysis {
-  const warnings: string[] = [];
+  const notes: RaceNote[] = [];
   // Who is racing: boats judged not racing are set aside before anything is
   // measured, so they can't move the legs, the wind, the fleet medians or a rank.
   const participation = classifyParticipation(input);
@@ -103,7 +104,8 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     .filter((b) => !asideIds.has(b.id))
     .map((b) => {
       if (b.finishMs == null || b.entry?.finishPlausible !== false) return b;
-      warnings.push(`Not ranking ${tagOf(b)}'s finish: ${b.entry.finishNote ?? 'it looks implausible against the fleet'}.`);
+      const why = b.entry.finishNote ?? 'it looks implausible against the fleet';
+      notes.push({ kind: 'finish-unranked', text: `Not ranking ${tagOf(b)}'s finish: ${why}.`, boat: tagOf(b), why });
       return { ...b, finishMs: null };
     });
   const data: RaceData = { ...input, boats: competitors };
@@ -138,7 +140,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   });
   const byKey = new Map(courseWps.map((w) => [w.key, w]));
   // Candidate legs from the mark trackers; their warnings only apply if they are used.
-  const markWarnings: string[] = [];
+  const markWarnings: RaceNote[] = [];
   let wps = courseWps;
   let legSource: RaceAnalysis['legSource'] = courseWps.length ? 'course' : 'none';
   const finishers = data.boats.filter((b) => b.finishMs != null).sort((a, b) => a.finishMs! - b.finishMs!);
@@ -150,7 +152,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     if (inferred.length >= 2 && inferred.every((s) => s === inferred[0]) && inferred[0] && inferred[0] !== courseSeq) {
       wps = inferred[0].split('|').map((k) => byKey.get(k)!);
       legSource = 'tracks';
-      markWarnings.push('Leg order inferred from the leaders’ tracks (it differs from the course list in the feed).');
+      markWarnings.push({ kind: 'leg-order', text: 'Leg order inferred from the leaders’ tracks (it differs from the course list in the feed).' });
     }
   }
 
@@ -172,9 +174,11 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       const dropped = wps.slice(k).map((w) => w.name);
       wps = wps.slice(0, k);
       for (const [id, tt] of times) times.set(id, k === nWp ? tt : [...tt.slice(0, k + 1), tt[tt.length - 1]]);
-      markWarnings.push(
-        `The fleet didn't sail the full course in the feed; treating it as shortened (skipping ${dropped.join(', ')}).`,
-      );
+      markWarnings.push({
+        kind: 'shortened',
+        text: `The fleet didn't sail the full course in the feed; treating it as shortened (skipping ${dropped.join(', ')}).`,
+        dropped,
+      });
     }
   }
 
@@ -203,7 +207,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     wps = [];
     legSource = 'fleet';
   } else {
-    warnings.push(...markWarnings);
+    notes.push(...markWarnings);
   }
   const nLegs = turnMarks ? turnMarks.length + 1 : wps.length + 1;
   const turnXY = (k: number): Vec => {
@@ -289,14 +293,17 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   if (!estimates.length) {
     if (modelOk) {
       method = 'model';
-      warnings.push('Not enough steady upwind sailing to estimate the wind; using the weather model direction.');
+      notes.push({ kind: 'wind-model', text: 'Not enough steady upwind sailing to estimate the wind; using the weather model direction.' });
     } else {
       method = 'course';
-      warnings.push(
-        modelGun != null
-          ? `Not enough steady upwind sailing to estimate the wind, and the weather model (${Math.round(modelGun)}°) is far off the first leg's course; assuming the first leg is dead upwind.`
-          : 'Not enough steady upwind sailing to estimate the wind; assuming the first leg is dead upwind.',
-      );
+      notes.push({
+        kind: 'wind-assumed',
+        text:
+          modelGun != null
+            ? `Not enough steady upwind sailing to estimate the wind, and the weather model (${Math.round(modelGun)}°) is far off the first leg's course; assuming the first leg is dead upwind.`
+            : 'Not enough steady upwind sailing to estimate the wind; assuming the first leg is dead upwind.',
+        modelDeg: modelGun != null ? Math.round(modelGun) : null,
+      });
     }
   }
   const twdAt = makeTwdAt(estimates, prior);
@@ -317,7 +324,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     name: `${KIND_NAME[k]} ${++counters[k]}`,
     to: i < nLegs - 1 ? turnName(i) : 'Finish',
   }));
-  if (turnMarks) warnings.push(fleetWarning(data, courseWps, turnMarks, legs));
+  if (turnMarks) notes.push(fleetWarning(data, courseWps, turnMarks, legs));
 
   // ---- line
   const w = bearingVec(twdGun);
@@ -616,20 +623,26 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   } else if (!wps.length) for (const wp of courseWps) drawnMarks.push({ name: wp.name, xy: wp.xy });
   const real = drawnMarks.filter((m) => !m.estimated);
   const moved = real.filter((m, i) => real.findIndex((o) => o.name === m.name) !== i).map((m) => m.name);
-  if (moved.length) warnings.push(`${[...new Set(moved)].join(', ')} moved during the race; legs use the mark's position at the time.`);
+  if (moved.length) {
+    const names = [...new Set(moved)];
+    notes.push({ kind: 'marks-moved', text: `${names.join(', ')} moved during the race; legs use the mark's position at the time.`, names });
+  }
 
   // The Vakaros DTL is the primary figure; ours is a check. Flag it when they clearly disagree.
   const rcDiff = results
     .filter((r) => r.start?.rcDtlM != null && r.start.dtlGapS == null)
     .map((r) => Math.abs(r.start!.rcDtlM! - r.start!.dtlM));
   if (rcDiff.length >= 3 && median(rcDiff) > 3) {
-    warnings.push(`Vakaros DTL differs from the GPS tracks by a median ${Math.round(median(rcDiff))} m for this start; treat the DTL columns with caution.`);
+    const medianM = Math.round(median(rcDiff));
+    notes.push({ kind: 'dtl-off', text: `Vakaros DTL differs from the GPS tracks by a median ${medianM} m for this start; treat the DTL columns with caution.`, medianM });
   }
   if (excluded.length) {
     const n = excluded.length;
-    warnings.push(
-      `${n} boat${n > 1 ? 's' : ''} hidden as not racing (coach boats, spare or second trackers); ${n > 1 ? 'they are' : 'it is'} listed at the foot of the boat list.`,
-    );
+    notes.push({
+      kind: 'not-racing',
+      text: `${n} boat${n > 1 ? 's' : ''} hidden as not racing (coach boats, spare or second trackers); ${n > 1 ? 'they are' : 'it is'} listed at the foot of the boat list.`,
+      n,
+    });
   }
 
   const analysis: RaceAnalysis = {
@@ -655,7 +668,8 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     drawings,
     excluded,
     findings: [],
-    warnings,
+    notes,
+    warnings: notes.map((n) => n.text),
     hasHeel: results.some((r) => r.start?.heelAtGunDeg != null || r.legs.some((l) => l?.heelDeg != null)),
   };
   if (opts.allCompetitors) analysis.allCompetitors = { flagged: flagged.length };

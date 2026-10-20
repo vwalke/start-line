@@ -10,6 +10,7 @@ import { SOG_SMOOTH_MS } from '../analysis/smooth';
 import { sogAt, startSogSeries, START_SOG_WINDOWS, type StartSogSeries, type StartSogWindow } from '../analysis/startSog';
 import type { RaceAnalysis } from '../analysis/types';
 import { boatLabel, esc, f1 } from './format';
+import { warnChip, type Chip, type KeyLine } from './info';
 import { placeColor } from './places';
 
 export const START_SOG_WINDOW_KEY = 'recall.startSogWindow';
@@ -101,11 +102,21 @@ export function startSogHover(
   return best;
 }
 
-/** The caption: what is drawn, how gaps look, and the window actually shown. */
-export function startSogCaption(s: StartSogSeries, w: StartSogWindow): string {
-  const span = `${secsLabel(s.t0)} to ${secsLabel(s.t1)}`;
-  const clamp = s.clamped ? ` The tracks only go back to ${secsLabel(s.t0)} here, so the ${w} s window starts there.` : '';
-  return `Speed over ground (${SOG_SMOOTH_MS / 1000} s mean) from ${span} around the gun.${clamp} A line breaks where a boat's fixes are more than 5 s apart (grey dashed: no data, not a speed). Dot: where the boat crossed the line (the start table's Late) and its speed then. Hover or tap for a boat's speed; tap a line to select the boat.`;
+/** The key line: the window shown (⚠ when the tracks start later than asked), the dot and gap swatches; the method in the ⓘ. */
+export function startSogKey(s: StartSogSeries, w: StartSogWindow): KeyLine {
+  const chips: Chip[] = [s.clamped ? warnChip(`data from ${secsLabel(s.t0)} only`) : { text: `${secsLabel(s.t0)} → ${secsLabel(s.t1)}` }];
+  chips.push({ text: 'crossed the line', swatch: 'dot' });
+  if (s.boats.some((b) => b.gaps.length)) chips.push({ text: 'no data', swatch: 'gap' });
+  return {
+    chips,
+    bullets: [
+      `Speed over ground (${SOG_SMOOTH_MS / 1000} s mean) around the gun.`,
+      ...(s.clamped ? [`The tracks only go back to ${secsLabel(s.t0)} here, so the ${w} s window starts there.`] : []),
+      "Dot: where the boat crossed the line (the table's Late), and its speed.",
+      'Grey dashed: fixes over 5 s apart; no speed drawn.',
+      'Hover or tap to read a speed; tap a line to select the boat.',
+    ],
+  };
 }
 
 const r1 = (v: number): string => v.toFixed(1);
