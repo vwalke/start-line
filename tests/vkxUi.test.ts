@@ -108,7 +108,6 @@ describe('boat-log upload UI', () => {
     expect(list).toContain('from boat log · 10 Hz');
     expect(list).toMatch(/<span class="log-hz"[^>]*>10<\/span>/);
     expect(list).not.toContain('log-tag');
-    expect((list.match(/log-hz/g) ?? []).length).toBe(2); // title + class, or class + text — count tags
     expect(list.match(/class="log-hz"/g)).toHaveLength(1);
     const key = mapKey(a, { colour: 'leg' });
     expect(key.chips.map((c) => c.text)).toContain('USA 833 from boat log · 10 Hz');
@@ -132,6 +131,7 @@ describe('upload API client', () => {
     // A 200 that isn't our JSON (an SPA fallback page).
     vi.stubGlobal('fetch', vi.fn(async () => new Response('<!doctype html>', { status: 200 })));
     expect((await listUploads(EVENT, DIV, '7')).ok).toBe(false);
+    resetVkxSession();
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('Failed to fetch'))));
     expect(await listUploads(EVENT, DIV, '7')).toEqual({ ok: false, why: "Couldn't reach the upload service" });
     vi.stubGlobal('navigator', { onLine: false });

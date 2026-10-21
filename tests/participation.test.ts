@@ -163,6 +163,9 @@ describe('a name alone never sets a boat aside', () => {
     expect(supportNotRacing({ name: 'Coach Chris', sail: 'USA 96' }, false)).toBe('Coach boat (not racing)');
     expect(supportNotRacing({ name: 'Coach Chris', sail: 'USA 0000' }, true)).toBeNull();
     expect(supportNotRacing({ name: 'Coach Chris', sail: 'USA 0000', finishSource: 'tracker' }, true)).toBe('Placeholder sail number (not racing)');
+    // 111 is a real TUR sail (J/70 Worlds); a tracker finish must not treat it like 0000.
+    expect(placeholderSail('TUR 111')).toBe(true);
+    expect(supportNotRacing({ name: 'Eleven', sail: 'TUR 111', finishSource: 'tracker' }, true)).toBeNull();
     expect(supportNotRacing({ name: 'Patriot', sail: 'USA 242' }, false)).toBeNull();
   });
 });
