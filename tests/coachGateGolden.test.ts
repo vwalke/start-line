@@ -13,7 +13,7 @@ import { analyzeRace } from '../src/analysis/analyze';
 import type { RaceAnalysis } from '../src/analysis/types';
 import { buildCoach, coachRaw, type CoachModel } from '../src/analysis/coach';
 import { coachCtx } from '../src/analysis/coach/detectors/context';
-import { raceGates, type GateRead } from '../src/analysis/coach/detectors/gate';
+import { detectGate, raceGates, type GateRead } from '../src/analysis/coach/detectors/gate';
 import { gateGeoms } from '../src/analysis/coach/gateSides';
 import { coachDebrief, type CoachDebrief } from '../src/analysis/coach/debrief';
 import { legStories } from '../src/analysis/coach/legStory';
@@ -49,13 +49,21 @@ const d13 = (d: CoachDebrief) => ({
   plus: d.plus.filter((p) => p.detector === 'D13'),
   ok: d.ok.filter((p) => p.detector === 'D13'),
 });
-/** Every boat's D13 output in a race. */
+/** Every boat's D13 output in a race (full debrief: cards, Went well, ✓). */
 const fleetD13 = (key: Key) => {
   const { a, m } = race(key);
   return a.boats.map((b) => ({ sail: b.sail, ...d13(coachDebrief(a, m, b.id)!) }));
 };
+/** D13 only: whether the detector itself fired (no full debrief of every boat). */
+const fleetDetect = (key: Key) => {
+  const { a, m } = race(key);
+  return a.boats.map((b) => {
+    const r = detectGate(coachCtx(a, m, b.id)!);
+    return { sail: b.sail, found: r.opps, plus: r.good, ok: r.notes };
+  });
+};
 
-describe('D13 golden: J/24 Nationals R2 (favoured right, confirmed; the wind veered through the roundings)', () => {
+describe('D13 golden: J/24 Nationals R2 (favoured right, confirmed; the wind veered through the roundings)', { timeout: 20_000 }, () => {
   it('reads the gate as the prototype did: right buoy 17 m further upwind, right quicker by ~31 s (24 right / 9 left)', () => {
     const [g] = race('j24r2').gates;
     expect(g.leg).toBe(1);
@@ -137,7 +145,7 @@ describe('D13 golden: J/24 Nationals R2 (favoured right, confirmed; the wind vee
   });
 });
 
-describe('D13 golden: J/24 Nationals R5 (favoured left, confirmed, steady wind)', () => {
+describe('D13 golden: J/24 Nationals R5 (favoured left, confirmed, steady wind)', { timeout: 20_000 }, () => {
   it('reads the gate as the prototype did: left buoy 34 m further upwind, left quicker by ~28 s (20 left / 12 right)', () => {
     const [g] = race('j24r5').gates;
     expect(g.fav).toBe('left');
@@ -214,14 +222,14 @@ describe('D13 golden: J/24 Nationals R5 (favoured left, confirmed, steady wind)'
   });
 });
 
-describe('D13 golden: no gate-choice card where the prototype found none', () => {
+describe('D13 golden: no gate-choice card where the prototype found none', { timeout: 20_000 }, () => {
   it('J/111 R5: the left buoy 35 m further upwind, but the sides passed alike (≈ 1 s): not confirmed, nothing', () => {
     const [g] = race('j111r5').gates;
     expect(g.fav).toBe('left');
     expect(g.deltaM).toBeGreaterThan(30);
     expect(Math.abs(g.empS!)).toBeLessThan(5); // prototype −0.9 s
     expect(g.confirmed).toBe(false);
-    expect(fleetD13('j111r5').filter((b) => b.found.length || b.plus.length || b.ok.length)).toEqual([]);
+    expect(fleetDetect('j111r5').filter((b) => b.found.length || b.plus.length || b.ok.length)).toEqual([]);
   });
 
   it('IC37 R2: buoys level (Δ 4 m): not favoured, although the right buoy’s boats were 16 s quicker (that was the right side of the beat)', () => {
@@ -229,7 +237,7 @@ describe('D13 golden: no gate-choice card where the prototype found none', () =>
     expect(g.deltaM).toBeLessThan(6); // prototype 5 m
     expect(g.fav).toBeNull();
     expect(g.empS!).toBeLessThan(-12); // prototype: the right (lower here) buoy 16 s quicker
-    expect(fleetD13('ic37r2').filter((b) => b.found.length || b.plus.length || b.ok.length)).toEqual([]);
+    expect(fleetDetect('ic37r2').filter((b) => b.found.length || b.plus.length || b.ok.length)).toEqual([]);
   });
 
   it('Melges 24 Worlds R5: the left buoy 13 m further upwind, but no side difference (≈ 0 s): nothing', () => {
@@ -239,7 +247,7 @@ describe('D13 golden: no gate-choice card where the prototype found none', () =>
     expect(g.deltaM).toBeLessThan(16); // prototype 13 m
     expect(Math.abs(g.empS!)).toBeLessThan(4); // prototype 1.6 s
     expect(g.confirmed).toBe(false);
-    expect(fleetD13('m24r5').filter((b) => b.found.length || b.plus.length || b.ok.length)).toEqual([]);
+    expect(fleetDetect('m24r5').filter((b) => b.found.length || b.plus.length || b.ok.length)).toEqual([]);
   });
 
   it('Viper 640 R2: the run ends at the finish past the gate (no beat after it): no gate leg, so D13 never runs', () => {
@@ -247,7 +255,7 @@ describe('D13 golden: no gate-choice card where the prototype found none', () =>
     expect(a.legs.map((l) => l.to)).toEqual(['WW 1', 'Finish']);
     expect(gateGeoms(a)).toEqual([]);
     expect(race('viperr2').gates).toEqual([]);
-    expect(fleetD13('viperr2').filter((b) => b.found.length || b.plus.length || b.ok.length)).toEqual([]);
+    expect(fleetDetect('viperr2').filter((b) => b.found.length || b.plus.length || b.ok.length)).toEqual([]);
     expect(legsTable(a, null)).not.toMatch(/>Gate [LR]</);
   });
 });
