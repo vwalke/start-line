@@ -7,7 +7,7 @@
  * crossings): never from a Coach card, so the replay works whatever card the start gets.
  */
 import type { Vec } from '../analysis/geo';
-import type { StartReplay } from '../analysis/startReplay';
+import { OVER_HORIZON_MS, type StartReplay } from '../analysis/startReplay';
 import type { RaceAnalysis } from '../analysis/types';
 import { esc, f1 } from './format';
 import { legRanges, rotator, timeRange } from './mapPieces';
@@ -32,9 +32,12 @@ export function replayLink(search: string, boatId: string): string {
   return `?${p.toString()}`;
 }
 
-/** The race time the replay frames: REPLAY_PRE_S before the gun to REPLAY_POST_S after it cleared (else went back, else crossed), ms. */
+/**
+ * The race time the replay frames: REPLAY_PRE_S before the gun to REPLAY_POST_S after it cleared (else went back,
+ * else the end of its over stretch, else the gun), ms.
+ */
 export function replayWindow(r: StartReplay): [number, number] {
-  const end = r.clearedMs ?? r.wentBackMs ?? Math.max(r.firstCrossMs, r.gunMs);
+  const end = r.clearedMs ?? r.wentBackMs ?? r.over?.[1] ?? r.gunMs;
   return [r.gunMs - REPLAY_PRE_S * 1000, end + REPLAY_POST_S * 1000];
 }
 
@@ -44,22 +47,110 @@ const plusS = (ms: number, gun: number): string => {
   return `${s < 0 ? '−' : '+'}${Math.abs(s)} s`;
 };
 
-/** "over 12.1 m · back +13 s · recrossed +35 s · ≈ 35 s lost vs front row" (what isn't known is left out, or said). */
+/**
+ * "over 12.1 m · back +13 s · recrossed +35 s · ≈ 35 s lost vs front row"; never back: "over 4.2 m at the gun ·
+ * never back"; flagged with its track on the pre-start side at the gun: "flagged over · track not over at the
+ * gun" (or the bow's "bow over 0.8 m at the gun"), then its crossing. What isn't known is left out, or said.
+ */
 export function replayLabel(r: StartReplay): string {
   const parts: string[] = [];
-  if (r.maxOverM != null) parts.push(`over ${f1(Math.max(0, r.maxOverM))} m`);
-  else parts.push('over at the gun');
-  parts.push(r.wentBackMs != null ? `back ${plusS(r.wentBackMs, r.gunMs)}` : 'never back');
-  if (r.wentBackMs != null) parts.push(r.clearedMs != null ? `recrossed ${plusS(r.clearedMs, r.gunMs)}` : 'not recrossed');
+  const m = r.maxOverM != null ? f1(Math.max(0, r.maxOverM)) : null;
+  if (!r.over) parts.push(m != null ? `bow over ${m} m at the gun` : 'flagged over · track not over at the gun');
+  else if (r.wentBackMs == null) parts.push(m != null ? `over ${m} m at the gun` : 'over at the gun');
+  else parts.push(m != null ? `over ${m} m` : 'over at the gun');
+  if (r.wentBackMs != null) {
+    parts.push(`back ${plusS(r.wentBackMs, r.gunMs)}`);
+    parts.push(r.clearedMs != null ? `recrossed ${plusS(r.clearedMs, r.gunMs)}` : 'not recrossed');
+  } else if (r.over) parts.push('never back');
+  else if (r.clearedMs != null) parts.push(`crossed ${plusS(r.clearedMs, r.gunMs)}`);
   if (r.lostS != null) parts.push(`≈ ${Math.round(r.lostS)} s lost vs front row`);
   return parts.join(' · ');
 }
 
-/** The stretches the replay highlights: over the line (first crossing → back) and the dip back (back → recrossed); ms, open ends Infinity. */
+/** The button's title: what the replay shows, as the facts have it. */
+export function replayTitle(r: StartReplay, sail: string): string {
+  const what = !r.over
+    ? 'flagged over, its track not over at the gun'
+    : r.wentBackMs == null
+      ? 'over early, never went back'
+      : r.clearedMs == null
+        ? 'over early, went back, not recrossed'
+        : 'over early, went back and recrossed';
+  return `Replay ${sail}'s start: ${what}`;
+}
+
+/**
+ * The stretches the replay highlights: over the line (the facts' `over`: to going back, else bounded at
+ * OVER_HORIZON_MS after the gun) and the dip back (back → recrossed, else at most OVER_HORIZON_MS on); ms,
+ * never open-ended, so a boat that never went back or recrossed doesn't paint the rest of its race.
+ */
 export function replaySpans(r: StartReplay): { over: [number, number] | null; dip: [number, number] | null } {
-  const over: [number, number] | null = r.early ? [r.firstCrossMs, r.wentBackMs ?? Infinity] : r.wentBackMs != null ? [r.firstCrossMs, r.wentBackMs] : null;
-  const dip: [number, number] | null = r.wentBackMs != null ? [r.wentBackMs, r.clearedMs ?? Infinity] : null;
+  const over: [number, number] | null = r.over ? [r.over[0], r.over[1]] : null;
+  const dip: [number, number] | null = r.wentBackMs != null ? [r.wentBackMs, r.clearedMs ?? Math.max(r.wentBackMs, r.gunMs) + OVER_HORIZON_MS] : null;
   return { over, dip };
+}
+
+/**
+ * The race a `replay=` deep link or an open replay belongs to: event, division and race number (the
+ * URL's `event=` / `div=` / `race=`, the analysis's meta).
+ */
+export const replayRaceKey = (event: string | null | undefined, division: string, race: number | string): string => `${event ?? ''}|${division}|${race}`;
+
+/** A replay wanted (from `replay=`, or one opened) for race `race` (replayRaceKey); null `race`: the first race shown. */
+export interface ReplayPend {
+  race: string | null;
+  boat: string;
+}
+
+/** The page's `replay=` (with the race its `event=` / `div=` / `race=` name, when they do); null without one. */
+export function replayPendFromUrl(search: string): ReplayPend | null {
+  const p = new URLSearchParams(search);
+  const boat = parseReplayParam(p.get(REPLAY_PARAM));
+  if (boat == null) return null;
+  const event = p.get('event');
+  const div = p.get('div');
+  const race = p.get('race');
+  return { race: event && div && race ? replayRaceKey(event, div, race) : null, boat };
+}
+
+export type ReplayEvent =
+  /** A race shown (each load, including a reload of the same race, e.g. when official results arrive). */
+  | { type: 'shown'; race: string }
+  /** A replay opened (by hand, or the pending one). */
+  | { type: 'opened'; race: string; boat: string }
+  /** The replay left (✕ Full race, Fit, another boat, a leg, the pressed button). */
+  | { type: 'left' }
+  /** The race's replays arrived from the worker: these boats have one. */
+  | { type: 'arrived'; race: string; boats: readonly string[] };
+
+/**
+ * The `replay=` waiting to open (or open), keyed on the race: it survives every load of that race (a reload
+ * re-opens it once the replays come in again), and is dropped by another race, by leaving the replay, or when
+ * its boat turns out to have none. URL `replay=` follows: present iff this is non-null.
+ */
+export function replayPending(state: ReplayPend | null, ev: ReplayEvent): ReplayPend | null {
+  switch (ev.type) {
+    case 'shown':
+      if (!state) return null;
+      if (state.race == null) return { race: ev.race, boat: state.boat };
+      return state.race === ev.race ? state : null;
+    case 'opened':
+      return { race: ev.race, boat: ev.boat };
+    case 'left':
+      return null;
+    case 'arrived':
+      if (!state || state.race !== ev.race) return state;
+      return ev.boats.includes(state.boat) ? state : null;
+  }
+}
+
+/**
+ * Race `race`'s replays arrived (for the analysis on screen): the replay to open (the pending one's, if its boat
+ * has one) and the state after (dropped if it hasn't).
+ */
+export function replayArrive(state: ReplayPend | null, race: string, replays: readonly StartReplay[]): { open: StartReplay | null; state: ReplayPend | null } {
+  const open = state && state.race === race ? (replays.find((r) => r.boat === state.boat) ?? null) : null;
+  return { open, state: replayPending(state, { type: 'arrived', race, boats: replays.map((r) => r.boat) }) };
 }
 
 /** The boats a replay is offered for: the selected one if it qualifies (none if it doesn't), else every one that does. */
@@ -78,7 +169,7 @@ export function replayControls(a: Pick<RaceAnalysis, 'boats'>, replays: readonly
   const offer = replayOffer(replays, highlight);
   if (!offer.length) return '';
   const btn = (r: StartReplay, text: string): string =>
-    `<button type="button" class="replay-btn" data-replay="${esc(r.boat)}" aria-pressed="${active === r.boat}" title="Replay ${esc(sailOf(a, r.boat))}'s start: over early, back and recrossed">${esc(text)}</button>`;
+    `<button type="button" class="replay-btn" data-replay="${esc(r.boat)}" aria-pressed="${active === r.boat}" title="${esc(replayTitle(r, sailOf(a, r.boat)))}${active === r.boat ? ' (click again to leave it)' : ''}">${esc(text)}</button>`;
   if (highlight != null) return btn(offer[0], 'Replay start');
   return `<span class="replay-lbl">Replay start:</span> ${offer.map((r) => btn(r, sailOf(a, r.boat))).join('<span class="sep" aria-hidden="true"> · </span>')}`;
 }

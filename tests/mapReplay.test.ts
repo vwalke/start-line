@@ -60,7 +60,7 @@ describe('IC37 R5: replay facts', () => {
     // The bow (4.9 m ahead of the antenna, along the heading); the antenna got ≈ 4 m over.
     expect(r.maxOverM!).toBeGreaterThan(5.5);
     expect(r.maxOverM!).toBeLessThan(7.5);
-    expect(r.maxOverAtMs!).toBeGreaterThan(r.firstCrossMs);
+    expect(r.maxOverAtMs!).toBeGreaterThan(r.firstCrossMs!);
     expect(r.maxOverAtMs!).toBeLessThan(r.wentBackMs!);
   });
 
@@ -106,7 +106,7 @@ describe('IC37 R5: replay facts', () => {
   it('highlights over the line (first crossing → back) and the dip back (back → recrossed)', () => {
     const r = rep('USA 019');
     expect(replaySpans(r)).toEqual({ over: [r.firstCrossMs, r.wentBackMs], dip: [r.wentBackMs, r.clearedMs] });
-    expect(replaySpans({ ...r, wentBackMs: null, clearedMs: null }).over).toEqual([r.firstCrossMs, Infinity]);
+    expect(r.over).toEqual([r.firstCrossMs, r.wentBackMs]);
   });
 });
 
