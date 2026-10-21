@@ -646,6 +646,11 @@ export interface TrackMapOptions {
    * markers where it went back and recrossed, and a label. Ignored for another boat or one leg.
    */
   replay?: StartReplay | null;
+  /**
+   * Comparison boats (Map D, ui/mapLink.ts: a Coach card's boats on the map): while scrubbing, their trails get
+   * an ink casing (`trk-vs`) and their dots a ring (`dot-vs`) and their sail label, whatever the fleet's size.
+   */
+  vs?: readonly string[] | null;
 }
 
 /** A segment's points in map coordinates (wind at the top), worked out once per segment. */
@@ -1081,14 +1086,17 @@ function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, 
   const nc = pickedExcluded(a, highlight);
   if (nc) byId.set(nc.result.id, nc.result);
   const labelAll = a.boats.length <= DOT_LABEL_MAX;
+  const vs = new Set(opts.vs ?? []);
   const out: string[] = [];
+  const vsOut: string[] = [];
   let sel = '';
   for (const b of boats) {
     const on = highlight === b.id;
+    const cmp = !on && vs.has(b.id);
     const { c, cd } = dotColour(a, b, leg, opts, speed, highlight);
     const style = cd ? ` style="--cd:${cd}"` : '';
     const r = (on ? 6 : 4.2) * unit;
-    const cls = ['dot', b.hold ? 'hold' : '', on ? 'on' : highlight ? 'dim' : '', leg != null && b.leg !== leg ? 'off' : ''].filter(Boolean).join(' ');
+    const cls = ['dot', b.hold ? 'hold' : '', on ? 'on' : cmp ? 'vs' : highlight ? 'dim' : '', leg != null && b.leg !== leg ? 'off' : ''].filter(Boolean).join(' ');
     const [x, y] = [b.mx.toFixed(1), b.my.toFixed(1)];
     const tick =
       b.dir && !b.hold
@@ -1096,13 +1104,18 @@ function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, 
         : '';
     const fill = b.hold ? `fill="var(--surface)" stroke="${c}"${style}` : `fill="${c}"${style}`;
     const ring = `<circle class="${cls}" data-id="${esc(b.id)}" cx="${x}" cy="${y}" r="${r.toFixed(2)}" ${fill} stroke-width="${((on ? 1.8 : 1) * k).toFixed(2)}"/>`;
+    const vsRing = cmp ? `<circle class="dot-vs" cx="${x}" cy="${y}" r="${(r + 2.6 * unit).toFixed(2)}" stroke-width="${(1.6 * k).toFixed(2)}"/>` : '';
     const who = byId.get(b.id);
-    const text = on || labelAll ? `<text class="dot-lbl${on ? ' on' : ''}" x="${(b.mx + r + 3 * unit).toFixed(1)}" y="${(b.my - r).toFixed(1)}" font-size="${(on ? 12 : 10.5) * k}" stroke-width="${(3 * k).toFixed(2)}">${esc(who ? who.sail : b.id)}</text>` : '';
-    const svg = `<g class="boat-at${on ? ' on' : highlight ? ' dim' : ''}">${tick}${ring}${text}</g>`;
+    const text =
+      on || cmp || labelAll
+        ? `<text class="dot-lbl${on ? ' on' : cmp ? ' vs' : ''}" x="${(b.mx + r + 3 * unit).toFixed(1)}" y="${(b.my - r).toFixed(1)}" font-size="${(on ? 12 : 10.5) * k}" stroke-width="${(3 * k).toFixed(2)}">${esc(who ? who.sail : b.id)}</text>`
+        : '';
+    const svg = `<g class="boat-at${on ? ' on' : cmp ? ' vs' : highlight ? ' dim' : ''}">${vsRing}${tick}${ring}${text}</g>`;
     if (on) sel = svg;
-    else out.push(svg);
+    else (cmp ? vsOut : out).push(svg);
   }
-  return out.join('') + sel;
+  // The comparison boats over the rest, the selected boat on top.
+  return out.join('') + vsOut.join('') + sel;
 }
 
 /** One scrubber frame for time `s.t`: the trails over `s.win` (pre-gun track included) and the boats there. */
@@ -1113,11 +1126,25 @@ export function scrubFrame(a: RaceAnalysis, highlight: string | null, leg: numbe
   const boats = boatsAt(a, highlight, s.t, s.full);
   const r = opts.replay && opts.replay.boat === highlight && leg == null ? replaySvg(a, opts.replay, s, sc) : null;
   return {
-    tracks: `${layer.gaps}${layer.paths}${layer.hi}${r?.tracks ?? ''}`,
+    tracks: `${layer.gaps}${vsCasing(a, layer.pieces, opts.vs, highlight, sc)}${layer.paths}${layer.hi}${r?.tracks ?? ''}`,
     dots: (r?.marks ?? '') + layer.labels + dotsSvg(a, highlight, leg, opts, boats, sc) + (r?.label ?? ''),
     pieces: layer.pieces,
     boats,
   };
+}
+
+/** The comparison boats' trails (Map D): an ink casing under their own lines, from the pieces the frame drew; broken at gaps as they are. */
+function vsCasing(a: RaceAnalysis, pieces: readonly MapPiece[], vs: readonly string[] | null | undefined, highlight: string | null, sc: MapScale): string {
+  if (!vs?.length) return '';
+  const ids = new Set(vs.filter((id) => id !== highlight));
+  const gapOf = gapLookup(a);
+  let out = '';
+  for (const pc of pieces) {
+    if (!ids.has(pc.id)) continue;
+    const runs = segRuns(pc.rx.subarray(pc.i0, pc.i1), pc.ry.subarray(pc.i0, pc.i1), pc.src.t.subarray(pc.i0, pc.i1), gapOf(pc.id)).runs;
+    for (const run of runs) out += `<polyline class="trk-vs" data-id="${esc(pc.id)}" points="${pts(run)}" stroke-width="${(3.4 * sc.k).toFixed(2)}"/>`;
+  }
+  return out;
 }
 
 /**

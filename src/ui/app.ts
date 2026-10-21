@@ -119,6 +119,20 @@ import {
   startReplayLinks,
   type ReplayPend,
 } from './replay';
+import {
+  NO_FOCUS,
+  cardMapActions,
+  cardRoute,
+  focusArrive,
+  focusParams,
+  focusPendFromUrl,
+  focusTime,
+  focusTrail,
+  focusView,
+  mapFocusLegend,
+  withMapActions,
+  type MapFocus,
+} from './mapLink';
 import { mapKey, raceNotesKey, startKey } from './captions';
 import { MAP_GAP_TITLE, mapHasGaps, mapTipHtml, mapTipLines, mapTipPos, pickAt, pickMapPoint, type MapPoints, type PlaceRead } from './mapPoints';
 import { createFullscreen, inertOthers, lockScroll, moveNodes, trapFocus, type ScrollLock } from './fullscreen';
@@ -209,6 +223,7 @@ export function startApp(): void {
     mapZoom: $('map-zoom'),
     mapScrub: $('map-scrub'),
     mapReplay: $('map-replay'),
+    mapFocus: $('map-focus'),
     startReplay: $('start-replay'),
     mapPlay: $('map-play'),
     mapTime: $<HTMLInputElement>('map-time'),
@@ -511,6 +526,7 @@ export function startApp(): void {
     renderMap();
     askReplays(a);
     renderReplayControls();
+    renderFocusLegend();
     els.legend.innerHTML = legLegend(a, legSel);
     // In Rank or Boat speed the leg swatches would read as a colour key for the tracks; the buttons stay, the swatches go.
     els.legend.classList.toggle('speed', trackColour !== 'leg');
@@ -736,7 +752,10 @@ export function startApp(): void {
       model && coachLadder
         ? ladderChart(a, model, coachLadder, coachGroup, { widthPx, each: coachEach, highlight: band })
         : '<p class="muted coach-none">No course to measure against in this race.</p>';
-    els.coachCards.innerHTML = deb ? coachCardsHtml(a, deb, coachSel, me.coverage ?? null) : '';
+    // Each card with a window gets a "Show on map" link (mapLink.ts), appended to the cards as built.
+    els.coachCards.innerHTML = deb
+      ? withMapActions(coachCardsHtml(a, deb, coachSel, me.coverage ?? null), deb.noData ? [] : cardMapActions(a, me.id, deb.cards, replaysOf(a), location.search))
+      : '';
     // Leg stories over the picked group; the legs open now stay open.
     const openLegs = new Set([...els.coachLegs.querySelectorAll<HTMLElement>('details.coach-leg[open]')].map((d) => Number(d.dataset.leg)));
     const stories = model ? legStories(a, model, me.id, coachGroup) : [];
@@ -808,6 +827,23 @@ export function startApp(): void {
     // On a phone the chart is above the cards: bring it into view when the band is switched on.
     const r = els.coachLadder.getBoundingClientRect();
     if (coachSel != null && (r.bottom < 0 || r.top > window.innerHeight)) els.coachLadder.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+  // A card's "Show on map": a real link (a new tab opens it as a deep link); here, the Race tab on the card's window, or C's replay.
+  els.coachCards.addEventListener('click', (ev) => {
+    const me = ev as MouseEvent;
+    if (me.button !== 0 || me.ctrlKey || me.metaKey || me.shiftKey || me.altKey) return;
+    const i = Number((ev.target as Element).closest('a[data-map-opp]')?.getAttribute('data-map-opp'));
+    const a = analysis;
+    const deb = coachDeb?.d;
+    const c = Number.isInteger(i) ? deb?.cards[i] : undefined;
+    if (!a || !coachDeb || !c) return;
+    const route = cardRoute(a, coachDeb.boat, c, replaysOf(a));
+    const r = route?.kind === 'replay' ? replaysOf(a).find((x) => x.boat === route.boat) : undefined;
+    if (!route || (route.kind === 'replay' && !r)) return;
+    ev.preventDefault();
+    setTab('race');
+    if (r) openReplay(r);
+    else if (route.kind === 'focus') openFocus(route.focus);
   });
   els.coachGroup.addEventListener('click', (ev) => {
     const el = ev.target as HTMLElement;
@@ -984,6 +1020,8 @@ export function startApp(): void {
     clearTimeout(mapSettle);
     // A replay ends with the full race (✕ Full race), one leg picked, or another boat selected.
     if (replayOn && (scrubT == null || legSel != null || highlight !== replayOn.boat)) leaveReplay(false);
+    // So does a card's window (Map D).
+    if (focusOn && (scrubT == null || legSel != null || highlight !== focusOn.boat)) leaveFocus(false);
     const t0 = performance.now();
     // Scrubbing: the static map, then this moment's trails and boats into its two layers (drawScrub, every frame).
     els.map.innerHTML = trackMap(a, highlight, legSel, { ...mapOpts(), full: mapFullRate(a), scrub: scrubT != null });
@@ -994,7 +1032,7 @@ export function startApp(): void {
     syncScrub(a);
   }
 
-  const mapOpts = (): TrackMapOptions => ({ colour: trackColour, rankBy, top: speedTop, sogScale, view: mapView, replay: replayOn });
+  const mapOpts = (): TrackMapOptions => ({ colour: trackColour, rankBy, top: speedTop, sogScale, view: mapView, replay: replayOn, vs: focusOn?.vs });
 
   /** Full-rate tracks for the map (once per race, asked of the worker the first time the view is tight enough); null until then. */
   let fullRate: { a: RaceAnalysis; set: FullRateSet | null } | null = null;
@@ -1036,6 +1074,11 @@ export function startApp(): void {
     replayOn = null;
     replayPend = replayPending(replayPend, { type: 'shown', race: replayRaceOf(a) });
     if (!replayPend) setUrl({ [REPLAY_PARAM]: null });
+    // `win=` / `vs=` (a Coach card's focus: a deep link, or the focus open), kept per race the same way: show()
+    // reopens it once drawn, on every load of its race (a reload keeps it); another race drops it.
+    focusOn = null;
+    focusPend = replayPending(focusPend, { type: 'shown', race: replayRaceOf(a) });
+    if (!focusPend) setUrl(NO_FOCUS);
   }
 
   // ---- Track map: "Replay start" for a boat over early (Map C). Its facts come from the worker (analysis/startReplay.ts).
@@ -1046,6 +1089,8 @@ export function startApp(): void {
   /** The `replay=` wanted, keyed on its race (ui/replay.ts replayPending): the page's deep link, then the replay opened. */
   let replayPend: ReplayPend | null = replayPendFromUrl(location.search);
   const replayRaceOf = (a: RaceAnalysis): string => replayRaceKey(a.meta.eventId, a.meta.division, a.meta.raceNumber);
+  /** The race's replays as far as known (none until the worker has sent them). */
+  const replaysOf = (a: RaceAnalysis): StartReplay[] => (replays?.a === a ? replays.list : []);
 
   /** Ask the worker for the race's replays (once per analysis); then offer them, and open the pending `replay=`'s. */
   function askReplays(a: RaceAnalysis): void {
@@ -1062,6 +1107,8 @@ export function startApp(): void {
       else {
         if (!replayPend) setUrl({ [REPLAY_PARAM]: null });
         renderReplayControls();
+        // The Coach cards' map links route an over-early start card to its replay now.
+        renderCoach();
       }
     });
   }
@@ -1088,6 +1135,7 @@ export function startApp(): void {
     const a = analysis;
     if (!a) return;
     stopPlay(false);
+    leaveFocus(false);
     highlight = r.boat;
     syncCoachBoat(r.boat);
     legSel = null;
@@ -1114,6 +1162,57 @@ export function startApp(): void {
     replayOn = null;
     renderReplayControls();
     if (redraw && analysis && scrubT != null) drawScrub(analysis);
+  }
+
+  // ---- Track map: a Coach card's window (Map D, ui/mapLink.ts): its boat with the boats it was measured against.
+  /** The card window showing (its boat selected, the scrubber on over the whole race, the comparison boats ringed); null: none. */
+  let focusOn: MapFocus | null = null;
+  /** The `win=` focus wanted, keyed on its race (replay.ts replayPending, as `replay=`): the page's deep link, then the focus opened. */
+  let focusPend: ReplayPend | null = focusPendFromUrl(location.search);
+
+  /**
+   * Show focus `f`: select its boat, the whole race, the scrubber paused at the window's start (or `at`, a
+   * link's own `t=`) with a trail that covers it, the view framing the boat's and the comparison boats' tracks
+   * over the window; `boat=`, `vs=`, `win=`, `t=` and `trail=` in the URL.
+   */
+  function openFocus(f: MapFocus, at?: { t: number; trail: Trail }): void {
+    const a = analysis;
+    if (!a) return;
+    stopPlay(false);
+    leaveReplay(false);
+    highlight = f.boat;
+    syncCoachBoat(f.boat);
+    legSel = null;
+    scrubTrail = at?.trail ?? focusTrail(f);
+    playSpeed = 1;
+    focusOn = f;
+    focusPend = replayPending(focusPend, { type: 'opened', race: replayRaceOf(a), boat: f.boat });
+    scrubT = clampTime(at?.t ?? focusTime(f), scrubWindow(a));
+    fitMap(a);
+    if (mapFit) syncMapView(focusView(a, f, mapFit));
+    render();
+    setUrl({ ...scrubParams(scrubT, a.meta.gunMs, scrubTrail), ...focusParams(a, f), [REPLAY_PARAM]: null });
+    save();
+  }
+
+  /** Leave the focus's comparison boats (the scrubber and the view stay as they are); `redraw` the map's moving layers now. */
+  function leaveFocus(redraw: boolean): void {
+    // A deep link still waiting for its focus is left too.
+    if (focusPend) {
+      focusPend = replayPending(focusPend, { type: 'left' });
+      setUrl(NO_FOCUS);
+    }
+    if (!focusOn) return;
+    focusOn = null;
+    renderFocusLegend();
+    if (redraw && analysis && scrubT != null) drawScrub(analysis);
+  }
+
+  /** The "vs USA 11 · GBR 015" line under a focus. */
+  function renderFocusLegend(): void {
+    const html = analysis ? mapFocusLegend(analysis, focusOn) : '';
+    els.mapFocus.innerHTML = html;
+    els.mapFocus.hidden = !html;
   }
 
   els.mapReplay.addEventListener('click', (ev) => {
@@ -1331,8 +1430,11 @@ export function startApp(): void {
     if (!btn || !mapFit) return;
     const next = Number(btn.getAttribute('data-zoom'));
     if (!Number.isFinite(next) || next <= 0) return;
-    // Presets zoom about the current centre; Fit goes back to the leg selection's frame (and leaves a replay).
-    if (next === 1) leaveReplay(true);
+    // Presets zoom about the current centre; Fit goes back to the leg selection's frame (and leaves a replay or a card's window).
+    if (next === 1) {
+      leaveReplay(true);
+      leaveFocus(true);
+    }
     setMapView(next === 1 ? fitView(mapFit) : { ...mapView, k: next });
   });
 
@@ -1905,6 +2007,11 @@ export function startApp(): void {
       legSel = v?.leg ?? null;
       fitStart(a);
       render();
+      // A card's window from the URL (`win=`, a deep link or a reload of its race): reopened as linked, at the URL's own `t=` / `trail=`.
+      const { open: f, state } = focusArrive(focusPend, replayRaceOf(a), location.search, a.meta.gunMs, a.drawings.map((d) => d.id));
+      focusPend = state;
+      if (f) openFocus(f, scrubT != null ? { t: scrubT, trail: scrubTrail } : undefined);
+      else if (!focusPend) setUrl(NO_FOCUS);
       setStatus('');
       return true;
     } finally {
