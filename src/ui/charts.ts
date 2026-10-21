@@ -9,8 +9,7 @@ import { add, bearingVec, scale, type Vec } from '../analysis/geo';
 import { awayFromLineThresholdM, lineBias } from '../analysis/line';
 import type { BoatDrawing, BoatResult, ExcludedBoat, RaceAnalysis, TrackSegment } from '../analysis/types';
 import { matchClass, type ClassDims } from '../data/classes';
-import type { SpeedRank } from '../analysis/speedRank';
-import { boatLabel, duration, esc, f1, f2 } from './format';
+import { boatLabel, esc, f1, f2 } from './format';
 import { placeLabels, textWidth, type LabelReq, type Rect, type StartNames } from './labels';
 import { drawingGapMs, mapPoints, type MapPoints } from './mapPoints';
 import {
@@ -638,13 +637,6 @@ export interface TrackMapOptions {
   view?: View;
 }
 
-/** Tooltip for a speed-coloured segment. */
-function speedTitle(who: string, legName: string, r: SpeedRank | undefined, overall: boolean): string {
-  if (!r) return `${who} · ${legName} · ${overall ? 'did not finish' : 'did not complete'}`;
-  const time = Number.isFinite(r.timeS) ? ` · ${r.gapS != null ? `~${duration(r.timeS)} (telemetry gap ${Math.round(r.gapS)} s)` : duration(r.timeS)}` : '';
-  return `${who} · ${legName} · ${overall ? 'overall ' : ''}#${r.rank} of ${r.of}${time}`;
-}
-
 const rotCache = new WeakMap<TrackSegment, { twd: number; x: Float64Array; y: Float64Array }>();
 /** A segment's points in map coordinates (wind at the top), worked out once per segment. */
 function rotSeg(twd: number, seg: TrackSegment): { x: Float64Array; y: Float64Array } {
@@ -816,7 +808,6 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   // and Rank. A picked non-competitor is still a grey dashed polyline in every mode.
   for (const d of opts.colour === 'sog' ? (nc ? [nc.drawing] : []) : drawings) {
     const isNc = d === nc?.drawing;
-    const who = esc(boatLabel(byId.get(d.id), d.id));
     const gapMs = drawingGapMs(d);
     let gaps = '';
     for (const seg of d.segments) {
@@ -828,9 +819,9 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
       if (!runs.length) continue;
       if (isNc) {
         const dash = `stroke-dasharray="${(5 * k).toFixed(2)} ${(4 * k).toFixed(2)}"`;
-        const title = `<title>${who} · ${esc(legName(seg.leg))} · not racing</title>`;
         for (const run of runs) {
-          const svg = `<polyline class="trk on nc" data-leg="${seg.leg}" data-id="${esc(d.id)}" points="${pts(run)}" stroke="${NC_COLOR}" ${dash} ${sw(2.6)}>${title}</polyline>`;
+          // No <title>: the map's hover/tap tooltip is the point details; a native tooltip would double up.
+          const svg = `<polyline class="trk on nc" data-leg="${seg.leg}" data-id="${esc(d.id)}" points="${pts(run)}" stroke="${NC_COLOR}" ${dash} ${sw(2.6)}></polyline>`;
           if (speed) ordered.push([2, svg]);
           else hi.push(svg);
         }
@@ -840,7 +831,7 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
         const cls = highlight ? (highlight === d.id ? 'trk on' : 'trk dim') : 'trk';
         const width = highlight === d.id ? 2.6 : 1.2;
         for (const run of runs) {
-          const svg = `<polyline class="${cls}" data-leg="${seg.leg}" points="${pts(run)}" stroke="${legColor(seg.leg)}" ${sw(width)}><title>${who} · ${esc(legName(seg.leg))}</title></polyline>`;
+          const svg = `<polyline class="${cls}" data-leg="${seg.leg}" points="${pts(run)}" stroke="${legColor(seg.leg)}" ${sw(width)}></polyline>`;
           (highlight === d.id ? hi : paths).push(svg);
         }
         continue;
@@ -848,7 +839,6 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
       const r = speed.at(d.id, seg.leg);
       const on = highlight === d.id;
       const st = speedStyle(r, opts.top ?? 'all', on ? 'this' : highlight ? 'other' : 'none');
-      const title = `<title>${esc(speedTitle(boatLabel(byId.get(d.id), d.id), legName(seg.leg), r, speed.overall))}</title>`;
       // Grey strokes are classed by why (unranked / out of the top N), coloured ones by tier, a picked boat past N 'picked'.
       const cls = ['trk spd', st.kind === 'picked-out' ? 'picked' : st.t == null ? st.kind : st.tier, on ? 'on' : ''].filter(Boolean).join(' ');
       const op = `stroke-opacity="${st.opacity.toFixed(2)}"`;
@@ -858,10 +848,10 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
         let svg: string;
         if (st.kind === 'picked-out' && r) {
           // Ink over a surface casing: no rank colour, so it can't pass for one of the top N; its rank is labelled instead.
-          svg = `<polyline class="spd-pick-case" points="${p}" ${sw(st.width + 2.4)}/><polyline class="${cls}" ${attrs} ${sw(st.width)} ${op}>${title}</polyline>`;
+          svg = `<polyline class="spd-pick-case" points="${p}" ${sw(st.width + 2.4)}/><polyline class="${cls}" ${attrs} ${sw(st.width)} ${op}></polyline>`;
         } else if (st.t == null) {
           const dash = st.kind === 'unranked' ? ` stroke-dasharray="${(3 * k).toFixed(2)} ${(2.5 * k).toFixed(2)}"` : '';
-          svg = `<polyline class="${cls}" ${attrs} ${sw(st.width)} ${op}${dash}>${title}</polyline>`;
+          svg = `<polyline class="${cls}" ${attrs} ${sw(st.width)} ${op}${dash}></polyline>`;
         } else {
           // Selection: an ink outline under the boat's own colour. Otherwise, by day, a thin dark casing under the pale fast end, as faint as its stroke.
           const casing = on
@@ -869,7 +859,7 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
             : casedByDay(st.t)
               ? `<polyline class="spd-case" points="${p}" ${sw(st.width + 1)} stroke-opacity="${(0.55 * st.opacity).toFixed(2)}"/>`
               : '';
-          svg = `${casing}<polyline class="${cls}" ${attrs} stroke="${speedColor(st.t)}" style="--cd:${speedColor(st.t, 'dark')}" ${sw(st.width)} ${op}>${title}</polyline>`;
+          svg = `${casing}<polyline class="${cls}" ${attrs} stroke="${speedColor(st.t)}" style="--cd:${speedColor(st.t, 'dark')}" ${sw(st.width)} ${op}></polyline>`;
         }
         ordered.push([on ? 2 : r ? 1 - r.t : -1, svg]);
       }

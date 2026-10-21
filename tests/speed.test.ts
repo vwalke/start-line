@@ -397,14 +397,14 @@ describe('track map in Rank', () => {
   const width = (p: string): number => Number(/ stroke-width="([\d.]+)"/.exec(p)![1]);
   const opacity = (p: string): number => Number(/ stroke-opacity="([\d.]+)"/.exec(p)![1]);
 
-  it('leaves the Leg colouring as it was, with a boat · leg tooltip', () => {
+  it('leaves the Leg colouring as it was, with no native title tooltip', () => {
     const svg = trackMap(a, null, 1);
     expect(svg).toBe(trackMap(a, null, 1, { colour: 'leg' }));
     const ps = polylines(svg);
     expect(ps.length).toBeGreaterThan(0);
     expect(ps.every((p) => p.includes(`stroke="${legColor(1)}"`) && p.startsWith('<polyline class="trk"'))).toBe(true);
     expect(svg).not.toContain('spd');
-    expect(ps[0]).toMatch(/<title>#\S+.* · .+<\/title>/);
+    expect(svg).not.toContain('<title>');
   });
 
   it('colours one leg by rank with plasma, fastest on top, top 3 thicker', () => {
@@ -415,8 +415,10 @@ describe('track map in Rank', () => {
     expect(ps.every((p) => /stroke="#[0-9a-f]{6}" style="--cd:#[0-9a-f]{6}"/.test(p))).toBe(true);
     // Drawn slowest → fastest: the last one is #1, coloured as the fastest.
     const last = ps[ps.length - 1];
-    expect(last).toMatch(/<title>[^<]*#1 of \d+/);
+    const first = [...legRanks(a.boats, 1)].find(([, r]) => r.rank === 1)![0];
+    expect(last).toContain(`data-id="${first}"`);
     expect(last).toContain(`stroke="${speedColor(0)}"`);
+    expect(last).not.toContain('<title>');
     const top = ps.filter((p) => p.includes(' top'));
     const rest = ps.filter((p) => !p.includes(' top'));
     expect(top.length).toBeGreaterThanOrEqual(3);
@@ -431,7 +433,7 @@ describe('track map in Rank', () => {
     const ps = polylines(svg);
     const un = ps.filter((p) => p.includes(`data-id="${victim}"`));
     expect(un.length).toBeGreaterThan(0);
-    expect(un.every((p) => p.includes('unranked') && p.includes('stroke-dasharray') && p.includes('did not complete'))).toBe(true);
+    expect(un.every((p) => p.includes('unranked') && p.includes('stroke-dasharray'))).toBe(true);
     expect(ps[0]).toContain('unranked');
     expect(speedKey(cut, 1, 'leg')).toContain('<span class="spd-none" aria-hidden="true"></span> no leg time');  });
 
@@ -439,7 +441,8 @@ describe('track map in Rank', () => {
     const svg = trackMap(a, null, null, { colour: 'rank' });
     const ps = polylines(svg);
     for (const l of a.legs) {
-      expect(ps.some((p) => p.includes(`data-leg="${l.index}"`) && new RegExp(`${l.name} · #1 of`).test(p))).toBe(true);
+      const first = [...legRanks(a.boats, l.index)].find(([, r]) => r.rank === 1)![0];
+      expect(ps.some((p) => p.includes(`data-leg="${l.index}"`) && p.includes(`data-id="${first}"`) && p.includes(`stroke="${speedColor(0)}"`))).toBe(true);
     }
     expect(speedKey(a, null, 'leg')).toContain('on each leg');
   });
@@ -449,7 +452,7 @@ describe('track map in Rank', () => {
     const winner = a.boats.reduce((p, q) => ((q.raceTimeS ?? Infinity) < (p.raceTimeS ?? Infinity) ? q : p));
     const mine = polylines(svg).filter((p) => p.includes(`data-id="${winner.id}"`));
     expect(mine.length).toBe(a.legs.length);
-    expect(mine.every((p) => p.includes('overall #1 of') && p.includes(`stroke="${speedColor(0)}"`))).toBe(true);
+    expect(mine.every((p) => p.includes(`stroke="${speedColor(0)}"`))).toBe(true);
     expect(speedKey(a, null, 'overall')).toMatch(/race time.*\d+:\d\d → \d+:\d\d/);
   });
 
@@ -502,9 +505,10 @@ describe('track map in Rank', () => {
       expect(p).not.toContain('stroke-dasharray');
       expect(p).not.toMatch(/ stroke="#/);
       expect(opacity(p)).toBeCloseTo(0.2, 2);
-      expect(p).toMatch(/#[4-9] of \d+/); // tooltip keeps the true rank
+      expect(ranks.get(/data-id="([^"]+)"/.exec(p)![1])!.rank).toBeGreaterThan(3);
     }
-    const third = ps.find((p) => /<title>[^<]*#3 of/.test(p))!;
+    const thirdId = [...ranks].find(([, r]) => r.rank === 3)![0];
+    const third = ps.find((p) => p.includes(`data-id="${thirdId}"`))!;
     expect(third).toContain(`stroke="${speedColor(1)}"`);
     // out-of-N drawn under the coloured ones
     expect(ps.findIndex((p) => !p.includes(' out'))).toBeGreaterThanOrEqual(out.length);
@@ -582,7 +586,7 @@ describe('a picked boat under Top N (M24 race 4)', () => {
       expect(p).toMatch(/^<polyline class="trk spd picked on"/);
       expect(coloured(p)).toBe(false);
       expect(p).not.toContain('--cd');
-      expect(p).toContain(`#${slowRank.rank} of ${slowRank.of}`); // tooltip keeps the rank
+      expect(p).not.toContain('<title>');
     }
     // on a surface casing, not the selection's ink outline; drawn last
     expect(svg).toMatch(/<polyline class="spd-pick-case"[^>]*\/><polyline class="trk spd picked on"/);

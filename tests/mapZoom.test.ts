@@ -88,6 +88,12 @@ describe('gaps as breaks', () => {
     expect(sog).toMatch(new RegExp(`<g class="sog-trk" data-id="${id}"[^>]*>[\\s\\S]*?<path class="sog-gap"`));
   });
 
+  it('leaves native <title> off Leg and Rank tracks (the hover/tap tooltip is the details)', () => {
+    expect(trackMap(a, null, 1)).not.toContain('<title>');
+    expect(trackMap(a, a.drawings[0].id, 1, { colour: 'rank' })).not.toContain('<title>');
+    expect(trackMap(a, null, null, { colour: 'rank', rankBy: 'overall' })).not.toContain('<title>');
+  });
+
   it('records the gap with the fixes either side, and labels it "no data" in local time', () => {
     const { a: h, id, s, at } = withHole(a);
     const p = trackPoints(h, 1);

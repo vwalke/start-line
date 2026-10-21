@@ -7,7 +7,9 @@ import { buildRaceData } from '../src/data/racesense/adapter';
 import type { Boat, RaceData } from '../src/data/types';
 import { boatList } from '../src/ui/boats';
 import { raceNotesKey } from '../src/ui/captions';
+import { overallRanks } from '../src/analysis/speedRank';
 import { pickedExcluded, startSnapshot, trackMap } from '../src/ui/charts';
+import { speedColor } from '../src/ui/speed';
 import { parsePickerParams } from '../src/ui/params';
 import { startSogRange, trackSogRange } from '../src/ui/sog';
 import { legsTable, startTable } from '../src/ui/table';
@@ -255,10 +257,10 @@ describe('picking a boat that is not racing', () => {
     const of = a.boats.filter((b) => b.finishPos != null).length;
     const svg = trackMap(a, '03', null, { colour: 'rank', rankBy: 'overall' });
     expect(svg).toMatch(/<polyline class="trk on nc"[^>]*stroke="var\(--ink-3\)" stroke-dasharray/);
-    expect(svg).toContain('not racing');
     expect(svg).not.toMatch(/data-id="03"[^>]*(?:stroke="#[0-9a-f]{6}"|overall #)/);
-    expect(svg).toContain(`overall #1 of ${of}`);
-    expect(svg).not.toContain(`#1 of ${of + 1}`);
+    const winner = [...overallRanks(a.boats)].find(([, r]) => r.rank === 1)!;
+    expect(winner[1].of).toBe(of);
+    expect(svg).toMatch(new RegExp(`data-id="${winner[0]}"[^>]*stroke="${speedColor(0)}"`));
   });
 
   it('in Boat speed, leaves excluded boats out of the scale and keeps a pick grey and dashed', () => {
@@ -269,7 +271,6 @@ describe('picking a boat that is not racing', () => {
     expect(startSogRange(a)).toEqual(startSogRange(without));
     const svg = trackMap(a, '03', null, { colour: 'sog' });
     expect(svg).toMatch(/<polyline class="trk on nc"[^>]*stroke="var\(--ink-3\)" stroke-dasharray/);
-    expect(svg).toContain('not racing');
     expect(svg).not.toMatch(/<g class="sog-trk[^"]*" data-id="03"/);
     const start = startSnapshot(a, '03', undefined, 'speed');
     expect(start).toMatch(/<g class="boat[^"]* nc" data-id="03">/);
