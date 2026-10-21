@@ -379,7 +379,7 @@ describe('Regatta summary', () => {
       done(2, { findings: [finding('D1', 'second-row', 10), finding('D5', 'overstand', 90)], legs: [leg(1, 'downwind', 20), leg(2, 'upwind', 0)] }),
       done(3, { findings: [finding('D10', 'beat', 12)], legs: [leg(1, 'downwind', 25)] }),
     ]);
-    expect(s.top.map((t) => t.title)).toEqual(['Gave back gains from a side', 'Runs', 'Starts: late or back at the gun']);
+    expect(s.top.map((t) => t.title)).toEqual(['Gave back gains from a side', 'Runs', 'Starts: over, late or back at the gun']);
     expect(s.top[1]).toMatchObject({ why: "~25 s lost per run vs the fleet's median, over 3 runs" });
     // One-off and small: not worth working on (shifts 25 s once, the last leg 12 s once).
     expect(s.top.some((t) => /shifts|last leg/i.test(t.title))).toBe(false);

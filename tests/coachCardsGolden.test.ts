@@ -4,11 +4,11 @@ import { CROSS_TO_MS, buildCoach, coachRaw, rivalLadder } from '../src/analysis/
 import { coachDebrief, type CoachDebrief } from '../src/analysis/coach/debrief';
 import { coachCtx } from '../src/analysis/coach/detectors/context';
 import { detectLastLeg } from '../src/analysis/coach/detectors/lastLeg';
-import { MIN_SECONDS } from '../src/analysis/coach/opportunity';
+import { D1_MIN_S, MIN_SECONDS, minSeconds } from '../src/analysis/coach/opportunity';
 import type { RaceAnalysis } from '../src/analysis/types';
 import type { RaceData } from '../src/data/types';
 import { coachChips, ladderChart } from '../src/ui/coach';
-import { cardSpans, cardText, coachCardsHtml, secondsChip, windowChip } from '../src/ui/coachCards';
+import { cardSpans, cardText, chipsMax, coachCardsHtml, secondsChip, windowChip } from '../src/ui/coachCards';
 import { c31Race, fixtureRace, j105Race, j88Race, m24Race } from './helpers';
 
 /**
@@ -68,8 +68,10 @@ describe('Coach golden: Good Trade race 1 (gun 11:05 EDT)', () => {
     expect(ok.facts.fTwa as number).toBeLessThanOrEqual(45);
     const html = coachCardsHtml(a, d, null, 0.27);
     expect(html).toContain('✓ Upwind pointing 40° vs fleet 42°');
-    // The start itself was fine (D1 measured, did not fire).
-    expect(d.ok.some((n) => n.detector === 'D1')).toBe(true);
+    // The start was measured and D1 did not fire (5 m back, 3 s after the front row), but 11th of 18 over the
+    // line is no front-row start: no ✓ start (that is for the first third over, on time and close to the line).
+    expect(d.found.some((o) => o.kind === 'D1')).toBe(false);
+    expect(d.ok.some((n) => n.detector === 'D1')).toBe(false);
     // Two cards (phase 3 adds D5), and it says so.
     expect(d.cards.map((c) => c.kind)).toEqual(['D5', 'D3']);
     expect(html).toContain('Only 2 clear gains with this data');
@@ -101,7 +103,13 @@ describe('Coach golden: Good Trade race 2 (gun 12:25 EDT)', () => {
     expect(Math.round(c.facts.crossS as number)).toBe(56);
     expect([Math.round(c.facts.frontLo as number), Math.round(c.facts.frontHi as number)]).toEqual([6, 9]);
     expect(c.facts.favoured).toBe('pin');
-    expect(secondsChip(c)).toBe('≈ 47 s');
+    // The early-lane D3 after it (19 s) merges into the start card; D4 (the same minutes of Beat 1) claims most of
+    // that part, never the crossing's 47 s.
+    expect(c.facts.d1S as number).toBeCloseTo(47, 0);
+    expect(Math.round(c.facts.d3S as number)).toBe(19);
+    expect(c.seconds).toBeGreaterThanOrEqual(47);
+    expect(c.seconds).toBeLessThan(47 + 19);
+    expect(secondsChip(c)).toBe('≈ 51 s');
     // Phase 3: the wrong-side shift (D4 ≈ 90 s) is #1, the start #2 — the debrief's order.
     expect(d.cards.map((x) => x.kind).slice(0, 2)).toEqual(['D4', 'D1']);
   });
@@ -201,7 +209,7 @@ describe('Coach sanity across the other fixtures', () => {
     ['c31 r10', () => c31Race()],
   ];
   for (const [name, mk] of races) {
-    it(`${name}: no crash; ≤ 3 cards; none under its minimum (≥ 10 s) or from under 25 % data; times inside the race`, () => {
+    it(`${name}: no crash; ≤ 3 cards; none under its minimum (≥ 10 s, D1 ≥ 4 s) or from under 25 % data; times inside the race`, () => {
       const data = mk();
       const a: RaceAnalysis = analyzeRace(data);
       const raw = coachRaw(a, data);
@@ -217,15 +225,18 @@ describe('Coach sanity across the other fixtures', () => {
         if (d.noData) expect(d.cards).toEqual([]);
         for (const c of d.cards) {
           cards++;
-          expect(c.seconds).toBeGreaterThanOrEqual(10);
-          expect(c.seconds).toBeGreaterThanOrEqual(MIN_SECONDS[c.confidence]);
+          // D1 is gated by its own rules: at high confidence from D1_MIN_S (minSeconds).
+          expect(c.seconds).toBeGreaterThanOrEqual(c.kind === 'D1' ? D1_MIN_S : 10);
+          expect(c.seconds).toBeGreaterThanOrEqual(minSeconds(c.kind, c.confidence));
           expect(c.coverage).toBeGreaterThanOrEqual(0.25);
           expect(c.confidence).not.toBe('none');
           expect(c.t1).toBeGreaterThanOrEqual(c.t0);
           expect(c.t0).toBeGreaterThanOrEqual(a.meta.gunMs - 10_000);
           const t = cardText(c);
           expect(t.title.length).toBeGreaterThan(0);
-          expect(t.chips.length).toBeLessThanOrEqual(3);
+          // Three key chips; four on a merged start card (D1 + D3).
+          expect(t.chips.length).toBeLessThanOrEqual(chipsMax(c));
+          expect(chipsMax(c)).toBe(c.kind === 'D1' && c.facts.d3S != null ? 4 : 3);
           expect(`${t.sentence} ${t.tip} ${t.chips.join(' ')}`).not.toMatch(/NaN|undefined|null/);
         }
         expect(coachCardsHtml(a, d, null, null)).not.toMatch(/NaN|undefined/);

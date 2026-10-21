@@ -132,6 +132,31 @@ PRESETS.j105r3 = {
   ],
 };
 
+// IC37 North Americans race 5 for the Coach start detector (D1, the D3 after it, the start-window dedupe): the
+// whole fleet (15 boats) from 60 s before the gun to 6 min after it, 1 s within ±60 s of the gun and 2 s after,
+// course marks every 20 s, positions rounded to ~0.1 m; regatta race 5 only. Reads the start-fix cache
+// (regatta.json, tele_<after>.json pages, wind.json), e.g. /workspace/recall-startfix-run/inputs/ic37r5-cache.
+PRESETS.ic37 = {
+  event: 'VaWTh1uA7TrLejoSFlUn',
+  division: 'IC37',
+  race: 5,
+  regatta: 'regatta.json',
+  tele: ['tele_1791640971000.json', 'tele_1791642090099.json', 'tele_1791643206799.json', 'tele_1791644278599.json'],
+  wind: 'wind.json',
+  out: 'tests/fixtures/ic37_r5.json',
+  note: 'Trimmed from public RaceSense data: 2026 IC37 North American Championship, race 5 (all 15 boats, gun − 60 s to gun + 6 min; course marks only; no IMU). See scripts/make-fixture.mjs --preset ic37.',
+  event_: (doc) => ({ classLabel: 'IC37', startMs: doc.startDate, endMs: doc.endDate }),
+  races: [5],
+  window: [-60_000, 25 * 60_000],
+  step: 2_000,
+  // Past the start's 6 min, every 20 s to the end of Beat 1: the fleet's beat VMG (the gap ladder's seconds) needs the leg finished.
+  dense: [{ from: 360_000, to: 25 * 60_000, step: 20_000 }],
+  nearStep: 1_000,
+  courseMarksOnly: true,
+  drop: ['division', 'race_number', 'roll', 'pitch'],
+  round: true,
+};
+
 const args = process.argv.slice(2);
 const pi = args.indexOf('--preset');
 const preset = PRESETS[pi >= 0 ? args[pi + 1] : 'benelux'];
@@ -151,8 +176,9 @@ const div = doc.divisions[0];
 const race = div.races.find((r) => r.raceNumber === RACE);
 const gun = race.starts.at(-1).startTime;
 const lastFinish = Math.max(...race.finishes.map((f) => Date.parse(f.finishingTime)));
-const t0 = gun - 120_000;
-const t1 = lastFinish + 30_000;
+// `window`: [from, to] ms from the gun, else 2 min before it to 30 s after the last finish.
+const t0 = gun + (preset.window?.[0] ?? -120_000);
+const t1 = preset.window ? gun + preset.window[1] : lastFinish + 30_000;
 if (preset.races) div.races = div.races.filter((r) => preset.races.includes(r.raceNumber));
 // Other races: just enough for the event-wide results (who finished, how far, how fast).
 const FINISH_KEEP = ['sailNumber', 'serialNumber', 'finishingTime', 'distanceTraveled', 'maxSpeed', 'raceNumber'];
@@ -229,7 +255,9 @@ for (const r of rows) {
   if (prev !== undefined && ts - prev < step) continue;
   if (prev !== undefined && ts === prev) continue;
   lastKept.set(key, ts);
-  outRows.push(keep.map((f) => r[idx[f]]));
+  // `round`: positions to 1e-6° (~0.1 m), heading to 0.1°, SOG to 0.01 kn — well inside the trackers' noise.
+  const DP = { latitude: 6, longitude: 6, heading: 1, sog: 2 };
+  outRows.push(keep.map((f) => (preset.round && DP[f] != null && typeof r[idx[f]] === 'number' ? Number(r[idx[f]].toFixed(DP[f])) : r[idx[f]])));
 }
 
 const fixture = {

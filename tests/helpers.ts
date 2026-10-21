@@ -56,6 +56,9 @@ export const m24Race = (): RaceData => trimmedRace('./fixtures/m24_r4.json', 'M2
 /** J/88 North Americans race 5: no mark trackers at all; 8 boats. */
 export const j88Race = (): RaceData => trimmedRace('./fixtures/j88_r5.json', 'J88', 5);
 
+/** IC37 North Americans race 5 (gun 10:05:01 EDT): all 15 boats, gun − 60 s to the end of Beat 1 (dense to +6 min) — the Coach start case. */
+export const ic37Race = (): RaceData => trimmedRace('./fixtures/ic37_r5.json', 'IC37', 5);
+
 /** The J/105 fixtures' raw form (to edit the telemetry before building). */
 export const j105Fixture = (raceNumber: 1 | 2 | 3): Fixture =>
   JSON.parse(readFileSync(here(`./fixtures/j105_r${raceNumber}.json`), 'utf8')) as Fixture;

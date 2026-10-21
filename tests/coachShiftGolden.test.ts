@@ -62,9 +62,16 @@ describe('D4 golden: race 2 Beat 1, the wrong side of a 15° left shift (debrief
     expect(windowChip(c, a)).toBe('12:26–12:35');
   });
 
-  it('the early-lane D3 (19 s, same minutes) is claimed by D4 and dropped', () => {
-    expect(d.found.some((o) => o.kind === 'D3')).toBe(true);
-    expect(d.cards.some((x) => x.kind === 'D3')).toBe(false);
+  it('the early-lane D3 (19 s, same minutes) rides on the start card, and D4 claims most of that part', () => {
+    // D1 fired (64 m back): the D3 after it merges into the start card, its seconds a part of their own.
+    expect(d.found.some((o) => o.kind === 'D3')).toBe(false);
+    const start = d.found.find((o) => o.kind === 'D1')!;
+    expect(Math.round(start.facts.d3S as number)).toBe(19);
+    expect(start.parts).toHaveLength(2);
+    const c = d.cards.find((x) => x.kind === 'D1')!;
+    // D4 holds most of the D3 part (Beat 1's first minutes); the crossing's 47 s are untouched.
+    expect(c.seconds - (start.facts.d1S as number)).toBeLessThan(19 / 2);
+    expect(c.seconds).toBeGreaterThanOrEqual(start.facts.d1S as number);
   });
 });
 

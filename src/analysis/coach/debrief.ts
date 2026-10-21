@@ -1,6 +1,6 @@
 /**
  * Recall Coach, phases 2–4: one boat's debrief for one race — every detector
- * (D1, D2 and D8 → D3, D3, D4, D5, D6, D7, D8, D9, D10, D11 → D6 / D7 on a leg they share), ranked and gated (rank.ts), with the ✓ row
+ * (D1, D2 and D8 → D3, D3 → D1 when both fired, D4, D5, D6, D7, D8, D9, D10, D11 → D6 / D7 on a leg they share), ranked and gated (rank.ts), with the ✓ row
  * (detectors that measured the boat as fine with good data) and ➕ Went well (wentWell: legs,
  * roundings and the start where it gained on the leaders, with seconds; at most WENT_WELL_MAX).
  * Pure: the UI fills the templates.
@@ -20,7 +20,7 @@ import { detectShadow, type D8Result } from './detectors/shadow';
 import { detectHeel } from './detectors/heel';
 import { D3_GAP_S, D3_WINDOW_MS } from './detectors/early';
 import { longestHole, trackLegAt } from './tracks';
-import { coachCoverage, gapChange, type GoodNote, type Opportunity } from './opportunity';
+import { coachCoverage, gapChange, rangeOf, type GoodNote, type Opportunity } from './opportunity';
 import { median } from '../geo';
 import { rankOpportunities, type Card } from './rank';
 
@@ -94,13 +94,16 @@ export function legGains(ctx: CoachCtx): GoodNote[] {
   return out;
 }
 
-/** The start, as a ➕: crossed PLUS_START_S or more ahead of the leaders' median crossing; or gained PLUS_LANE_S on them in D3's window. */
-export function startGains(ctx: CoachCtx): GoodNote[] {
+/**
+ * The start, as a ➕: crossed PLUS_START_S or more ahead of the leaders' median crossing (not when D1 fired:
+ * a late or second-row start beside leaders who started worse is no gain); or gained PLUS_LANE_S on them in D3's window.
+ */
+export function startGains(ctx: CoachCtx, d1Fired = false): GoodNote[] {
   const out: GoodNote[] = [];
   const cross = ctx.m.crossMs;
   const mine = cross?.[ctx.boat] ?? null;
   const theirs = ctx.leaders.map((id) => cross?.[id] ?? null).filter((x): x is number => x != null);
-  if (mine != null && theirs.length >= Math.min(2, ctx.leaders.length) && theirs.length) {
+  if (!d1Fired && mine != null && theirs.length >= Math.min(2, ctx.leaders.length) && theirs.length) {
     const ahead = (median(theirs) - mine) / 1000;
     if (ahead >= PLUS_START_S) out.push({ kind: 'plus', detector: 'D1', variant: 'cross', facts: { aheadS: ahead, crossS: (mine - ctx.gun) / 1000 }, t0: ctx.gun, t1: mine, seconds: ahead });
   }
@@ -135,6 +138,49 @@ export function wentWell(notes: readonly GoodNote[], max = WENT_WELL_MAX): GoodN
 /** D8 short of D8_ALONE_S rides on the early-lane card as a chip (spec §5); with no D3 card it has nowhere to show. */
 export const attachShadow = (early: Opportunity | null, shadow: Pick<D8Result, 'chip'>): Opportunity | null =>
   early && shadow.chip ? { ...early, chips: [...(early.chips ?? []), shadow.chip] } : early;
+
+/**
+ * D1 and the D3 that follows it are one story (spec §5: the start card): one D1 card from gun − 10 s to D3's
+ * end (crossing + 5 min), seconds = D1's (crossing − front row) + D3's (gap change from the crossing on: D3
+ * never counts the time before it). D3's numbers ride in the facts (`d3*`, tacks, fleetTacks), its chips
+ * (D2, D8) on the card; the noise ranges add in quadrature (independent reads); `parts` keeps each one's seconds
+ * on its own stretch for the dedupe (rank.ts). Either alone stays as it is.
+ */
+export function mergeStart(d1: Opportunity | null, d3: Opportunity | null): { start: Opportunity | null; early: Opportunity | null } {
+  if (!d1 || !d3) return { start: d1, early: d3 };
+  const seconds = d1.seconds + d3.seconds;
+  const noise = Math.hypot(Math.max(d1.secondsHi - d1.seconds, d1.seconds - d1.secondsLo), Math.max(d3.secondsHi - d3.seconds, d3.seconds - d3.secondsLo));
+  const len1 = Math.max(0, d1.t1 - d1.t0);
+  const len3 = Math.max(0, d3.t1 - d3.t0);
+  const coverage = (d1.coverage * len1 + d3.coverage * len3) / Math.max(1, len1 + len3);
+  const start: Opportunity = {
+    ...d1,
+    t1: Math.max(d1.t1, d3.t1),
+    seconds,
+    ...rangeOf(seconds, noise),
+    coverage,
+    // The lower of the two boat coverages; D3's references and wind (D1's front row is always enough when it fired on crossings).
+    conf: { ...d3.conf, boatCov: Math.min(d1.conf.boatCov, d3.conf.boatCov) },
+    facts: {
+      ...d1.facts,
+      d1S: d1.seconds,
+      d3S: d3.seconds,
+      d3Variant: d3.variant,
+      tacks: d3.facts.tacks,
+      lastTackS: d3.facts.lastTackS,
+      fleetTacks: d3.facts.fleetTacks,
+      gapEnd: d3.facts.gapEnd,
+    },
+    parts: [
+      { t0: d1.t0, t1: d1.t1, seconds: d1.seconds },
+      { t0: d3.t0, t1: d3.t1, seconds: d3.seconds },
+    ],
+    refBoats: [...new Set([...d1.refBoats, ...d3.refBoats])],
+    chips: d3.chips,
+    windEst: d3.windEst,
+  };
+  return { start, early: null };
+}
 
 const overlaps = (p: Opportunity, q: Opportunity): boolean => p.t0 < q.t1 && q.t0 < p.t1;
 
@@ -189,10 +235,10 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
   const shadow = detectShadow(ctx);
   const round = detectRounding(ctx);
   const heel = detectHeel(ctx);
-  const d3 = attachShadow(early, shadow);
+  const merged = mergeStart(start.opp, attachShadow(early, shadow));
   const withHeel = attachHeel([up.opp, down.opp], heel.opps);
   const [d6, d7] = withHeel.angles;
-  const found = [start.opp, d3, d4, ...cons.opps, d6, d7, shadow.opp, ...round.opps, ...withHeel.heel, last].filter((o): o is Opportunity => !!o);
+  const found = [merged.start, merged.early, d4, ...cons.opps, d6, d7, shadow.opp, ...round.opps, ...withHeel.heel, last].filter((o): o is Opportunity => !!o);
   const clearAir: GoodNote | null =
     shadow.evaluated && !shadow.opp && !shadow.chip ? { kind: 'ok', detector: 'D8', variant: 'ok', facts: { share: shadow.share, fleetShare: shadow.fleetShare }, t0: ctx.gun, t1: m.endMs } : null;
   const ok = [start.ok, shift.opp ? null : shift.ok, cons.opps.length ? null : cons.ok, up.ok, down.ok, clearAir, round.ok, heel.ok].filter((o): o is GoodNote => !!o);
@@ -205,7 +251,7 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
   return {
     cards,
     ok: noData ? [] : ok,
-    plus: noData ? [] : wentWell([...legGains(ctx), ...round.good, ...startGains(ctx), ...heel.plus]),
+    plus: noData ? [] : wentWell([...legGains(ctx), ...round.good, ...startGains(ctx, start.fired), ...heel.plus]),
     totalS: cards.reduce((s, c) => s + c.seconds, 0),
     raceCov,
     noData,

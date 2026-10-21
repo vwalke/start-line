@@ -42,6 +42,11 @@ export interface Opportunity {
   t0: number;
   t1: number;
   spans?: [number, number][];
+  /**
+   * Seconds that sit in parts of the window (the merged start card: D1's to the crossing, D3's after it):
+   * dedupe trims each part by its own overlap, so a finding over the first minutes doesn't take the start's.
+   */
+  parts?: { t0: number; t1: number; seconds: number }[];
   /** Seconds at stake (+ = lost), and its noise range. */
   seconds: number;
   secondsLo: number;
@@ -183,6 +188,13 @@ export const WIND_RANGE_SHARE: [number, number] = [0.6, 1.2];
 export const CONF_WEIGHT: Record<Confidence, number> = { high: 1, medium: 0.7, low: 0.4, none: 0 };
 /** Fewest seconds a card may show per confidence. */
 export const MIN_SECONDS: Record<Confidence, number> = { high: 10, medium: 20, low: 30, none: Infinity };
+/**
+ * D1 is gated by its own rules (start.ts: from 4–6 s behind the front row, or two lengths back at the gun), measured
+ * off crossing times rather than modelled: at high confidence its card needs only this much, s (its smallest trigger).
+ */
+export const D1_MIN_S = 4;
+/** Fewest seconds a card of `kind` may show at `level`. */
+export const minSeconds = (kind: DetectorKind, level: Confidence): number => (kind === 'D1' && level === 'high' ? D1_MIN_S : MIN_SECONDS[level]);
 
 // ---- gap reads
 
