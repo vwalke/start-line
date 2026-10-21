@@ -126,6 +126,7 @@ import { boatLabel, degLabel, esc, f1, gunTimeLine } from './format';
 import { dismissHint, hintStore, showHint } from './hints';
 import { renderKeepOpen, renderKeyLine } from './info';
 import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
+import { mountLaneSnapshots } from './laneSnapshotsView';
 import { attachTopScroll } from './hscroll';
 import { attachPanZoom } from './panzoom';
 import { PLACE_TIP_MOUSE_REACH, PLACE_TIP_TOUCH_REACH, nearestPlaceDot, placesChart, placesKey } from './places';
@@ -347,6 +348,7 @@ export function startApp(): void {
       replayWaits.set(id, resolve);
       worker.postMessage({ id, type: 'start-replay', key: raceKeyOf(a) } satisfies WorkerRequest);
     });
+  const lanes = mountLaneSnapshots($<HTMLDetailsElement>('lane-snapshots'), () => ({ a: analysis, me: highlight, group: coachGroup }), startReplaysOf);
 
   let analysis: RaceAnalysis | null = null;
   /** The one selected boat, shared by the boat list, both charts, the table and the findings. */
@@ -545,6 +547,7 @@ export function startApp(): void {
     renderPlaces();
     renderStartSog();
     renderCoach();
+    lanes.refresh();
   }
 
   // ---- Coach: built lazily the first time the tab shows a race.
@@ -779,6 +782,7 @@ export function startApp(): void {
     coachGroup = g;
     setUrl({ [GROUP_PARAM]: groupParam(g) });
     renderCoach();
+    lanes.refresh();
   }
 
   /** Remember the coached boat in the URL. Clearing the highlight does not drop it. */
