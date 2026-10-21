@@ -48,6 +48,7 @@
       <main id="digest" class="digest" hidden>
         <aside id="boat-list" class="boatbar" aria-label="Boats: select one to highlight it everywhere"></aside>
         <div class="content">
+          <button type="button" id="report-open" class="report-open" title="One page for the selected boat: start, legs, roundings, penalties and the Coach's findings (print or save as PDF)">Report</button>
           <section id="summary"></section>
           <div id="race-head" class="race-head" hidden></div>
           <div id="tabs" class="tabs" role="tablist" aria-label="Digest">
@@ -170,6 +171,8 @@
             <section id="coach-ask" class="card coach-ask" aria-labelledby="coach-ask-title" hidden></section>
             <section id="coach-legs" class="coach-legs" aria-labelledby="coach-legs-title"></section>
           </div>
+          <!-- The boat Report (ui/report.ts, reportView.ts): `#report` or `report=1`; replaces the tabs on screen, the only thing printed. -->
+          <section id="report" class="report-wrap" aria-label="Boat report" hidden></section>
         </div>
       </main>
 

@@ -53,6 +53,9 @@ import type { AskContext } from '../analysis/coach/askContext';
 import type { AskIds } from '../data/askCoach/protocol';
 import { cardSpans, coachCardsHtml } from './coachCards';
 import { legStoriesHtml } from './coachLegs';
+import { buildReport, reportFromUrl, reportHref } from './report';
+import { reportHtml, reportThumb } from './reportView';
+import { summarizeRegatta } from '../analysis/coach/regatta';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
 import {
   applyView,
@@ -254,6 +257,8 @@ export function startApp(): void {
     coachCards: $('coach-cards'),
     coachLegs: $('coach-legs'),
     coachAsk: $('coach-ask'),
+    report: $('report'),
+    reportOpen: $('report-open'),
     fs: $('fs'),
     fsTools: $('fs-tools'),
     fsKey: $('fs-key'),
@@ -545,6 +550,7 @@ export function startApp(): void {
     renderPlaces();
     renderStartSog();
     renderCoach();
+    renderReport();
   }
 
   // ---- Coach: built lazily the first time the tab shows a race.
@@ -571,6 +577,7 @@ export function startApp(): void {
       // Through renderCoach so official-pending / no-boat / event-mismatch guards apply
       // (a leftover reply must not paint another boat's digest, or "No races" over "Checking…").
       if (tab === 'coach' && coachView === 'regatta') renderCoach();
+      if (reportOn) renderReport();
     },
   );
 
@@ -583,10 +590,68 @@ export function startApp(): void {
       if (coachBuilding !== a) return;
       coachBuilding = null;
       coach = { a, model: buildCoach(a, raw?.wind, raw?.crossMs ?? null, raw?.zones ?? null, raw?.heel ?? null, raw?.turns ?? null, raw?.overStart ?? null) };
-      if (analysis === a) renderCoach();
+      if (analysis === a) {
+        renderCoach();
+        renderReport();
+      }
     });
     return false;
   }
+
+  // ---- Report (ui/report.ts, reportView.ts): one printable page for the selected boat, on `#report` or `report=1`; built only while open.
+  let reportOn = reportFromUrl(location.search, location.hash);
+  function renderReport(): void {
+    document.body.classList.toggle('report-on', reportOn);
+    els.report.hidden = !reportOn;
+    const a = analysis;
+    if (!reportOn || !a) return;
+    const me = a.boats.find((b) => b.id === coachBoatFor(a, highlight));
+    const regattaOn = coachView === 'regatta';
+    if (regattaOn && me && official.status !== 'pending') regattaRunner.want(jobsFor(a, me.sail));
+    // The Coach's own model and debrief (the same group, the same cache), so the report says what the Coach tab says.
+    const model = me && ensureCoach(a) ? coach!.model : undefined;
+    if (me && model && (coachDeb?.model !== model || coachDeb.boat !== me.id)) {
+      coachDeb = { model, boat: me.id, d: coachDebrief(a, model, me.id) };
+      coachSel = null;
+    }
+    const listed = a.meta.eventId == null || a.meta.eventId === eventId ? listedOf(a.meta.division, a.meta.raceNumber) : undefined;
+    const off = officialFor(outcomeOf(), listed);
+    const m = buildReport({
+      a,
+      boat: me?.id ?? null,
+      raceName: listed ? raceName(listed) : undefined,
+      model,
+      deb: model && coachDeb?.model === model ? coachDeb.d : undefined,
+      group: coachGroup,
+      official: off,
+      // Held as pending while official results are being linked, or the race is to be analysed again with (without) them.
+      settling: official.status === 'pending' || (off != null) !== (a.meta.results?.places === 'official'),
+      regatta: regattaOn && me && official.status !== 'pending' ? summarizeRegatta(regattaRunner.races()) : null,
+      scope: regattaOn ? 'regatta' : 'race',
+    });
+    els.report.innerHTML = reportHtml(m, { thumb: me && !regattaOn ? reportThumb(a, me.id) : '', stamp: `printed ${new Date().toLocaleString()}` });
+    els.report.dataset.state = m.state;
+  }
+  function setReport(on: boolean): void {
+    if (on === reportOn) return;
+    reportOn = on;
+    history.replaceState(history.state, '', reportHref(location.href, on, `#${tab}`));
+    renderReport();
+    if (!on) remeasure(tab);
+    scrollTo({ top: 0 });
+  }
+  els.reportOpen.addEventListener('click', () => setReport(true));
+  els.report.addEventListener('click', (ev) => {
+    const el = ev.target as HTMLElement;
+    const v = el.closest('[data-report-scope]')?.getAttribute('data-report-scope');
+    if (el.closest('[data-report-close]')) setReport(false);
+    else if (el.closest('[data-report-print]')) window.print();
+    else if (v && v !== coachView) {
+      coachView = parseCoachView(v);
+      setUrl({ [VIEW_PARAM]: coachView === 'regatta' ? 'regatta' : null });
+      renderReport();
+    }
+  });
 
   // ---- Ask Coach (optional): the panel shows only when /api/coach/status says it is on.
   /** Builds the context of what is on screen, at the moment a question is sent; null with no boat. */
@@ -1484,7 +1549,7 @@ export function startApp(): void {
     }
     // At boot a link without a hash stays as it is on Start (a restored Race tab gets its hash).
     const keep = opts.boot && !location.hash && t === DEFAULT_TAB;
-    if (!keep && tabFromHash(location.hash, tabs) !== t) history.replaceState(history.state, '', withTabHash(location.href, t));
+    if (!keep && !reportOn && tabFromHash(location.hash, tabs) !== t) history.replaceState(history.state, '', withTabHash(location.href, t));
     if (opts.focus) els.tabBtn[t].focus();
     remeasure(t);
     // Scrolled down past the panel's top: bring it to just under the (sticky) tabs.
@@ -1508,6 +1573,8 @@ export function startApp(): void {
   });
   addEventListener('hashchange', () => {
     const t = tabFromHash(location.hash, tabs);
+    if (reportFromUrl('', location.hash)) setReport(true);
+    else if (t) setReport(false);
     if (t && t !== tab) setTab(t);
   });
   setTab(tab, { scroll: false, boot: true });
@@ -1979,6 +2046,7 @@ export function startApp(): void {
     // The header names the race as the picker does: relabel it too (title, RS tag and chips), and the Coach strip.
     renderSummary();
     renderCoach();
+    renderReport();
     reapplyOfficial();
   }
 

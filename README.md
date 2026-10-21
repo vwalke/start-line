@@ -186,6 +186,23 @@ are shared by all three.
     boats that didn't (DNF…) after the last finisher. Against Top 3 / Near /
     custom the closed row adds the leg's seconds against the group's median leg
     time ("lost 12 s vs Top 3") instead of a place within a handful of boats.
+- **Report** (`src/ui/report.ts`, `src/ui/reportView.ts`): the **Report** button
+  (top right of the race header), `#report` or `report=1` opens one printable page
+  for the selected boat in the race: the header (place on the water and scored,
+  with any code; race, official elapsed and corrected times; the estimated wind;
+  tracker coverage), the start (distance and seconds late at the gun, start place,
+  line position, place over the line and front row, over early and when it
+  cleared, the start card), leg by leg (places in → out of the fixed fleet, time
+  against the Coach's group, SOG and VMG against the group's median, tacks /
+  gybes, side, gate buoy, data), roundings and gates (D9 / D13), penalties (the
+  code, penalty turns), and the Coach's penalty card, ranked findings (its order
+  and seconds), Went well and the cards' tips as things to work on; a small track
+  map. Only figures Recall already works out: what the data lacks is `—` with a
+  note (there is no wind speed in the data). Built from the Coach's own model,
+  debrief and group, only while open. With the Coach's view on Regatta
+  (`cview=regatta`) it is the regatta version: a line per race, penalties, the top
+  3 to work on, Went well and legs by type. **Print / Save PDF** prints it alone,
+  light, on one A4 or Letter page. Never owner or crew names.
 
 Each table stays on the tab with the charts it's read against, because
 picking a boat in a chart and finding its row (or the reverse) is the main
