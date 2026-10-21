@@ -538,6 +538,32 @@ svg .sog-hover { fill: none; stroke: var(--ink); pointer-events: none; }
 }
 .map-tip[hidden] { display: none; }
 
+/* Race-time scrubber under the track map (Map B): play, the time slider and its label, speed and trail. */
+.scrub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; font-size: 0.8rem; color: var(--ink-2); }
+.scrub-play { flex: none; width: 30px; height: 26px; padding: 0; display: inline-grid; place-items: center; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; }
+.scrub-play svg { width: 14px; height: 14px; fill: currentColor; }
+.scrub-play .i-pause, .scrub-play[aria-pressed='true'] .i-play { display: none; }
+.scrub-play[aria-pressed='true'] .i-pause { display: inline; }
+.scrub-range { flex: 1 1 200px; min-width: 120px; margin: 0; accent-color: var(--accent); }
+.scrub-lbl { flex: none; min-width: 11.5em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.scrub.off .scrub-lbl { color: var(--ink-2); }
+.scrub-off { flex: none; font: inherit; padding: 3px 9px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.scrub-off[hidden] { display: none; }
+.scrub-opts { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+/* Trails and boats at the scrubber's time. */
+svg .trk.pre { opacity: 0.7; }
+svg .trk.pre.dim { opacity: 0.12; }
+svg .boat-at.dim { opacity: 0.35; }
+svg .dot { stroke: var(--ink); }
+svg .dot.off { opacity: 0.4; }
+svg .dot-hdg { stroke: var(--ink); stroke-linecap: round; }
+svg text.dot-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; font-weight: 600; pointer-events: none; }
+svg .boat-at { pointer-events: none; }
+@media (prefers-color-scheme: dark) {
+  svg .dot[style]:not(.hold) { fill: var(--cd); }
+  svg .dot.hold[style] { stroke: var(--cd); }
+}
+
 /* Speed through the start: drawn at the card's width, like the bump chart. */
 #start-sog-window { margin: 0 0 6px; }
 svg.chart.start-sog { max-height: none; touch-action: pan-y; }
@@ -813,6 +839,10 @@ html.fs-on { overflow: hidden; }
 .fs-body > .panzoom:focus-visible { outline-offset: -2px; }
 .fs-body > .map-wrap > .panzoom { touch-action: none; border-radius: 0; }
 .fs-body > .map-wrap > .panzoom:focus-visible { outline-offset: -2px; }
+/* Full screen: the map takes the room the scrubber leaves. */
+.fs-body > .map-wrap { display: flex; flex-direction: column; }
+.fs-body > .map-wrap > #map-chart { flex: 1 1 0; min-height: 0; height: auto; }
+.fs-body > .map-wrap > .scrub { flex: none; margin: 0; padding: 6px 8px; border-top: 1px solid var(--rule); }
 /* The bump chart keeps its own height (tall fleets): it scrolls inside the overlay. */
 .fs[data-chart='places'] .fs-body { overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; padding: 4px 8px; }
 .fs-rotate {

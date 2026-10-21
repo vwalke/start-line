@@ -111,8 +111,18 @@
               </div>
               <p id="map-speed-key" class="speed-key" hidden></p>
               <div class="map-wrap">
-                <div id="map-chart" class="panzoom" tabindex="0" role="group" aria-label="Track map. Arrow keys pan, plus and minus zoom, 0 resets."></div>
+                <div id="map-chart" class="panzoom" tabindex="0" role="group" aria-label="Track map. Arrow keys pan, plus and minus zoom, 0 resets, Space plays the race."></div>
                 <div id="map-tip" class="map-tip" role="status" aria-live="off" hidden></div>
+                <div id="map-scrub" class="scrub" role="group" aria-label="Race time" aria-controls="map-chart">
+                  <button type="button" id="map-play" class="scrub-play" aria-pressed="false" aria-label="Play" title="Play (Space)"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path class="i-play" d="M4 2.5v11l9-5.5z" /><path class="i-pause" d="M4 2.5h3v11H4zM9 2.5h3v11H9z" /></svg></button>
+                  <input type="range" id="map-time" class="scrub-range" min="-120" max="0" step="1" value="-120" aria-label="Race time, seconds from the gun" aria-valuetext="Full race" />
+                  <output id="map-time-lbl" class="scrub-lbl" for="map-time">Full race</output>
+                  <button type="button" id="map-full-race" class="scrub-off" title="Back to the whole race" hidden>✕ Full race</button>
+                  <div class="scrub-opts">
+                    <div id="map-speed" class="seg" role="group" aria-label="Playback speed"><span class="seg-lbl" aria-hidden="true">Speed</span><button type="button" data-speed="1" aria-pressed="true">1×</button><button type="button" data-speed="4" aria-pressed="false">4×</button><button type="button" data-speed="16" aria-pressed="false">16×</button></div>
+                    <div id="map-trail" class="seg" role="group" aria-label="Trail length"><span class="seg-lbl" aria-hidden="true">Trail</span><button type="button" data-trail="30" aria-pressed="false">30 s</button><button type="button" data-trail="120" aria-pressed="true">2 min</button><button type="button" data-trail="all" aria-pressed="false">All</button></div>
+                  </div>
+                </div>
               </div>
               <div class="capline" id="map-cap"></div>
             </section>

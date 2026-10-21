@@ -7,7 +7,9 @@
 import { analyzeRace } from './analysis/analyze';
 import { coachRaceKey, coachRaw, type CoachRaw } from './analysis/coach';
 import { digestRace, type RaceDigest } from './analysis/coach/regatta';
-import type { RaceAnalysis } from './analysis/types';
+import { fullRateBuffers, fullRateTracks, type FullRateWant } from './analysis/fullRate';
+import { drawingBuffers } from './analysis/transfer';
+import type { FullRateTrack, RaceAnalysis } from './analysis/types';
 import type { RaceData } from './data/types';
 import { buildRaceData, currentDoc, findRace, listRaces, nextGunMs, telemetryWindow, type OfficialRaceInput } from './data/racesense/adapter';
 import { eventFinished } from './data/recovery';
@@ -36,7 +38,9 @@ export type WorkerRequest =
   /** Coach's Regatta view: one race analysed for one boat (by sail), down to its digest; nothing kept. */
   | (RaceRequest & { type: 'regatta-race'; sail: string })
   /** Coach (lazy, on the tab's first open): the fleet wind series and start crossings of the race last analysed, from its raw fixes. */
-  | { id: number; type: 'coach-raw'; key: string };
+  | { id: number; type: 'coach-raw'; key: string }
+  /** Track map, zoomed in tight: the race last analysed at full rate (analysis/fullRate.ts). */
+  | { id: number; type: 'full-rate'; key: string; wants: FullRateWant[] };
 
 export type WorkerResponse =
   | { id: number; type: 'progress'; message: string }
@@ -44,6 +48,8 @@ export type WorkerResponse =
   /** `raw` null: that race isn't the one last analysed here; the caller works the wind out from the drawn tracks, with no start crossings. */
   | { id: number; type: 'coach-raw'; raw: CoachRaw | null }
   | { id: number; type: 'regatta-race'; digest: RaceDigest }
+  /** `tracks` null: that race isn't the one last analysed here; the map keeps its ~1 Hz segments. */
+  | { id: number; type: 'full-rate'; tracks: FullRateTrack[] | null }
   | { id: number; type: 'error'; message: string };
 
 const ctx = self as unknown as {
@@ -105,24 +111,21 @@ async function handle(req: Extract<WorkerRequest, { type: 'live' }>): Promise<Ra
   return analysis;
 }
 
-/** Each drawn track's typed-array buffers, once each (analyze.ts gives every array its own). */
-function drawingBuffers(a: RaceAnalysis): Transferable[] {
-  const out = new Set<ArrayBuffer>();
-  for (const d of [...a.drawings, ...a.excluded.map((e) => e.drawing)]) {
-    for (const tk of [d.trail, ...d.segments]) for (const arr of [tk.x, tk.y, tk.t, tk.sog]) out.add(arr.buffer as ArrayBuffer);
-    for (const s of d.segments) if (s.roll) out.add(s.roll.buffer as ArrayBuffer);
-    out.add(d.startSog.t.buffer as ArrayBuffer);
-    out.add(d.startSog.sog.buffer as ArrayBuffer);
-  }
-  return [...out];
-}
-
 ctx.onmessage = (ev) => {
   const req = ev.data;
   if (req.type === 'coach-raw') {
     try {
       const raw = last && last.key === req.key ? coachRaw(last.analysis, last.data) : null;
       ctx.postMessage({ id: req.id, type: 'coach-raw', raw });
+    } catch (err) {
+      ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) });
+    }
+    return;
+  }
+  if (req.type === 'full-rate') {
+    try {
+      const tracks = last && last.key === req.key ? fullRateTracks(last.data, req.wants) : null;
+      ctx.postMessage({ id: req.id, type: 'full-rate', tracks }, tracks ? fullRateBuffers(tracks) : []);
     } catch (err) {
       ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) });
     }
