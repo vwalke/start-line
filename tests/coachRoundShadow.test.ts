@@ -646,4 +646,39 @@ describe('D9 fallback: places through the rounding on sparse data', () => {
     expect(pl.passers).not.toContain('B1');
     expect(r.opps).toHaveLength(1);
   });
+
+  it('a dtg reshuffle that contradicts the mark-to-mark fleet places does not fire', () => {
+    // Cascais R2: 11th→63rd by dtg around the mark while the leg table gained 2 to 20th.
+    // Start much worse so fleetPlaces show a gain at the mark; the 60 s slowdown still loses 6+ dtg places.
+    const ctx = fileWorld({ n: 100, slowS: 60 });
+    ctx.a.boats.find((b) => b.id === 'me')!.start = { startPlace: 30 };
+    const r = detectRounding(ctx);
+    expect(r.reads[0].places!.lost).toBeGreaterThanOrEqual(5);
+    expect(r.opps).toEqual([]);
+  });
+
+  it('boats that did not round near the same time do not count as passers', () => {
+    const ctx = fileWorld({ n: 100, slowS: 60 });
+    for (const [id, tr] of ctx.m.tracks) {
+      if (id === 'me') continue;
+      tr.bounds[1] = (tr.bounds[1] ?? 0) + 10 * 60_000;
+    }
+    const r = detectRounding(ctx);
+    expect(r.reads[0].places!.passers).toEqual([]);
+    expect(r.opps).toEqual([]);
+  });
+
+  it('a hole between the two reads is not a rounding', () => {
+    const ctx = fileWorld({ n: 40, slowS: 60 });
+    const tr = ctx.tr;
+    const mark = tr.bounds[1]!;
+    const keep = (t: number): boolean => t <= mark - 50_000 || t >= mark + 50_000;
+    const idx = [...tr.t].map((_, i) => i).filter((i) => keep(tr.t[i]));
+    (tr as { t: Float64Array }).t = Float64Array.from(idx.map((i) => tr.t[i]));
+    (tr as { x: Float64Array }).x = Float64Array.from(idx.map((i) => tr.x[i]));
+    (tr as { y: Float64Array }).y = Float64Array.from(idx.map((i) => tr.y[i]));
+    const r = detectRounding(ctx);
+    expect(r.reads[0].places ?? null).toBeNull();
+    expect(r.opps).toEqual([]);
+  });
 });

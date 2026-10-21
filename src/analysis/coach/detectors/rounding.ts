@@ -28,16 +28,18 @@
  * there, the card says the loss looks like a shift, the seconds are halved and the confidence is low.
  * Otherwise medium; low when over half the fleet's places at the reads are interpolated, and over
  * D9_PLACES_EST_LIMIT not judged at all (the places would be the interpolation's, not the boats').
- * The boat's own places must be measured (not a hole); only boats measured at both reads count as
- * passers, and a card needs that many as well as the place change. DNS/DNC and official extras are
- * left out of the ranking; a DNF/RET is not carried past its last known mark.
+ * The boat's own places must be measured (not a hole) and the 2-minute window at least half
+ * tracked; only boats measured at both reads that also rounded within D9_SHIFT_WINDOW_MS count as
+ * passers. A card needs that many, the place change, and a loss of the same threshold in the
+ * fixed-fleet places at the mark (so a dtg reshuffle that contradicts the leg table does not fire).
+ * DNS/DNC and official extras are left out of the ranking; a DNF/RET is not carried past its last known mark.
  */
 import { bearingVec, dot, len, median, sub, type Vec } from '../../geo';
 import type { LegKind } from '../../types';
 import type { ZoneTrack } from '../index';
 import { progressAt, progressBase, type ProgressBase, type ProgressPlaces } from '../progress';
 import { posAt } from '../tracks';
-import { NOISE_BASE_S, rangeOf, type Confidence, type GoodNote, type Opportunity } from '../opportunity';
+import { NOISE_BASE_S, coachCoverage, rangeOf, type Confidence, type GoodNote, type Opportunity } from '../opportunity';
 import type { CoachCtx } from './context';
 
 export const D9_ZONE_M = 100;
@@ -298,18 +300,29 @@ export function placesThrough(ctx: CoachCtx, k: number, at: (t: number) => Progr
   const tBefore = fixNear(ctx.tr.t, r - D9_PLACES_AT_MS, r - D9_PLACES_REACH_MS, r - D9_PLACES_MIN_MS);
   const tAfter = fixNear(ctx.tr.t, r + D9_PLACES_AT_MS, r + D9_PLACES_MIN_MS, r + D9_PLACES_REACH_MS);
   if (tBefore == null || tAfter == null) return null;
+  // Two isolated fixes either side of a hole are not a rounding.
+  if (coachCoverage(ctx.tr.t, tBefore, tAfter) < 0.5) return null;
   const pb = at(tBefore);
   const pa = at(tAfter);
   const me0 = pb.byId.get(ctx.boat);
   const me1 = pa.byId.get(ctx.boat);
   // The boat's own places must be from a position: an interpolated hole at the read is not a rounding.
   if (!me0 || !me1 || me0.est || me1.est) return null;
-  // Only boats whose places are measured at both reads: a tracker gap or a DNF carry-forward must not "pass" anyone.
+  // Only boats measured at both reads that also rounded this mark near the same time.
   const passers = [...pb.byId.keys()].filter((id) => {
     if (id === ctx.boat) return false;
     const b = pb.byId.get(id)!;
     const aft = pa.byId.get(id);
-    return !!aft && !b.est && !aft.est && b.place > me0.place && aft.place < me1.place;
+    const their = ctx.m.tracks.get(id)?.bounds[k + 1];
+    return (
+      !!aft &&
+      !b.est &&
+      !aft.est &&
+      b.place > me0.place &&
+      aft.place < me1.place &&
+      their != null &&
+      Math.abs(their - r) <= D9_SHIFT_WINDOW_MS
+    );
   });
   // The gap to each passer, the two legs' mean fleet VMG (one speed for both reads, so a steady gap stays steady).
   const vs = [ctx.m.vmg[k], ctx.m.vmg[k + 1]].filter((v): v is number => v != null && v > 0);
@@ -419,8 +432,10 @@ export function detectRounding(ctx: CoachCtx): D9Result {
     read.places = pl;
     if (!pl || pl.estShare > D9_PLACES_EST_LIMIT) return;
     evaluated.add(read.type);
-    // Measured passers must back the place change: estimated boats jumping past do not fire a card.
-    if (pl.lost < pl.threshold || pl.passers.length < pl.threshold) return;
+    const fp = (base ??= progressBase(ctx.a, ctx.m)).fp.byId.get(ctx.boat);
+    const markLost = fp ? fp.place[read.leg + 1] - fp.place[read.leg] : pl.lost;
+    // dtg places around a mark can reshuffle a 90-boat fleet; the fixed-fleet mark places must agree.
+    if (pl.lost < pl.threshold || pl.passers.length < pl.threshold || markLost < pl.threshold) return;
     const seconds = Math.max(0, pl.gapS ?? 0) * (pl.shift ? D9_SHIFT_SECONDS : 1);
     const level: Confidence = pl.shift || pl.estShare > D9_PLACES_EST_MAX ? 'low' : 'medium';
     out.opps.push({
