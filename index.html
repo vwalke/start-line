@@ -100,12 +100,18 @@
               <button type="button" class="fs-open" id="map-full" aria-label="Full screen track map" title="Full screen" aria-haspopup="dialog" aria-controls="fs"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
               <h3>Tracks by leg</h3>
               <div class="map-tools">
+                <div id="map-zoom" class="zoom" role="group" aria-label="Track map zoom" aria-controls="map-chart">
+                  <button type="button" data-zoom="1" aria-pressed="true">Fit</button>
+                  <button type="button" data-zoom="2" aria-pressed="false">2×</button>
+                  <button type="button" data-zoom="4" aria-pressed="false">4×</button>
+                  <button type="button" data-zoom="8" aria-pressed="false">8×</button>
+                </div>
                 <div id="map-legend" class="legend" role="group" aria-label="Show one leg" aria-controls="map-chart"></div>
                 <div id="map-colour" class="segs" aria-controls="map-chart"></div>
               </div>
               <p id="map-speed-key" class="speed-key" hidden></p>
               <div class="map-wrap">
-                <div id="map-chart"></div>
+                <div id="map-chart" class="panzoom" tabindex="0" role="group" aria-label="Track map. Arrow keys pan, plus and minus zoom, 0 resets."></div>
                 <div id="map-tip" class="map-tip" role="status" aria-live="off" hidden></div>
               </div>
               <div class="capline" id="map-cap"></div>

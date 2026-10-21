@@ -212,6 +212,8 @@ export interface DrawnTrack {
 
 export interface TrackSegment extends DrawnTrack {
   leg: number;
+  /** Roll per point, degrees (− = heeled to port; NaN = no reading); absent when the source has none. */
+  roll?: Float32Array;
 }
 
 export interface BoatDrawing {

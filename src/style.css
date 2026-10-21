@@ -410,6 +410,9 @@ svg .trail { fill: none; opacity: 0.55; stroke-linejoin: round; }
 svg .trk { fill: none; opacity: 0.8; stroke-linejoin: round; stroke-linecap: round; }
 svg .trk.dim, svg .trail.dim { opacity: 0.12; }
 svg .trk.nc, svg .trail.nc { opacity: 0.9; }
+/* Telemetry gaps on the map (Leg and Rank): a faint dashed chord where the boat has no fixes, as Boat speed draws them. */
+svg .trk-gap { fill: none; stroke: var(--ink-3); stroke-linecap: butt; opacity: 0.7; }
+svg .trk-gap.dim { opacity: 0.12; }
 svg .boat { cursor: pointer; }
 svg .boat.dim { opacity: 0.3; }
 svg .boat-min .min-ring { fill: none; }
@@ -461,6 +464,7 @@ svg .scalebar text { fill: var(--ink-2); }
 /* Leg legend on the left, the Colour / Rank by switches on the right; they wrap below on narrow screens. */
 .map-tools { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 4px 12px; margin-bottom: 4px; }
 .map-tools .legend { margin-bottom: 0; flex: 1 1 320px; }
+.map-tools .zoom { margin: 0; flex-basis: 100%; }
 .segs { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .seg { display: inline-flex; align-items: center; font-size: 0.8rem; color: var(--ink-2); }
 .seg-lbl { margin-right: 5px; }
@@ -807,6 +811,8 @@ html.fs-on { overflow: hidden; }
 /* Nothing to scroll under the overlay: one finger never pans the page (pinch and zoomed drags reach the chart). */
 .fs-body > .panzoom { touch-action: none; border-radius: 0; }
 .fs-body > .panzoom:focus-visible { outline-offset: -2px; }
+.fs-body > .map-wrap > .panzoom { touch-action: none; border-radius: 0; }
+.fs-body > .map-wrap > .panzoom:focus-visible { outline-offset: -2px; }
 /* The bump chart keeps its own height (tall fleets): it scrolls inside the overlay. */
 .fs[data-chart='places'] .fs-body { overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; padding: 4px 8px; }
 .fs-rotate {

@@ -397,14 +397,14 @@ describe('track map in Rank', () => {
   const width = (p: string): number => Number(/ stroke-width="([\d.]+)"/.exec(p)![1]);
   const opacity = (p: string): number => Number(/ stroke-opacity="([\d.]+)"/.exec(p)![1]);
 
-  it('leaves the Leg colouring as it was, with a boat · leg tooltip', () => {
+  it('leaves the Leg colouring as it was, with no native title tooltip', () => {
     const svg = trackMap(a, null, 1);
     expect(svg).toBe(trackMap(a, null, 1, { colour: 'leg' }));
     const ps = polylines(svg);
     expect(ps.length).toBeGreaterThan(0);
     expect(ps.every((p) => p.includes(`stroke="${legColor(1)}"`) && p.startsWith('<polyline class="trk"'))).toBe(true);
     expect(svg).not.toContain('spd');
-    expect(ps[0]).toMatch(/<title>#\S+.* · .+<\/title>/);
+    expect(svg).not.toContain('<title>');
   });
 
   it('colours one leg by rank with plasma, fastest on top, top 3 thicker', () => {
@@ -415,8 +415,10 @@ describe('track map in Rank', () => {
     expect(ps.every((p) => /stroke="#[0-9a-f]{6}" style="--cd:#[0-9a-f]{6}"/.test(p))).toBe(true);
     // Drawn slowest → fastest: the last one is #1, coloured as the fastest.
     const last = ps[ps.length - 1];
-    expect(last).toMatch(/<title>[^<]*#1 of \d+/);
+    const first = [...legRanks(a.boats, 1)].find(([, r]) => r.rank === 1)![0];
+    expect(last).toContain(`data-id="${first}"`);
     expect(last).toContain(`stroke="${speedColor(0)}"`);
+    expect(last).not.toContain('<title>');
     const top = ps.filter((p) => p.includes(' top'));
     const rest = ps.filter((p) => !p.includes(' top'));
     expect(top.length).toBeGreaterThanOrEqual(3);
@@ -431,7 +433,7 @@ describe('track map in Rank', () => {
     const ps = polylines(svg);
     const un = ps.filter((p) => p.includes(`data-id="${victim}"`));
     expect(un.length).toBeGreaterThan(0);
-    expect(un.every((p) => p.includes('unranked') && p.includes('stroke-dasharray') && p.includes('did not complete'))).toBe(true);
+    expect(un.every((p) => p.includes('unranked') && p.includes('stroke-dasharray'))).toBe(true);
     expect(ps[0]).toContain('unranked');
     expect(speedKey(cut, 1, 'leg')).toContain('<span class="spd-none" aria-hidden="true"></span> no leg time');  });
 
@@ -439,7 +441,8 @@ describe('track map in Rank', () => {
     const svg = trackMap(a, null, null, { colour: 'rank' });
     const ps = polylines(svg);
     for (const l of a.legs) {
-      expect(ps.some((p) => p.includes(`data-leg="${l.index}"`) && new RegExp(`${l.name} · #1 of`).test(p))).toBe(true);
+      const first = [...legRanks(a.boats, l.index)].find(([, r]) => r.rank === 1)![0];
+      expect(ps.some((p) => p.includes(`data-leg="${l.index}"`) && p.includes(`data-id="${first}"`) && p.includes(`stroke="${speedColor(0)}"`))).toBe(true);
     }
     expect(speedKey(a, null, 'leg')).toContain('on each leg');
   });
@@ -449,7 +452,7 @@ describe('track map in Rank', () => {
     const winner = a.boats.reduce((p, q) => ((q.raceTimeS ?? Infinity) < (p.raceTimeS ?? Infinity) ? q : p));
     const mine = polylines(svg).filter((p) => p.includes(`data-id="${winner.id}"`));
     expect(mine.length).toBe(a.legs.length);
-    expect(mine.every((p) => p.includes('overall #1 of') && p.includes(`stroke="${speedColor(0)}"`))).toBe(true);
+    expect(mine.every((p) => p.includes(`stroke="${speedColor(0)}"`))).toBe(true);
     expect(speedKey(a, null, 'overall')).toMatch(/race time.*\d+:\d\d → \d+:\d\d/);
   });
 
@@ -502,9 +505,10 @@ describe('track map in Rank', () => {
       expect(p).not.toContain('stroke-dasharray');
       expect(p).not.toMatch(/ stroke="#/);
       expect(opacity(p)).toBeCloseTo(0.2, 2);
-      expect(p).toMatch(/#[4-9] of \d+/); // tooltip keeps the true rank
+      expect(ranks.get(/data-id="([^"]+)"/.exec(p)![1])!.rank).toBeGreaterThan(3);
     }
-    const third = ps.find((p) => /<title>[^<]*#3 of/.test(p))!;
+    const thirdId = [...ranks].find(([, r]) => r.rank === 3)![0];
+    const third = ps.find((p) => p.includes(`data-id="${thirdId}"`))!;
     expect(third).toContain(`stroke="${speedColor(1)}"`);
     // out-of-N drawn under the coloured ones
     expect(ps.findIndex((p) => !p.includes(' out'))).toBeGreaterThanOrEqual(out.length);
@@ -548,6 +552,8 @@ describe('a picked boat under Top N (M24 race 4)', () => {
   const polylines = (svg: string): string[] => [...svg.matchAll(/<polyline class="trk[^"]*"[^>]*>[\s\S]*?<\/polyline>/g)].map((m) => m[0]);
   const idOf = (p: string): string => /data-id="([^"]+)"/.exec(p)![1];
   const coloured = (p: string): boolean => / stroke="#[0-9a-f]{6}"/.test(p);
+  // A boat's track is split at telemetry gaps (several polylines per leg on this ~2.5 s feed): count boats.
+  const boatsOf = (ps: string[]): number => new Set(ps.map(idOf)).size;
   const labels = (svg: string): string[] => [...svg.matchAll(/<text class="spd-pick-lbl"[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
   const drawn = (id: string, l: number): boolean => a.drawings.some((d) => d.id === id && d.segments.some((s) => s.leg === l && s.x.length > 1));
   // A leg with a clean top 3 (no tie at the cut) and boats drawn well outside it.
@@ -573,14 +579,14 @@ describe('a picked boat under Top N (M24 race 4)', () => {
   it('colours exactly the top 3 and draws a pick outside them in neutral ink with its rank', () => {
     const svg = trackMap(a, slow, leg, { colour: 'rank', top: 3 });
     const ps = polylines(svg);
-    expect(ps.filter((p) => idOf(p) !== slow && coloured(p))).toHaveLength(3);
+    expect(boatsOf(ps.filter((p) => idOf(p) !== slow && coloured(p)))).toBe(3);
     const mine = ps.filter((p) => idOf(p) === slow);
     expect(mine.length).toBeGreaterThan(0);
     for (const p of mine) {
       expect(p).toMatch(/^<polyline class="trk spd picked on"/);
       expect(coloured(p)).toBe(false);
       expect(p).not.toContain('--cd');
-      expect(p).toContain(`#${slowRank.rank} of ${slowRank.of}`); // tooltip keeps the rank
+      expect(p).not.toContain('<title>');
     }
     // on a surface casing, not the selection's ink outline; drawn last
     expect(svg).toMatch(/<polyline class="spd-pick-case"[^>]*\/><polyline class="trk spd picked on"/);
@@ -593,7 +599,7 @@ describe('a picked boat under Top N (M24 race 4)', () => {
   it('keeps a picked top-3 boat in its rank colour, with no label', () => {
     const svg = trackMap(a, second, leg, { colour: 'rank', top: 3 });
     const ps = polylines(svg);
-    expect(ps.filter(coloured)).toHaveLength(3);
+    expect(boatsOf(ps.filter(coloured))).toBe(3);
     expect(ps.filter((p) => idOf(p) === second).every((p) => coloured(p) && p.includes(' on'))).toBe(true);
     expect(svg).toContain('spd-sel');
     expect(svg).not.toContain('picked');
@@ -635,7 +641,7 @@ describe('a picked boat under Top N (M24 race 4)', () => {
     expect(speedKey(a, null, 'leg', 3, slow)).toContain(`picked: ${label(slow)}, ${list}`);
     for (const l of a.legs) {
       const n = [...per[l.index]].filter(([id, r]) => r.rank <= 3 && drawn(id, l.index)).length;
-      expect(polylines(svg).filter((p) => p.includes(`data-leg="${l.index}"`) && coloured(p))).toHaveLength(n);
+      expect(boatsOf(polylines(svg).filter((p) => p.includes(`data-leg="${l.index}"`) && coloured(p)))).toBe(n);
     }
   });
 
@@ -654,7 +660,7 @@ describe('a picked boat under Top N (M24 race 4)', () => {
     const t3 = a.boats.find((b) => b.id === third)!.legs[leg]!.timeS;
     const tied = { ...a, boats: a.boats.map((b) => (b.id === fourth ? { ...b, legs: b.legs.map((l, i) => (i === leg && l ? { ...l, timeS: t3 } : l)) } : b)) };
     expect(legRanks(tied.boats, leg).get(fourth)!.rank).toBe(3);
-    expect(polylines(trackMap(tied, null, leg, { colour: 'rank', top: 3 })).filter(coloured)).toHaveLength(drawn(fourth, leg) ? 4 : 3);
+    expect(boatsOf(polylines(trackMap(tied, null, leg, { colour: 'rank', top: 3 })).filter(coloured))).toBe(drawn(fourth, leg) ? 4 : 3);
     expect(speedKey(tied, leg, 'leg', 3)).toMatch(/fastest → #3 on this leg.* · <span class="spd-tie">2 tied at #3<\/span>/s);
     expect(speedKey(a, leg, 'leg', 3)).not.toContain('tied');
     expect(speedKey(tied, leg, 'leg', 'all')).not.toContain('tied');

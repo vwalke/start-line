@@ -589,6 +589,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       const ys: number[] = [];
       const ts: number[] = [];
       const ss: number[] = [];
+      const rs: number[] = [];
       let last = -Infinity;
       for (let k = i0; k < i1; k++) {
         if (tr.t[k] - last < 1000 && k !== i1 - 1) continue;
@@ -597,8 +598,16 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
         ys.push(tr.y[k]);
         ts.push(tr.t[k]);
         ss.push(sogSm[k]);
+        if (tr.roll) rs.push(tr.roll[k]);
       }
-      segments.push({ leg: li, x: Float32Array.from(xs), y: Float32Array.from(ys), t: Float64Array.from(ts), sog: Float32Array.from(ss) });
+      segments.push({
+        leg: li,
+        x: Float32Array.from(xs),
+        y: Float32Array.from(ys),
+        t: Float64Array.from(ts),
+        sog: Float32Array.from(ss),
+        ...(tr.roll ? { roll: Float32Array.from(rs) } : {}),
+      });
     }
     // Speed through the start: every fix around the gun, smoothed SOG (the chart breaks lines at gaps).
     const [s0, s1] = rangeIdx(tr.t, gun - START_SOG_PRE_MS, gun + START_SOG_POST_MS);
