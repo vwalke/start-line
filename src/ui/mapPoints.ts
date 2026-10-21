@@ -10,8 +10,9 @@
  * fixed 2 s rule would break nearly every step of theirs.
  */
 import { median, vecBearing } from '../analysis/geo';
-import type { BoatDrawing, RaceAnalysis, TrackSegment } from '../analysis/types';
+import { PRE_LEG, type BoatDrawing, type RaceAnalysis, type TrackSegment } from '../analysis/types';
 import { boatLabel, degLabel, duration, esc, f1, localTime } from './format';
+import type { BoatAt, MapPiece, SrcTrack } from './mapPieces';
 import { nearestSample, sogIndex, type IndexedTrack, type SogIndex } from './sog';
 
 /** Consecutive drawn fixes further apart than this (s) are a gap… */
@@ -101,52 +102,83 @@ export interface MapGap {
   y1: number;
 }
 
-/** Every drawn fix (the hover index) and gap of the legs shown, with the segment each fix came from. */
+/** Every drawn fix (the hover index) and gap shown, with the piece of track each fix came from; and the scrubber's dots. */
 export interface MapPoints {
   ix: SogIndex;
-  segs: TrackSegment[];
-  /** Per segment: its boat's gap threshold, ms. */
+  /** Per piece: its source track (east/north metres, as analysed), … */
+  segs: SrcTrack[];
+  /** …the index there of the piece's first fix, … */
+  offs: Int32Array;
+  /** …its leg (PRE_LEG before the gun), … */
+  legs: number[];
+  /** …its boat's gap threshold, ms, … */
   gapMs: number[];
-  /** Per segment: the index of its first fix in `ix`. */
+  /** …and the index of its first fix in `ix`. */
   starts: Int32Array;
   gaps: MapGap[];
+  /** The boats at the scrubber's time (none in the full-race view). */
+  dots: BoatAt[];
 }
 
-/** Build the lookup for leg `leg` (or all); `xy` gives a segment's points in map coordinates. */
+/** A piece of track for the lookup: [i0, i1) of `src`, whose map coordinates are `rx`, `ry`. */
+export type PointPiece = Omit<MapPiece, 'rx' | 'ry' | 'end'> & { rx: Float64Array | Float32Array; ry: Float64Array | Float32Array };
+
+/** Build the lookup for leg `leg` (or all) of the whole race; `xy` gives a segment's points in map coordinates. */
 export function mapPoints(
   a: Pick<RaceAnalysis, 'drawings'>,
   leg: number | null,
-  xy: (seg: TrackSegment) => { x: ArrayLike<number>; y: ArrayLike<number> },
+  xy: (seg: TrackSegment) => { x: Float64Array | Float32Array; y: Float64Array | Float32Array },
 ): MapPoints {
+  const pieces: PointPiece[] = [];
+  const gapMs = new Map<string, number>();
+  for (const d of a.drawings) {
+    gapMs.set(d.id, drawingGapMs(d));
+    for (const seg of d.segments) {
+      if (leg != null && seg.leg !== leg) continue;
+      const { x, y } = xy(seg);
+      pieces.push({ id: d.id, leg: seg.leg, src: seg, rx: x, ry: y, i0: 0, i1: Math.min(x.length, y.length, seg.t.length, seg.sog.length) });
+    }
+  }
+  return mapPointsOf(pieces, (id) => gapMs.get(id) ?? MAP_GAP_S * 1000);
+}
+
+/** The lookup over `pieces` (each boat's consecutive), with each boat's gap threshold, and the scrubber's dots. */
+export function mapPointsOf(pieces: readonly PointPiece[], gapOf: (id: string) => number, dots: BoatAt[] = []): MapPoints {
   const tracks: IndexedTrack[] = [];
-  const segs: TrackSegment[] = [];
+  const segs: SrcTrack[] = [];
+  const offs: number[] = [];
+  const legs: number[] = [];
   const gapMs: number[] = [];
   const starts: number[] = [];
   const gaps: MapGap[] = [];
   let n = 0;
   let span = 0;
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
-  for (const d of a.drawings) {
-    const ms = drawingGapMs(d);
-    for (const seg of d.segments) {
-      if (leg != null && seg.leg !== leg) continue;
-      const { x, y } = xy(seg);
-      const m = Math.min(x.length, y.length, seg.t.length, seg.sog.length);
-      tracks.push({ id: d.id, x, y, t: seg.t, sog: seg.sog, leg: seg.leg });
-      segs.push(seg);
-      gapMs.push(ms);
-      starts.push(n);
-      n += m;
-      for (let i = 0; i < m; i++) {
-        [x0, y0, x1, y1] = [Math.min(x0, x[i]), Math.min(y0, y[i]), Math.max(x1, x[i]), Math.max(y1, y[i])];
-        if (i + 1 < m && seg.t[i + 1] - seg.t[i] > ms) {
-          gaps.push({ id: d.id, leg: seg.leg, t0: seg.t[i], t1: seg.t[i + 1], x0: x[i], y0: y[i], x1: x[i + 1], y1: y[i + 1] });
-        }
+  for (const pc of pieces) {
+    const ms = gapOf(pc.id);
+    const { src, i0, i1 } = pc;
+    const x = pc.rx.subarray(i0, i1);
+    const y = pc.ry.subarray(i0, i1);
+    const t = src.t.subarray(i0, i1);
+    const sog = src.sog.subarray(i0, i1);
+    const m = Math.min(x.length, y.length, t.length, sog.length);
+    tracks.push({ id: pc.id, x, y, t, sog, leg: pc.leg });
+    segs.push(src);
+    offs.push(i0);
+    legs.push(pc.leg);
+    gapMs.push(ms);
+    starts.push(n);
+    n += m;
+    for (let i = 0; i < m; i++) {
+      [x0, y0, x1, y1] = [Math.min(x0, x[i]), Math.min(y0, y[i]), Math.max(x1, x[i]), Math.max(y1, y[i])];
+      if (i + 1 < m && t[i + 1] - t[i] > ms) {
+        gaps.push({ id: pc.id, leg: pc.leg, t0: t[i], t1: t[i + 1], x0: x[i], y0: y[i], x1: x[i + 1], y1: y[i + 1] });
       }
     }
   }
-  if (n) span = Math.max(x1 - x0, y1 - y0);
-  return { ix: sogIndex(tracks, span / 120 || 1), segs, gapMs, starts: Int32Array.from(starts), gaps };
+  for (const d of dots) [x0, y0, x1, y1] = [Math.min(x0, d.mx), Math.min(y0, d.my), Math.max(x1, d.mx), Math.max(y1, d.my)];
+  if (n || dots.length) span = Math.max(x1 - x0, y1 - y0);
+  return { ix: sogIndex(tracks, span / 120 || 1), segs, offs: Int32Array.from(offs), legs, gapMs, starts: Int32Array.from(starts), gaps, dots };
 }
 
 /** The segment fix `i` of the index came from, and its index there. */
@@ -176,10 +208,24 @@ function gapDist(g: MapGap, x: number, y: number): number {
   return Math.hypot(x - cx, y - cy);
 }
 
-export type MapPick = { kind: 'fix'; i: number } | { kind: 'gap'; g: number };
+export type MapPick = { kind: 'fix'; i: number } | { kind: 'gap'; g: number } | { kind: 'dot'; d: number };
 
-/** The nearest fix within `r`, or a gap whose chord is nearer still; of boat `only`, or anyone. */
+/** The nearest boat dot within `r`, of boat `only` or anyone; -1 for none. */
+function nearestDot(p: MapPoints, x: number, y: number, r: number, only: string | null): number {
+  let best = r;
+  let hit = -1;
+  p.dots.forEach((d, k) => {
+    if (only != null && d.id !== only) return;
+    const dist = Math.hypot(d.mx - x, d.my - y);
+    if (dist <= best) [best, hit] = [dist, k];
+  });
+  return hit;
+}
+
+/** A boat's dot within `r` first (it is where the boat is); else the nearest fix within `r`, or a gap whose chord is nearer still; of boat `only`, or anyone. */
 function pickWithin(p: MapPoints, x: number, y: number, r: number, only: string | null): MapPick | null {
+  const dot = nearestDot(p, x, y, r, only);
+  if (dot >= 0) return { kind: 'dot', d: dot };
   const i = nearestSample(p.ix, x, y, r, only);
   let best = i >= 0 ? Math.hypot(p.ix.x[i] - x, p.ix.y[i] - y) : r;
   let g = -1;
@@ -199,7 +245,7 @@ function pickWithin(p: MapPoints, x: number, y: number, r: number, only: string 
  * of a gap still reads as the fix, which lists the gap too).
  */
 export function pickMapPoint(p: MapPoints, x: number, y: number, selR: number, anyR: number, highlight: string | null): MapPick | null {
-  if (highlight != null && p.ix.ids.includes(highlight)) {
+  if (highlight != null && (p.ix.ids.includes(highlight) || p.dots.some((d) => d.id === highlight))) {
     const hit = pickWithin(p, x, y, selR, highlight);
     if (hit) return hit;
   }
@@ -209,6 +255,7 @@ export function pickMapPoint(p: MapPoints, x: number, y: number, selR: number, a
 /** Where a pick sits on the map, for its dot: the fix, or the point of the gap's chord nearest (x, y) (its middle without one). */
 export function pickAt(p: MapPoints, pick: MapPick, x?: number, y?: number): [number, number] {
   if (pick.kind === 'fix') return [p.ix.x[pick.i], p.ix.y[pick.i]];
+  if (pick.kind === 'dot') return [p.dots[pick.d].mx, p.dots[pick.d].my];
   const g = p.gaps[pick.g];
   return x == null || y == null ? [(g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2] : chordPoint(g, x, y);
 }
@@ -230,6 +277,9 @@ export interface TipOptions {
 
 const legName = (a: Pick<RaceAnalysis, 'legs'>, leg: number): string => a.legs[leg]?.name ?? `Leg ${leg + 1}`;
 
+/** The leg line of track before the gun, in every colour mode. */
+export const PRE_START = 'pre-start';
+
 /** "no data 12:01:05–12:01:40" (local time at the race's offset). */
 export const noDataLine = (a: Pick<RaceAnalysis, 'meta'>, t0: number, t1: number): string =>
   `no data ${localTime(t0, a.meta.tzOffsetMs)}–${localTime(t1, a.meta.tzOffsetMs)}`;
@@ -242,28 +292,45 @@ function timeLine(a: Pick<RaceAnalysis, 'meta'>, t: number): string {
 
 /**
  * The tooltip for a pick, as lines of plain text (the first is the boat). A fix:
- * time, SOG and COG, heel (only with a roll reading), leg, place (only when
- * `placeAt` has one), and any gap either side. A gap: its "no data" span and leg.
+ * time, SOG and COG, heel (only with a roll reading), leg ("pre-start" before
+ * the gun), place (only when `placeAt` has one), and any gap either side. A
+ * boat's dot: the same for its interpolated state at the scrubber's time (and
+ * "no data since …" while it holds in a gap). A gap: its "no data" span and leg.
  */
 export function mapTipLines(a: Pick<RaceAnalysis, 'boats' | 'legs' | 'meta'>, p: MapPoints, pick: MapPick, opts: TipOptions = {}): string[] {
-  const leg = opts.legLine ?? ((l: number) => legName(a, l));
+  const legLine = opts.legLine ?? ((l: number) => legName(a, l));
+  const leg = (l: number): string => (l === PRE_LEG ? PRE_START : legLine(l));
   const who = (id: string): string => boatLabel(a.boats.find((b) => b.id === id), id);
+  const motion = (sog: number, cog: number): string => `SOG ${f1(sog)} kn${Number.isFinite(cog) ? ` · COG ${degLabel(cog)}` : ''}`;
   if (pick.kind === 'gap') {
     const g = p.gaps[pick.g];
     return [who(g.id), noDataLine(a, g.t0, g.t1), leg(g.leg)];
   }
+  if (pick.kind === 'dot') {
+    const d = p.dots[pick.d];
+    const lines = [who(d.id), timeLine(a, d.t), motion(d.sog, d.cog)];
+    const heel = heelLabel(d.roll);
+    if (heel) lines.push(heel);
+    lines.push(leg(d.leg));
+    const place = d.leg === PRE_LEG ? null : opts.placeAt?.(d.id, d.t);
+    if (place) lines.push(`Place ${place.place} of ${place.of}`);
+    if (d.hold && d.lastFix != null) lines.push(`no data since ${localTime(d.lastFix, a.meta.tzOffsetMs)}`);
+    return lines;
+  }
   const i = pick.i;
   const id = p.ix.ids[p.ix.boat[i]];
-  const { s, j } = fixSegment(p, i);
+  const { s, j: k } = fixSegment(p, i);
   const seg = p.segs[s];
+  // The fix's index in its source track (a scrubbed piece starts part-way along).
+  const j = p.offs[s] + k;
   const ms = p.gapMs[s];
   const t = seg.t[j];
-  const cog = cogAt(seg.x, seg.y, seg.t, j, ms);
-  const lines = [who(id), timeLine(a, t), `SOG ${f1(seg.sog[j])} kn${Number.isFinite(cog) ? ` · COG ${degLabel(cog)}` : ''}`];
+  const pieceLeg = p.legs[s];
+  const lines = [who(id), timeLine(a, t), motion(seg.sog[j], cogAt(seg.x, seg.y, seg.t, j, ms))];
   const heel = heelLabel(seg.roll?.[j]);
   if (heel) lines.push(heel);
-  lines.push(leg(seg.leg));
-  const place = opts.placeAt?.(id, t);
+  lines.push(leg(pieceLeg));
+  const place = pieceLeg === PRE_LEG ? null : opts.placeAt?.(id, t);
   if (place) lines.push(`Place ${place.place} of ${place.of}`);
   if (j > 0 && t - seg.t[j - 1] > ms) lines.push(noDataLine(a, seg.t[j - 1], t));
   if (j + 1 < seg.t.length && seg.t[j + 1] - t > ms) lines.push(noDataLine(a, t, seg.t[j + 1]));

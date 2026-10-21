@@ -183,7 +183,7 @@ describe('the tooltip', () => {
     const cog = Number(/COG (\d+)°/.exec(lines[2])![1]);
     expect(cog).toBe(Math.round(cogAt(sg.x, sg.y, sg.t, j, p.gapMs[s])) % 360);
     expect(lines[3]).toBe(heelLabel(sg.roll![j]));
-    expect(lines[4]).toBe(a.legs[sg.leg].name);
+    expect(lines[4]).toBe(a.legs[p.legs[s]].name);
     expect(lines[5]).toBe('Place 2 of 6');
     expect(lines).toHaveLength(6);
     expect(mapTipHtml(lines)).toMatch(/^<b>#[^<]+<\/b><br>\d\d:\d\d:\d\d/);

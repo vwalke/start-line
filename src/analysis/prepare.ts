@@ -1,6 +1,10 @@
 /** Projects a RaceData track into local metres and fills gaps (missing heading/SOG) from the positions. */
-import type { Track } from '../data/types';
-import { MS_TO_KN, type Projection, vecBearing } from './geo';
+import type { RaceData, Track } from '../data/types';
+import { MS_TO_KN, makeProjection, type Projection, vecBearing } from './geo';
+
+/** The race's local metres: east/north of the start line's middle (every drawn x/y is in these). */
+export const raceProjection = (data: Pick<RaceData, 'startLine'>): Projection =>
+  makeProjection({ lat: (data.startLine.left.lat + data.startLine.right.lat) / 2, lon: (data.startLine.left.lon + data.startLine.right.lon) / 2 });
 
 export interface XYTrack {
   t: Float64Array;

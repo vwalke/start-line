@@ -7,6 +7,10 @@ export const START_TRAIL_MS = 60_000;
 export const START_SOG_PRE_MS = 120_000;
 /** …to this long after it. */
 export const START_SOG_POST_MS = 20_000;
+/** The track map's race-time window opens this long before the gun (BoatDrawing.pre covers it). */
+export const MAP_PRE_MS = 120_000;
+/** The `leg` of track before the gun (BoatDrawing.pre): no leg, "pre-start". */
+export const PRE_LEG = -1;
 
 export type LegKind = 'upwind' | 'downwind' | 'reach';
 
@@ -229,8 +233,25 @@ export interface BoatDrawing {
   courseAtGun: number | null;
   /** Gun → finish, ~1 Hz, split by leg. */
   segments: TrackSegment[];
+  /**
+   * MAP_PRE_MS before the gun up to the first segment's first fix (shared with it), every fix at the
+   * feed's own rate, leg PRE_LEG: the track map's race-time scrubber draws it. Absent in older analyses.
+   */
+  pre?: TrackSegment;
   /** Every fix from START_SOG_PRE_MS before the gun to START_SOG_POST_MS after: time and smoothed SOG (gaps left as they are). */
   startSog: { t: Float64Array; sog: Float32Array };
+}
+
+/**
+ * One boat's track at full rate for the zoomed-in map (analysis/fullRate.ts): MAP_PRE_MS before the
+ * gun to its last drawn fix, in the drawings' coordinates, from the boat's uploaded log (Boat.fullRate,
+ * 10 Hz) when it has one, else every fix of the feed. Asked of the worker only when the map zooms in.
+ */
+export interface FullRateTrack extends DrawnTrack {
+  id: string;
+  /** 'log': Boat.fullRate; 'feed': the feed's own fixes, before the drawings' ~1 Hz thinning. */
+  source: 'log' | 'feed';
+  roll?: Float32Array;
 }
 
 export interface Finding {

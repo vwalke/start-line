@@ -19,7 +19,6 @@ import {
   interp,
   interpAngle,
   len,
-  makeProjection,
   median,
   scale,
   sub,
@@ -33,10 +32,12 @@ import { SQUARE_LINE_M, awayFromLineThresholdM } from './line';
 import { heelAt, heelSeries, heelStats } from './heel';
 import { cogHeading, detectManoeuvres, headingCheck, manoeuvresByLeg, signedTwa, type HeadingCheck } from './manoeuvres';
 import { classifyParticipation } from './participation';
-import { projectTrack, rangeIdx, type XYTrack } from './prepare';
+import { projectTrack, raceProjection, rangeIdx, type XYTrack } from './prepare';
 import { smoothSog } from './smooth';
 import { kindSummary, placeSummaries } from './summary';
 import {
+  MAP_PRE_MS,
+  PRE_LEG,
   START_SOG_POST_MS,
   START_SOG_PRE_MS,
   START_TRAIL_MS,
@@ -135,7 +136,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   const data: RaceData = { ...input, boats: competitors };
   const gun = data.gunMs;
   const sl = data.startLine;
-  const proj = makeProjection({ lat: (sl.left.lat + sl.right.lat) / 2, lon: (sl.left.lon + sl.right.lon) / 2 });
+  const proj = raceProjection(data);
   const L = proj.toXY(sl.left.lat, sl.left.lon);
   const R = proj.toXY(sl.right.lat, sl.right.lon);
   const lineVec = sub(R, L);
@@ -609,6 +610,16 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
         ...(tr.roll ? { roll: Float32Array.from(rs) } : {}),
       });
     }
+    // The map's scrubber opens before the gun: every fix from MAP_PRE_MS before it to where the segments take over.
+    const [p0, p1] = rangeIdx(tr.t, gun - MAP_PRE_MS, segments[0]?.t[0] ?? gun);
+    const pre: TrackSegment = {
+      leg: PRE_LEG,
+      x: Float32Array.from(tr.x.subarray(p0, p1)),
+      y: Float32Array.from(tr.y.subarray(p0, p1)),
+      t: tr.t.slice(p0, p1),
+      sog: sogSm.slice(p0, p1),
+      ...(tr.roll ? { roll: Float32Array.from(tr.roll.subarray(p0, p1)) } : {}),
+    };
     // Speed through the start: every fix around the gun, smoothed SOG (the chart breaks lines at gaps).
     const [s0, s1] = rangeIdx(tr.t, gun - START_SOG_PRE_MS, gun + START_SOG_POST_MS);
     const drawing: BoatDrawing = {
@@ -620,6 +631,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       headingAtSample,
       courseAtGun,
       segments,
+      pre,
     };
     return { result, drawing };
   };

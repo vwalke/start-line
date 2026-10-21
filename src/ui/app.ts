@@ -8,7 +8,8 @@ import { legStories } from '../analysis/coach/legStory';
 import { progressAt, progressBase, type ProgressBase } from '../analysis/coach/progress';
 import type { Group } from '../analysis/coach/groups';
 import { splitFindings } from '../analysis/findings';
-import { START_TRAIL_MS, type BoatResult, type RaceAnalysis } from '../analysis/types';
+import { fullRateWants } from '../analysis/fullRate';
+import { START_TRAIL_MS, type BoatResult, type FullRateTrack, type RaceAnalysis } from '../analysis/types';
 import { linkOfficial, type LinkOutcome } from '../data/official/link';
 import { httpYsSource, parseYsEventId } from '../data/official/yachtscoring';
 import { PROBE_BUDGET, discoverOrphans, isOrphanKey, type OrphanFound } from '../data/orphans';
@@ -76,10 +77,34 @@ import {
   startFullFrame,
   startScale,
   startSnapshot,
+  scrubFrame,
+  scrubPoints,
   trackMap,
   trackPoints,
+  trackPointsFull,
+  type ScrubFrame,
   type StartFrame,
+  type TrackMapOptions,
 } from './charts';
+import { useFullRate, type FullRateSet } from './mapPieces';
+import {
+  T_PARAM,
+  TRAIL_PARAM,
+  clampTime,
+  paramOfTime,
+  parseSpeed,
+  parseTParam,
+  parseTrail,
+  playFrom,
+  playStep,
+  scrubLabel,
+  scrubParams,
+  scrubWindow,
+  timeOfParam,
+  trailWindow,
+  type Speed,
+  type Trail,
+} from './scrub';
 import { mapKey, raceNotesKey, startKey } from './captions';
 import { MAP_GAP_TITLE, mapHasGaps, mapTipHtml, mapTipLines, pickAt, pickMapPoint, type MapPoints, type PlaceRead } from './mapPoints';
 import { createFullscreen, inertOthers, lockScroll, moveNodes, trapFocus, type ScrollLock } from './fullscreen';
@@ -168,6 +193,13 @@ export function startApp(): void {
     map: $('map-chart'),
     mapTip: $('map-tip'),
     mapZoom: $('map-zoom'),
+    mapScrub: $('map-scrub'),
+    mapPlay: $('map-play'),
+    mapTime: $<HTMLInputElement>('map-time'),
+    mapTimeLbl: $('map-time-lbl'),
+    mapFullRace: $('map-full-race'),
+    mapSpeed: $('map-speed'),
+    mapTrail: $('map-trail'),
     legend: $('map-legend'),
     colour: $('map-colour'),
     speedKey: $('map-speed-key'),
@@ -231,6 +263,13 @@ export function startApp(): void {
   const isSuperseded = (e: unknown): boolean => e instanceof Error && e.message === SUPERSEDED;
   worker.onmessage = (ev: MessageEvent<WorkerResponse>) => {
     const msg = ev.data;
+    // The map's full-rate tracks, asked for as the Coach's are (ids counting down).
+    const fullWait = fullPending.get(msg.id);
+    if (fullWait) {
+      fullPending.delete(msg.id);
+      fullWait(msg.type === 'full-rate' ? msg.tracks : null);
+      return;
+    }
     // Coach requests count down from -1, apart from the race loads.
     const coachWait = coachPending.get(msg.id);
     if (coachWait) {
@@ -238,7 +277,7 @@ export function startApp(): void {
       coachWait(msg.type === 'coach-raw' ? msg.raw : null);
       return;
     }
-    if (msg.id !== reqId || msg.type === 'coach-raw' || msg.type === 'regatta-race') return; // a newer request superseded this one
+    if (msg.id !== reqId || msg.type === 'coach-raw' || msg.type === 'regatta-race' || msg.type === 'full-rate') return; // a newer request superseded this one
     const p = pending.get(msg.id);
     if (msg.type === 'progress') setStatus(msg.message);
     else if (msg.type === 'done') p?.resolve(msg.analysis);
@@ -268,6 +307,14 @@ export function startApp(): void {
       const id = --coachReq;
       coachPending.set(id, resolve);
       worker.postMessage({ id, type: 'coach-raw', key } satisfies WorkerRequest);
+    });
+  const fullPending = new Map<number, (t: FullRateTrack[] | null) => void>();
+  /** The worker's full-rate tracks of a race (null: it no longer holds that race, or failed; the map keeps its ~1 Hz segments). */
+  const fullRateOf = (a: RaceAnalysis): Promise<FullRateTrack[] | null> =>
+    new Promise((resolve) => {
+      const id = --coachReq;
+      fullPending.set(id, resolve);
+      worker.postMessage({ id, type: 'full-rate', key: raceKeyOf(a), wants: fullRateWants(a) } satisfies WorkerRequest);
     });
 
   let analysis: RaceAnalysis | null = null;
@@ -301,7 +348,7 @@ export function startApp(): void {
   let mapFitFor: { a: RaceAnalysis; leg: number | null } | null = null;
   let mapView: View = { cx: 0, cy: 0, k: 1 };
   /** Point details: the map's fix and gap lookup for a race and leg, built on first hover or tap. */
-  let mapPts: { a: RaceAnalysis; leg: number | null; p: MapPoints } | null = null;
+  let mapPts: { a: RaceAnalysis; leg: number | null; full: FullRateSet | null; view: View; p: MapPoints } | null = null;
   let fitBox: Box | null = null;
   let view: View = { cx: 0, cy: 0, k: 1 };
   /** The chart open full screen, if any (it shares the selection, zoom and names with the page). */
@@ -903,9 +950,187 @@ export function startApp(): void {
     if (!a) return;
     clearTimeout(mapSettle);
     const t0 = performance.now();
-    els.map.innerHTML = trackMap(a, highlight, legSel, { colour: trackColour, rankBy, top: speedTop, sogScale, view: mapView });
+    // Scrubbing: the static map, then this moment's trails and boats into its two layers (drawScrub, every frame).
+    els.map.innerHTML = trackMap(a, highlight, legSel, { ...mapOpts(), full: mapFullRate(a), scrub: scrubT != null });
+    scrubData = null;
+    if (scrubT != null) drawScrub(a);
     mapDrawMs = performance.now() - t0;
     els.mapTip.hidden = true;
+    syncScrub(a);
+  }
+
+  const mapOpts = (): TrackMapOptions => ({ colour: trackColour, rankBy, top: speedTop, sogScale, view: mapView });
+
+  /** Full-rate tracks for the map (once per race, asked of the worker the first time the view is tight enough); null until then. */
+  let fullRate: { a: RaceAnalysis; set: FullRateSet | null } | null = null;
+  function mapFullRate(a: RaceAnalysis): FullRateSet | null {
+    if (!mapFit) return null;
+    const vb = viewBox(mapFit, mapView);
+    if (!useFullRate({ x0: vb.x0, y0: vb.y0, x1: vb.x0 + vb.w, y1: vb.y0 + vb.h }, mapView.k)) return null;
+    if (fullRate?.a === a) return fullRate.set;
+    const asked: { a: RaceAnalysis; set: FullRateSet | null } = { a, set: null };
+    fullRate = asked;
+    void fullRateOf(a).then((tracks) => {
+      if (fullRate !== asked) return;
+      asked.set = new Map((tracks ?? []).map((tk) => [tk.id, tk]));
+      if (analysis === a && tracks?.length) renderMap();
+    });
+    return null;
+  }
+
+  // ---- Track map: race-time scrubber (Map B). Off (null) is the whole race as above; `t=` in the URL opens it at a moment.
+  /** The scrubber's time, ms; null: the full race. */
+  let scrubT: number | null = null;
+  let scrubTrail: Trail = parseTrail(new URLSearchParams(location.search).get(TRAIL_PARAM));
+  let playSpeed: Speed = 1;
+  let playing = false;
+  let playFrame = 0;
+  let playLast = 0;
+  /** The frame drawn last (for the hover), and its lookup once asked for. */
+  let scrubData: ScrubFrame | null = null;
+  let scrubPts: { f: ScrubFrame; p: MapPoints } | null = null;
+
+  /** A race opens: at the URL's `t=` (gun-relative, clamped to its window), else the full race; playback stops. */
+  function openScrub(a: RaceAnalysis): void {
+    stopPlay(false);
+    const s = parseTParam(new URLSearchParams(location.search).get(T_PARAM));
+    scrubT = s == null ? null : timeOfParam(s, a.meta.gunMs, scrubWindow(a));
+    if (scrubT != null) setUrl(scrubParams(scrubT, a.meta.gunMs, scrubTrail));
+  }
+
+  /** Draw this moment's trails and boats into the static map's layers. */
+  function drawScrub(a: RaceAnalysis): void {
+    const svg = els.map.querySelector('svg');
+    const trk = svg?.querySelector('g.scrub-trk');
+    const dots = svg?.querySelector('g.scrub-dots');
+    if (scrubT == null || !trk || !dots) return;
+    const full = mapFullRate(a);
+    const f = scrubFrame(a, highlight, legSel, mapOpts(), { t: scrubT, win: trailWindow(scrubT, scrubTrail, scrubWindow(a)), full });
+    trk.innerHTML = f.tracks;
+    dots.innerHTML = f.dots;
+    scrubData = f;
+  }
+
+  /** The URL's `t=` / `trail=` for the scrubber now (replaceState; on a pause or the end of a drag, never per frame). */
+  function writeScrubUrl(): void {
+    if (analysis) setUrl(scrubParams(scrubT, analysis.meta.gunMs, scrubTrail));
+  }
+
+  /** Move the scrubber to `t` (null: back to the full race); switching on or off redraws the map, else only its moving layers. */
+  function setScrub(t: number | null, writeUrl: boolean): void {
+    const a = analysis;
+    if (!a) return;
+    const was = scrubT;
+    scrubT = t == null ? null : clampTime(t, scrubWindow(a));
+    hideMapTip();
+    if ((was == null) !== (scrubT == null)) renderMap();
+    else if (scrubT != null) {
+      drawScrub(a);
+      syncScrub(a);
+    }
+    if (writeUrl) writeScrubUrl();
+  }
+
+  /** The scrubber's controls for the race and its state: range, label, play, speed, trail, the way back. */
+  function syncScrub(a: RaceAnalysis): void {
+    const w = scrubWindow(a);
+    const gun = a.meta.gunMs;
+    const lo = paramOfTime(w.t0, gun);
+    els.mapTime.min = String(lo);
+    els.mapTime.max = String(Math.max(lo, Math.floor((w.t1 - gun) / 1000)));
+    els.mapTime.value = String(scrubT == null ? lo : paramOfTime(scrubT, gun));
+    const label = scrubT == null ? 'Full race' : scrubLabel(scrubT, a);
+    els.mapTime.setAttribute('aria-valuetext', label);
+    els.mapTimeLbl.textContent = label;
+    els.mapScrub.classList.toggle('off', scrubT == null);
+    els.mapFullRace.hidden = scrubT == null;
+    els.mapPlay.setAttribute('aria-pressed', String(playing));
+    els.mapPlay.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    els.mapPlay.title = `${playing ? 'Pause' : 'Play'} (Space)`;
+    for (const b of els.mapSpeed.querySelectorAll('button[data-speed]')) b.setAttribute('aria-pressed', String(Number(b.getAttribute('data-speed')) === playSpeed));
+    for (const b of els.mapTrail.querySelectorAll('button[data-trail]')) b.setAttribute('aria-pressed', String(b.getAttribute('data-trail') === scrubTrail));
+  }
+
+  /** Real time × speed per frame; a frame after a long stall (a hidden tab) counts as at most this, ms. */
+  const PLAY_MAX_STEP_MS = 250;
+  function startPlay(): void {
+    const a = analysis;
+    if (!a) return;
+    // From the time shown; from the start when off or at the end.
+    const from = playFrom(scrubT, scrubWindow(a));
+    playing = true;
+    playLast = performance.now();
+    setScrub(from, false);
+    syncScrub(a);
+    cancelAnimationFrame(playFrame);
+    playFrame = requestAnimationFrame(playTick);
+  }
+  function playTick(now: number): void {
+    playFrame = 0;
+    const a = analysis;
+    if (!playing || !a || scrubT == null) return stopPlay(true);
+    const dt = Math.min(PLAY_MAX_STEP_MS, now - playLast);
+    playLast = now;
+    const { t, done } = playStep(scrubT, dt, playSpeed, scrubWindow(a));
+    scrubT = t;
+    if (!els.mapTip.hidden) hideMapTip();
+    drawScrub(a);
+    if (done) return stopPlay(true);
+    els.mapTime.value = String(paramOfTime(t, a.meta.gunMs));
+    const label = scrubLabel(t, a);
+    els.mapTime.setAttribute('aria-valuetext', label);
+    els.mapTimeLbl.textContent = label;
+    playFrame = requestAnimationFrame(playTick);
+  }
+  /** Pause, keeping the time; `writeUrl` records it. */
+  function stopPlay(writeUrl: boolean): void {
+    if (!playing) return;
+    playing = false;
+    cancelAnimationFrame(playFrame);
+    playFrame = 0;
+    if (analysis) syncScrub(analysis);
+    if (writeUrl) writeScrubUrl();
+  }
+  const togglePlay = (): void => (playing ? stopPlay(true) : startPlay());
+
+  els.mapPlay.addEventListener('click', togglePlay);
+  // Dragging or arrowing the slider pauses and moves the time; the URL follows once it is let go.
+  els.mapTime.addEventListener('input', () => {
+    const a = analysis;
+    if (!a) return;
+    stopPlay(false);
+    setScrub(a.meta.gunMs + Number(els.mapTime.value) * 1000, false);
+  });
+  els.mapTime.addEventListener('change', writeScrubUrl);
+  els.mapFullRace.addEventListener('click', () => {
+    stopPlay(false);
+    setScrub(null, true);
+    els.mapPlay.focus();
+  });
+  els.mapSpeed.addEventListener('click', (ev) => {
+    const v = (ev.target as Element).closest('button[data-speed]')?.getAttribute('data-speed');
+    if (!v) return;
+    playSpeed = parseSpeed(v);
+    if (analysis) syncScrub(analysis);
+  });
+  els.mapTrail.addEventListener('click', (ev) => {
+    const v = (ev.target as Element).closest('button[data-trail]')?.getAttribute('data-trail');
+    if (!v || !analysis) return;
+    scrubTrail = parseTrail(v);
+    syncScrub(analysis);
+    // Off, it is kept for when the scrubber is used.
+    if (scrubT != null) {
+      drawScrub(analysis);
+      writeScrubUrl();
+    }
+  });
+  // Space plays and pauses from the slider or the map (the play button does so natively).
+  for (const el of [els.mapTime, els.map]) {
+    el.addEventListener('keydown', (ev) => {
+      if (ev.key !== ' ' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      ev.preventDefault();
+      togglePlay();
+    });
   }
 
   /** A new race or leg selection: fit its box (Fit: everything, or the leg's segments and marks). */
@@ -982,8 +1207,7 @@ export function startApp(): void {
     const a = analysis;
     const svg = els.map.querySelector('svg');
     if (!a || !svg || !mapFit) return;
-    if (mapPts?.a !== a || mapPts.leg !== legSel) mapPts = { a, leg: legSel, p: trackPoints(a, legSel) };
-    const { p } = mapPts;
+    const p = mapPointsNow(a);
     const rect = svg.getBoundingClientRect();
     const [x, y] = clientToChart(mapFit, mapView, rect, ev.clientX, ev.clientY);
     const vb = viewBox(mapFit, mapView);
@@ -1013,6 +1237,18 @@ export function startApp(): void {
     const fit = (v: number, room: number): number => Math.max(0, Math.min(v, room));
     els.mapTip.style.left = `${fit(left + 12 + w > wrap.width ? left - 12 - w : left + 12, wrap.width - w)}px`;
     els.mapTip.style.top = `${fit(top - h - 10 < 0 ? top + 16 : top - h - 10, wrap.height - h)}px`;
+  }
+  /** What the pointer can pick: the scrubber frame's fixes and boats; zoomed in tight, the full-rate fixes near the view; else every drawn fix. */
+  function mapPointsNow(a: RaceAnalysis): MapPoints {
+    if (scrubT != null && scrubData) {
+      if (scrubPts?.f !== scrubData) scrubPts = { f: scrubData, p: scrubPoints(a, scrubData) };
+      return scrubPts.p;
+    }
+    const full = mapFullRate(a);
+    if (mapPts?.a !== a || mapPts.leg !== legSel || mapPts.full !== full || (full && mapPts.view !== mapView)) {
+      mapPts = { a, leg: legSel, full, view: mapView, p: full ? trackPointsFull(a, legSel, mapView, full) : trackPoints(a, legSel) };
+    }
+    return mapPts.p;
   }
   function hideMapTip(): void {
     els.map.querySelector('circle.sog-hover')?.remove();
@@ -1502,6 +1738,7 @@ export function startApp(): void {
       const a = await p;
       if (g !== showGen) return false;
       analysis = a;
+      openScrub(a);
       const v = restore ? applyView(a, restore) : null;
       highlight = v?.boat ?? null;
       // A shared `boat=` wins over lastView so the link opens that boat.
