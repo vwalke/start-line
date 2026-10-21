@@ -651,7 +651,7 @@ describe('D9 fallback: places through the rounding on sparse data', () => {
     // Cascais R2: 11th→63rd by dtg around the mark while the leg table gained 2 to 20th.
     // Start much worse so fleetPlaces show a gain at the mark; the 60 s slowdown still loses 6+ dtg places.
     const ctx = fileWorld({ n: 100, slowS: 60 });
-    ctx.a.boats.find((b) => b.id === 'me')!.start = { startPlace: 30 };
+    ctx.a.boats.find((b) => b.id === 'me')!.start!.startPlace = 30;
     const r = detectRounding(ctx);
     expect(r.reads[0].places!.lost).toBeGreaterThanOrEqual(5);
     expect(r.opps).toEqual([]);
@@ -661,7 +661,7 @@ describe('D9 fallback: places through the rounding on sparse data', () => {
     // Most of a long slowdown is after the rounding: start 12th → mark ~13th (lost 1)
     // while ±60 s dtg loses 10+ (the Cascais-scale blow-up with a 1-place mark loss).
     const ctx = fileWorld({ n: 100, slowS: 100 });
-    ctx.a.boats.find((b) => b.id === 'me')!.start = { startPlace: 12 };
+    ctx.a.boats.find((b) => b.id === 'me')!.start!.startPlace = 12;
     const r = detectRounding(ctx);
     expect(r.reads[0].places!.lost).toBeGreaterThanOrEqual(10);
     expect(r.opps).toEqual([]);
