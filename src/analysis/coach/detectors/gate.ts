@@ -464,9 +464,15 @@ export function detectGate(ctx: CoachCtx): D13Result {
       secondsHi: v.hi,
       confidence: v.level,
       coverage,
-      conf: { boatCov: coverage, windOk: g.windOk, refCap: v.level },
+      // The series around a gate is often interpolated (the fleet is still on the run); D13's
+      // wind is the tack bisector, and a 10°+ swing is already `refCap: 'low'`. Passing windOk
+      // here would cap a 6-a-side card at medium and the ⚠ would say "few boats a side".
+      conf: { boatCov: coverage, refCap: v.level },
       facts,
-      refBoats: [...g.boats.values()].filter((o) => o.side === g.fav && Math.abs(o.tMs - me.tMs) <= D13_CONTEMP_MS).map((o) => o.id),
+      // The seconds are the favoured-side contemporaries' passages; a side read without one is not a ref.
+      refBoats: [...g.boats.values()]
+        .filter((o) => o.side === g.fav && o.passS != null && Math.abs(o.tMs - me.tMs) <= D13_CONTEMP_MS)
+        .map((o) => o.id),
     });
   }
   return out;

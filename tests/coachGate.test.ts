@@ -258,4 +258,10 @@ describe('ranking: D13 is a moment (seconds × confidence), never trimmed as a r
     expect(low[0].score).toBeCloseTo(31 * 0.4);
     expect(rankOpportunities([opp({ seconds: 25, conf: { boatCov: 1, refCap: 'low' } })])).toEqual([]);
   });
+
+  it("high stays high: the wind-series share around the gate is not a conf input (it's interpolated on the run)", () => {
+    const high = rankOpportunities([opp({ seconds: 28, conf: { boatCov: 1, refCap: 'high' } })]);
+    expect(high[0].confidence).toBe('high');
+    expect(high[0].score).toBe(28);
+  });
 });

@@ -645,11 +645,10 @@ export function summarizeRegatta(races: readonly RegattaRace[]): RegattaSummary 
  */
 export function wentWellOf(races: readonly (RegattaRace & { weight: number })[]): WentWell[] {
   const by = new Map<string, WentWell>();
-  // Heel (D11) went well only in races that had the heel data to compare: those are its "of N".
+  // Heel (D11) and gate choice (D13) went well only in races that had the data to judge: those are their "of N".
   const ofFamily = (family: string): number => {
-    const k = family.startsWith('heel:') ? family.slice(5) : null;
-    if (!k) return races.length;
-    const theme = HEEL_THEMES[k][0];
+    const theme = family === 'round:gate' ? GATE_THEME : family.startsWith('heel:') ? HEEL_THEMES[family.slice(5)]?.[0] : null;
+    if (!theme) return races.length;
     return races.filter((x) => (x.digest?.evaluated ?? []).includes(theme) || (x.digest?.went ?? []).some((w) => w.family === family)).length;
   };
   for (const r of races) {
