@@ -15,7 +15,9 @@ import {
   cardMapActions,
   cardMapHref,
   cardRoute,
+  coverTrail,
   focusExtent,
+  focusFrom,
   focusTrail,
   focusView,
   isStartCard,
@@ -96,15 +98,16 @@ function expectFramed(f: MapFocus, minFixes: number): void {
   expect(inView([e.x0, e.y0]) && inView([e.x1, e.y1])).toBe(true);
 }
 
-/** The link round-trips: boat=, t= (the window's start, whole s), trail=, vs=, win= (outward-rounded), #race. */
+/** The link round-trips: boat=, t= (the window's end, whole s rounded up as win=), trail=win, vs=, win= (outward-rounded), #race. */
 function expectLink(href: string, sail: string, c: Card, f: MapFocus): void {
   expect(href.endsWith('#race')).toBe(true);
   const p = paramsOf(href);
   expect(p.get('event')).toBe('e1');
   expect(p.get(BOAT_PARAM)).toBe(idOf(sail));
   expect(p.get(REPLAY_PARAM)).toBeNull();
-  expect(parseTParam(p.get(T_PARAM))).toBe(Math.round((f.spans[0][0] - gun) / 1000));
+  expect(parseTParam(p.get(T_PARAM))).toBe(Math.ceil((f.spans[f.spans.length - 1][1] - gun) / 1000));
   expect(parseTrail(p.get(TRAIL_PARAM))).toBe(focusTrail(f));
+  expect(focusTrail(f)).toBe('win');
   expect(p.get(VS_PARAM)).toBe(f.vs.join(','));
   const back = parseMapFocus(href.replace(/#race$/, ''), gun)!;
   expect(back.boat).toBe(idOf(sail));
@@ -135,12 +138,12 @@ describe("IC37 R5: USA 027's start card on the map", () => {
     expect(route?.kind).toBe('focus');
   });
 
-  it('links boat=USA 027, t=−10, trail=all (over 2 min), vs= the front row it was measured against, win=, #race', () => {
+  it("links boat=USA 027, t= the window's end, trail=win, vs= the front row it was measured against, win=, #race", () => {
     const f = route!.kind === 'focus' ? route!.focus : null!;
     expect(f.vs).toEqual(c.refBoats.slice(0, MAP_VS_MAX));
     expect(f.vs.map((id) => a.boats.find((b) => b.id === id)!.sail)).toEqual(['GBR 015', 'USA 12', 'USA 005', 'USA 008', 'USA 11']);
-    expect(parseTParam(paramsOf(href).get(T_PARAM))).toBe(-10);
-    expect(paramsOf(href).get(TRAIL_PARAM)).toBe('all');
+    expect(parseTParam(paramsOf(href).get(T_PARAM))).toBe(Math.ceil((c.t1 - gun) / 1000));
+    expect(paramsOf(href).get(TRAIL_PARAM)).toBe('win');
     expect(paramsOf(href).get(WIN_PARAM)).toBe(`-10,${Math.ceil((c.t1 - gun) / 1000)}`);
     expectLink(href, 'USA 027', c, f);
   });
@@ -192,9 +195,9 @@ describe('IC37 R5: a D6 upwind card on the map', () => {
     for (const other of c.refBoats.filter((x) => x !== id && !f.vs.includes(x))) expect(dist(other)).toBeGreaterThanOrEqual(far);
   });
 
-  it('links and frames as the start card does (trail All: the beat is longer than 2 min)', () => {
+  it('links and frames as the start card does (trail win; once left, All: the beat is longer than 2 min)', () => {
     expect(cardRoute(a, id, c, replays)?.kind).toBe('focus');
-    expect(focusTrail(f)).toBe('all');
+    expect(coverTrail(f)).toBe('all');
     expectLink(href, sail, c, f);
     expectFramed(f, 150);
   });
@@ -249,7 +252,7 @@ describe('IC37 R5: a card in several spans frames their union', () => {
     expectFramed(f, 50);
   });
 
-  it('a card across the beat and the run (as D7 over the runs): t= the first span, trail All, both stretches in view', () => {
+  it("a card across the beat and the run (as D7 over the runs): t= the last span's end, trail win (All once left), both stretches in view", () => {
     const c = cardOf('USA 016', 'D6');
     const run = a.drawings.find((d) => d.id === idOf('USA 016'))!.segments.find((s) => s.leg === 1)!;
     const spans: [number, number][] = [
@@ -259,9 +262,9 @@ describe('IC37 R5: a card in several spans frames their union', () => {
     const d7: Card = { ...c, kind: 'D7', variant: 'low', t0: spans[0][0], t1: spans[1][1], spans };
     const f = cardFocus(a, idOf('USA 016'), d7)!;
     expect(f.spans).toEqual(spans);
-    expect(focusTrail(f)).toBe('all');
+    expect(coverTrail(f)).toBe('all');
     const href = cardMapHref(SEARCH, a, idOf('USA 016'), d7, replays)!;
-    expect(parseTParam(paramsOf(href).get(T_PARAM))).toBe(120);
+    expect(parseTParam(paramsOf(href).get(T_PARAM))).toBe(Math.ceil((spans[1][1] - gun) / 1000));
     expectLink(href, 'USA 016', d7, f);
     expectFramed(f, 50);
     // Both stretches count: the union's frame is bigger than either span's alone.
@@ -278,11 +281,12 @@ describe('IC37 R5: a card in several spans frames their union', () => {
 
 describe('trail and URL rules', () => {
   const f = (s0: number, s1: number): MapFocus => ({ boat: 'X', vs: [], spans: [[gun + s0 * 1000, gun + s1 * 1000]] });
-  it('the shortest trail that covers the window', () => {
-    expect(focusTrail(f(0, 30))).toBe('30');
-    expect(focusTrail(f(0, 31))).toBe('120');
-    expect(focusTrail(f(-10, 110))).toBe('120');
-    expect(focusTrail(f(0, 121))).toBe('all');
+  it("the window's own trail; once left, the shortest usual trail that covers the window", () => {
+    for (const x of [f(0, 30), f(0, 500)]) expect(focusTrail(x)).toBe('win');
+    expect(coverTrail(f(0, 30))).toBe('30');
+    expect(coverTrail(f(0, 31))).toBe('120');
+    expect(coverTrail(f(-10, 110))).toBe('120');
+    expect(coverTrail(f(0, 121))).toBe('all');
   });
 
   it('parses only a well-formed win= with a boat; vs= deduped, without the boat, capped', () => {
@@ -302,7 +306,8 @@ describe('trail and URL rules', () => {
     const p = paramsOf(mapFocusLink('?event=e1&replay=USA+019&trail=30', a, f(0, 200)));
     expect(p.get('event')).toBe('e1');
     expect(p.get(REPLAY_PARAM)).toBeNull();
-    expect(p.get(TRAIL_PARAM)).toBe('all');
+    expect(p.get(TRAIL_PARAM)).toBe('win');
+    expect(p.get(T_PARAM)).toBe('200');
     expect(p.get(VS_PARAM)).toBeNull();
     expect(p.get(WIN_PARAM)).toBe('0,200');
   });
@@ -361,7 +366,7 @@ describe('IC37 R5: the comparison boats drawn while scrubbing', () => {
   const f = cardFocus(a, idOf('USA 027'), c)!;
   const w = scrubWindow(a);
   const t = c.t0 + 60_000;
-  const frame = (vs: readonly string[] | null) => scrubFrame(a, f.boat, null, { vs, view: focusView(a, f, fit) }, { t, win: trailWindow(t, focusTrail(f), w) });
+  const frame = (vs: readonly string[] | null) => scrubFrame(a, f.boat, null, { vs, view: focusView(a, f, fit) }, { t, win: trailWindow(t, focusTrail(f), w, focusFrom(f)) });
 
   it('their trails cased (trk-vs), their dots ringed (dot vs, dot-vs) and labelled; the boat itself stays the selection', () => {
     const fr = frame(f.vs);

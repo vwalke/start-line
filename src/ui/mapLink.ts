@@ -1,7 +1,7 @@
 /**
  * Coach → track map (Map D): a card's "Show on map", as pure pieces. A card with a window opens the Race
- * tab's map on it: the whole race, the card's boat selected, the scrubber paused at the window's start
- * with a trail that covers it, the view framing the boat's drawn track over the window (the union of its
+ * tab's map on it: the whole race, the card's boat selected, the scrubber paused at the window's end
+ * with the window's own trail (from its start: the whole window drawn, nothing before it), the view framing the boat's drawn track over the window (the union of its
  * spans) with the comparison boats' (the card's `refBoats`, at most MAP_VS_MAX), and those boats ringed
  * and listed ("vs USA 11 · GBR 015 · USA 12").
  *
@@ -10,7 +10,8 @@
  * never on the card's variant, so a renamed over-early or penalty card still goes there.
  *
  * The URL: `boat=` (Coach's), `vs=<id>,<id>`, `win=<s0>,<s1>[,<s2>,<s3>…]` (gun-relative seconds, each
- * pair a span, rounded outward) with the scrubber's `t=` / `trail=`, and `#race`.
+ * pair a span, rounded outward) with the scrubber's `t=` (the window's end, as `win=` rounds it) / `trail=win`, and
+ * `#race`. An older link (`t=` the window's start, a 30 s / 2 min / All trail) opens the same way (`focusResume`).
  *
  * The cards themselves are not touched (coachCards.ts): `withMapActions` appends one link to each.
  */
@@ -22,7 +23,7 @@ import { esc } from './format';
 import { boatAt, legRanges, rotator, timeRange } from './mapPieces';
 import { drawingGapMs } from './mapPoints';
 import { REPLAY_PARAM, replayLink, replayPendFromUrl, type ReplayPend } from './replay';
-import { mapTimeSearch, paramOfTime, parseTParam, type Trail } from './scrub';
+import { DEFAULT_TRAIL, T_PARAM, TRAIL_PARAM, WINDOW_TRAIL, mapTimeSearch, parseTParam, parseTrail, playFrom, type ScrubWindow, type Trail } from './scrub';
 import { clampView, type Box, type View } from './view';
 
 export const VS_PARAM = 'vs';
@@ -52,13 +53,36 @@ export function windowSpans(c: Pick<Card, 't0' | 't1' | 'spans'>): [number, numb
     .sort((x, y) => x[0] - y[0]);
 }
 
-/** Where the focus opens the scrubber: the window's start. */
-export const focusTime = (f: Pick<MapFocus, 'spans'>): number => f.spans[0][0];
+/**
+ * Where the focus parks the scrubber: the window's end (its last span's), so that, paused, the trail shows the whole
+ * finding (the cards carry no key moment of their own; the end is where the window's outcome is).
+ */
+export const focusTime = (f: Pick<MapFocus, 'spans'>): number => f.spans[f.spans.length - 1][1];
 
-/** The trail that covers the window from its start to its end (spans and all). */
-export function focusTrail(f: Pick<MapFocus, 'spans'>): Trail {
-  const s = (f.spans[f.spans.length - 1][1] - f.spans[0][0]) / 1000;
+/** Where the focus's trail starts ('win': `trailWindow`'s `from`): the window's start (its first span's). */
+export const focusFrom = (f: Pick<MapFocus, 'spans'>): number => f.spans[0][0];
+
+/** The focus's trail: the window's own, from its start (focusFrom) to the time shown. */
+export const focusTrail = (_f: Pick<MapFocus, 'spans'>): Trail => WINDOW_TRAIL;
+
+/** The shortest of the trails always offered that covers the window from its start to its end (spans and all): the trail once the focus is left. */
+export function coverTrail(f: Pick<MapFocus, 'spans'>): Trail {
+  const s = (focusTime(f) - focusFrom(f)) / 1000;
   return s <= TRAIL_30_MAX_S ? '30' : s <= TRAIL_120_MAX_S ? '120' : 'all';
+}
+
+/** The trail once focus `f` (null: none open) is left: the window's own becomes coverTrail (All with no window); the rest stay. */
+export const trailAfterFocus = (trail: Trail, f: Pick<MapFocus, 'spans'> | null): Trail => (trail !== WINDOW_TRAIL ? trail : f ? coverTrail(f) : 'all');
+
+/** Within this of a window's end (or, for an older link, its start) the scrubber is on it: `t=` and `win=` are whole seconds, ms. */
+const PARKED_MS = 1000;
+
+/**
+ * Where Play starts with focus `f` open: parked at the window's end, from the window's start (it plays the window
+ * through, and on); anywhere else, or with no focus, as the scrubber does (playFrom).
+ */
+export function focusPlayFrom(f: Pick<MapFocus, 'spans'> | null, t: number | null, w: ScrubWindow): number {
+  return f && t != null && Math.abs(t - focusTime(f)) <= PARKED_MS ? Math.min(w.t1, Math.max(w.t0, focusFrom(f))) : playFrom(t, w);
 }
 
 /** Boat `id`'s drawn position at `t` (map coordinates), null where it has none. */
@@ -133,9 +157,9 @@ const withParams = (search: string, next: Record<string, string | null>): URLSea
   return p;
 };
 
-/** `search` with the map on focus `f`: `t=` its start, `trail=` covering it, `boat=`, `vs=`, `win=` (any replay dropped). */
+/** `search` with the map on focus `f`: `t=` its end (rounded up, as `win=`), `trail=win`, `boat=`, `vs=`, `win=` (any replay dropped). */
 export function mapFocusLink(search: string, a: Pick<RaceAnalysis, 'meta'>, f: MapFocus): string {
-  const base = mapTimeSearch(search, paramOfTime(focusTime(f), a.meta.gunMs), focusTrail(f));
+  const base = mapTimeSearch(search, Math.ceil((focusTime(f) - a.meta.gunMs) / 1000), focusTrail(f));
   return `?${withParams(base, { ...focusParams(a, f), [REPLAY_PARAM]: null }).toString()}`;
 }
 
@@ -175,9 +199,30 @@ export function focusPendFromUrl(search: string): ReplayPend | null {
   return f ? replayPendFromUrl(withParams(search, { [REPLAY_PARAM]: f.boat }).toString()) : null;
 }
 
+/** Where focus `f` opens the scrubber: its time (race ms, unclamped) and trail. */
+export interface FocusAt {
+  t: number;
+  trail: Trail;
+}
+
+/**
+ * Where focus `f` (read from `search`, gun `gunMs`) reopens: at the URL's own `t=` / `trail=` (the focus left where
+ * it was: scrubbed, another trail), else parked (focusTime, focusTrail). Parked too: no `t=`, and an older link's
+ * `t=` at the window's start with a 30 s / 2 min / All trail (which drew nothing of the window).
+ */
+export function focusResume(f: Pick<MapFocus, 'spans'>, search: string, gunMs: number): FocusAt {
+  const p = new URLSearchParams(search);
+  const s = parseTParam(p.get(T_PARAM));
+  const trail = p.has(TRAIL_PARAM) ? parseTrail(p.get(TRAIL_PARAM)) : DEFAULT_TRAIL;
+  const parked = { t: focusTime(f), trail: focusTrail(f) };
+  if (s == null) return parked;
+  const t = gunMs + s * 1000;
+  return trail !== WINDOW_TRAIL && Math.abs(t - focusFrom(f)) <= PARKED_MS ? parked : { t, trail };
+}
+
 /**
  * Race `race` drawn (boats `drawn`): the focus to reopen (the pending one's, read from `search` with its gun, if its
- * boat is drawn) and the state after (dropped if it can't open).
+ * boat is drawn) with where its scrubber opens (`at`, focusResume), and the state after (dropped if it can't open).
  */
 export function focusArrive(
   state: ReplayPend | null,
@@ -185,10 +230,10 @@ export function focusArrive(
   search: string,
   gunMs: number,
   drawn: readonly string[],
-): { open: MapFocus | null; state: ReplayPend | null } {
+): { open: MapFocus | null; at?: FocusAt; state: ReplayPend | null } {
   if (!state || state.race !== race) return { open: null, state };
   const f = parseMapFocus(search, gunMs);
-  return f && f.boat === state.boat && drawn.includes(f.boat) ? { open: f, state } : { open: null, state: null };
+  return f && f.boat === state.boat && drawn.includes(f.boat) ? { open: f, at: focusResume(f, search, gunMs), state } : { open: null, state: null };
 }
 
 /** Card `c`'s map link (with `#race`): the replay's for a start card of a boat with one, else its focus; null with no window. */

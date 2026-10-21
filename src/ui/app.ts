@@ -91,12 +91,12 @@ import { useFullRate, type FullRateSet } from './mapPieces';
 import {
   T_PARAM,
   TRAIL_PARAM,
+  WINDOW_TRAIL,
   clampTime,
   paramOfTime,
   parseSpeed,
   parseTParam,
   parseTrail,
-  playFrom,
   playStep,
   scrubLabel,
   scrubParams,
@@ -124,12 +124,15 @@ import {
   cardMapActions,
   cardRoute,
   focusArrive,
+  focusFrom,
   focusParams,
   focusPendFromUrl,
+  focusPlayFrom,
   focusTime,
   focusTrail,
   focusView,
   mapFocusLegend,
+  trailAfterFocus,
   withMapActions,
   type MapFocus,
 } from './mapLink';
@@ -1171,9 +1174,10 @@ export function startApp(): void {
   let focusPend: ReplayPend | null = focusPendFromUrl(location.search);
 
   /**
-   * Show focus `f`: select its boat, the whole race, the scrubber paused at the window's start (or `at`, a
-   * link's own `t=`) with a trail that covers it, the view framing the boat's and the comparison boats' tracks
-   * over the window; `boat=`, `vs=`, `win=`, `t=` and `trail=` in the URL.
+   * Show focus `f`: select its boat, the whole race, the scrubber paused at the window's end with the window's own
+   * trail (from its start: the whole window drawn), or `at` (a link's own `t=` / `trail=`, mapLink.ts focusResume),
+   * the view framing the boat's and the comparison boats' tracks over the window; `boat=`, `vs=`, `win=`, `t=` and
+   * `trail=` in the URL. Play from there plays the window from its start (focusPlayFrom).
    */
   function openFocus(f: MapFocus, at?: { t: number; trail: Trail }): void {
     const a = analysis;
@@ -1195,15 +1199,24 @@ export function startApp(): void {
     save();
   }
 
-  /** Leave the focus's comparison boats (the scrubber and the view stay as they are); `redraw` the map's moving layers now. */
+  /**
+   * Leave the focus's comparison boats (the scrubber and the view stay as they are; the window's trail becomes the
+   * shortest usual one covering the window); `redraw` the map's moving layers now.
+   */
   function leaveFocus(redraw: boolean): void {
     // A deep link still waiting for its focus is left too.
     if (focusPend) {
       focusPend = replayPending(focusPend, { type: 'left' });
       setUrl(NO_FOCUS);
     }
-    if (!focusOn) return;
+    const f = focusOn;
     focusOn = null;
+    if (scrubTrail === WINDOW_TRAIL) {
+      scrubTrail = trailAfterFocus(scrubTrail, f);
+      if (analysis) syncScrub(analysis);
+      writeScrubUrl();
+    }
+    if (!f) return;
     renderFocusLegend();
     if (redraw && analysis && scrubT != null) drawScrub(analysis);
   }
@@ -1247,7 +1260,7 @@ export function startApp(): void {
     const dots = svg?.querySelector('g.scrub-dots');
     if (scrubT == null || !trk || !dots) return;
     const full = mapFullRate(a);
-    const f = scrubFrame(a, highlight, legSel, mapOpts(), { t: scrubT, win: trailWindow(scrubT, scrubTrail, scrubWindow(a)), full });
+    const f = scrubFrame(a, highlight, legSel, mapOpts(), { t: scrubT, win: trailWindow(scrubT, scrubTrail, scrubWindow(a), focusOn ? focusFrom(focusOn) : null), full });
     trk.innerHTML = f.tracks;
     dots.innerHTML = f.dots;
     scrubData = f;
@@ -1290,7 +1303,11 @@ export function startApp(): void {
     els.mapPlay.setAttribute('aria-label', playing ? 'Pause' : 'Play');
     els.mapPlay.title = `${playing ? 'Pause' : 'Play'} (Space)`;
     for (const b of els.mapSpeed.querySelectorAll('button[data-speed]')) b.setAttribute('aria-pressed', String(Number(b.getAttribute('data-speed')) === playSpeed));
-    for (const b of els.mapTrail.querySelectorAll('button[data-trail]')) b.setAttribute('aria-pressed', String(b.getAttribute('data-trail') === scrubTrail));
+    for (const b of els.mapTrail.querySelectorAll<HTMLButtonElement>('button[data-trail]')) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-trail') === scrubTrail));
+      // "Window" (a card's window, from its start) only with one open.
+      if (b.getAttribute('data-trail') === WINDOW_TRAIL) b.hidden = !focusOn;
+    }
   }
 
   /** Real time × speed per frame; a frame after a long stall (a hidden tab) counts as at most this, ms. */
@@ -1298,8 +1315,8 @@ export function startApp(): void {
   function startPlay(): void {
     const a = analysis;
     if (!a) return;
-    // From the time shown; from the start when off or at the end.
-    const from = playFrom(scrubT, scrubWindow(a));
+    // From the time shown; from the start when off or at the end; parked at a card window's end, from the window's start.
+    const from = focusPlayFrom(focusOn, scrubT, scrubWindow(a));
     playing = true;
     playLast = performance.now();
     setScrub(from, false);
@@ -2007,11 +2024,16 @@ export function startApp(): void {
       legSel = v?.leg ?? null;
       fitStart(a);
       render();
-      // A card's window from the URL (`win=`, a deep link or a reload of its race): reopened as linked, at the URL's own `t=` / `trail=`.
-      const { open: f, state } = focusArrive(focusPend, replayRaceOf(a), location.search, a.meta.gunMs, a.drawings.map((d) => d.id));
+      // A card's window from the URL (`win=`, a deep link or a reload of its race): reopened as linked, at the URL's own
+      // `t=` / `trail=` (focusResume: an older link's, at the window's start, parks at its end as a card's link does).
+      const { open: f, at, state } = focusArrive(focusPend, replayRaceOf(a), location.search, a.meta.gunMs, a.drawings.map((d) => d.id));
       focusPend = state;
-      if (f) openFocus(f, scrubT != null ? { t: scrubT, trail: scrubTrail } : undefined);
-      else if (!focusPend) setUrl(NO_FOCUS);
+      if (f) openFocus(f, at);
+      else if (!focusPend) {
+        setUrl(NO_FOCUS);
+        // A window's trail (`trail=win`) with no window to draw from: a usual one.
+        leaveFocus(false);
+      }
       setStatus('');
       return true;
     } finally {

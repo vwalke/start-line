@@ -5,9 +5,9 @@ import { coachDebrief } from '../src/analysis/coach/debrief';
 import type { Card } from '../src/analysis/coach/rank';
 import { startReplays, type StartReplay } from '../src/analysis/startReplay';
 import { BOAT_PARAM } from '../src/ui/coach';
-import { VS_PARAM, WIN_PARAM, cardMapHref, cardRoute, focusArrive, focusPendFromUrl, mapFocusLink, parseMapFocus, type MapFocus } from '../src/ui/mapLink';
+import { VS_PARAM, WIN_PARAM, cardMapHref, cardRoute, focusArrive, focusPendFromUrl, mapFocusLink, parseMapFocus, type FocusAt, type MapFocus } from '../src/ui/mapLink';
 import { REPLAY_PARAM, replayArrive, replayPendFromUrl, replayPending, replayRaceKey, type ReplayPend } from '../src/ui/replay';
-import { T_PARAM, TRAIL_PARAM, parseTParam } from '../src/ui/scrub';
+import { T_PARAM, TRAIL_PARAM, parseTParam, scrubParams } from '../src/ui/scrub';
 import { ic37Race } from './helpers';
 
 /**
@@ -71,11 +71,13 @@ function app(href: string) {
     replayPend = replayPending(replayPend, { type: 'opened', race, boat: r.boat });
     set(REPLAY_PARAM, r.boat);
   };
-  const openFocus = (race: string, f: MapFocus): void => {
+  const openFocus = (race: string, f: MapFocus, at?: FocusAt): void => {
     leaveReplay();
     focusOn = f;
     focusPend = replayPending(focusPend, { type: 'opened', race, boat: f.boat });
     url = mapFocusLink(url, a, f);
+    // Reopened from the URL: at its own t= / trail= (focusResume).
+    if (at) for (const [k, v] of Object.entries(scrubParams(at.t, gun, at.trail))) set(k, v);
   };
   return {
     /** A load of race `race` (each one, a reload included); returns the load's number. */
@@ -87,7 +89,7 @@ function app(href: string) {
       focusPend = replayPending(focusPend, { type: 'shown', race });
       const res = focusArrive(focusPend, race, url, gun, drawn);
       focusPend = res.state;
-      if (res.open) openFocus(race, res.open);
+      if (res.open) openFocus(race, res.open, res.at);
       else if (!focusPend) {
         set(WIN_PARAM, null);
         set(VS_PARAM, null);
@@ -137,8 +139,8 @@ describe("USA 027's start card: a focus link, round-trip", () => {
     const f = route!.kind === 'focus' ? route!.focus : null!;
     expect(href.endsWith('#race')).toBe(true);
     expect(p.get(BOAT_PARAM)).toBe(U027);
-    expect(parseTParam(p.get(T_PARAM))).toBe(-10);
-    expect(p.get(TRAIL_PARAM)).toBe('all');
+    expect(parseTParam(p.get(T_PARAM))).toBe(Math.ceil((c.t1 - gun) / 1000));
+    expect(p.get(TRAIL_PARAM)).toBe('win');
     expect(p.get(WIN_PARAM)).toBe(`-10,${Math.ceil((c.t1 - gun) / 1000)}`);
     expect(p.get(VS_PARAM)!.split(',')).toEqual(f.vs);
     const back = parseMapFocus(searchOf(href), gun)!;
