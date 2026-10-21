@@ -9,7 +9,7 @@ import { add, bearingVec, scale, type Vec } from '../analysis/geo';
 import { awayFromLineThresholdM, lineBias } from '../analysis/line';
 import type { BoatDrawing, BoatResult, ExcludedBoat, RaceAnalysis, TrackSegment } from '../analysis/types';
 import { matchClass, type ClassDims } from '../data/classes';
-import { boatLabel, esc, f1, f2 } from './format';
+import { esc, f1, f2 } from './format';
 import { placeLabels, textWidth, type LabelReq, type Rect, type StartNames } from './labels';
 import { drawingGapMs, mapPoints, type MapPoints } from './mapPoints';
 import {
@@ -784,8 +784,6 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   const unit = Math.max(w, h) / 600;
   const k = unit;
   const sw = (width: number): string => `stroke-width="${(width * k).toFixed(2)}"`;
-  const byId = new Map(a.boats.map((b) => [b.id, b]));
-  const legName = (i: number): string => a.legs[i]?.name ?? `Leg ${i + 1}`;
   const speed = opts.colour === 'rank' ? speedRanking(a, leg, opts.rankBy ?? 'leg') : null;
   const sogScale = opts.sogScale ?? 'leg';
   const perLeg = opts.colour === 'sog' && leg == null && sogScale === 'leg';
@@ -793,7 +791,6 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   // A picked boat that isn't racing: grey and dashed on top, split at the fleet's
   // leg times. It never moves the fit, and Rank / Boat speed never colour it.
   const nc = pickedExcluded(a, highlight);
-  if (nc) byId.set(nc.result.id, nc.result);
   const drawings = nc ? [...a.drawings, nc.drawing] : a.drawings;
 
   const paths: string[] = opts.colour === 'sog' ? [sogLayer(a, highlight, leg, k, sogScale, clip)] : [];
