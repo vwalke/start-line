@@ -10,6 +10,7 @@ import type { Group } from '../analysis/coach/groups';
 import { splitFindings } from '../analysis/findings';
 import { fullRateWants } from '../analysis/fullRate';
 import { START_TRAIL_MS, type BoatResult, type FullRateTrack, type RaceAnalysis } from '../analysis/types';
+import type { StartReplay } from '../analysis/startReplay';
 import { linkOfficial, type LinkOutcome } from '../data/official/link';
 import { httpYsSource, parseYsEventId } from '../data/official/yachtscoring';
 import { PROBE_BUDGET, discoverOrphans, isOrphanKey, type OrphanFound } from '../data/orphans';
@@ -105,6 +106,7 @@ import {
   type Speed,
   type Trail,
 } from './scrub';
+import { REPLAY_PARAM, REPLAY_PRE_S, REPLAY_TRAIL, parseReplayParam, replayControls, replayView, startReplayLinks } from './replay';
 import { mapKey, raceNotesKey, startKey } from './captions';
 import { MAP_GAP_TITLE, mapHasGaps, mapTipHtml, mapTipLines, pickAt, pickMapPoint, type MapPoints, type PlaceRead } from './mapPoints';
 import { createFullscreen, inertOthers, lockScroll, moveNodes, trapFocus, type ScrollLock } from './fullscreen';
@@ -194,6 +196,8 @@ export function startApp(): void {
     mapTip: $('map-tip'),
     mapZoom: $('map-zoom'),
     mapScrub: $('map-scrub'),
+    mapReplay: $('map-replay'),
+    startReplay: $('start-replay'),
     mapPlay: $('map-play'),
     mapTime: $<HTMLInputElement>('map-time'),
     mapTimeLbl: $('map-time-lbl'),
@@ -270,6 +274,13 @@ export function startApp(): void {
       fullWait(msg.type === 'full-rate' ? msg.tracks : null);
       return;
     }
+    // The map's over-early replays, likewise.
+    const replayWait = replayPending.get(msg.id);
+    if (replayWait) {
+      replayPending.delete(msg.id);
+      replayWait(msg.type === 'start-replay' ? msg.replays : null);
+      return;
+    }
     // Coach requests count down from -1, apart from the race loads.
     const coachWait = coachPending.get(msg.id);
     if (coachWait) {
@@ -277,7 +288,7 @@ export function startApp(): void {
       coachWait(msg.type === 'coach-raw' ? msg.raw : null);
       return;
     }
-    if (msg.id !== reqId || msg.type === 'coach-raw' || msg.type === 'regatta-race' || msg.type === 'full-rate') return; // a newer request superseded this one
+    if (msg.id !== reqId || msg.type === 'coach-raw' || msg.type === 'regatta-race' || msg.type === 'full-rate' || msg.type === 'start-replay') return; // a newer request superseded this one
     const p = pending.get(msg.id);
     if (msg.type === 'progress') setStatus(msg.message);
     else if (msg.type === 'done') p?.resolve(msg.analysis);
@@ -315,6 +326,14 @@ export function startApp(): void {
       const id = --coachReq;
       fullPending.set(id, resolve);
       worker.postMessage({ id, type: 'full-rate', key: raceKeyOf(a), wants: fullRateWants(a) } satisfies WorkerRequest);
+    });
+  const replayPending = new Map<number, (r: StartReplay[] | null) => void>();
+  /** The over-early boats' start facts of a race, from the worker's raw fixes (null: it no longer holds that race, or failed: no replay). */
+  const startReplaysOf = (a: RaceAnalysis): Promise<StartReplay[] | null> =>
+    new Promise((resolve) => {
+      const id = --coachReq;
+      replayPending.set(id, resolve);
+      worker.postMessage({ id, type: 'start-replay', key: raceKeyOf(a) } satisfies WorkerRequest);
     });
 
   let analysis: RaceAnalysis | null = null;
@@ -478,6 +497,8 @@ export function startApp(): void {
     renderFullKey();
     fitMap(a);
     renderMap();
+    askReplays(a);
+    renderReplayControls();
     els.legend.innerHTML = legLegend(a, legSel);
     // In Rank or Boat speed the leg swatches would read as a colour key for the tracks; the buttons stay, the swatches go.
     els.legend.classList.toggle('speed', trackColour !== 'leg');
@@ -949,6 +970,8 @@ export function startApp(): void {
     const a = analysis;
     if (!a) return;
     clearTimeout(mapSettle);
+    // A replay ends with the full race (✕ Full race), one leg picked, or another boat selected.
+    if (replayOn && (scrubT == null || legSel != null || highlight !== replayOn.boat)) leaveReplay(false);
     const t0 = performance.now();
     // Scrubbing: the static map, then this moment's trails and boats into its two layers (drawScrub, every frame).
     els.map.innerHTML = trackMap(a, highlight, legSel, { ...mapOpts(), full: mapFullRate(a), scrub: scrubT != null });
@@ -959,7 +982,7 @@ export function startApp(): void {
     syncScrub(a);
   }
 
-  const mapOpts = (): TrackMapOptions => ({ colour: trackColour, rankBy, top: speedTop, sogScale, view: mapView });
+  const mapOpts = (): TrackMapOptions => ({ colour: trackColour, rankBy, top: speedTop, sogScale, view: mapView, replay: replayOn });
 
   /** Full-rate tracks for the map (once per race, asked of the worker the first time the view is tight enough); null until then. */
   let fullRate: { a: RaceAnalysis; set: FullRateSet | null } | null = null;
@@ -996,7 +1019,106 @@ export function startApp(): void {
     const s = parseTParam(new URLSearchParams(location.search).get(T_PARAM));
     scrubT = s == null ? null : timeOfParam(s, a.meta.gunMs, scrubWindow(a));
     if (scrubT != null) setUrl(scrubParams(scrubT, a.meta.gunMs, scrubTrail));
+    // `replay=` (a deep link, so only for the race the page opens with): opened once the race's replays are in
+    // (askReplays); dropped if that boat has none. Another race afterwards drops it.
+    replayOn = null;
+    const want = parseReplayParam(new URLSearchParams(location.search).get(REPLAY_PARAM));
+    replayWant = replayUrlRead ? null : want;
+    replayUrlRead = true;
+    if (want != null && replayWant == null) setUrl({ [REPLAY_PARAM]: null });
   }
+  let replayUrlRead = false;
+
+  // ---- Track map: "Replay start" for a boat over early (Map C). Its facts come from the worker (analysis/startReplay.ts).
+  /** The race's replays (the over-early boats), once the worker has sent them. */
+  let replays: { a: RaceAnalysis; list: StartReplay[] } | null = null;
+  /** The replay showing (its boat selected, the scrubber on over the whole race); null: none. */
+  let replayOn: StartReplay | null = null;
+  /** A `replay=` boat waiting for the race's replays. */
+  let replayWant: string | null = null;
+
+  /** Ask the worker for the race's replays (once per race); then offer them, and open a `replay=` link's. */
+  function askReplays(a: RaceAnalysis): void {
+    if (replays?.a === a) return;
+    const asked: { a: RaceAnalysis; list: StartReplay[] } = { a, list: [] };
+    replays = asked;
+    void startReplaysOf(a).then((list) => {
+      if (replays !== asked) return;
+      asked.list = list ?? [];
+      if (analysis !== a) return;
+      const want = replayWant;
+      replayWant = null;
+      const r = want != null ? asked.list.find((x) => x.boat === want) : undefined;
+      if (r) openReplay(r);
+      else {
+        if (want != null) setUrl({ [REPLAY_PARAM]: null });
+        renderReplayControls();
+      }
+    });
+  }
+
+  /** The map's "Replay start" control and the Start tab's links, for the selection. */
+  function renderReplayControls(): void {
+    const a = analysis;
+    const list = a && replays?.a === a ? replays.list : [];
+    const map = a ? replayControls(a, list, highlight, replayOn?.boat ?? null) : '';
+    els.mapReplay.innerHTML = map;
+    els.mapReplay.hidden = !map;
+    const start = a ? startReplayLinks(a, list, highlight, location.search) : '';
+    els.startReplay.innerHTML = start;
+    els.startReplay.hidden = !start;
+  }
+
+  /**
+   * Replay boat `r.boat`'s start: select it, the whole race, the scrubber on at REPLAY_PRE_S before the gun with
+   * the whole trail, paused (Play plays it at 1×), the view framing the start line and its track to REPLAY_POST_S
+   * after it cleared; `replay=` in the URL with `t=` and `trail=`.
+   */
+  function openReplay(r: StartReplay): void {
+    const a = analysis;
+    if (!a) return;
+    stopPlay(false);
+    highlight = r.boat;
+    syncCoachBoat(r.boat);
+    legSel = null;
+    scrubTrail = REPLAY_TRAIL;
+    playSpeed = 1;
+    replayOn = r;
+    scrubT = clampTime(a.meta.gunMs - REPLAY_PRE_S * 1000, scrubWindow(a));
+    fitMap(a);
+    if (mapFit) syncMapView(replayView(a, r, mapFit));
+    render();
+    setUrl({ ...scrubParams(scrubT, a.meta.gunMs, scrubTrail), [REPLAY_PARAM]: r.boat });
+    save();
+  }
+
+  /** Leave the replay's styling (the scrubber and the view stay as they are); `redraw` the map's moving layers now. */
+  function leaveReplay(redraw: boolean): void {
+    if (!replayOn) return;
+    replayOn = null;
+    setUrl({ [REPLAY_PARAM]: null });
+    renderReplayControls();
+    if (redraw && analysis && scrubT != null) drawScrub(analysis);
+  }
+
+  els.mapReplay.addEventListener('click', (ev) => {
+    const id = (ev.target as Element).closest('button[data-replay]')?.getAttribute('data-replay');
+    const r = id != null && replays?.a === analysis ? replays.list.find((x) => x.boat === id) : undefined;
+    if (!r) return;
+    openReplay(r);
+    els.map.focus({ preventScroll: true });
+  });
+  // The Start tab's "Replay start →": a real link (it opens in a new tab as a deep link); here, the Race tab and the replay.
+  els.startReplay.addEventListener('click', (ev) => {
+    const me = ev as MouseEvent;
+    if (me.button !== 0 || me.ctrlKey || me.metaKey || me.shiftKey || me.altKey) return;
+    const id = (ev.target as Element).closest('a[data-replay]')?.getAttribute('data-replay');
+    const r = id != null && replays?.a === analysis ? replays.list.find((x) => x.boat === id) : undefined;
+    if (!r) return;
+    ev.preventDefault();
+    setTab('race');
+    openReplay(r);
+  });
 
   /** Draw this moment's trails and boats into the static map's layers. */
   function drawScrub(a: RaceAnalysis): void {
@@ -1188,7 +1310,8 @@ export function startApp(): void {
     if (!btn || !mapFit) return;
     const next = Number(btn.getAttribute('data-zoom'));
     if (!Number.isFinite(next) || next <= 0) return;
-    // Presets zoom about the current centre; Fit goes back to the leg selection's frame.
+    // Presets zoom about the current centre; Fit goes back to the leg selection's frame (and leaves a replay).
+    if (next === 1) leaveReplay(true);
     setMapView(next === 1 ? fitView(mapFit) : { ...mapView, k: next });
   });
 

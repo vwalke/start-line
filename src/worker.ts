@@ -8,6 +8,7 @@ import { analyzeRace } from './analysis/analyze';
 import { coachRaceKey, coachRaw, type CoachRaw } from './analysis/coach';
 import { digestRace, type RaceDigest } from './analysis/coach/regatta';
 import { fullRateBuffers, fullRateTracks, type FullRateWant } from './analysis/fullRate';
+import { startReplays, type StartReplay } from './analysis/startReplay';
 import { drawingBuffers } from './analysis/transfer';
 import type { FullRateTrack, RaceAnalysis } from './analysis/types';
 import type { RaceData } from './data/types';
@@ -40,7 +41,9 @@ export type WorkerRequest =
   /** Coach (lazy, on the tab's first open): the fleet wind series and start crossings of the race last analysed, from its raw fixes. */
   | { id: number; type: 'coach-raw'; key: string }
   /** Track map, zoomed in tight: the race last analysed at full rate (analysis/fullRate.ts). */
-  | { id: number; type: 'full-rate'; key: string; wants: FullRateWant[] };
+  | { id: number; type: 'full-rate'; key: string; wants: FullRateWant[] }
+  /** Track map, "Replay start": the over-early boats' start facts of the race last analysed, from its raw fixes (analysis/startReplay.ts). */
+  | { id: number; type: 'start-replay'; key: string };
 
 export type WorkerResponse =
   | { id: number; type: 'progress'; message: string }
@@ -50,6 +53,8 @@ export type WorkerResponse =
   | { id: number; type: 'regatta-race'; digest: RaceDigest }
   /** `tracks` null: that race isn't the one last analysed here; the map keeps its ~1 Hz segments. */
   | { id: number; type: 'full-rate'; tracks: FullRateTrack[] | null }
+  /** `replays` null: that race isn't the one last analysed here; no replay (the Coach has no start crossings either). */
+  | { id: number; type: 'start-replay'; replays: StartReplay[] | null }
   | { id: number; type: 'error'; message: string };
 
 const ctx = self as unknown as {
@@ -126,6 +131,15 @@ ctx.onmessage = (ev) => {
     try {
       const tracks = last && last.key === req.key ? fullRateTracks(last.data, req.wants) : null;
       ctx.postMessage({ id: req.id, type: 'full-rate', tracks }, tracks ? fullRateBuffers(tracks) : []);
+    } catch (err) {
+      ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) });
+    }
+    return;
+  }
+  if (req.type === 'start-replay') {
+    try {
+      const replays = last && last.key === req.key ? startReplays(last.analysis, last.data) : null;
+      ctx.postMessage({ id: req.id, type: 'start-replay', replays });
     } catch (err) {
       ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) });
     }
