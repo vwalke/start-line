@@ -10,7 +10,8 @@
  */
 import { GROUP_LABEL } from './coach';
 import type { Group } from '../analysis/coach/groups';
-import { ROUND_LEAD_MS, ROUND_WINDOW_MS, SIDE_MIN_BOATS, SIDE_MIN_EFFECT, STORY_LOW_COVERAGE, STORY_MIN_GROUP, type LegStory } from '../analysis/coach/legStory';
+import { HEEL_DIFF_DEG, HEEL_WINDOW_MS } from '../analysis/coach/detectors/heel';
+import { ROUND_LEAD_MS, ROUND_WINDOW_MS, SIDE_MIN_BOATS, SIDE_MIN_EFFECT, STORY_LOW_COVERAGE, STORY_MIN_GROUP, type HeelChip, type LegStory } from '../analysis/coach/legStory';
 import type { RaceAnalysis } from '../analysis/types';
 import { duration, esc, ordinal, pct } from './format';
 import { infoHtml } from './info';
@@ -23,6 +24,7 @@ export const LEG_STORY_BULLETS: readonly string[] = [
   `Left/Right paid: that third of the boats gained ${SIDE_MIN_EFFECT}+ places more than the other third (${SIDE_MIN_BOATS}+ boats).`,
   `Gybe-set: a gybe ${ROUND_LEAD_MS / 1000} s before to ${ROUND_WINDOW_MS / 1000} s after the windward mark; else a bear-away.`,
   `Under ${STORY_MIN_GROUP} boats with data in the group: worked out on the whole fleet (chip says so).`,
+  `Heel: yours vs the top 3's in the same ${HEEL_WINDOW_MS / 60_000}-min windows; shown when ${HEEL_DIFF_DEG}°+ apart in most.`,
 ];
 
 /** Signed, one decimal, with a true minus: "+1.1", "−0.4". */
@@ -70,6 +72,22 @@ export function groupSecondsChip(s: Pick<LegStory, 'vsGroup'>, g: Group): string
   if (!v || g.kind === 'fleet') return null;
   const d = Math.round(v.deltaS);
   return d > 0 ? `lost ${d} s vs ${vsLabel(g)}` : d < 0 ? `gained ${-d} s vs ${vsLabel(g)}` : `even with ${vsLabel(g)}`;
+}
+
+/** The leg's heel: "heel +4° vs top 3 · VMG 0.2 kt slower" ("flatter", "to windward", "rolling ±3°" by how it differed). */
+export function heelStoryChip(h: HeelChip): string {
+  const ref = h.ref === 'peers' ? 'peers' : 'top 3';
+  const d = Math.round(Math.abs(h.dHeel));
+  const what =
+    h.variant === 'over'
+      ? `heel ${d}° more than ${ref}`
+      : h.variant === 'under'
+        ? `heel ${d}° flatter than ${ref}`
+        : h.variant === 'windward'
+          ? `heel ${d}° more to windward than ${ref}`
+          : `heel rolling ±${Math.round(Math.abs(h.dStd))}° more than ${ref}`;
+  const v = Math.abs(h.dVmg);
+  return `${what} · VMG ${v.toFixed(1)} kt ${h.dVmg >= 0 ? 'slower' : 'faster'}`;
 }
 
 /** The leg's chips. Explanations sit in the section ⓘ; caveats are ⚠ chips, not a paragraph. */
@@ -138,6 +156,12 @@ export function legStoryText(s: LegStory, a: RaceAnalysis, boat: string, g: Grou
   if (s.myTime && s.fastest?.id !== boat) times.push({ text: `your leg time ${ordinal(s.myTime.rank)} fastest`, cls: 'me' });
   if (times.length) lines.push(times);
 
+  // Heel against the group, when it differed (D11's comparison); on the closed row too when it cost time.
+  if (s.heel) {
+    const hc: StoryChip = { text: heelStoryChip(s.heel), cls: 'me' };
+    lines.push([hc]);
+  }
+
   // Caveats: coverage is on the summary (a collapsed row with 15% data must not look empty).
   const warn: StoryChip[] = [];
   if (s.marksEstimated) warn.push({ text: 'marks est.', cls: 'warn' });
@@ -148,6 +172,7 @@ export function legStoryText(s: LegStory, a: RaceAnalysis, boat: string, g: Grou
   if (places) summary.push({ text: places, cls: 'me' });
   const secs = groupSecondsChip(s, g);
   if (secs) summary.push({ text: secs, cls: 'me' });
+  if (s.heel?.fired) summary.push({ text: heelStoryChip(s.heel), cls: 'me' });
   if (s.coverage != null && s.coverage < STORY_LOW_COVERAGE) summary.push({ text: `tracker ${pct(s.coverage)}`, cls: 'warn' });
   else if (s.coverage == null) summary.push({ text: 'no data', cls: 'warn' });
 

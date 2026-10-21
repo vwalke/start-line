@@ -32,6 +32,10 @@
  * - Each stat needs STORY_MIN_GROUP boats with data in the group (the side
  *   SIDE_MIN_BOATS, the rounding ROUND_MIN_BOATS); with fewer it is worked
  *   out on the whole fleet instead, and says so.
+ * - Heel (D11's leg comparison, detectors/heel.ts legHeel): on a beat or run
+ *   where the boat's heel differed consistently from the leaders' (or the
+ *   peers') in matched windows, how, by how much, and its VMG against theirs
+ *   in those windows; only with the roll data to say so.
  */
 import { bearingVec, dot, median, type Vec } from '../geo';
 import { detectManoeuvres, type ManoeuvreTrack } from '../manoeuvres';
@@ -41,6 +45,8 @@ import type { CoachModel } from './index';
 import { extraTracked, fleetOf } from './fleet';
 import { groupIds, type Group } from './groups';
 import { coachCoverage } from './opportunity';
+import { coachCtx } from './detectors/context';
+import { heelFacts, heelFired, legHeel, type HeelVariant } from './detectors/heel';
 import { posAt } from './tracks';
 
 /** A stat over the group needs this many boats with data; fewer → the fleet. */
@@ -244,6 +250,30 @@ export interface LegStory {
   /** The coached boat's coverage of the leg, 0–1; falls back to its race coverage when it has no timed leg. */
   coverage: number | null;
   marksEstimated: boolean;
+  /** Heel against the leaders (or peers) when it differed consistently on the leg (D11's comparison); null otherwise or without roll data. */
+  heel?: HeelChip | null;
+}
+
+/** A leg's heel, as a chip: how it differed, by how much, and the VMG in those windows. */
+export interface HeelChip {
+  variant: HeelVariant;
+  ref: 'leaders' | 'peers';
+  /** Boat − group leeward heel, ° (+ = more heeled), and the spread's difference (runs). */
+  dHeel: number;
+  dStd: number;
+  /** Group − boat VMG, kn (+ = slower). */
+  dVmg: number;
+  /** It cost time (D11 fired on the leg, alone or on a D6 / D7 card). */
+  fired: boolean;
+}
+
+/** The boat's heel chip for leg `li`: only when the heel differed consistently (legHeel's variant). */
+function heelChipOf(ctx: ReturnType<typeof coachCtx>, li: number): HeelChip | null {
+  if (!ctx) return null;
+  const l = legHeel(ctx, li);
+  if (!l?.variant) return null;
+  const f = heelFacts(ctx, l);
+  return { variant: l.variant, ref: l.ref, dHeel: f.dHeel as number, dStd: (f.std as number) - (f.refStd as number), dVmg: f.dVmg as number, fired: heelFired(l) };
 }
 
 /** The ids with a value (`has`): the set's when `min` of them do, else the fleet's. */
@@ -298,6 +328,7 @@ export function legStories(a: RaceAnalysis, m: CoachModel, boat: string, g: Grou
   const set = [boat, ...group].filter((id) => byId.has(id));
   const fleet = a.boats.map((b) => b.id);
   const marksEstimated = a.legSource === 'fleet' || a.marks.some((k) => k.estimated);
+  const ctx = m.heel?.has(boat) ? coachCtx(a, m, boat) : null;
   return a.legs.map((leg, li) => {
     // Fleet places at the leg's ends: column li (the start, or the mark before) and li + 1; every boat has both.
     const placeAt = (id: string, col: number): number | null => fp.byId.get(id)?.place[col] ?? null;
@@ -384,6 +415,7 @@ export function legStories(a: RaceAnalysis, m: CoachModel, boat: string, g: Grou
       myTime: mineT >= 0 ? { rank: mineT + 1, of: timed.length, timeS: timed[mineT].timeS } : null,
       coverage: me.legs[li]?.coverage ?? (sp && tr ? coachCoverage(tr.t, sp[0], sp[1]) : (me.coverage ?? null)),
       marksEstimated,
+      heel: heelChipOf(ctx, li),
     };
   });
 }

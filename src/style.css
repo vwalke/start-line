@@ -721,7 +721,7 @@ footer { font-size: 0.75rem; color: var(--ink-3); margin-top: 24px; }
 .vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 @media (prefers-color-scheme: dark) {
   /* On the darker surface a faint rule keeps the plain chips from melting into the card. */
-  .chip:not(.warn):not(.key) { box-shadow: inset 0 0 0 1px var(--rule-strong); background: transparent; }
+  .chip:not(.warn):not(.key):not(.me) { box-shadow: inset 0 0 0 1px var(--rule-strong); background: transparent; }
   .info > summary:hover, .info[open] > summary { background: var(--rule); }
 }
 

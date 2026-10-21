@@ -155,13 +155,13 @@ export function mergeTrack(feed: Track | null, log: PayloadTrack, gunMs: number)
 export const FULL_RATE_PRE_MS = 10 * 60_000;
 export const FULL_RATE_POST_MS = 6 * 3_600_000;
 
-/** The log's fixes in the race's window at full rate, positions only (Boat.fullRate). */
+/** The log's fixes in the race's window at full rate: positions, and its heel when it has one (Boat.fullRate). */
 export function fullRateIn(log: PayloadTrack, gunMs: number): NonNullable<Boat['fullRate']> {
   let i0 = 0;
   while (i0 < log.t.length && log.t[i0] < gunMs - FULL_RATE_PRE_MS) i0++;
   let i1 = i0;
   while (i1 < log.t.length && log.t[i1] <= gunMs + FULL_RATE_POST_MS) i1++;
-  return { t: log.t.slice(i0, i1), lat: log.lat.slice(i0, i1), lon: log.lon.slice(i0, i1) };
+  return { t: log.t.slice(i0, i1), lat: log.lat.slice(i0, i1), lon: log.lon.slice(i0, i1), ...(log.heel ? { roll: log.heel.slice(i0, i1) } : {}) };
 }
 
 export interface UploadInput {

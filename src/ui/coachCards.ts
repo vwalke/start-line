@@ -169,8 +169,10 @@ export function cardText(c: Card, tz = 0): CardText {
       return { title: `Gave back a ${side} gain`, chips, sentence, tip: 'Bank gains: tack on the header and get back between the fleet and the mark.' };
     }
     case 'D6': {
-      const chips = [`${r0(f.twa)}° vs fleet ${r0(f.fTwa)}°`, `${kn(f.sog)} vs ${kn(f.fSog)} kn`, `VMG ${kn(f.vmg)} vs ${kn(f.fVmg)} kn`];
-      const sentence = `In the same minutes you sailed ${r0(f.twa)}° to the wind at ${kn(f.sog)} kn, the fleet ${r0(f.fTwa)}° at ${kn(f.fSog)} kn; VMG ${kn(f.vmg)} vs ${kn(f.fVmg)} kn.`;
+      // D11 on the same beat: the heel chip in place of the VMG one (the sentence has the VMG).
+      const heel = c.chips?.find((x) => x.kind === 'D11')?.facts;
+      const chips = [...(heel ? [heelChip(heel)] : []), `${r0(f.twa)}° vs fleet ${r0(f.fTwa)}°`, `${kn(f.sog)} vs ${kn(f.fSog)} kn`, `VMG ${kn(f.vmg)} vs ${kn(f.fVmg)} kn`].slice(0, KEY_CHIPS_MAX);
+      const sentence = `In the same minutes you sailed ${r0(f.twa)}° to the wind at ${kn(f.sog)} kn, the fleet ${r0(f.fTwa)}° at ${kn(f.fSog)} kn; VMG ${kn(f.vmg)} vs ${kn(f.fVmg)} kn${heel ? `, ${heelClause(heel)}` : ''}.`;
       if (c.variant === 'high-slow') return { title: 'Pinching upwind', chips, sentence, tip: 'Ease a touch and sail for speed; height comes once the boat is moving.' };
       if (c.variant === 'low-fast') return { title: 'Footing too low upwind', chips, sentence, tip: 'You have the speed: trim for height and point higher.' };
       return { title: 'Slow upwind', chips, sentence, tip: 'Check trim and weight against the boats around you; change one thing at a time.' };
@@ -188,14 +190,17 @@ export function cardText(c: Card, tz = 0): CardText {
       // on a "slow on the run" card is noise.
       const angleOk = c.variant === 'hot' ? hotter : deeper;
       const angle = top ? `${r0(f.twa)}° vs top-3 ${r0(f.tTwa)}°` : `${r0(f.twa)}° vs fleet ${r0(f.fTwa)}°`;
+      const heel = c.chips?.find((x) => x.kind === 'D11')?.facts;
       const chips = [
+        ...(heel ? [heelChip(heel)] : []),
         ...(angleOk ? [angle] : []),
         top && f.tSog != null ? `${kn(f.sog)} vs ${kn(f.tSog)} kn` : `${kn(f.sog)} vs ${kn(f.fSog)} kn`,
         `VMG ${kn(f.vmg)} vs fleet ${kn(f.fVmg)} kn`,
-      ];
+      ].slice(0, KEY_CHIPS_MAX);
+      const heelTail = heel ? `; ${heelClause(heel)}` : '';
       const angles = top
-        ? `You sailed ${r0(f.twa)}° vs the top 3's ${r0(f.tTwa)}° at ${kn(f.sog)} vs ${kn(f.tSog)} kn.`
-        : `You sailed ${r0(f.twa)}° vs the fleet's ${r0(f.fTwa)}° at ${kn(f.sog)} vs ${kn(f.fSog)} kn.`;
+        ? `You sailed ${r0(f.twa)}° vs the top 3's ${r0(f.tTwa)}° at ${kn(f.sog)} vs ${kn(f.tSog)} kn${heelTail}.`
+        : `You sailed ${r0(f.twa)}° vs the fleet's ${r0(f.fTwa)}° at ${kn(f.sog)} vs ${kn(f.fSog)} kn${heelTail}.`;
       if (c.variant === 'deep') {
         return {
           title: `Too deep on the ${w} ${runs}`,
@@ -208,7 +213,7 @@ export function cardText(c: Card, tz = 0): CardText {
       return {
         title: `Slow on the ${w} ${runs}`,
         chips,
-        sentence: `Your downwind VMG was ${kn(f.vmg)} vs the fleet's ${kn(f.fVmg)} kn, at ${r0(f.twa)}° and ${kn(f.sog)} kn.`,
+        sentence: `Your downwind VMG was ${kn(f.vmg)} vs the fleet's ${kn(f.fVmg)} kn, at ${r0(f.twa)}° and ${kn(f.sog)} kn${heelTail}.`,
         tip: 'Keep someone calling pressure and gybe into the puffs.',
       };
     }
@@ -254,9 +259,54 @@ export function cardText(c: Card, tz = 0): CardText {
         ? { title: 'Last beat, lost to the boats ahead', chips, sentence, tip: 'Sail the lifted tack and stay between the boats just ahead and the finish.' }
         : { title: 'Last run, short of pressure', chips, sentence, tip: 'Keep someone calling pressure and gybe into the puffs.' };
     }
+    case 'D11':
+      return heelText(c.variant, f);
     default:
       return { title: 'Time lost', chips: [], sentence: `About ${sec} s.`, tip: '' };
   }
+}
+
+/** Who D11 compared with: "the top 3", or "the boats near you" (the peers fallback). */
+const heelRef = (f: Record<string, Fact>): string => (f.ref === 'peers' ? 'the boats near you' : 'the top 3');
+const heelRefShort = (f: Record<string, Fact>): string => (f.ref === 'peers' ? 'peers' : 'top 3');
+/** "0.2 kt slower" / "0.2 kt faster" in VMG (dVmg: + = slower). */
+const vmgWord = (dVmg: Fact): string => `${f1(Math.abs(num(dVmg)))} kt ${num(dVmg) >= 0 ? 'slower' : 'faster'}`;
+
+/** How the heel differed, as a chip: "heel 18° vs 14° top 3" (the spread for a rolling run). */
+export function heelChip(f: Record<string, Fact>): string {
+  if (f.variant === 'rolling') return `heel ±${r0(f.std)}° vs ±${r0(f.refStd)}° ${heelRefShort(f)}`;
+  return `heel ${r0(f.heel)}° vs ${r0(f.refHeel)}° ${heelRefShort(f)}`;
+}
+
+/** The heel difference as a clause: "~4° more heeled than the top 3" (D11 on a D6 / D7 card). */
+export function heelClause(f: Record<string, Fact>): string {
+  const d = r0(Math.abs(num(f.dHeel)));
+  const ref = heelRef(f);
+  if (f.variant === 'over') return `~${d}° more heeled than ${ref}`;
+  if (f.variant === 'under') return `~${d}° flatter than ${ref}`;
+  if (f.variant === 'windward') return `~${d}° more to windward than ${ref}`;
+  return `heel swinging ±${r0(f.std)}° vs ±${r0(f.refStd)}° for ${ref}`;
+}
+
+/** D11's card: one template per direction; the tips generic (no rig settings). */
+function heelText(variant: string, f: Record<string, Fact>): CardText {
+  const leg = String(f.leg);
+  const lower = num(f.dTwa);
+  // Upwind: sailing lower (wider) or higher than the group, when it is clear of the angle noise (D6_TWA_DEG).
+  const angle = f.legKind === 'upwind' && Math.abs(lower) >= 2 ? `, ${r0(Math.abs(lower))}° ${lower > 0 ? 'lower' : 'higher'}` : '';
+  const chips = [heelChip(f), `VMG ${kn(f.vmg)} vs ${kn(f.refVmg)} kn`, `${r0(f.windows)} of ${r0(f.of)} windows`];
+  const sentence = `${leg}: you sailed ${heelClause(f)}${angle} and were ${vmgWord(f.dVmg)} in VMG.`;
+  if (variant === 'over') return { title: `Over-heeled on ${leg}`, chips, sentence, tip: 'Ease or depower in the puffs, or hike harder: keep the boat on its lines.' };
+  if (variant === 'under') {
+    return {
+      title: `Too flat on ${leg}`,
+      chips,
+      sentence,
+      tip: f.wind === 'light' ? 'In light air let the boat heel a little: weight to leeward helps the sails set and the helm load up.' : 'Power up and let the boat heel to its groove, like the boats going faster.',
+    };
+  }
+  if (variant === 'windward') return { title: `Heeled to windward on ${leg}`, chips, sentence, tip: 'On the runs keep the boat flat; heel to windward only as far as the faster boats do.' };
+  return { title: `Rolling on ${leg}`, chips, sentence: `${leg}: your heel swung ±${r0(f.std)}° vs ±${r0(f.refStd)}° for ${heelRef(f)} and you were ${vmgWord(f.dVmg)} in VMG.`, tip: 'Steady the boat on the runs: smooth steering and trim, and keep the weight still.' };
 }
 
 /** D9's low-resolution fallback: places lost through the rounding (sparse data), with the shift note when the other side gained too. */
@@ -314,7 +364,11 @@ export function cardWarnings(c: Card, a: RaceAnalysis, raceCov?: number | null):
               : 'sparse data'
             : c.kind === 'D9' && c.facts.ref !== 'leaders'
               ? 'no leader data'
-            : 'few boats to compare';
+              : c.kind === 'D11' && c.facts.ref === 'peers'
+                ? 'no leader heel data'
+                : c.kind === 'D11' && c.facts.legKind === 'downwind'
+                  ? 'heel on runs: indicative'
+                  : 'few boats to compare';
   if (c.confidence === 'medium') out.push(why());
   if (c.confidence === 'low') {
     out.push('low confidence');
@@ -336,6 +390,7 @@ export function wentText(n: GoodNote): string {
   if (n.detector === 'D9') return `${roundingName(f)}: ${s} s quicker than the top 3 through the zone`;
   if (n.detector === 'D1') return `Start: crossed the line ${s} s ahead of the top 3`;
   if (n.detector === 'D3') return `First ${D3_WINDOW_MS / 60_000} minutes: gained ${s} s on the top 3`;
+  if (n.detector === 'D11') return `${f.leg}: ${heelClause(f)} and ${vmgWord(f.dVmg)} in VMG`;
   return f.how === 'time' ? `${f.leg}: ${s} s faster than the top 3's leg time` : `${f.leg}: gained ${s} s on the top 3`;
 }
 
@@ -348,6 +403,7 @@ export function goodTexts(n: GoodNote): string[] {
   if (n.detector === 'D5') return ['Banked gains'];
   if (n.detector === 'D8') return [`Clear air: ${pct(num(f.share))} in shadow vs fleet ${pct(num(f.fleetShare))}`];
   if (n.detector === 'D9') return [`Mark roundings: ${r0(f.n)} timed, none slow or wide`];
+  if (n.detector === 'D11') return [`Heel upwind ${r0(f.heel)}° vs ${heelRefShort(f)} ${r0(f.refHeel)}°`];
   const side = n.detector === 'D6' ? 'Upwind' : 'Downwind';
   return [`${side} ${n.detector === 'D6' ? 'pointing' : 'angles'} ${r0(f.twa)}° vs fleet ${r0(f.fTwa)}°`, `${side} VMG ${kn(f.vmg)} vs fleet ${kn(f.fVmg)} kn`];
 }
