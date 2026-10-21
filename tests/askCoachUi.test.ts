@@ -101,12 +101,21 @@ describe('Ask Coach panel: availability', () => {
     await c.check();
     await c.ask('Where did I gain?', CTX, IDS);
     expect(f.asks).toHaveLength(0);
+    const gate: { release: () => void } = { release: () => undefined };
     const live = server({
       ask: () =>
         new Response(
           new ReadableStream({
-            start() {
-              /* hang so the first ask stays busy */
+            start(c) {
+              c.enqueue(new TextEncoder().encode(sseFrame('meta', { remaining: 9 })));
+              gate.release = () => {
+                try {
+                  c.enqueue(new TextEncoder().encode(sseFrame('done', { stop: 'end_turn', remaining: 9 })));
+                  c.close();
+                } catch {
+                  /* cancelled */
+                }
+              };
             },
           }),
           { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8' } },
@@ -116,10 +125,11 @@ describe('Ask Coach panel: availability', () => {
     await hanging.c.check();
     const first = hanging.c.ask('q1', CTX, IDS);
     await new Promise((r) => setTimeout(r, 10));
+    expect(hanging.c.state().busy).toBe(true);
     await hanging.c.ask('q2', CTX, IDS);
-    hanging.c.stop();
-    await first;
     expect(live.asks).toHaveLength(1);
+    gate.release();
+    await first;
     const spent = server();
     const { c: out } = coach(spent);
     await out.check();
