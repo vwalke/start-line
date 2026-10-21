@@ -1075,3 +1075,31 @@ svg .cl-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 .vkx-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .vkx-actions button { font: inherit; min-height: 36px; padding: 4px 14px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
 .vkx-actions .vkx-ok { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+/* ---------- Start tab: lane snapshots (ui/laneSnapshotsView.ts) ---------- */
+.lane-snapshots { margin: 8px 0 0; }
+.lane-snapshots > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--ink-2); padding: 4px 0; min-height: 28px; }
+.lane-snapshots > summary .muted { font-weight: 500; }
+.lane-frames { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+.lane-frame { margin: 0; border: 1px solid var(--rule); border-radius: 8px; padding: 6px; background: var(--surface); display: flex; flex-direction: column; }
+.lane-frame figcaption { font-size: 0.78rem; color: var(--ink-2); line-height: 1.35; min-height: 3.2em; }
+.lane-frame figcaption b { color: var(--ink); }
+.lane-svg { width: 100%; height: auto; display: block; margin-top: auto; padding-top: 4px; }
+.lane-key { font-size: 0.75rem; margin: 6px 0 0; }
+svg .lane-pin { fill: var(--s4); stroke: var(--ink); }
+svg .lane-rc { fill: var(--ink-2); }
+svg .lane-markdir line, svg .lane-markdir polygon { stroke: var(--ink-2); fill: var(--ink-2); }
+svg .lane-markdir text, svg .lane-lbl, svg .lane-ocs { fill: var(--ink); stroke: var(--surface); paint-order: stroke; font-weight: 600; }
+svg .lane-lbl.on { font-weight: 700; }
+svg .lane-trail { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+svg .lane-trail.dim { opacity: 0.35; }
+svg .lane-boat.dim { opacity: 0.45; }
+svg .lane-dot:not(.hold) { stroke: var(--surface); }
+svg .lane-over, svg .lane-cleared { fill: none; stroke: var(--bad); }
+svg .lane-above { fill: none; stroke: var(--ink-3); }
+svg .lane-ocs { fill: var(--bad); }
+svg .lane-empty { fill: var(--ink-3); }
+@media (max-width: 600px) {
+  .lane-frames { grid-template-columns: minmax(0, 1fr); }
+  .lane-frame figcaption { min-height: 0; }
+}
