@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import { buildCoach, coachRaw } from '../src/analysis/coach';
-import { MAX_CONTEXT_TOKENS, cleanString, contextText, estimateTokens, sanitizeAskContext, type AskContext } from '../src/analysis/coach/askContext';
+import { MAX_CONTEXT_TOKENS, cleanString, contextText, estimateTokens, penaltyLine, sanitizeAskContext, type AskContext } from '../src/analysis/coach/askContext';
 import { coachDebrief } from '../src/analysis/coach/debrief';
 import { legStories } from '../src/analysis/coach/legStory';
 import { digestRace, type RegattaRace } from '../src/analysis/coach/regatta';
@@ -12,6 +12,7 @@ import { SYSTEM_PROMPT, buildPrompt } from '../functions/_askCoach';
 import { j105Race } from './helpers';
 
 const GT = 'USA 96';
+const PENALTY = { code: 'DPI', meaning: 'Discretionary penalty: the protest committee added points instead of disqualifying', result: 'Cost 3 places — 12th on the water, scored 15th' };
 
 function raceCtx(n: 1 | 2 | 3 = 1): { ctx: AskContext; a: ReturnType<typeof analyzeRace>; deb: NonNullable<ReturnType<typeof coachDebrief>> } {
   const data = j105Race(n);
@@ -32,6 +33,10 @@ function regattaCtx(): AskContext {
   });
   return regattaAskContext({ races, progress: { running: null, message: '', done: 3, total: 3 }, boat: { sail: GT, name: 'Good Trade' }, event: 'J/105 CBC', division: 'J105' });
 }
+
+/** contextText's details: the JSON on its last line. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const details = (text: string): any => JSON.parse(text.slice(text.lastIndexOf('\n') + 1));
 
 /** Every key at any depth. */
 const keysOf = (x: unknown): string[] =>
@@ -168,8 +173,8 @@ describe('contextText: under the cap, lowest priority first', () => {
     const out = contextText(ctx, cap);
     expect(out.tokens).toBeLessThanOrEqual(cap);
     expect(out.trimmed[0]).toBe('leg details');
-    expect(JSON.parse(out.text).trimmed).toEqual(out.trimmed);
-    expect(JSON.parse(out.text).findings.length).toBe(ctx.findings!.length);
+    expect(details(out.text).trimmed).toEqual(out.trimmed);
+    expect(details(out.text).findings.length).toBe(ctx.findings!.length);
   });
 
   it('a huge context lands at ~6K tokens with the findings kept', () => {
@@ -191,7 +196,109 @@ describe('contextText: under the cap, lowest priority first', () => {
     expect(out.tokens).toBeLessThanOrEqual(MAX_CONTEXT_TOKENS);
     expect(out.trimmed).toContain('leg details');
     expect(out.trimmed).toContain('leg by leg');
-    const j = JSON.parse(out.text);
+    const j = details(out.text);
     expect(j.findings.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('trims the findings beyond the first 2 before any of the penalty, and the cut at the cap keeps the penalty first', () => {
+    const turn = 'penalty turn 720 at 10:23:01 (+18 min), ≈ 45 s';
+    const big: AskContext = {
+      view: 'race',
+      boat: { sail: 'USA 016' },
+      penalty: { ...PENALTY, chips: [turn] },
+      findings: Array.from({ length: 6 }, (_, i) => ({ title: `Finding ${i + 1}`, seconds: 60 - 10 * i, what: 'w'.repeat(400), tip: 't'.repeat(400) })),
+    };
+    const full = contextText(big);
+    const out = contextText(big, Math.floor(full.tokens * 0.5));
+    expect(out.trimmed).toContain('findings beyond the first 2');
+    expect(out.trimmed).not.toContain('penalty chips');
+    expect(out.text.split('\n')[0]).toContain(turn);
+    expect(details(out.text).findings.map((f: { rank: number }) => f.rank)).toEqual([1, 2]);
+    // A cap too small for anything: cut at the end, the penalty line still first.
+    const tiny = contextText(big, 80);
+    expect(tiny.tokens).toBeLessThanOrEqual(80);
+    expect(tiny.trimmed).toContain('penalty chips');
+    expect(tiny.text.startsWith(`Top impact of this race — official penalty: DPI (${PENALTY.meaning}): ${PENALTY.result}.`)).toBe(true);
+  });
+});
+
+// ---- the order of impact: the penalty first, then the findings in Coach's rank order
+
+describe('contextText: the penalty is the top impact, the findings are numbered in rank order', () => {
+  it('the bug report: penalty + one 14 s finding → the penalty line first, labelled the top impact, then "1." the finding', () => {
+    const lines = contextText({ view: 'race', boat: { sail: 'USA 016' }, penalty: PENALTY, findings: [{ title: 'Slow upwind on beat 2', seconds: 14 }] }).text.split('\n');
+    expect(lines[0]).toBe(`Top impact of this race — official penalty: DPI (${PENALTY.meaning}): Cost 3 places — 12th on the water, scored 15th.`);
+    expect(lines[1]).toBe("Coach's findings, ranked by Coach, biggest first (time lost on the water, all after the penalty):");
+    expect(lines[2]).toBe('1. Slow upwind on beat 2 ≈ 14 s');
+    // The details: no second copy of the penalty, the finding carries its rank.
+    const j = details(lines.join('\n'));
+    expect(j.penalty).toBeUndefined();
+    expect(j.findings).toEqual([{ rank: 1, title: 'Slow upwind on beat 2', seconds: 14 }]);
+  });
+
+  it('findings numbered 1..n in the array (Coach) order, chips as shown, confidence when not high', () => {
+    const findings = [
+      { title: 'Footing too low upwind', seconds: 122, secondsChip: '≈ 122 s', confidence: 'low' as const },
+      { title: 'Lost ground after the start', seconds: 40, confidence: 'high' as const },
+      { title: 'Slow rounding', seconds: 55, secondsChip: '10–35 s', confidence: 'medium' as const },
+    ];
+    const text = contextText({ view: 'race', boat: { sail: 'USA 96' }, findings }).text;
+    const lines = text.split('\n');
+    // No penalty: still labelled as ranked, and Coach's order kept (55 s stays 3rd).
+    expect(lines.slice(0, 4)).toEqual([
+      "Coach's findings, ranked by Coach, biggest first:",
+      '1. Footing too low upwind ≈ 122 s (low confidence)',
+      '2. Lost ground after the start ≈ 40 s',
+      '3. Slow rounding 10–35 s (medium confidence)',
+    ]);
+    expect(text).not.toMatch(/penalty/i);
+    expect(details(text).findings.map((f: { rank: number; title: string }) => `${f.rank} ${f.title}`)).toEqual(findings.map((f, i) => `${i + 1} ${f.title}`));
+  });
+
+  it("the penalty's turns and the rest of its sentence ride on its line; one that cost no places isn't labelled the top impact", () => {
+    const turn = 'penalty turn 720 at 10:23:01 (+18 min), ≈ 45 s';
+    const p = { ...PENALTY, code: 'SCP', chips: [turn], what: `${PENALTY.meaning}. The track shows a penalty turn (720), about 45 s lost.` };
+    expect(penaltyLine(p)).toBe(`Top impact of this race — official penalty: SCP (${PENALTY.meaning}): ${PENALTY.result}. On the track: ${turn}. The track shows a penalty turn (720), about 45 s lost.`);
+    const none = contextText({ view: 'race', boat: { sail: 'USA 016' }, penalty: { ...PENALTY, result: 'No places lost — 13th on the water, scored 13th' }, findings: [{ title: 'Slow', seconds: 14 }] }).text;
+    expect(none.split('\n')[0]).toMatch(/^Official scoring code of this race \(it cost no places\): DPI/);
+    expect(none).not.toContain('Top impact');
+    expect(none.split('\n')[1]).toBe("Coach's findings, ranked by Coach, biggest first:");
+  });
+
+  it('the Regatta view: the Penalties row first, labelled the top impact, then work-on ranked, recurring in order', () => {
+    const text = contextText({
+      view: 'regatta',
+      boat: { sail: 'USA 016' },
+      regatta: {
+        status: '8 of 8 races analysed',
+        penalties: ['DPI in 8 of 8 races · 24 penalty points · ≈ 24 places'],
+        workOn: [{ title: 'Upwind speed', atStakeS: 120, pattern: true }, { title: 'Starts', atStakeS: 60 }],
+        recurring: [{ finding: 'Slow upwind', races: '5 of 8' }, { finding: 'Late starts', races: '3 of 8' }],
+      },
+    }).text;
+    const lines = text.split('\n');
+    expect(lines.slice(0, 6)).toEqual([
+      'Top impact across the regatta — Penalties row (official scoring codes and the places they cost):',
+      '- DPI in 8 of 8 races · 24 penalty points · ≈ 24 places',
+      'Top things to work on, ranked by Coach, biggest first (after the Penalties row):',
+      '1. Upwind speed ~120 s (pattern)',
+      '2. Starts ~60 s',
+      'Recurring findings: in Coach\'s order, most at stake first (weighted over the regatta); "rank" in the details.',
+    ]);
+    const j = details(text);
+    expect(j.regatta.penalties).toBeUndefined();
+    expect(j.regatta.workOn.map((w: { rank: number }) => w.rank)).toEqual([1, 2]);
+    expect(j.regatta.recurring.map((w: { rank: number; finding: string }) => `${w.rank} ${w.finding}`)).toEqual(['1 Slow upwind', '2 Late starts']);
+    // Penalty turns alone: listed first, but not called an official penalty.
+    const turns = contextText({ view: 'regatta', boat: { sail: 'X' }, regatta: { penalties: ['Penalty turns in 1 of 3 races (R2) · ≈ 42 s'] } }).text;
+    expect(turns.split('\n')[0]).toBe('Penalties row (penalty turns, no official code):');
+  });
+
+  it('the J/105 Regatta context (real summary): its work-on list numbered in the summary order', () => {
+    const ctx = regattaCtx();
+    const lines = contextText(ctx).text.split('\n');
+    const i = lines.indexOf('Top things to work on, ranked by Coach, biggest first:');
+    expect(i).toBe(0);
+    expect(lines.slice(1, 1 + ctx.regatta!.workOn!.length).map((l) => l.replace(/ ~\d+ s| \(pattern\)/g, ''))).toEqual(ctx.regatta!.workOn!.map((w, k) => `${k + 1}. ${w.title}`));
   });
 });
