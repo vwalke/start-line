@@ -3,17 +3,23 @@
  * (practice left out; rebuilt and tracker-only races in). Each race is analysed on its own (the
  * worker) down to a small digest — the boat's place, its legs against the fleet, and every finding
  * the race's debrief keeps (rank.ts, uncapped) — and the digests are summed up here: the place row,
- * the findings that recur (by seconds at stake and by how many races), the best and worst legs by
- * type, and the three things to work on, by fixed rules. Races the tracker covered poorly are kept
+ * the findings that recur (by seconds at stake and by how many races; a data-gated detector — D8
+ * dirty air, D9 roundings — counts only the races it had the data to measure), the best and worst
+ * legs by type, the three things to work on (pattern cards for what recurs), and what went well,
+ * by fixed rules. Races the tracker covered poorly are kept
  * and marked, their seconds weighted down. Pure: the UI renders it, the worker builds the digests.
  */
 import type { OfficialResultRow } from '../../data/official/link';
 import type { FinishSource, RaceData } from '../../data/types';
 import type { LegKind, RaceAnalysis } from '../types';
+import type { GoodNote } from './opportunity';
 import { coachDebrief } from './debrief';
+import { fleetOf } from './fleet';
 import { buildCoach, coachRaw, type CoachModel } from './index';
 import type { Confidence, DetectorKind } from './opportunity';
 import { rankOpportunities } from './rank';
+
+export { fleetOf } from './fleet';
 
 /** A boat's result in one race: its place, or the official code (DNF, …); `of` the fleet it is out of. */
 export interface RaceFinish {
@@ -21,16 +27,6 @@ export interface RaceFinish {
   code: string | null;
   of: number;
   source: FinishSource;
-}
-
-/**
- * The fleet a place is out of, as the results count it: linked to official results, the official
- * fleet (tracked boats they don't list out, listed boats with no track in); else the tracked fleet.
- */
-export function fleetOf(a: RaceAnalysis): number {
-  const r = a.meta.results;
-  if (r?.places !== 'official') return a.boats.length;
-  return a.boats.length - (r.trackNoOfficial?.length ?? 0) + (r.officialNoTrack?.length ?? 0);
 }
 
 /** Each boat's result in an analysed race, by sail (the places the header and tables show). */
@@ -62,6 +58,8 @@ export interface LegDigest {
   timingGap: boolean;
 }
 
+const CONF_ORDER: Confidence[] = ['none', 'low', 'medium', 'high'];
+
 export interface FindingDigest {
   theme: string;
   kind: DetectorKind;
@@ -84,7 +82,34 @@ export interface RaceDigest {
   noData: boolean;
   legs: LegDigest[];
   findings: FindingDigest[];
+  /** Themes of the data-gated detectors that had enough data in this race ('dirty-air', 'round-leeward', …). */
+  evaluated?: string[];
+  /** ➕ Went well in this race (the race view's), most seconds first. */
+  went?: WentDigest[];
 }
+
+/** One ➕ of a race: its family ('start', 'leg:upwind', 'round:leeward', …), what it was, the seconds gained. */
+export interface WentDigest {
+  family: string;
+  /** "Beat 2", "Leeward gate", "Start". */
+  label: string;
+  seconds: number;
+}
+
+/** A ➕'s family and label, for the Regatta view. */
+export function wentOf(a: Pick<RaceAnalysis, 'legs'>, n: GoodNote): WentDigest {
+  const f = n.facts;
+  const seconds = n.seconds ?? 0;
+  if (n.detector === 'D9') return { family: `round:${n.variant}`, label: String(f.mark ?? 'Mark'), seconds };
+  if (n.detector === 'D1' || n.detector === 'D3') return { family: 'start', label: n.detector === 'D1' ? 'Start' : 'First minutes', seconds };
+  const leg = a.legs.find((l) => l.name === f.leg);
+  return { family: `leg:${leg?.kind ?? 'upwind'}`, label: String(f.leg ?? 'Leg'), seconds };
+}
+
+/** The themes a data-gated detector's findings fall in: what the race had data for (D8, and each kind of mark D9 timed). */
+export const evaluatedThemes = (q: { D8: boolean; D9: readonly string[] }): string[] => [...(q.D8 ? ['dirty-air'] : []), ...q.D9.map((t) => `round-${t}`)];
+/** A theme only some races can measure: its "of N races" counts those races only. */
+export const gatedTheme = (theme: string): boolean => theme === 'dirty-air' || theme.startsWith('round-');
 
 const median = (xs: number[]): number => {
   const s = [...xs].sort((p, q) => p - q);
@@ -122,7 +147,10 @@ export function raceDigest(a: RaceAnalysis, model: CoachModel | null, sail: stri
   const finish = me ? (analysedFinishes(a).get(sail) ?? null) : row ? { place: row.code == null ? row.place : null, code: row.code, of: official!.length, source: 'official' as const } : null;
   if (!me) return { raceNumber: a.meta.raceNumber, sail, tracked: false, finish, coverage: null, noData: true, legs: [], findings: [] };
   const d = model ? coachDebrief(a, model, me.id) : null;
-  const findings = d && !d.noData ? rankOpportunities(d.found, Infinity).map((c) => ({ theme: themeKey(c.kind, c.variant), kind: c.kind, variant: c.variant, seconds: c.seconds, confidence: c.confidence })) : [];
+  const findings: FindingDigest[] =
+    d && !d.noData ? rankOpportunities(d.found, Infinity).map((c) => ({ theme: themeKey(c.kind, c.variant), kind: c.kind, variant: c.variant, seconds: c.seconds, confidence: c.confidence })) : [];
+  // D8 as a chip (on D3, or with no card to carry it) still recurs as a theme; its seconds are D3's, not counted twice.
+  if (d && !d.noData && d.dirtyAir.chip && !findings.some((f) => f.kind === 'D8')) findings.push({ theme: 'dirty-air', kind: 'D8', variant: 'chip', seconds: 0, confidence: 'medium' });
   return {
     raceNumber: a.meta.raceNumber,
     sail,
@@ -132,13 +160,15 @@ export function raceDigest(a: RaceAnalysis, model: CoachModel | null, sail: stri
     noData: !d || d.noData,
     legs: legDigests(a, sail),
     findings,
+    evaluated: d && !d.noData ? evaluatedThemes(d.quality) : [],
+    went: d && !d.noData ? d.plus.map((n) => wentOf(a, n)) : [],
   };
 }
 
 /** The worker's path: the Coach model from the race's raw fixes (as the race view builds it), then the digest. */
 export function digestRace(a: RaceAnalysis, data: RaceData, sail: string, official: readonly OfficialResultRow[] | null = null): RaceDigest {
   const raw = a.boats.some((b) => b.sail === sail) ? coachRaw(a, data) : null;
-  return raceDigest(a, raw ? buildCoach(a, raw.wind, raw.crossMs) : null, sail, official);
+  return raceDigest(a, raw ? buildCoach(a, raw.wind, raw.crossMs, raw.zones ?? null) : null, sail, official);
 }
 
 // ---- themes: what a finding is about, across races (coarse enough to recur), and what to work on
@@ -147,19 +177,26 @@ export interface Theme {
   label: string;
   /** "slow at the gun" in "slow at the gun in 4 of 9 races". */
   phrase: string;
+  /** A pattern card's lead: "Leeward roundings cost you time" (in 3 of 4 races with good data). */
+  pattern: string;
 }
 
 /** The areas a sailor works on; a detector's variants within one area recur as one theme. */
 export const THEMES: Record<string, Theme> = {
-  start: { label: 'Starts: late or back at the gun', phrase: 'late or back from the line at the gun' },
-  'gun-speed': { label: 'Slow at the gun', phrase: 'slow at the gun' },
-  'after-start': { label: 'First minutes after the start', phrase: 'losing ground in the first minutes' },
-  shifts: { label: 'Wrong side of the shifts', phrase: 'on the wrong side of a shift' },
-  leader: { label: 'Let the leaders go', phrase: 'level with a leader, then let go' },
-  gains: { label: 'Gave back gains from a side', phrase: 'giving back a gain from a side' },
-  upwind: { label: 'Upwind speed and height', phrase: 'slow upwind' },
-  downwind: { label: 'Downwind angles and speed', phrase: 'slow downwind' },
-  'last-leg': { label: 'The last leg', phrase: 'losing out on the last leg' },
+  start: { label: 'Starts: late or back at the gun', phrase: 'late or back from the line at the gun', pattern: 'Late or back from the line at the gun' },
+  'gun-speed': { label: 'Slow at the gun', phrase: 'slow at the gun', pattern: 'Slow at the gun' },
+  'after-start': { label: 'First minutes after the start', phrase: 'losing ground in the first minutes', pattern: 'The first minutes after the start cost you time' },
+  shifts: { label: 'Wrong side of the shifts', phrase: 'on the wrong side of a shift', pattern: 'On the wrong side of a shift' },
+  leader: { label: 'Let the leaders go', phrase: 'level with a leader, then let go', pattern: 'Level with a leader, then let go' },
+  gains: { label: 'Gave back gains from a side', phrase: 'giving back a gain from a side', pattern: 'Gave back a gain from a side' },
+  upwind: { label: 'Upwind speed and height', phrase: 'slow upwind', pattern: 'Slow upwind' },
+  downwind: { label: 'Downwind angles and speed', phrase: 'slow downwind', pattern: 'Slow downwind' },
+  'last-leg': { label: 'The last leg', phrase: 'losing out on the last leg', pattern: 'The last leg cost you time' },
+  'dirty-air': { label: 'Dirty air early on the beats', phrase: 'in dirty air early on the beats', pattern: 'You sailed in dirty air early on the beats' },
+  'round-windward': { label: 'Windward mark roundings', phrase: 'slow or wide at the windward mark', pattern: 'Windward roundings cost you time' },
+  'round-leeward': { label: 'Leeward mark roundings', phrase: 'slow or wide at the leeward mark', pattern: 'Leeward roundings cost you time' },
+  'round-offset': { label: 'Offset mark roundings', phrase: 'slow or wide at the offset mark', pattern: 'Offset-mark roundings cost you time' },
+  'round-reach': { label: 'Reach mark roundings', phrase: 'slow or wide at the reach marks', pattern: 'Reach-mark roundings cost you time' },
 };
 
 /** A finding's theme. */
@@ -179,11 +216,15 @@ export function themeKey(kind: DetectorKind, variant: string): string {
       return 'upwind';
     case 'D7':
       return 'downwind';
+    case 'D8':
+      return 'dirty-air';
+    case 'D9':
+      return `round-${variant}`;
     case 'D10':
       return 'last-leg';
   }
 }
-export const themeOf = (key: string): Theme => THEMES[key] ?? { label: key, phrase: key };
+export const themeOf = (key: string): Theme => THEMES[key] ?? { label: key, phrase: key, pattern: key };
 
 /** What to work on, by detector and variant (the race cards' tips, coachCards.ts, in short); the theme's tip is its costliest variant's. */
 const TIPS: Record<string, string> = {
@@ -203,6 +244,11 @@ const TIPS: Record<string, string> = {
   'D7:deep': 'Sail hotter in the lulls and soak low only in the puffs; gybe on the angle.',
   'D7:hot': 'Soak lower in the puffs: the speed was there, the extra distance cost it.',
   'D7:slow': 'Keep someone calling pressure and gybe into the puffs.',
+  D8: 'Get a clear lane: tack or foot out of a boat’s shadow within a few lengths; don’t sit in its wind.',
+  'D9:windward': 'Plan the bear-away: come in on the layline, ease the main as you turn, hoist once round.',
+  'D9:leeward': 'Wide in, tight out: drop early, swing wide on the approach and leave close to the mark.',
+  'D9:offset': 'Set up early for the offset: hoist and settle before it, then turn tight.',
+  'D9:reach': 'Turn tight at the reach marks and trim for the new angle as you go round.',
   'D10:beat': 'Sail the lifted tack and stay between the boats just ahead and the finish.',
   'D10:run': 'Keep someone calling pressure and gybe into the puffs.',
 };
@@ -236,6 +282,12 @@ export interface RecurringFinding {
   /** Of `races`, how many had low tracker coverage. */
   lowRaces: number;
   raceLabels: string[];
+  /** Seconds per race it was found in (raceLabels' order). */
+  raceSeconds: number[];
+  /** The best confidence of its findings in each race (raceLabels' order): a low-resolution D9 is medium or low. */
+  raceConf: Confidence[];
+  /** `of` counts only the races the detector had the data for (D8, D9). */
+  gated: boolean;
 }
 
 export interface LegExtreme {
@@ -265,6 +317,24 @@ export interface WorkOn {
   tip: string;
   /** What ranks it: weighted seconds over the regatta. */
   score: number;
+  /** A finding in RECUR_RACES or more races: shown as a pattern card ("… in 3 of 4 races with good data"). */
+  pattern: boolean;
+  /** Per-race chips: "R1 32 s". */
+  chips: string[];
+}
+
+/** A ➕ family over the regatta (Went well). */
+export interface WentWell {
+  family: string;
+  title: string;
+  /** Races it went well in, of the races with data. */
+  races: number;
+  of: number;
+  totalS: number;
+  /** Weighted by each race's coverage: what ranks it. */
+  weightedS: number;
+  /** The best single one: "R2 Beat 1 +45 s". */
+  best: { label: string; what: string; seconds: number };
 }
 
 export interface RegattaSummary {
@@ -276,6 +346,8 @@ export interface RegattaSummary {
   findings: RecurringFinding[];
   legs: LegTypeSummary[];
   top: WorkOn[];
+  /** At most WENT_WELL_TOP, the most weighted seconds first. */
+  went: WentWell[];
 }
 
 /** A finding counts as recurring from this many races… */
@@ -285,6 +357,20 @@ export const RECUR_SOLO_S = 30;
 /** A leg type is worth working on from this much lost per leg (weighted mean), s. */
 export const LEG_WORK_S = 10;
 export const TOP_WORK = 3;
+/** Went well over the regatta: at most this many families. */
+export const WENT_WELL_TOP = 3;
+
+const FAMILY_TITLE: Record<string, string> = {
+  start: 'Starts',
+  'leg:upwind': 'Beats',
+  'leg:downwind': 'Runs',
+  'leg:reach': 'Reaches',
+  'round:windward': 'Windward roundings',
+  'round:leeward': 'Leeward roundings',
+  'round:offset': 'Offset roundings',
+  'round:reach': 'Reach-mark roundings',
+};
+export const familyTitle = (f: string): string => FAMILY_TITLE[f] ?? f;
 
 const LEG_WORDS: Record<LegKind, { one: string; many: string; tip: string }> = {
   upwind: { one: 'beat', many: 'beats', tip: 'Upwind: work on speed in a clear lane, then on the shifts; compare trim with the boats that gain on you.' },
@@ -312,8 +398,11 @@ export function summarizeRegatta(races: readonly RegattaRace[]): RegattaSummary 
   const variants = new Map<string, Map<string, { s: number; tip: string }>>();
   for (const r of withData) {
     const sums = new Map<string, number>();
+    const confs = new Map<string, Confidence>();
     for (const f of r.digest!.findings) {
       sums.set(f.theme, (sums.get(f.theme) ?? 0) + f.seconds);
+      const c = confs.get(f.theme);
+      if (!c || CONF_ORDER.indexOf(f.confidence) > CONF_ORDER.indexOf(c)) confs.set(f.theme, f.confidence);
       const vs = variants.get(f.theme) ?? new Map<string, { s: number; tip: string }>();
       const k = `${f.kind}:${f.variant}`;
       vs.set(k, { s: (vs.get(k)?.s ?? 0) + f.seconds * r.weight, tip: tipOf(f.kind, f.variant) });
@@ -321,12 +410,17 @@ export function summarizeRegatta(races: readonly RegattaRace[]): RegattaSummary 
     }
     for (const [theme, sec] of sums) {
       const t = themeOf(theme);
-      const cur = byTheme.get(theme) ?? { theme, label: t.label, phrase: t.phrase, tip: '', races: 0, of: withData.length, totalS: 0, weightedS: 0, lowRaces: 0, raceLabels: [] };
+      const gated = gatedTheme(theme);
+      // A gated detector's denominator: the races it had the data for (one it fired in always had).
+      const of = gated ? withData.filter((x) => x === r || (x.digest!.evaluated ?? []).includes(theme) || x.digest!.findings.some((y) => y.theme === theme)).length : withData.length;
+      const cur = byTheme.get(theme) ?? { theme, label: t.label, phrase: t.phrase, tip: '', races: 0, of, totalS: 0, weightedS: 0, lowRaces: 0, raceLabels: [], raceSeconds: [], raceConf: [], gated };
       cur.races += 1;
       cur.totalS += sec;
       cur.weightedS += sec * r.weight;
       if (r.low) cur.lowRaces += 1;
       cur.raceLabels.push(r.label);
+      cur.raceSeconds.push(sec);
+      cur.raceConf.push(confs.get(theme) ?? 'high');
       byTheme.set(theme, cur);
     }
   }
@@ -350,7 +444,23 @@ export function summarizeRegatta(races: readonly RegattaRace[]): RegattaSummary 
   // The rules: recurring findings (≥ RECUR_RACES races, or ≥ RECUR_SOLO_S weighted in one), and the leg type that costs the most per leg.
   const top: WorkOn[] = findings
     .filter((f) => f.races >= RECUR_RACES || f.weightedS >= RECUR_SOLO_S)
-    .map((f) => ({ theme: f.theme, title: f.label, why: `${cap(f.phrase)} in ${f.races} of ${f.of} races, ~${Math.round(f.totalS)} s total${f.lowRaces ? ` (${f.lowRaces} with low tracker data)` : ''}`, tip: f.tip, score: f.weightedS }));
+    .map((f) => {
+      const pattern = f.races >= RECUR_RACES;
+      const total = f.totalS >= 1 ? `, ~${Math.round(f.totalS)} s total` : '';
+      const low = f.lowRaces ? ` (${f.lowRaces} with low tracker data)` : '';
+      return {
+        theme: f.theme,
+        title: f.label,
+        why: pattern ? `${themeOf(f.theme).pattern} in ${f.races} of ${f.of} races with good data${total}${low}` : `${cap(f.phrase)} in ${f.races} of ${f.of} races${total}${low}`,
+        tip: f.tip,
+        score: f.weightedS,
+        pattern,
+        chips: f.raceLabels.map((l, i) => {
+          const c = f.raceConf[i];
+          return `${f.raceSeconds[i] >= 1 ? `${l} ${Math.round(f.raceSeconds[i])} s` : l}${c === 'high' ? '' : ` (${c})`}`;
+        }),
+      };
+    });
   const worstType = [...legs].filter((l) => l.legs >= RECUR_RACES && l.meanS >= LEG_WORK_S).sort((p, q) => q.weightedS - p.weightedS)[0];
   // …unless a finding about the same legs (the upwind or downwind theme) already says it.
   if (worstType && !top.some((t) => t.theme === worstType.kind)) {
@@ -361,11 +471,34 @@ export function summarizeRegatta(races: readonly RegattaRace[]): RegattaSummary 
       why: `~${Math.round(worstType.meanS)} s lost per ${w.one} vs the fleet's median, over ${worstType.legs} ${legWord(worstType.kind, worstType.legs)}`,
       tip: w.tip,
       score: worstType.weightedS,
+      pattern: false,
+      chips: [],
     });
   }
   top.sort((p, q) => q.score - p.score || p.title.localeCompare(q.title));
 
-  return { rows, done: done.length, withData: withData.length, total: rows.length, findings, legs, top: top.slice(0, TOP_WORK) };
+  return { rows, done: done.length, withData: withData.length, total: rows.length, findings, legs, top: top.slice(0, TOP_WORK), went: wentWellOf(withData) };
+}
+
+/**
+ * Went well over the regatta: each race's ➕ (legs, roundings, the start where the boat gained on the
+ * leaders) grouped by family, ranked by seconds weighted by the race's coverage; at most WENT_WELL_TOP.
+ */
+export function wentWellOf(races: readonly (RegattaRace & { weight: number })[]): WentWell[] {
+  const by = new Map<string, WentWell>();
+  for (const r of races) {
+    const seen = new Set<string>();
+    for (const w of r.digest?.went ?? []) {
+      const cur = by.get(w.family) ?? { family: w.family, title: familyTitle(w.family), races: 0, of: races.length, totalS: 0, weightedS: 0, best: { label: r.label, what: w.label, seconds: w.seconds } };
+      if (!seen.has(w.family)) cur.races += 1;
+      seen.add(w.family);
+      cur.totalS += w.seconds;
+      cur.weightedS += w.seconds * r.weight;
+      if (w.seconds > cur.best.seconds) cur.best = { label: r.label, what: w.label, seconds: w.seconds };
+      by.set(w.family, cur);
+    }
+  }
+  return [...by.values()].sort((p, q) => q.weightedS - p.weightedS || q.races - p.races || p.title.localeCompare(q.title)).slice(0, WENT_WELL_TOP);
 }
 
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);

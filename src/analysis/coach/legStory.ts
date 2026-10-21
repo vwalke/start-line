@@ -1,13 +1,24 @@
 /**
  * Leg stories (Chris's per-leg fleet narrative, analysis.md §5 item 2): for
- * each leg of the race, within the reference group the Coach's picker set
- * (plus the coached boat), who gained and lost places, which side of the
- * course paid, how the boats left the windward mark (gybe-set or bear-away,
- * and what each gained), and the fastest leg time. Pure numbers: the UI fills
- * one templated sentence and the chips.
+ * each leg of the race, the coached boat's places gained or lost in the whole
+ * fleet (and its seconds against the reference group the Coach's picker set),
+ * who in the group gained and lost places, which side of the course paid, how
+ * the boats left the windward mark (gybe-set or bear-away, and what each
+ * gained), and the fastest leg time. Pure numbers: the UI fills the chips.
  *
- * - Places at the leg's ends are places.ts's columns (the start place, the
- *   order of the rounding times, the finish), re-ranked among the set.
+ * - Places (fleetPlaces) are in the whole fleet, out of a FIXED fleet: the boats
+ *   that started (the official fleet when results are linked), the same at every
+ *   mark. At each mark the order of the rounding times; a boat with no time
+ *   there (a tracker hole, a dropped tracker) is placed from a time interpolated
+ *   between its roundings either side (or its finish) by the fleet's median
+ *   split, or carried on at its own pace from its last one; such places are
+ *   marked estimated. The start: the start place (boats without one after,
+ *   in their first mark's order); the finish: the official or recovered place;
+ *   a finish lost in a hole (no place, no code) among the finishers by its
+ *   estimated time; coded boats (DNF, …) after the last finisher. The fleet
+ *   never shrinks.
+ * - Against a group (Top 3, Near, custom), a place within a handful of boats
+ *   says little: the leg's seconds against the group's median leg time instead.
  * - Side: each boat's mean across-wind position over the leg (every
  *   SIDE_STEP_MS, against the wind at the leg's middle, + = right looking
  *   upwind on every leg), relative to the set's median. The set sorted by it
@@ -24,9 +35,10 @@
  */
 import { bearingVec, dot, median, type Vec } from '../geo';
 import { detectManoeuvres, type ManoeuvreTrack } from '../manoeuvres';
-import { placeChanges, roundingMs } from '../places';
+import { placeColumns, roundingMs } from '../places';
 import type { BoatResult, LegKind, RaceAnalysis } from '../types';
 import type { CoachModel } from './index';
+import { extraTracked, fleetOf } from './fleet';
 import { groupIds, type Group } from './groups';
 import { coachCoverage } from './opportunity';
 import { posAt } from './tracks';
@@ -65,21 +77,118 @@ export function classifyRounding(tr: ManoeuvreTrack, twdAt: (t: number) => numbe
   return first?.kind === 'gybe' ? 'gybe-set' : 'bear-away';
 }
 
-/** Rank `vals` (null = no place) 1 = smallest among those with a value. */
-function rankAmong(vals: (number | null)[]): (number | null)[] {
-  const idx = vals.map((v, i) => [v, i] as const).filter((x): x is readonly [number, number] => x[0] != null);
-  idx.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
-  const out: (number | null)[] = vals.map(() => null);
-  idx.forEach(([, i], k) => (out[i] = k + 1));
-  return out;
+/** Every racing boat's place at each column (start, each mark, finish), out of `of` (the fixed fleet). */
+export interface FleetPlaces {
+  of: number;
+  /** Per boat: place and estimated flag per column, and the (known or estimated) elapsed time there, s after the gun. */
+  byId: Map<string, { place: number[]; est: boolean[]; elapsedS: (number | null)[] }>;
+}
+
+/** The middle of the values, or null with none. */
+const med = (xs: number[]): number | null => (xs.length ? median(xs) : null);
+
+/** Fleet places with a fixed denominator (see the header): every boat has a place at every column. */
+export function fleetPlaces(a: Pick<RaceAnalysis, 'legs' | 'boats' | 'meta'>): FleetPlaces {
+  const gun = a.meta.gunMs;
+  const cols = placeColumns(a.legs);
+  const nc = cols.length;
+  const extra = extraTracked(a);
+  // Official fleet only: tracked boats the results don't list would inflate "of N" past the official count.
+  const boats = extra.size ? a.boats.filter((b) => !extra.has(b.sail) && !extra.has(b.id)) : a.boats;
+  // Elapsed time at each column (null: unknown): the gun, each rounding, the finish.
+  const known = boats.map((b) =>
+    cols.map((c): number | null => {
+      if (c.kind === 'start') return 0;
+      const t = c.kind === 'finish' ? b.finishMs : roundingMs(b, c.legIndex!);
+      return t != null && t > gun ? (t - gun) / 1000 : null;
+    }),
+  );
+  // The fleet's median elapsed time at each column: the shape a missing time is filled along.
+  const medAt = cols.map((_, k) => med(known.map((r) => r[k]).filter((x): x is number => x != null)));
+  const elapsed = known.map((row) =>
+    row.map((v, k): { s: number; est: boolean } | null => {
+      if (v != null) return { s: v, est: false };
+      const m = medAt[k];
+      if (m == null) return null;
+      let p = k - 1;
+      while (p > 0 && (row[p] == null || medAt[p] == null)) p--;
+      let q = k + 1;
+      while (q < nc && (row[q] == null || medAt[q] == null)) q++;
+      const tp = row[p] ?? 0;
+      const mp = medAt[p] ?? 0;
+      if (q < nc) {
+        const span = medAt[q]! - mp;
+        return { s: tp + (span > 0 ? ((row[q]! - tp) * (m - mp)) / span : 0), est: true };
+      }
+      // Nothing known after: on at its own pace so far (the fleet's when it has none).
+      const pace = p > 0 && mp > 0 ? tp / mp : 1;
+      return { s: tp + (m - mp) * pace, est: true };
+    }),
+  );
+  const place = boats.map(() => Array.from({ length: nc }, () => 0));
+  const est = boats.map(() => Array.from({ length: nc }, () => false));
+  /** Places from..: `ids` sorted by `keys` (compared in turn, smallest first; Infinity last). */
+  const order = (k: number, keys: (i: number) => number[], isEst: (i: number) => boolean, from = 1, ids = boats.map((_, i) => i)): void => {
+    const cmp = (i: number, j: number): number => {
+      const p = keys(i);
+      const q = keys(j);
+      for (let x = 0; x < p.length; x++) if (p[x] !== q[x]) return p[x] < q[x] ? -1 : 1;
+      return i - j;
+    };
+    [...ids].sort(cmp).forEach((i, r) => {
+      place[i][k] = from + r;
+      est[i][k] = isEst(i);
+    });
+  };
+  // Marks first (the start's fallback order reads the first mark); a tie keeps the legs table's rank there, then the place before.
+  for (let k = 1; k < nc - 1; k++) {
+    const li = cols[k].legIndex!;
+    order(
+      k,
+      (i) => [elapsed[i][k]?.s ?? Infinity, boats[i].legs[li]?.rankAtEnd ?? Infinity, k > 1 ? place[i][k - 1] : 0],
+      (i) => elapsed[i][k]?.est ?? true,
+    );
+  }
+  // The start: the start place, then the boats with none in their first mark's (else finish) order.
+  const firstKey = (i: number): number[] => [nc > 2 ? place[i][1] : (boats[i].finishPos ?? Infinity)];
+  const started = boats.map((_, i) => i).filter((i) => boats[i].start?.startPlace != null);
+  const rest = boats.map((_, i) => i).filter((i) => boats[i].start?.startPlace == null);
+  order(0, (i) => [boats[i].start!.startPlace!], () => false, 1, started);
+  order(0, firstKey, () => true, started.length + 1, rest);
+  // The finish: the official or recovered place; non-finishers after the last finisher, by how far on they were.
+  const fin = nc - 1;
+  const finished = boats.map((_, i) => i).filter((i) => boats[i].finishPos != null);
+  for (const i of finished) {
+    place[i][fin] = boats[i].finishPos!;
+    est[i][fin] = false;
+  }
+  const last = Math.max(0, ...finished.map((i) => place[i][fin]));
+  // No place and no code (a finish lost in a tracker hole): placed among the finishers by its estimated time
+  // (the others keep their official places; it is marked estimated). A coded boat (DNF, …) or one with no
+  // estimate goes after the last finisher, by how far on it was.
+  const finS = (i: number): number | null => (boats[i].finishMs != null ? (boats[i].finishMs! - gun) / 1000 : null);
+  const unknown = boats.map((_, i) => i).filter((i) => boats[i].finishPos == null && !boats[i].finishCode && elapsed[i][fin] != null);
+  for (const i of unknown) {
+    const s = elapsed[i][fin]!.s;
+    place[i][fin] = 1 + finished.filter((j) => (finS(j) ?? Infinity) < s).length;
+    est[i][fin] = true;
+  }
+  const dnf = boats.map((_, i) => i).filter((i) => boats[i].finishPos == null && !unknown.includes(i));
+  order(fin, (i) => [elapsed[i][fin]?.s ?? Infinity, nc > 2 ? place[i][nc - 2] : 0], () => true, last + 1, dnf);
+  // Official `of` (or the tracked fleet): never the assigned DNF slot after the last finisher,
+  // which can run past the official count when an extra tracker was dropped.
+  const of = Math.max(fleetOf(a as RaceAnalysis), boats.length, ...boats.map((b) => b.finishPos ?? 0));
+  return { of, byId: new Map(boats.map((b, i) => [b.id, { place: place[i], est: est[i], elapsedS: elapsed[i].map((e) => e?.s ?? null) }])) };
 }
 
 export interface Mover {
   id: string;
-  /** Places gained on the leg within the set (+ = gained). */
+  /** Places gained on the leg in the fleet (+ = gained). */
   gain: number;
   from: number;
   to: number;
+  /** Either end's place estimated (a missing rounding filled in). */
+  est?: boolean;
 }
 
 export type SideVerdict = 'left' | 'right' | 'none';
@@ -115,19 +224,22 @@ export interface LegStory {
   kind: LegKind;
   /** The boats the stats are over by default (the group and the coached boat), finish order. */
   set: string[];
-  /** Movers within the set (or the fleet, `moversFleet`): the biggest gainers and losers. */
+  /** The biggest gainers and losers of fleet places among the set (the whole fleet when the group is). */
   gainers: Mover[];
   losers: Mover[];
+  /** Always false now (every boat has a fleet place); kept for older callers. */
   moversFleet: boolean;
-  /** The coached boat's places on the leg within the movers' set; null without both. */
+  /** The coached boat's fleet places at the leg's ends; null when it isn't in the race. */
   mine: Mover | null;
-  /** How many boats the place ranks are among (the group + you, or the fleet). */
+  /** The fixed fleet every place is out of. */
   placeOf: number;
+  /** Against a group (not the whole fleet): the boat's leg time minus the group's median leg time, s (+ = lost); null without times. */
+  vsGroup: { deltaS: number; n: number } | null;
   side: SideStat | null;
   /** Downwind legs after a windward mark only. */
   rounding: RoundingStat | null;
   fastest: { id: string; timeS: number } | null;
-  /** The coached boat's leg time rank among the boats with a time (the movers' set). */
+  /** The coached boat's leg time rank among the fleet's boats with a time. */
   myTime: { rank: number; of: number; timeS: number } | null;
   /** The coached boat's coverage of the leg, 0–1; falls back to its race coverage when it has no timed leg. */
   coverage: number | null;
@@ -180,21 +292,21 @@ export function sidePaid(rows: { x: number; gain: number }[]): Pick<SideStat, 'v
 
 /** One story per leg of the race for `boat`, the stats over its group `g` (and itself). */
 export function legStories(a: RaceAnalysis, m: CoachModel, boat: string, g: Group): LegStory[] {
-  const pc = placeChanges(a);
+  const fp = fleetPlaces(a);
   const byId = new Map(a.boats.map((b) => [b.id, b]));
-  const pcById = new Map(pc.boats.map((b) => [b.id, b]));
   const group = groupIds(a.boats, boat, g);
   const set = [boat, ...group].filter((id) => byId.has(id));
   const fleet = a.boats.map((b) => b.id);
   const marksEstimated = a.legSource === 'fleet' || a.marks.some((k) => k.estimated);
   return a.legs.map((leg, li) => {
-    // Places at the leg's ends: column li (the start, or the mark before) and li + 1.
-    const placeAt = (id: string, col: number): number | null => pcById.get(id)?.places[col] ?? null;
+    // Fleet places at the leg's ends: column li (the start, or the mark before) and li + 1; every boat has both.
+    const placeAt = (id: string, col: number): number | null => fp.byId.get(id)?.place[col] ?? null;
     const hasPlaces = (id: string): boolean => placeAt(id, li) != null && placeAt(id, li + 1) != null;
-    const mv = setOrFleet(set, fleet, hasPlaces);
-    const from = rankAmong(mv.ids.map((id) => placeAt(id, li)));
-    const to = rankAmong(mv.ids.map((id) => placeAt(id, li + 1)));
-    const movers: Mover[] = mv.ids.map((id, k) => ({ id, from: from[k]!, to: to[k]!, gain: from[k]! - to[k]! }));
+    const moverOf = (id: string): Mover => {
+      const r = fp.byId.get(id)!;
+      return { id, from: r.place[li], to: r.place[li + 1], gain: r.place[li] - r.place[li + 1], est: r.est[li] || r.est[li + 1] };
+    };
+    const movers: Mover[] = (g.kind === 'fleet' ? fleet : set).filter(hasPlaces).map(moverOf);
     const gainers = movers.filter((x) => x.gain > 0).sort((p, q) => q.gain - p.gain || p.to - q.to).slice(0, MOVERS_N);
     const losers = movers.filter((x) => x.gain < 0).sort((p, q) => p.gain - q.gain || p.to - q.to).slice(0, MOVERS_N);
 
@@ -212,11 +324,9 @@ export function legStories(a: RaceAnalysis, m: CoachModel, boat: string, g: Grou
     {
       const has = (id: string): boolean => xs.has(id) && hasPlaces(id);
       const sv = setOrFleet(set, fleet, has, SIDE_MIN_BOATS);
-      // Gains re-ranked among the boats this stat is over.
-      const f = rankAmong(sv.ids.map((id) => placeAt(id, li)));
-      const t = rankAmong(sv.ids.map((id) => placeAt(id, li + 1)));
+      // Fleet places gained (the fixed fleet: a boat lost from the trackers doesn't move the others).
       const mid = sv.ids.length ? median(sv.ids.map((id) => xs.get(id)!)) : 0;
-      const r = sidePaid(sv.ids.map((id, k) => ({ x: xs.get(id)! - mid, gain: f[k]! - t[k]! })));
+      const r = sidePaid(sv.ids.map((id) => ({ x: xs.get(id)! - mid, gain: placeAt(id, li)! - placeAt(id, li + 1)! })));
       if (r) side = { ...r, mineM: xs.has(boat) ? xs.get(boat)! - mid : null, of: sv.ids.length, fleet: sv.fleet };
     }
 
@@ -232,21 +342,29 @@ export function legStories(a: RaceAnalysis, m: CoachModel, boat: string, g: Grou
       }
       const rv = setOrFleet(set, fleet, (id) => kinds.has(id) && hasPlaces(id), ROUND_MIN_BOATS);
       if (rv.ids.length >= ROUND_MIN_BOATS) {
-        const f = rankAmong(rv.ids.map((id) => placeAt(id, li)));
-        const t = rankAmong(rv.ids.map((id) => placeAt(id, li + 1)));
         const of = (k: RoundingKind) => {
-          const gs = rv.ids.map((id, i) => (kinds.get(id) === k ? f[i]! - t[i]! : null)).filter((x): x is number => x != null);
+          const gs = rv.ids.map((id) => (kinds.get(id) === k ? placeAt(id, li)! - placeAt(id, li + 1)! : null)).filter((x): x is number => x != null);
           return { n: gs.length, gain: gs.length ? gs.reduce((s, x) => s + x, 0) / gs.length : null };
         };
         rounding = { gybeSet: of('gybe-set'), bearAway: of('bear-away'), mine: kinds.get(boat) ?? null, of: rv.ids.length, fleet: rv.fleet };
       }
     }
 
-    // Leg times among the movers' set.
-    const timed = mv.ids.map((id) => ({ id, timeS: byId.get(id)!.legs[li]?.timeS })).filter((x): x is { id: string; timeS: number } => x.timeS != null);
-    timed.sort((p, q) => p.timeS - q.timeS);
+    // Leg times: the fastest in the set (the fleet when the group is), the boat's rank in the fleet.
+    const timeOf = (id: string): number | undefined => byId.get(id)!.legs[li]?.timeS;
+    const timedIn = (ids: string[]) =>
+      ids
+        .map((id) => ({ id, timeS: timeOf(id) }))
+        .filter((x): x is { id: string; timeS: number } => x.timeS != null)
+        .sort((p, q) => p.timeS - q.timeS);
+    const timed = timedIn(fleet);
+    const setTimed = g.kind === 'fleet' ? timed : timedIn(set);
     const mineT = timed.findIndex((x) => x.id === boat);
     const me = byId.get(boat)!;
+    // Against a group: seconds vs its median leg time (a place among four boats says little).
+    const groupTimes = group.map(timeOf).filter((x): x is number => x != null);
+    const myLeg = timeOf(boat);
+    const vsGroup = g.kind !== 'fleet' && myLeg != null && groupTimes.length ? { deltaS: myLeg - median(groupTimes), n: groupTimes.length } : null;
     const sp = spans.get(boat);
     const tr = m.tracks.get(boat);
     return {
@@ -256,12 +374,13 @@ export function legStories(a: RaceAnalysis, m: CoachModel, boat: string, g: Grou
       set,
       gainers,
       losers,
-      moversFleet: mv.fleet,
-      mine: movers.find((x) => x.id === boat) ?? null,
-      placeOf: mv.ids.length,
+      moversFleet: false,
+      mine: hasPlaces(boat) ? moverOf(boat) : null,
+      placeOf: fp.of,
+      vsGroup,
       side,
       rounding,
-      fastest: timed[0] ?? null,
+      fastest: setTimed[0] ?? null,
       myTime: mineT >= 0 ? { rank: mineT + 1, of: timed.length, timeS: timed[mineT].timeS } : null,
       coverage: me.legs[li]?.coverage ?? (sp && tr ? coachCoverage(tr.t, sp[0], sp[1]) : (me.coverage ?? null)),
       marksEstimated,

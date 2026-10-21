@@ -26,21 +26,94 @@ are shared by all three.
   - **Race:** its place (official when linked) and the gap to the winner, the
     gap to a group of rivals (Top 3 / boats near me / whole fleet / custom)
     over the race with the fleet's wind under it, the biggest gains as cards,
-    and a story per leg. Works on every race the menu offers, rebuilt and
-    tracker-only ones included.
+    **Went well** (up to 3 lines with the seconds gained: legs, roundings
+    and the start where the boat gained on the top 3), the ✓ "Not the
+    problem" chips, and a story per leg. Works on every race the menu offers,
+    rebuilt and tracker-only ones included.
   - **Regatta:** the same boat over every race the Race menu lists (its
     numbering; practice left out; rebuilt and tracker-only races in). A row of
-    places (official, else RaceSense's or the tracker's `~`, "of N"); the
-    findings that recur, ranked by seconds at stake and with how many races
-    they turned up in ("Slow at the gun in 4 of 9 races, ~60 s total"); best
-    and worst legs by type against the fleet's median leg time; and the top 3
-    things to work on, by fixed rules (no AI). A race with tracker coverage
-    under 80 % is shown and marked ⚠, its seconds weighted down in proportion.
-    The races are analysed on first opening, one at a time on a second worker
-    (`src/ui/coachRegatta.ts`, `src/analysis/coach/regatta.ts`) with progress,
-    and cached for the visit; the race on screen is never held up.
+    places (official, else RaceSense's or the tracker's `~`, "of N"); the top 3
+    things to work on as cards, a finding found in 2+ races being a **pattern
+    card** ("Leeward roundings cost you time in 3 of 4 races with good data",
+    a chip per race with its seconds, and the tip); **Went well** over the
+    regatta (up to 3 families: "Beats: gained on the top 3 in 2 of 4 races
+    (best R2 Beat 2, 55 s)"); the ranked table of recurring findings; best
+    and worst legs by type against the fleet's median leg time. All by fixed
+    rules (no AI). A race with tracker coverage under 80 % is shown and marked
+    ⚠, its seconds weighted down in proportion. The races are analysed on
+    first opening, one at a time on a second worker (`src/ui/coachRegatta.ts`,
+    `src/analysis/coach/regatta.ts`) with progress, and cached for the visit;
+    the race on screen is never held up.
 
   The group, boat and view are in the URL (`grp=`, `boat=`, `cview=regatta`).
+
+  The detectors (`src/analysis/coach/detectors/`) follow the Coach spec's table;
+  phase 4 added the two that need dense data:
+  - **D9 mark rounding** (`rounding.ts`): the time from 100 m in to 100 m out of
+    the mark rounded (read where the track crosses the circle; both buoys of a
+    gate count), and the exit, the distance across the next leg's line through
+    the mark 2 boat lengths down it. Only timed with a fix at least every 2 s
+    within 60 m of the mark (and ≤ 5 s apart in the zone); the public feed
+    mostly fails that, an uploaded log passes. Compared with the top 3 that
+    pass the same gate (2 or more); else with the boat's own other roundings of
+    that kind of mark (confidence at most medium); else with two or more other
+    boats with data (low); the card says which ("no leader data"). Fires at
+    8 s or more slower than the reference median, or an exit more than 2 lengths
+    wider; seconds = Δ time in the zone ("Leeward gate, 2nd rounding: 9 s slower
+    than the leaders through the zone, exited 3 lengths wide"). A mark placed
+    from the fleet's turns (no tracker) is suppressed. A rounding 5 s or more
+    quicker than the top 3 is a Went well line.
+    **Low-resolution fallback** (`placesThrough`, `src/analysis/coach/progress.ts`):
+    wherever the zone time can't be used (the coverage gate fails, no reference
+    passes it, or the mark is estimated), the boat's place in the fleet is read
+    by distance to go along the course (the wind ladder to its mark plus the
+    legs after; the leg table's fixed fleet; a sparse track's position read
+    across gaps up to 60 s, otherwise interpolated between its rounding times)
+    at its own fix nearest 60 s before the rounding (20 s–2 min) and the same
+    after.     Losing max(3, min(5, ceil(5 % of the fleet))) places or more (3 up to
+    60 boats, 4 to 80, 5 beyond) is a card at medium confidence ("Windward
+    mark: lost 7 places through the rounding, 10th → 17th of 100 (sparse data,
+    timing approximate)"); seconds = the median change in gap (distance to go
+    ÷ the two legs' fleet VMG) to the boats that passed it. The boat's own
+    places must be from a position (a hole at the read is not judged); only
+    boats measured at both reads count as passers. DNS/DNC and tracked boats
+    official results don't list are left out of the ranking; a DNF/RET is not
+    carried past its last known mark. If the boats that
+    came in from the other side within 3 minutes gained 2+ places more on
+    average than the boat's side, and two thirds of those that passed it came
+    from there, the card says it looks like a shift, the seconds are halved and
+    the confidence is low. Low too when over half the fleet's places are
+    interpolated; over three quarters, not judged at all. The 10 Hz zone time
+    always wins when coverage allows. Fallback findings count in the Regatta
+    view like any other, their confidence on the race chip ("R2 25 s (medium)").
+  - **D8 dirty air** (`shadow.ts`): in the first 6 minutes of each beat, a boat
+    0.5–7 lengths from another and within ±22° of its plume (downwind of it,
+    swung toward its stern by half its angle to the wind, at most 20°) is in its
+    shadow. Positions every 5 s, read only between fixes ≤ 6 s apart; a moment
+    counts only when 60 % of the boats racing then have one, and the boat needs
+    half its moments counted (else not evaluated). Fires at a share in shadow of
+    15 % or more and at least twice the fleet's median; then a chip on the
+    early-lane card (D3), or a card of its own when the gap to the top 3 grew
+    15 s or more over the shadowed stretches.
+  - An **uploaded .vkx log** feeds the Coach at its full rate: the analysis
+    track is thinned to 1 Hz (merge.ts), but the boat keeps the log's own fixes
+    (`Boat.fullRate`) and the worker hands the Coach every boat's raw fixes
+    within 130 m of a mark (`zoneTracks`, the uploaded boat at 10 Hz, the feed's
+    at most every 0.4 s). Leaders are only used where their own fixes pass the
+    gate.
+  - **Regatta denominators:** dirty air and each kind of rounding count only the
+    races the detector had the data to measure ("3 of 4*" in the table, with a
+    footnote); everything else counts every race with enough tracker data.
+  - **Leg by leg:** places are in the whole fleet, out of a fixed fleet (every
+    boat that started; the official fleet when linked) on every leg: "gained 3 ·
+    12th of 33", "lost 5 · 30th of 33", "even · 4th of 33". A boat with no time
+    at a mark (a tracker hole, a dropped tracker) is placed from a time
+    interpolated between its roundings either side (or its finish) along the
+    fleet's median splits, or carried on at its own pace; such places show `~`.
+    A finish lost in a hole is placed among the finishers by its estimated
+    time; coded boats (DNF…) after the last finisher. Against Top 3 / Near /
+    custom the closed row adds the leg's seconds against the group's median leg
+    time ("lost 12 s vs Top 3") instead of a place within a handful of boats.
 
 Each table stays on the tab with the charts it's read against, because
 picking a boat in a chart and finding its row (or the reverse) is the main
