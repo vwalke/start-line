@@ -12,7 +12,7 @@ import type { Card } from '../analysis/coach/rank';
 import { summarizeRegatta, legWord, type RegattaRace } from '../analysis/coach/regatta';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { GROUP_LABEL } from './coach';
-import { cardText, cardWarnings, d5RefChip, fewerLine, goodTexts, KEY_CHIPS_MAX, secondsChip, wentText, windowChip } from './coachCards';
+import { cardText, cardWarnings, chipsMax, d5RefChip, fewerLine, goodTexts, secondsChip, wentText, windowChip } from './coachCards';
 import { legStoryText, type StoryChip } from './coachLegs';
 import { LEG_TYPE, finishShort, legExtremeText, placeWhat, regattaWentText, secs, type RegattaProgress } from './coachRegatta';
 import type { Chip } from './info';
@@ -46,7 +46,7 @@ export function askFinding(c: Card, a: RaceAnalysis, raceCov: number | null): As
     when: windowChip(c, a),
     confidence: c.confidence === 'none' ? undefined : c.confidence,
     coveragePct: Math.floor(c.coverage * 100 + 1e-9),
-    chips: [...(ref ? [ref] : []), ...t.chips.slice(0, KEY_CHIPS_MAX)],
+    chips: [...(ref ? [ref] : []), ...t.chips.slice(0, chipsMax(c))],
     warnings: cardWarnings(c, a, raceCov),
     what: t.sentence,
     tip: t.tip,

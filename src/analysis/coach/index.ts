@@ -14,6 +14,7 @@ import { makeTwdAt } from '../wind';
 import { groupIds, type Group } from './groups';
 import { fleetVmg, gapSeries, inferLegSpans, type Course, type GapPoint } from './ladder';
 import { lineCrossing } from './lineCross';
+import { startCross } from '../startCross';
 import { boundsOf, coachTracks, longestHole, projectCoachTrack, type CoachTrack } from './tracks';
 import { fleetTwdSeries, type TwdSeries, type TwdSeriesData, twdSeriesFrom } from './twdSeries';
 import { heelTracks, type HeelTrack } from './detectors/heel';
@@ -52,7 +53,7 @@ export const CROSS_TO_MS = 5 * 60_000;
 /** What the worker works out from the raw fixes for the Coach (the drawn ~1 Hz tracks start at the gun and blur the tacks). */
 export interface CoachRaw {
   wind: TwdSeriesData | null;
-  /** Bow crossing time per racing boat, ms; null: no crossing found (OCS and never back, or inside a hole). */
+  /** Bow crossing time per racing boat (an OCS boat's: when it cleared), ms; null: no crossing found (OCS and never back, or inside a hole). */
   crossMs: Record<string, number | null>;
   /** Each racing boat's raw fixes near the marks (zoneTracks), for the mark roundings (D9). */
   zones?: Record<string, ZoneTrack>;
@@ -165,7 +166,9 @@ export function coachWind(a: RaceAnalysis, data: RaceData): TwdSeriesData | null
 /**
  * When each racing boat's bow first crossed the start line onto the course side, from CROSS_FROM_MS
  * before the gun to CROSS_TO_MS after it (the raw fixes; the bow offset as the feed gives it). Before the
- * gun is an early start; none in that time is null.
+ * gun is an early start; none in that time is null. A boat flagged over at the gun (StartResult.over: the
+ * feed's OCS or Recall's own) starts when it cleared: its final crossing after the gun from the pre-start
+ * side (startCross); null if it never came back in that time.
  */
 export function startCrossings(a: RaceAnalysis, data: RaceData): Record<string, number | null> {
   const out: Record<string, number | null> = {};
@@ -182,7 +185,15 @@ export function startCrossings(a: RaceAnalysis, data: RaceData): Record<string, 
   const byId = new Map(data.boats.map((b) => [b.id, b]));
   for (const r of a.boats) {
     const b = byId.get(r.id);
-    const t = b ? lineCrossing(projectCoachTrack(b.track, proj), left, right, side, a.meta.gunMs - CROSS_FROM_MS, { bowM: b.bowOffsetM }) : null;
+    if (!b) {
+      out[r.id] = null;
+      continue;
+    }
+    const tr = projectCoachTrack(b.track, proj);
+    const gun = a.meta.gunMs;
+    const t = r.start?.over
+      ? startCross(tr, left, right, side, gun, { bowM: b.bowOffsetM, fromMs: gun - CROSS_FROM_MS, toMs: gun + CROSS_TO_MS }).clearedMs
+      : lineCrossing(tr, left, right, side, gun - CROSS_FROM_MS, { bowM: b.bowOffsetM });
     out[r.id] = t != null && t <= a.meta.gunMs + CROSS_TO_MS ? t : null;
   }
   return out;

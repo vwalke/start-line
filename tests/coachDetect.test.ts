@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { CoachModel } from '../src/analysis/coach';
-import { coachDebrief } from '../src/analysis/coach/debrief';
+import { coachDebrief, mergeStart } from '../src/analysis/coach/debrief';
 import { type CoachCtx } from '../src/analysis/coach/detectors/context';
 import { detectAngles, legAngles } from '../src/analysis/coach/detectors/angles';
 import { D3_GAP_S, detectEarly, typicalSep } from '../src/analysis/coach/detectors/early';
 import { D10_AHEAD_S, detectLastLeg, meanSogKn } from '../src/analysis/coach/detectors/lastLeg';
 import { detectRolled } from '../src/analysis/coach/detectors/rolled';
-import { D1_LATE_S, detectStart, startOrder } from '../src/analysis/coach/detectors/start';
+import { D1_BACK_LOA, D1_LATE_S, D1_TAIL_LATE_S, detectStart, startOrder } from '../src/analysis/coach/detectors/start';
 import { inferLegSpans, ladderAt, legEnd, type Course, type GapPoint } from '../src/analysis/coach/ladder';
 import {
+  D1_MIN_S,
   MIN_SECONDS,
   NOISE_BASE_S,
   coachCoverage,
@@ -16,14 +17,15 @@ import {
   covLevel,
   gapChange,
   gapNoise,
+  minSeconds,
   windOkShare,
   type Opportunity,
 } from '../src/analysis/coach/opportunity';
-import { TOP_N, overlapMs, rankOpportunities, type Card } from '../src/analysis/coach/rank';
+import { TOP_N, clearStart, overlapMs, rankOpportunities, type Card } from '../src/analysis/coach/rank';
 import { trackLegAt, type CoachTrack } from '../src/analysis/coach/tracks';
 import { MS_TO_KN, bearingVec, type Vec } from '../src/analysis/geo';
 import type { BoatResult, LegKind, RaceAnalysis, StartResult } from '../src/analysis/types';
-import { cardHtml, cardText, cardWarnings, coachCardsHtml, fewerLine, goodTexts, secondsChip, windowChip } from '../src/ui/coachCards';
+import { cardHtml, cardText, cardWarnings, chipsMax, coachCardsHtml, fewerLine, goodTexts, secondsChip, windowChip } from '../src/ui/coachCards';
 
 /**
  * A synthetic race: wind from 0° (north) all race, a 2 km beat north from the line at y = 0 and a run
@@ -258,31 +260,242 @@ describe('D1 start position', () => {
   const ids = Object.keys(crossMs);
   const tracks = ids.map((id) => sail(id, { twa: [42, 145], kn: [6, 6], roundAt: 600_000, end: 900_000 }));
 
-  it('crossed more than 15 s after the front row (median of the 5 earliest clean crossings): seconds = the difference', () => {
+  it('crossed 6 s or more after the front row (median of the 5 earliest clean crossings): seconds = the difference', () => {
     const boats = ids.map((id, i) => boatOf(id, i, id === 'x' ? { start: startOf({ over: true }) } : id === 'me' ? { start: startOf({ dtlM: 64 }) } : {}));
     const { ctx } = world({ boats, tracks, crossMs });
     const so = startOrder(ctx)!;
-    expect(so.front.map((c) => c.id)).toEqual(['a', 'b', 'c', 'd', 'e']); // the early starter 'x' is not front row
+    expect(so.front.map((c) => c.id)).toEqual(['a', 'b', 'c', 'd', 'e']); // 'x' crossed 3 s early but was over: not front row
     const r = detectStart(ctx);
     expect(r.fired).toBe(true);
-    expect(r.opp!.variant).toBe('second-row'); // 64 m > 3 boatlengths
+    expect(r.opp!.variant).toBe('second-row'); // 64 m ≥ 2 boatlengths
     expect(r.opp!.seconds).toBeCloseTo(39, 6); // 45 − median(2, 4, 6, 8, 10)
     expect(r.opp!.facts).toMatchObject({ crossRank: 8, n: 8, frontLo: 2, frontHi: 6, dtl: 64 });
     expect(r.opp!.t0).toBe(GUN - 10_000);
     expect(r.opp!.t1).toBe(crossMs.me);
   });
 
-  it('close to the line and on time: no card, a ✓ start; just late: the "late" variant', () => {
+  // Eight boats (loaM 10): five crossing around the gun, two late, and 'me'.
+  const S = 1000;
+  const field = { a: GUN - 2 * S, b: GUN - 1.5 * S, c: GUN - 1 * S, d: GUN + 0.5 * S, e: GUN + 1 * S, f: GUN + 30 * S, g: GUN + 40 * S };
+  const d1 = (meS: number, me: Partial<StartResult> = {}, others: Record<string, number> = field) => {
+    const cross = { ...others, me: GUN + meS * S };
+    const boats = Object.keys(cross).map((id, i) => boatOf(id, i, id === 'me' ? { start: startOf({ dtlM: 5, ...me }) } : {}));
+    const tr = Object.keys(cross).map((id) => sail(id, { twa: [42, 145], kn: [6, 6], roundAt: 600_000, end: 900_000 }));
+    const { ctx } = world({ boats, tracks: tr, crossMs: cross });
+    return { r: detectStart(ctx), so: startOrder(ctx)! };
+  };
+
+  it('front row: clean crossings up to 3 s before the gun count; earlier or over do not; the median is never before the gun', () => {
+    const others = { p: GUN - 2.5 * S, q: GUN - 2 * S, r: GUN - 4 * S, x: GUN - 1.5 * S, a: GUN + 0.5 * S, b: GUN + 1 * S, c: GUN + 2 * S };
+    const cross = { ...others, me: GUN + 20 * S };
+    const boats = Object.keys(cross).map((id, i) => boatOf(id, i, id === 'x' ? { start: startOf({ over: true }) } : {}));
+    const tr = Object.keys(cross).map((id) => sail(id, { twa: [42, 145], kn: [6, 6], roundAt: 600_000, end: 900_000 }));
+    const so = startOrder(world({ boats, tracks: tr, crossMs: cross }).ctx)!;
+    // r (4 s early) is too early to be the front row, x was over; p and q (2.5 s, 2 s early) count.
+    expect(so.front.map((c) => c.id)).toEqual(['p', 'q', 'a', 'b', 'c']);
+    expect(so.frontMedMs).toBe(GUN + 0.5 * S);
+    expect(so.order[0].id).toBe('r'); // the order (and so the rank over the line) keeps every crossing
+    // Five crossings before the gun: their median (−1 s) is clamped to the gun, so a boat's seconds start there.
+    const { so: early, r } = d1(10);
+    expect(early.front.map((c) => c.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(early.frontMedMs).toBe(GUN);
+    expect(r.opp!.seconds).toBeCloseTo(10, 6);
+    expect(r.opp!.facts.frontHi).toBe(0);
+  });
+
+  it(`fires on each trigger: ≥ ${D1_LATE_S} s late, ≥ ${D1_BACK_LOA} boatlengths back, or the last quarter over and ≥ ${D1_TAIL_LATE_S} s late`, () => {
+    // Late: 6 s after the front row (6th of 8 over: not the last quarter).
+    expect(d1(6).r.opp).toMatchObject({ kind: 'D1', variant: 'late' });
+    expect(d1(6).r.opp!.seconds).toBeCloseTo(6, 6);
+    expect(d1(5.5).r.fired).toBe(false);
+    // Back: 2 boatlengths (20 m) at the gun, even crossing on time: the second-row variant.
+    expect(d1(2.5, { dtlM: 20 }).r.opp).toMatchObject({ variant: 'second-row' });
+    expect(d1(2.5, { dtlM: 19.9 }).r.fired).toBe(false);
+    // The last quarter over the line (8th of 8: rank > 6) and 4 s late; 3.5 s is not enough, nor 4.5 s at 6th of 8.
+    const tight = { ...field, f: GUN + 2 * S, g: GUN + 3 * S };
+    expect(d1(4.5, {}, tight).r.opp).toMatchObject({ variant: 'late' });
+    expect(d1(4.5, {}, tight).r.opp!.facts).toMatchObject({ crossRank: 8, n: 8 });
+    expect(d1(3.5, {}, tight).r.fired).toBe(false);
+    expect(d1(4.5).r.fired).toBe(false);
+    // Back and late both: second-row.
+    expect(d1(12, { dtlM: 25 }).r.opp!.variant).toBe('second-row');
+  });
+
+  it('✓ start only for a genuine front-row start: first third over, ≤ 3 s late, ≤ 1 boatlength back, not over', () => {
+    // Twelve boats: the first third is 4.
+    const big = { ...field, h: GUN + 50 * S, i: GUN + 60 * S, j: GUN + 70 * S, k: GUN + 80 * S };
+    const ok = d1(-0.5, {}, big);
+    expect(ok.r.fired).toBe(false);
+    expect(ok.r.ok).toMatchObject({ kind: 'ok', detector: 'D1', variant: 'front-row' });
+    expect(d1(-0.5, { dtlM: 10.5 }, big).r.ok).toBeNull(); // over a boatlength back
+    expect(d1(-0.5, { over: true, dtlM: -1 }, big).r.ok).toBeNull(); // over early at the gun
+    expect(d1(0.8, {}, big).r.ok).toBeNull(); // 5th over the line
+    // On time and close but in the middle of the fleet: neither a card nor a ✓.
+    const mid = d1(3, {}, big);
+    expect(mid.r.opp).toBeNull();
+    expect(mid.r.ok).toBeNull();
+    // Never a ✓ with a card.
+    expect(d1(30, {}, big).r.ok).toBeNull();
+  });
+
+  it('over early at the gun: always the "ocs" variant from its clearing crossing; never front row, never ✓', () => {
+    // Cleared 2 s after the gun (crossMs is the clearing for an OCS boat): fires anyway, seconds from the front row.
+    const r = d1(2, { over: true, ocs: true, dtlM: -1 });
+    expect(r.r.opp).toMatchObject({ kind: 'D1', variant: 'ocs' });
+    expect(r.r.opp!.seconds).toBeCloseTo(2, 6);
+    expect(r.r.ok).toBeNull();
+    expect(r.so.front.map((c) => c.id)).not.toContain('me');
+    // Cleared first over the line, 1 s before the others: still not the front row, and no ✓.
+    const first = d1(-2.5, { over: true, dtlM: -1 });
+    expect(first.so.front.map((c) => c.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(first.r.ok).toBeNull();
+    expect(first.r.opp!.variant).toBe('ocs');
+    // Over and never cleared (no crossing): nothing to time — no card, no ✓.
+    const boats = ids.map((id, i) => boatOf(id, i, id === 'me' ? { start: startOf({ over: true, dtlM: -3, lateS: 30 }) } : {}));
+    expect(detectStart(world({ boats, tracks, crossMs: { ...crossMs, me: null } }).ctx)).toMatchObject({ opp: null, ok: null, fired: false });
+    expect(detectStart(world({ boats, tracks, crossMs: null }).ctx)).toMatchObject({ opp: null, ok: null, fired: false });
+  });
+
+  it('without crossings: the DTL rule alone (2 boatlengths), with Recall’s seconds late', () => {
     const boats = ids.map((id, i) => boatOf(id, i));
-    const early = world({ boats, tracks, crossMs: { ...crossMs, me: GUN + 7000 } });
-    const r = detectStart(early.ctx);
-    expect(r.opp).toBeNull();
-    expect(r.ok).toMatchObject({ kind: 'ok', detector: 'D1' });
-    const late = detectStart(world({ boats, tracks, crossMs: { ...crossMs, me: GUN + (6 + D1_LATE_S + 1) * 1000 } }).ctx);
-    expect(late.opp!.variant).toBe('late');
-    // Without crossings (no raw fixes) a far-back start still fires on its DTL, with Recall's seconds late.
     const back = boats.map((b) => (b.id === 'me' ? { ...b, start: startOf({ dtlM: 60, lateS: 40 }) } : b));
     expect(detectStart(world({ boats: back, tracks, crossMs: null }).ctx).opp).toMatchObject({ seconds: 40, variant: 'second-row' });
+    const near = boats.map((b) => (b.id === 'me' ? { ...b, start: startOf({ dtlM: 19, lateS: 8 }) } : b));
+    expect(detectStart(world({ boats: near, tracks, crossMs: null }).ctx).fired).toBe(false);
+    const two = boats.map((b) => (b.id === 'me' ? { ...b, start: startOf({ dtlM: 21, lateS: 8 }) } : b));
+    expect(detectStart(world({ boats: two, tracks, crossMs: null }).ctx).opp).toMatchObject({ seconds: 8, variant: 'second-row' });
+  });
+});
+
+describe('the start card: D1 + the D3 after it (mergeStart)', () => {
+  const cross = GUN + 10_500;
+  const d1 = opp({
+    kind: 'D1',
+    variant: 'second-row',
+    t0: GUN - 10_000,
+    t1: cross,
+    seconds: 10.5,
+    secondsLo: 5.5,
+    secondsHi: 15.5,
+    conf: { boatCov: 1, refs: { good: 5, fair: 5, need: 3 } },
+    facts: { dtl: 24.9, crossS: 10.5, crossRank: 13, n: 15, frontLo: -0.8, frontHi: 0.04 },
+    refBoats: ['a', 'b'],
+  });
+  const d3 = opp({
+    kind: 'D3',
+    variant: 'tacks',
+    t0: cross,
+    t1: cross + 300_000,
+    seconds: 13.5,
+    secondsLo: 0,
+    secondsHi: 29.6,
+    coverage: 0.9,
+    conf: { boatCov: 0.9, refs: { good: 3, fair: 3, need: 3 }, windOk: 1 },
+    facts: { dgap: 13.5, gapEnd: 27.4, tacks: 3, lastTackS: 93, fleetTacks: 0.5 },
+    refBoats: ['l1', 'l2', 'l3'],
+    chips: [{ kind: 'D8', facts: { share: 0.3, fleetShare: 0.1 } }],
+    windEst: true,
+  });
+
+  it('one D1 card from gun − 10 s to crossing + 5 min; seconds = D1 + D3; D3’s chips and numbers ride on it', () => {
+    const { start, early } = mergeStart(d1, d3);
+    expect(early).toBeNull();
+    expect(start).toMatchObject({ kind: 'D1', variant: 'second-row', t0: GUN - 10_000, t1: cross + 300_000, windEst: true });
+    expect(start!.seconds).toBeCloseTo(24, 6);
+    // The ranges add in quadrature: ±5 and ±16.1 → ±16.9.
+    expect(start!.secondsHi - start!.seconds).toBeCloseTo(Math.hypot(5, 16.1), 1);
+    expect(start!.facts).toMatchObject({ d1S: 10.5, d3S: 13.5, d3Variant: 'tacks', tacks: 3, lastTackS: 93, fleetTacks: 0.5, dtl: 24.9, crossRank: 13 });
+    expect(start!.parts).toEqual([
+      { t0: GUN - 10_000, t1: cross, seconds: 10.5 },
+      { t0: cross, t1: cross + 300_000, seconds: 13.5 },
+    ]);
+    expect(start!.chips!.map((c) => c.kind)).toEqual(['D8']);
+    expect(start!.conf).toMatchObject({ boatCov: 0.9, refs: { good: 3, fair: 3, need: 3 }, windOk: 1 });
+    expect(start!.refBoats).toEqual(['a', 'b', 'l1', 'l2', 'l3']);
+    // Either alone stays as it was.
+    expect(mergeStart(d1, null)).toEqual({ start: d1, early: null });
+    expect(mergeStart(null, d3)).toEqual({ start: null, early: d3 });
+  });
+
+  it('reads as one start card: back at the gun, place over, crossing, early tacks; the tacks chip only from 2', () => {
+    const c = { ...mergeStart(d1, d3).start!, confidence: 'high', score: 24, limit: null } as Card;
+    const t = cardText(c);
+    expect(t.title).toBe('Second-row start');
+    expect(t.chips).toEqual(['25 m back at gun', '13th of 15 over line', 'crossed +11 s', '3 early tacks']);
+    expect(chipsMax(c)).toBe(4);
+    expect(t.sentence).toBe(
+      'You were 25 m back at the gun and 13th of 15 over the line; the front row crossed within 1 s of the gun. Then 3 tacks in the first 93 s looking for clear air (the fleet tacked 0–1 times) cost about 14 s more on the top 3.',
+    );
+    expect(t.tip).toBe('Set up closer and time the final approach so you hit the line at the gun. From the second row, foot for clear air before tacking.');
+    expect(cardHtml(c, 0, world({ boats: [boatOf('me', 0)], tracks: [] }).a, false).match(/<li class="chip">/g)).toHaveLength(4);
+    // One tack: no tacks chip (the dirty-air chip takes the place), the lane sentence.
+    const lane = { ...mergeStart(d1, { ...d3, variant: 'lane', facts: { ...d3.facts, tacks: 1 } }).start!, confidence: 'high', score: 24, limit: null } as Card;
+    const l = cardText(lane);
+    expect(l.chips).toEqual(['25 m back at gun', '13th of 15 over line', 'crossed +11 s', '30% in dirty air vs fleet 10%']);
+    expect(l.sentence).toMatch(/; the front row crossed within 1 s of the gun\. Then you lost about 14 s more on the top 3 in the first 5 minutes\.$/);
+    // Over early: its own title, chips and tip, the early tacks after it the same way.
+    const ocsFacts = { ...d1.facts, crossS: 28, crossRank: 14 };
+    const ocs = { ...mergeStart({ ...d1, variant: 'ocs', seconds: 28, facts: ocsFacts }, d3).start!, confidence: 'high', score: 41.5, limit: null } as Card;
+    const o = cardText(ocs);
+    expect(o.title).toBe('Over early — cleared at +28 s');
+    expect(o.chips).toEqual(['over early', 'cleared +28 s', '14th of 15 over line', '3 early tacks']);
+    expect(o.sentence).toBe(
+      'You were over at the gun and had to come back; you cleared at +28 s, about 28 s behind the front row. Then 3 tacks in the first 93 s looking for clear air (the fleet tacked 0–1 times) cost about 14 s more on the top 3.',
+    );
+    expect(o.tip).toBe('Hold a safe gap to the line in the last 30 s; a bow out costs far more than a second late. Coming back up, foot for clear air before tacking.');
+    const alone = cardText({ ...d1, variant: 'ocs', seconds: 28, facts: ocsFacts, confidence: 'high', score: 28, limit: null } as Card);
+    expect(alone).toEqual({
+      title: 'Over early — cleared at +28 s',
+      chips: ['over early', 'cleared +28 s', '14th of 15 over line'],
+      sentence: 'You were over at the gun and had to come back; you cleared at +28 s, about 28 s behind the front row.',
+      tip: 'Hold a safe gap to the line in the last 30 s; a bow out costs far more than a second late.',
+    });
+    // Late, no D8: three chips.
+    const late = { ...mergeStart({ ...d1, variant: 'late' }, { ...d3, chips: undefined, facts: { ...d3.facts, tacks: 0 } }).start!, confidence: 'high', score: 24, limit: null } as Card;
+    expect(cardText(late).title).toBe('Late over the line');
+    expect(cardText(late).chips).toHaveLength(3);
+    expect(cardText(late).sentence).toMatch(/^You crossed 11 s after the gun, 13th of 15 over the line;/);
+  });
+});
+
+describe('dedupe: the start window comes before whole-leg rate findings', () => {
+  const start = opp({ kind: 'D1', variant: 'late', t0: 0, t1: 30_000, seconds: 16.6, secondsLo: 11.6, secondsHi: 21.6 });
+  // A Beat 1 D6 from the gun: 1000 s, 288 s at stake.
+  const d6 = opp({ kind: 'D6', variant: 'low-fast', t0: 10_000, t1: 1_010_000, spans: [[10_000, 1_010_000]], seconds: 288, secondsLo: 245, secondsHi: 331, facts: { legs: 'Beat 1' } });
+
+  it('a start card is not trimmed by an overlapping D6 / D7 / D11 span; theirs start after it, seconds pro rata', () => {
+    for (const kind of ['D6', 'D7', 'D11'] as const) {
+      const cards = rankOpportunities([start, { ...d6, kind }]);
+      const s = cards.find((c) => c.kind === 'D1')!;
+      expect(s.seconds).toBeCloseTo(16.6, 6);
+      const r = cards.find((c) => c.kind === kind)!;
+      expect(r.t0).toBe(30_000);
+      expect(r.spans).toEqual([[30_000, 1_010_000]]);
+      expect(r.seconds).toBeCloseTo(288 * (980 / 1000), 6);
+    }
+    expect(clearStart(d6, [[0, 30_000]])!.secondsHi).toBeCloseTo(331 * 0.98, 6);
+    // A merged start card (to crossing + 5 min) keeps its whole window the same way, and so does a D3 alone.
+    const merged = { ...start, t1: 330_000, seconds: 40, secondsHi: 50, parts: [{ t0: 0, t1: 30_000, seconds: 16.6 }, { t0: 30_000, t1: 330_000, seconds: 23.4 }] };
+    expect(rankOpportunities([merged, d6]).find((c) => c.kind === 'D1')!.seconds).toBeCloseTo(40, 6);
+    expect(rankOpportunities([merged, d6]).find((c) => c.kind === 'D6')!.t0).toBe(330_000);
+    expect(rankOpportunities([opp({ t0: 0, t1: 300_000, seconds: 20 }), d6]).find((c) => c.kind === 'D3')!.seconds).toBeCloseTo(20, 6);
+    // Other findings still trim it as before: a bigger D4 over the first minutes takes the D3 part, never the D1 part.
+    const d4 = opp({ kind: 'D4', variant: 'headed', t0: 30_000, t1: 600_000, seconds: 90, secondsLo: 80, secondsHi: 100 });
+    expect(rankOpportunities([merged, d4]).find((c) => c.kind === 'D1')!.seconds).toBeCloseTo(16.6, 6);
+  });
+
+  it('a start finding that can’t make a card (too few seconds, or none confidence) takes nothing from them', () => {
+    expect(rankOpportunities([{ ...start, seconds: 3 }, d6]).find((c) => c.kind === 'D6')!.seconds).toBeCloseTo(288, 6);
+    expect(rankOpportunities([{ ...start, conf: { boatCov: 0.1 } }, d6]).find((c) => c.kind === 'D6')!.seconds).toBeCloseTo(288, 6);
+  });
+
+  it(`D1 is a card from ${D1_MIN_S} s at high confidence (its own triggers gate it); the others keep their minimum`, () => {
+    expect(minSeconds('D1', 'high')).toBe(D1_MIN_S);
+    expect(minSeconds('D1', 'medium')).toBe(MIN_SECONDS.medium);
+    expect(minSeconds('D3', 'high')).toBe(MIN_SECONDS.high);
+    expect(rankOpportunities([{ ...start, seconds: 5, secondsLo: 0, secondsHi: 10 }])).toHaveLength(1);
+    expect(rankOpportunities([{ ...start, seconds: 3.9 }])).toHaveLength(0);
+    expect(rankOpportunities([{ ...start, kind: 'D3', seconds: 9 }])).toHaveLength(0);
   });
 });
 

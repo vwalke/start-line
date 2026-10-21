@@ -4,7 +4,8 @@
  * the change in gap to the leaders (the finish top 3) over the window. Fires
  * on D3_MIN_TACKS+ tacks before +4 min while the fleet median is at most
  * D3_FLEET_MAX, or on a gap change of D3_GAP_S or more. Seconds = that gap
- * change. It starts at the crossing, where D1 ends, so nothing is claimed twice.
+ * change. It starts at the crossing, where D1 ends, so nothing is claimed twice; when D1 fired too, the two
+ * are one start card (debrief.ts mergeStart).
  * D2 rides on it as a chip and turns it into "Slow off a great start".
  */
 import { bearingVec, dot, median, sub, type Vec } from '../../geo';

@@ -202,7 +202,7 @@ export interface Theme {
 
 /** The areas a sailor works on; a detector's variants within one area recur as one theme. */
 export const THEMES: Record<string, Theme> = {
-  start: { label: 'Starts: late or back at the gun', phrase: 'late or back from the line at the gun', pattern: 'Late or back from the line at the gun' },
+  start: { label: 'Starts: over, late or back at the gun', phrase: 'over early, late or back from the line at the gun', pattern: 'Over early, late or back from the line at the gun' },
   'gun-speed': { label: 'Slow at the gun', phrase: 'slow at the gun', pattern: 'Slow at the gun' },
   'after-start': { label: 'First minutes after the start', phrase: 'losing ground in the first minutes', pattern: 'The first minutes after the start cost you time' },
   shifts: { label: 'Wrong side of the shifts', phrase: 'on the wrong side of a shift', pattern: 'On the wrong side of a shift' },
@@ -254,6 +254,7 @@ export const themeOf = (key: string): Theme => THEMES[key] ?? { label: key, phra
 const TIPS: Record<string, string> = {
   'D1:late': 'Time the final approach so you hit the line at the gun, at full speed.',
   'D1:second-row': 'Set up closer to the line and own your gap to leeward.',
+  'D1:ocs': 'Hold a safe gap to the line in the last 30 s; a bow out costs far more than a second late.',
   D2: 'Hit the line at full speed. If pinned, foot a length before tacking.',
   'D3:slow-start': 'Hit the line at full speed. If pinned, foot a length before tacking.',
   'D3:tacks': 'Pick one lane off the line and stay in it; tack only into a clear lane.',

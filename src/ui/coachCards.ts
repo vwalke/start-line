@@ -23,6 +23,10 @@ export const RANGE_RATIO = 2;
 /** A low-confidence card names a hole in its window this long or longer, s. */
 export const HOLE_CHIP_S = 60;
 export const KEY_CHIPS_MAX = 3;
+/** The merged start card (D1 + D3) has one more: back at the gun, place over the line, crossing time, early tacks. */
+export const START_CHIPS_MAX = 4;
+/** How many key-number chips card `c` shows. */
+export const chipsMax = (c: Pick<Card, 'kind' | 'facts'>): number => (c.kind === 'D1' && c.facts.d3S != null ? START_CHIPS_MAX : KEY_CHIPS_MAX);
 
 const num = (f: Fact): number => (typeof f === 'number' ? f : NaN);
 const r0 = (f: Fact): string => String(Math.round(num(f)));
@@ -83,7 +87,11 @@ export function cardText(c: Card, tz = 0): CardText {
     case 'D1': {
       const crossed = f.crossRank != null;
       const rank = crossed ? `${ordinal(num(f.crossRank))} of ${r0(f.n)}` : '';
-      const front = `the front row crossed ${r0(f.frontLo)}–${r0(f.frontHi)} s after the gun`;
+      const front = frontPhrase(f);
+      if (f.d3S != null) return startText(c, rank, front);
+      if (c.variant === 'ocs') {
+        return { title: ocsTitle(f), chips: ['over early', `cleared +${r0(f.crossS)} s`, `${rank} over line`], sentence: ocsLead(f, sec), tip: OCS_TIP };
+      }
       if (c.variant === 'late') {
         return {
           title: 'Late over the line',
@@ -266,6 +274,68 @@ export function cardText(c: Card, tz = 0): CardText {
   }
 }
 
+/** "the front row crossed within 1 s of the gun" (its median is never before the gun; its first may be), or "6–9 s after the gun". */
+function frontPhrase(f: Card['facts']): string {
+  const lo = Math.round(num(f.frontLo));
+  const hi = Math.round(num(f.frontHi));
+  return lo < 1 || hi <= 1 ? `the front row crossed within ${Math.max(1, hi)} s of the gun` : `the front row crossed ${lo}–${hi} s after the gun`;
+}
+
+/** "0–1 times" (a median between two counts), "1 time". */
+const timesPhrase = (v: Fact): string => {
+  const lo = Math.floor(num(v));
+  const hi = Math.ceil(num(v));
+  return lo === hi ? `${lo} ${s1(lo, 'time', 'times')}` : `${lo}–${hi} times`;
+};
+
+/** Over early (D1 'ocs'): "Over early — cleared at +28 s"; the seconds are the red chip's. */
+const ocsTitle = (f: Card['facts']): string => `Over early — cleared at +${r0(f.crossS)} s`;
+const ocsLead = (f: Card['facts'], behindS: string): string =>
+  `You were over at the gun and had to come back; you cleared at +${r0(f.crossS)} s, about ${behindS} s behind the front row.`;
+const OCS_TIP = 'Hold a safe gap to the line in the last 30 s; a bow out costs far more than a second late.';
+
+/** D1 with the D3 after it (debrief.ts mergeStart): the start and the first 5 minutes as one card. */
+function startText(c: Card, rank: string, front: string): CardText {
+  const f = c.facts;
+  const crossed = f.crossRank != null;
+  const tacks = num(f.tacks);
+  const d3 = Math.round(num(f.d3S));
+  const rolled = c.chips?.find((x) => x.kind === 'D2')?.facts;
+  const shadow = c.chips?.find((x) => x.kind === 'D8')?.facts;
+  // The fourth chip: the early tacks, else why the first minutes cost time (dirty air, rolled).
+  const extra = tacks >= 2 ? `${tacks} early tacks` : shadow ? dirtyChip(shadow) : rolled ? `${kn(rolled.sog)} vs ${kn(rolled.nbrSog)} kn ${rolled.nbrName}` : null;
+  const ocs = c.variant === 'ocs';
+  const base = ocs
+    ? ['over early', `cleared +${r0(f.crossS)} s`, `${rank} over line`]
+    : crossed
+      ? [`${r0(f.dtl)} m back at gun`, `${rank} over line`, `crossed +${r0(f.crossS)} s`]
+      : [`${r0(f.dtl)} m back at gun`];
+  const lead = ocs
+    ? ocsLead(f, r0(f.d1S))
+    : c.variant === 'late' && crossed
+      ? `You crossed ${r0(f.crossS)} s after the gun, ${rank} over the line; ${front}.`
+      : crossed
+        ? `You were ${r0(f.dtl)} m back at the gun and ${rank} over the line; ${front}.`
+        : `You were ${r0(f.dtl)} m back at the gun, about ${r0(f.d1S)} s late.`;
+  const by = num(f.lastTackS) < 120 ? `${r0(f.lastTackS)} s` : `${Math.round(num(f.lastTackS) / 60)} min`;
+  const air = c.variant === 'second-row' || shadow ? ' looking for clear air' : '';
+  const cost = d3 >= 1 ? ` cost about ${d3} s more on the top 3` : '';
+  const then =
+    tacks >= 2
+      ? ` Then ${tacks} tacks in the first ${by}${air} (the fleet tacked ${timesPhrase(f.fleetTacks)})${cost}.`
+      : d3 >= 1
+        ? ` Then you lost about ${d3} s more on the top 3 in the first ${D3_WINDOW_MS / 60_000} minutes.`
+        : '';
+  return {
+    title: ocs ? ocsTitle(f) : c.variant === 'late' ? 'Late over the line' : 'Second-row start',
+    chips: [...base, ...(extra ? [extra] : [])].slice(0, START_CHIPS_MAX),
+    sentence: `${lead}${then}`,
+    tip: ocs
+      ? `${OCS_TIP} Coming back up, foot for clear air before tacking.`
+      : 'Set up closer and time the final approach so you hit the line at the gun. From the second row, foot for clear air before tacking.',
+  };
+}
+
 /** Who D11 compared with: "the top 3", or "the boats near you" (the peers fallback). */
 const heelRef = (f: Record<string, Fact>): string => (f.ref === 'peers' ? 'the boats near you' : 'the top 3');
 const heelRefShort = (f: Record<string, Fact>): string => (f.ref === 'peers' ? 'peers' : 'top 3');
@@ -421,7 +491,7 @@ export function cardHtml(c: Card, i: number, a: RaceAnalysis, on: boolean, raceC
     `<li class="chip sec" title="Seconds at stake">${esc(secs)}</li>`,
     `<li><button type="button" class="chip opp-when" data-opp="${i}" aria-pressed="${on}" title="Show on the gap chart" aria-label="${esc(`${when}: show on the gap chart`)}">${esc(when)}</button></li>`,
     ...(ref ? [chip(ref)] : []),
-    ...t.chips.slice(0, KEY_CHIPS_MAX).map((x) => chip(x)),
+    ...t.chips.slice(0, chipsMax(c)).map((x) => chip(x)),
     ...cardWarnings(c, a, raceCov).map(warnLi),
   ].join('');
   return `<article class="card coach-opp${on ? ' on' : ''}" data-opp="${i}" data-kind="${c.kind}" aria-labelledby="coach-opp-${i}">

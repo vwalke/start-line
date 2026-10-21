@@ -26,11 +26,15 @@ const DIMS: Record<string, ClassDims> = {
   etchells: { loaM: 9.3, beamM: 2.12 }, // hull 9300 mm, beam 2105-2125 mm at section 6, https://etchells.org/class/technical/rules-and-plans
   // International Cape 31 Class, https://www.cape31class.com/the-boat (builder CPS lists 9.56 x 3.10; ORC certificates measure 9.573 x 3.054).
   cape31: { loaM: 9.55, beamM: 3.05 },
+  // IC37 Class specifications, https://ic37class.org (LOA 11.30 m, beam 3.65 m; the ORC certificates agree).
+  ic37: { loaM: 11.3, beamM: 3.65 },
 };
 
 /** Other names a feed uses for a class (normalized) → its DIMS key. */
 const ALIASES: Record<string, string> = {
   c31: 'cape31', // RaceSense division name / event classLabel for the C31 Gold Cup ("C31", "C 31")
+  // The IC37 NA division name and boatClass are "IC37" ("IC 37" normalizes to the same DIMS key); the builder's name:
+  melgesic37: 'ic37',
 };
 
 /** "J/70", "J70", "j-70" → "j70". */
