@@ -61,7 +61,10 @@ export function startCross(
     const dt = tr.t[i] - tr.t[i - 1];
     const f = da === db ? 0 : -da / (db - da);
     const t = tr.t[i - 1] + f * dt;
-    const timed = dt <= maxSpanS * 1000 && t >= fromMs && t <= toMs;
+    // A side change outside [fromMs, toMs] must not enter `ev`: an untimed
+    // return after `toMs` would sit after a real recross and wipe `clearedMs`.
+    if (t < fromMs || t > toMs) continue;
+    const timed = dt <= maxSpanS * 1000;
     if (!up) {
       ev.push({ dir: -1, tMs: timed ? t : null });
       continue;
@@ -72,9 +75,9 @@ export function startCross(
     const bow = t - (bowM / Math.max(BOW_MIN_SPEED_MS, v)) * 1000;
     ev.push({ dir: 1, tMs: timed && s >= -slackM && s <= L + slackM ? bow : null });
   }
-  const firstCrossMs = ev.find((e) => e.dir === 1 && e.tMs != null)?.tMs ?? null;
-  if (firstCrossMs == null) return none;
-  const firstIdx = ev.findIndex((e) => e.tMs === firstCrossMs);
+  const firstIdx = ev.findIndex((e) => e.dir === 1 && e.tMs != null);
+  if (firstIdx < 0) return none;
+  const firstCrossMs = ev[firstIdx].tMs!;
   const after = ev.slice(firstIdx + 1);
   // Over at the gun: no return between that crossing and the gun (a return in a hole counts by its fixes).
   const early = firstCrossMs < gunMs && !after.some((e) => e.dir === -1 && (e.tMs == null || e.tMs <= gunMs));

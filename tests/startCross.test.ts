@@ -73,6 +73,11 @@ describe('startCross: first crossing, back below the line, cleared', () => {
     expect(neverBack.cleared).toBeNull();
     // A recross after the window (toMs) does not count.
     expect(at(track([[-20, -34], [-3, 0], [0, 6], [5, 0], [100, -40], [330, 0], [360, 10]])).cleared).toBeNull();
+    // A dip back after the window must not wipe a clearing already inside it.
+    const after = at(track([[-20, -34], [-3, 0], [0, 6], [5, 0], [12, -10], [20, 0], [60, 80], [299, 80], [301, -20]]));
+    expect(after.early).toBe(true);
+    expect(after.cleared).toBeCloseTo(20, 6);
+    expect(after.back).toBeCloseTo(5, 6);
     // No crossing at all.
     expect(at(track([[-20, -40], [60, -10]]))).toEqual({ first: null, back: null, cleared: null, early: false });
   });
