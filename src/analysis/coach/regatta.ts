@@ -4,7 +4,7 @@
  * worker) down to a small digest — the boat's place, its legs against the fleet, and every finding
  * the race's debrief keeps (rank.ts, uncapped) — and the digests are summed up here: the place row,
  * the findings that recur (by seconds at stake and by how many races; a data-gated detector — D8
- * dirty air, D9 roundings — counts only the races it had the data to measure), the best and worst
+ * dirty air, D9 roundings, D11 heel — counts only the races it had the data to measure), the best and worst
  * legs by type, the three things to work on (pattern cards for what recurs), and what went well,
  * by fixed rules. Races the tracker covered poorly are kept
  * and marked, their seconds weighted down. Pure: the UI renders it, the worker builds the digests.
@@ -17,6 +17,7 @@ import { coachDebrief } from './debrief';
 import { fleetOf } from './fleet';
 import { buildCoach, coachRaw, type CoachModel } from './index';
 import type { Confidence, DetectorKind } from './opportunity';
+import { confidenceOf } from './opportunity';
 import { rankOpportunities } from './rank';
 
 export { fleetOf } from './fleet';
@@ -102,14 +103,21 @@ export function wentOf(a: Pick<RaceAnalysis, 'legs'>, n: GoodNote): WentDigest {
   const seconds = n.seconds ?? 0;
   if (n.detector === 'D9') return { family: `round:${n.variant}`, label: String(f.mark ?? 'Mark'), seconds };
   if (n.detector === 'D1' || n.detector === 'D3') return { family: 'start', label: n.detector === 'D1' ? 'Start' : 'First minutes', seconds };
+  if (n.detector === 'D11') return { family: `heel:${f.legKind === 'downwind' ? 'downwind' : 'upwind'}`, label: String(f.leg ?? 'Leg'), seconds };
   const leg = a.legs.find((l) => l.name === f.leg);
   return { family: `leg:${leg?.kind ?? 'upwind'}`, label: String(f.leg ?? 'Leg'), seconds };
 }
 
-/** The themes a data-gated detector's findings fall in: what the race had data for (D8, and each kind of mark D9 timed). */
-export const evaluatedThemes = (q: { D8: boolean; D9: readonly string[] }): string[] => [...(q.D8 ? ['dirty-air'] : []), ...q.D9.map((t) => `round-${t}`)];
+/** The themes a data-gated detector's findings fall in: what the race had data for (D8, each kind of mark D9 timed, the legs D11 compared heel on). */
+export const evaluatedThemes = (q: { D8: boolean; D9: readonly string[]; D11?: readonly string[] }): string[] => [
+  ...(q.D8 ? ['dirty-air'] : []),
+  ...q.D9.map((t) => `round-${t}`),
+  ...(q.D11 ?? []).flatMap((k) => HEEL_THEMES[k] ?? []),
+];
+/** The heel themes each kind of leg D11 compared can measure. */
+const HEEL_THEMES: Record<string, string[]> = { upwind: ['heel-over', 'heel-under'], downwind: ['heel-down'] };
 /** A theme only some races can measure: its "of N races" counts those races only. */
-export const gatedTheme = (theme: string): boolean => theme === 'dirty-air' || theme.startsWith('round-');
+export const gatedTheme = (theme: string): boolean => theme === 'dirty-air' || theme.startsWith('round-') || theme.startsWith('heel-');
 
 const median = (xs: number[]): number => {
   const s = [...xs].sort((p, q) => p - q);
@@ -151,6 +159,17 @@ export function raceDigest(a: RaceAnalysis, model: CoachModel | null, sail: stri
     d && !d.noData ? rankOpportunities(d.found, Infinity).map((c) => ({ theme: themeKey(c.kind, c.variant), kind: c.kind, variant: c.variant, seconds: c.seconds, confidence: c.confidence })) : [];
   // D8 as a chip (on D3, or with no card to carry it) still recurs as a theme; its seconds are D3's, not counted twice.
   if (d && !d.noData && d.dirtyAir.chip && !findings.some((f) => f.kind === 'D8')) findings.push({ theme: 'dirty-air', kind: 'D8', variant: 'chip', seconds: 0, confidence: 'medium' });
+  // D11 riding on a D6 / D7 card, or found but under a card's minimum seconds, still recurs as a theme (no seconds of its own).
+  if (d && !d.noData) {
+    const heel = d.found.flatMap((o) => [
+      ...(o.kind === 'D11' && confidenceOf(o.conf).level !== 'none' ? [{ variant: o.variant, conf: confidenceOf(o.conf).level }] : []),
+      ...(o.chips ?? []).filter((c) => c.kind === 'D11').map((c) => ({ variant: String(c.facts.variant), conf: 'medium' as Confidence })),
+    ]);
+    for (const h of heel) {
+      const theme = themeKey('D11', h.variant);
+      if (!findings.some((f) => f.theme === theme)) findings.push({ theme, kind: 'D11', variant: h.variant, seconds: 0, confidence: h.conf });
+    }
+  }
   return {
     raceNumber: a.meta.raceNumber,
     sail,
@@ -168,7 +187,7 @@ export function raceDigest(a: RaceAnalysis, model: CoachModel | null, sail: stri
 /** The worker's path: the Coach model from the race's raw fixes (as the race view builds it), then the digest. */
 export function digestRace(a: RaceAnalysis, data: RaceData, sail: string, official: readonly OfficialResultRow[] | null = null): RaceDigest {
   const raw = a.boats.some((b) => b.sail === sail) ? coachRaw(a, data) : null;
-  return raceDigest(a, raw ? buildCoach(a, raw.wind, raw.crossMs, raw.zones ?? null) : null, sail, official);
+  return raceDigest(a, raw ? buildCoach(a, raw.wind, raw.crossMs, raw.zones ?? null, raw.heel ?? null) : null, sail, official);
 }
 
 // ---- themes: what a finding is about, across races (coarse enough to recur), and what to work on
@@ -197,6 +216,9 @@ export const THEMES: Record<string, Theme> = {
   'round-leeward': { label: 'Leeward mark roundings', phrase: 'slow or wide at the leeward mark', pattern: 'Leeward roundings cost you time' },
   'round-offset': { label: 'Offset mark roundings', phrase: 'slow or wide at the offset mark', pattern: 'Offset-mark roundings cost you time' },
   'round-reach': { label: 'Reach mark roundings', phrase: 'slow or wide at the reach marks', pattern: 'Reach-mark roundings cost you time' },
+  'heel-over': { label: 'Over-heeled upwind', phrase: 'over-heeled and slower upwind', pattern: 'Over-heeled upwind' },
+  'heel-under': { label: 'Too flat upwind', phrase: 'flatter than the leaders and slower upwind', pattern: 'Too flat upwind' },
+  'heel-down': { label: 'Heel on the runs', phrase: 'heeled to windward or rolling on the runs', pattern: 'Heeled to windward or rolling on the runs' },
 };
 
 /** A finding's theme. */
@@ -222,6 +244,8 @@ export function themeKey(kind: DetectorKind, variant: string): string {
       return `round-${variant}`;
     case 'D10':
       return 'last-leg';
+    case 'D11':
+      return variant === 'over' ? 'heel-over' : variant === 'under' ? 'heel-under' : 'heel-down';
   }
 }
 export const themeOf = (key: string): Theme => THEMES[key] ?? { label: key, phrase: key, pattern: key };
@@ -251,6 +275,10 @@ const TIPS: Record<string, string> = {
   'D9:reach': 'Turn tight at the reach marks and trim for the new angle as you go round.',
   'D10:beat': 'Sail the lifted tack and stay between the boats just ahead and the finish.',
   'D10:run': 'Keep someone calling pressure and gybe into the puffs.',
+  'D11:over': 'Keep the boat on its lines upwind: hike harder, and ease or depower in the puffs.',
+  'D11:under': 'Let the boat heel to its groove: power up, and in light air move weight to leeward.',
+  'D11:windward': 'On the runs keep the boat flat; heel to windward only as far as the faster boats do.',
+  'D11:rolling': 'Steady the boat on the runs: smooth steering and trim, and keep the weight still.',
 };
 export const tipOf = (kind: DetectorKind, variant: string): string => TIPS[`${kind}:${variant}`] ?? TIPS[kind] ?? '';
 
@@ -369,6 +397,8 @@ const FAMILY_TITLE: Record<string, string> = {
   'round:leeward': 'Leeward roundings',
   'round:offset': 'Offset roundings',
   'round:reach': 'Reach-mark roundings',
+  'heel:upwind': 'Heel upwind',
+  'heel:downwind': 'Heel on the runs',
 };
 export const familyTitle = (f: string): string => FAMILY_TITLE[f] ?? f;
 
@@ -486,10 +516,17 @@ export function summarizeRegatta(races: readonly RegattaRace[]): RegattaSummary 
  */
 export function wentWellOf(races: readonly (RegattaRace & { weight: number })[]): WentWell[] {
   const by = new Map<string, WentWell>();
+  // Heel (D11) went well only in races that had the heel data to compare: those are its "of N".
+  const ofFamily = (family: string): number => {
+    const k = family.startsWith('heel:') ? family.slice(5) : null;
+    if (!k) return races.length;
+    const theme = HEEL_THEMES[k][0];
+    return races.filter((x) => (x.digest?.evaluated ?? []).includes(theme) || (x.digest?.went ?? []).some((w) => w.family === family)).length;
+  };
   for (const r of races) {
     const seen = new Set<string>();
     for (const w of r.digest?.went ?? []) {
-      const cur = by.get(w.family) ?? { family: w.family, title: familyTitle(w.family), races: 0, of: races.length, totalS: 0, weightedS: 0, best: { label: r.label, what: w.label, seconds: w.seconds } };
+      const cur = by.get(w.family) ?? { family: w.family, title: familyTitle(w.family), races: 0, of: ofFamily(w.family), totalS: 0, weightedS: 0, best: { label: r.label, what: w.label, seconds: w.seconds } };
       if (!seen.has(w.family)) cur.races += 1;
       seen.add(w.family);
       cur.totalS += w.seconds;

@@ -1,6 +1,6 @@
 /**
  * Recall Coach, phases 2–4: one boat's debrief for one race — every detector
- * (D1, D2 and D8 → D3, D3, D4, D5, D6, D7, D8, D9, D10), ranked and gated (rank.ts), with the ✓ row
+ * (D1, D2 and D8 → D3, D3, D4, D5, D6, D7, D8, D9, D10, D11 → D6 / D7 on a leg they share), ranked and gated (rank.ts), with the ✓ row
  * (detectors that measured the boat as fine with good data) and ➕ Went well (wentWell: legs,
  * roundings and the start where it gained on the leaders, with seconds; at most WENT_WELL_MAX).
  * Pure: the UI fills the templates.
@@ -17,6 +17,7 @@ import { detectRolled } from './detectors/rolled';
 import { detectStart } from './detectors/start';
 import { detectRounding, type MarkType } from './detectors/rounding';
 import { detectShadow, type D8Result } from './detectors/shadow';
+import { detectHeel } from './detectors/heel';
 import { D3_GAP_S, D3_WINDOW_MS } from './detectors/early';
 import { longestHole, trackLegAt } from './tracks';
 import { coachCoverage, gapChange, type GoodNote, type Opportunity } from './opportunity';
@@ -57,8 +58,8 @@ export interface CoachDebrief {
   found: Opportunity[];
   /** D8, also when it only rides on D3 (or on nothing: no D3 card to carry it). */
   dirtyAir: D8Result;
-  /** Which data-gated detectors had enough data (the Regatta view's denominators): D8, and the kinds of mark D9 timed. */
-  quality: { D8: boolean; D9: MarkType[] };
+  /** Which data-gated detectors had enough data (the Regatta view's denominators): D8, the kinds of mark D9 timed, the kinds of leg D11 compared heel on. */
+  quality: { D8: boolean; D9: MarkType[]; D11?: ('upwind' | 'downwind')[] };
 }
 
 /**
@@ -115,9 +116,9 @@ export function startGains(ctx: CoachCtx): GoodNote[] {
 /**
  * Went well (spec §3 ➕): legs, roundings and the start where the boat gained on the leaders, by seconds;
  * one mostly inside a bigger one's window is the same gain (a rounding's zone and the line crossing are moments of
- * their own: never); at most WENT_WELL_MAX.
+ * their own: never; nor heel, D11, which says how a leg's gain was sailed); at most WENT_WELL_MAX.
  */
-const MOMENTS = new Set<GoodNote['detector']>(['D1', 'D9']);
+const MOMENTS = new Set<GoodNote['detector']>(['D1', 'D9', 'D11']);
 
 export function wentWell(notes: readonly GoodNote[], max = WENT_WELL_MAX): GoodNote[] {
   const sorted = [...notes].sort((p, q) => (q.seconds ?? 0) - (p.seconds ?? 0) || p.t0 - q.t0);
@@ -137,6 +138,28 @@ export const attachShadow = (early: Opportunity | null, shadow: Pick<D8Result, '
 
 const overlaps = (p: Opportunity, q: Opportunity): boolean => p.t0 < q.t1 && q.t0 < p.t1;
 
+const spanOverlap = (p: Opportunity, q: Opportunity): boolean =>
+  (p.spans ?? [[p.t0, p.t1]]).some(([a, b]) => (q.spans ?? [[q.t0, q.t1]]).some(([c, d]) => a < d && c < b));
+
+/**
+ * D11 on a leg where D6 / D7 already fired (the same VMG loss, measured against the fleet): a chip on
+ * that card (its facts, with the variant), not a card of its own; the rest stay D11 cards.
+ */
+export function attachHeel(angles: readonly (Opportunity | null)[], heel: readonly Opportunity[]): { angles: (Opportunity | null)[]; heel: Opportunity[] } {
+  const out = angles.map((o) => o);
+  const rest: Opportunity[] = [];
+  for (const h of heel) {
+    const i = out.findIndex((o) => o && o.kind === (h.facts.legKind === 'upwind' ? 'D6' : 'D7') && spanOverlap(o, h));
+    if (i < 0) {
+      rest.push(h);
+      continue;
+    }
+    const o = out[i]!;
+    out[i] = { ...o, chips: [...(o.chips ?? []), { kind: 'D11', facts: { ...h.facts, variant: h.variant, seconds: h.seconds } }] };
+  }
+  return { angles: out, heel: rest };
+}
+
 /** A gain given back (D5) explains its stretch better than "the wrong side" (D4) of the same swing: D4 only clear of every D5. */
 export const d4Unless = (d4: Opportunity | null, d5: readonly Opportunity[]): Opportunity | null => (d4 && !d5.some((o) => overlaps(o, d4)) ? d4 : null);
 
@@ -154,11 +177,14 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
   const d4 = d4Unless(shift.opp, cons.opps);
   const shadow = detectShadow(ctx);
   const round = detectRounding(ctx);
+  const heel = detectHeel(ctx);
   const d3 = attachShadow(early, shadow);
-  const found = [start.opp, d3, d4, ...cons.opps, up.opp, down.opp, shadow.opp, ...round.opps, last].filter((o): o is Opportunity => !!o);
+  const withHeel = attachHeel([up.opp, down.opp], heel.opps);
+  const [d6, d7] = withHeel.angles;
+  const found = [start.opp, d3, d4, ...cons.opps, d6, d7, shadow.opp, ...round.opps, ...withHeel.heel, last].filter((o): o is Opportunity => !!o);
   const clearAir: GoodNote | null =
     shadow.evaluated && !shadow.opp && !shadow.chip ? { kind: 'ok', detector: 'D8', variant: 'ok', facts: { share: shadow.share, fleetShare: shadow.fleetShare }, t0: ctx.gun, t1: m.endMs } : null;
-  const ok = [start.ok, shift.opp ? null : shift.ok, cons.opps.length ? null : cons.ok, up.ok, down.ok, clearAir, round.ok].filter((o): o is GoodNote => !!o);
+  const ok = [start.ok, shift.opp ? null : shift.ok, cons.opps.length ? null : cons.ok, up.ok, down.ok, clearAir, round.ok, heel.ok].filter((o): o is GoodNote => !!o);
   const end = ctx.me.finishMs ?? m.endMs;
   const raceCov = coachCoverage(ctx.tr.t, ctx.gun, end);
   const dense = found.some((o) => o.coverage >= OK_WINDOW) || ok.length > 0;
@@ -168,12 +194,12 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
   return {
     cards,
     ok: noData ? [] : ok,
-    plus: noData ? [] : wentWell([...legGains(ctx), ...round.good, ...startGains(ctx)]),
+    plus: noData ? [] : wentWell([...legGains(ctx), ...round.good, ...startGains(ctx), ...heel.plus]),
     totalS: cards.reduce((s, c) => s + c.seconds, 0),
     raceCov,
     noData,
     found,
     dirtyAir: shadow,
-    quality: { D8: shadow.evaluated, D9: round.evaluated },
+    quality: { D8: shadow.evaluated, D9: round.evaluated, D11: heel.evaluated },
   };
 }

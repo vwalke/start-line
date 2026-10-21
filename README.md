@@ -95,6 +95,24 @@ are shared by all three.
     15 % or more and at least twice the fleet's median; then a chip on the
     early-lane card (D3), or a card of its own when the gap to the top 3 grew
     15 s or more over the shadowed stretches.
+  - **D11 heel** (`heel.ts`): the boat's leeward heel (the tracker's roll,
+    manoeuvres blanked, as the Heel column) against the top 3's in matched
+    2-minute windows on the same leg (same minutes, same breeze); the boats
+    just ahead when the top 3 give fewer than 3 windows (medium at most, "no
+    leader heel data"). A window needs 8+ heel fixes and roll over half of it
+    for the boat and 2+ reference boats. The feed's roll is whole degrees, so
+    only differences of 3° or more count, in 60 % of the leg's windows. Upwind
+    it fires as *over-heeled* or *too flat* when, in those windows, the boat's
+    VMG was 2 %+ below theirs ("Beat 2: you sailed ~4° more heeled than the
+    top 3 and were 0.2 kt slower in VMG"); on runs (medium at most) as heeled
+    to windward or rolling (heel's spread 2°+ above theirs). Seconds = the VMG
+    deficit × those windows. Where D6/D7 fired on the same leg it is a chip on
+    that card, not a second card; flatter-or-more-heeled *and faster* is a
+    Went well line; level with the top 3 is a ✓. A heel chip on the leg story
+    when it differed; in the Regatta view its themes ("Over-heeled upwind in 3
+    of 5 races with good data") count only the races with heel data. No roll
+    for the boat or its group (the J/105 CBC fixtures; older feeds): not
+    evaluated. An uploaded .vkx log's heel is read at its full rate.
   - An **uploaded .vkx log** feeds the Coach at its full rate: the analysis
     track is thinned to 1 Hz (merge.ts), but the boat keeps the log's own fixes
     (`Boat.fullRate`) and the worker hands the Coach every boat's raw fixes

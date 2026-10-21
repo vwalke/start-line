@@ -67,10 +67,11 @@ export interface Boat {
   /** Set when the track comes (in part) from the boat's own uploaded log (data/vkx/merge.ts). */
   log?: BoatLog;
   /**
-   * The uploaded log's own fixes at its full rate (10 Hz), positions only; `track` holds them thinned
-   * for the analysis. The Coach's mark roundings (D9) read these (analysis/coach/index.ts zoneTracks).
+   * The uploaded log's own fixes at its full rate (10 Hz): positions, and the heel when the log has it
+   * (`roll`, as Track.roll); `track` holds them thinned for the analysis. The Coach's mark roundings (D9)
+   * read these (analysis/coach/index.ts zoneTracks), and its heel comparison (D11, heelTracks).
    */
-  fullRate?: { t: Float64Array; lat: Float64Array; lon: Float64Array };
+  fullRate?: { t: Float64Array; lat: Float64Array; lon: Float64Array; roll?: Float32Array };
 }
 
 export type FinishSource = 'official' | 'racesense' | 'tracker';
