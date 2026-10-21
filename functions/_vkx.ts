@@ -159,14 +159,16 @@ function sameHex(a: string | undefined, b: string): boolean {
 
 export class RateLimiter {
   private hits = new Map<string, number[]>();
-  private readonly salt = randomToken();
+  /** Salt is created on first allow(): Workers forbid getRandomValues at module load. */
+  private salt: string | undefined;
   constructor(
     readonly max = RATE_MAX,
     readonly windowMs = RATE_WINDOW_MS,
   ) {}
   /** True when the client may upload now (and counts it). The IP is hashed with a per-isolate salt and only kept here. */
   async allow(ip: string, now: number): Promise<boolean> {
-    const key = (await sha256Hex(new TextEncoder().encode(`${this.salt}|${ip}`))).slice(0, 24);
+    const salt = (this.salt ??= randomToken());
+    const key = (await sha256Hex(new TextEncoder().encode(`${salt}|${ip}`))).slice(0, 24);
     const list = (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs);
     if (this.hits.size > 10_000) {
       // Bound memory without wiping the limiter (a rotating-IP flood used to clear everyone).
@@ -187,8 +189,10 @@ export class RateLimiter {
   }
 }
 
-/** The production limiter: one per isolate. */
-export const isolateLimiter = new RateLimiter();
+/** The production limiter: one per isolate, created on the first upload (not at import). */
+let limiter: RateLimiter | undefined;
+
+const isolateLimiter = (): RateLimiter => (limiter ??= new RateLimiter());
 
 // ---- feed check
 
@@ -292,8 +296,8 @@ export async function handleUpload(ctx: Ctx, deps: VkxDeps = {}): Promise<Respon
   const type = (req.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   if (type !== PAYLOAD_TYPE) return fail(415, `Send the payload as ${PAYLOAD_TYPE}`);
   const now = (deps.now ?? Date.now)();
-  const limiter = deps.limiter === undefined ? isolateLimiter : deps.limiter;
-  if (limiter && !(await limiter.allow(req.headers.get('cf-connecting-ip') ?? 'local', now))) {
+  const lim = deps.limiter === undefined ? isolateLimiter() : deps.limiter;
+  if (lim && !(await lim.allow(req.headers.get('cf-connecting-ip') ?? 'local', now))) {
     return fail(429, 'Too many uploads from here; try again in a few minutes');
   }
   const gz = await readCapped(req, MAX_UPLOAD_BYTES);
