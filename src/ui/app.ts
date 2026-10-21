@@ -1037,7 +1037,7 @@ export function startApp(): void {
     const gun = a.meta.gunMs;
     const lo = paramOfTime(w.t0, gun);
     els.mapTime.min = String(lo);
-    els.mapTime.max = String(Math.max(lo, Math.floor((w.t1 - gun) / 1000)));
+    els.mapTime.max = String(Math.max(lo, paramOfTime(w.t1, gun)));
     els.mapTime.value = String(scrubT == null ? lo : paramOfTime(scrubT, gun));
     const label = scrubT == null ? 'Full race' : scrubLabel(scrubT, a);
     els.mapTime.setAttribute('aria-valuetext', label);
@@ -1132,6 +1132,14 @@ export function startApp(): void {
       togglePlay();
     });
   }
+  // Full screen: Space from the overlay (Close, tools) plays too; the map, slider and play button already do.
+  els.fs.addEventListener('keydown', (ev) => {
+    if (full !== 'map' || ev.key !== ' ' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    const t = ev.target as HTMLElement | null;
+    if (t === els.mapTime || t === els.map || t === els.mapPlay || t?.closest?.('input, textarea, select')) return;
+    ev.preventDefault();
+    togglePlay();
+  });
 
   /** A new race or leg selection: fit its box (Fit: everything, or the leg's segments and marks). */
   function fitMap(a: RaceAnalysis): void {

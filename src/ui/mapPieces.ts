@@ -249,9 +249,11 @@ const lerpRoll = (a: number | undefined, b: number | undefined, f: number): numb
 /**
  * Where boat `id`'s track (its leg ranges, in time order) has it at `t`: linear between the fixes either
  * side; at a fix, that fix; none when the step there is a gap (> gapMs) past MAP_HOLD_S, or outside the track.
+ * Later ranges win at a shared fix (the first beat at the gun, not the pre-start stretch that ends there).
  */
 export function boatAt(id: string, ranges: readonly LegRange[], t: number, gapMs: number, twd: number): BoatAt | null {
-  for (const r of ranges) {
+  for (let ri = ranges.length - 1; ri >= 0; ri--) {
+    const r = ranges[ri];
     const tt = r.src.t;
     if (r.hi <= r.lo || t < tt[r.lo] || t > tt[r.hi - 1]) continue;
     const j = upperBound(tt, t, r.lo, r.hi) - 1;

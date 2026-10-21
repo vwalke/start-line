@@ -56,18 +56,21 @@ export function fullRateTracks(data: RaceData, wants: readonly FullRateWant[]): 
     if (log && log.t.length > 1) {
       const [i0, i1] = rangeIdx(log.t, t0, end);
       const n = i1 - i0;
-      const x = new Float32Array(n);
-      const y = new Float32Array(n);
-      const sog = new Float32Array(n);
-      for (let k = 0; k < n; k++) {
-        const [px, py] = proj.toXY(log.lat[i0 + k], log.lon[i0 + k]);
-        x[k] = px;
-        y[k] = py;
-        // The log has no SOG of its own here: the merged track's (smoothed, as the drawings').
-        sog[k] = interp(tr.t, sogSm, log.t[i0 + k]);
+      // A log that does not cover the window (or adds nothing) falls through to the feed.
+      if (n >= MIN_GAIN * w.drawn) {
+        const x = new Float32Array(n);
+        const y = new Float32Array(n);
+        const sog = new Float32Array(n);
+        for (let k = 0; k < n; k++) {
+          const [px, py] = proj.toXY(log.lat[i0 + k], log.lon[i0 + k]);
+          x[k] = px;
+          y[k] = py;
+          // The log has no SOG of its own here: the merged track's (smoothed, as the drawings').
+          sog[k] = interp(tr.t, sogSm, log.t[i0 + k]);
+        }
+        out.push({ id: w.id, source: 'log', x, y, t: log.t.slice(i0, i1), sog, ...(log.roll ? { roll: log.roll.slice(i0, i1) } : {}) });
+        continue;
       }
-      out.push({ id: w.id, source: 'log', x, y, t: log.t.slice(i0, i1), sog, ...(log.roll ? { roll: log.roll.slice(i0, i1) } : {}) });
-      continue;
     }
     const [i0, i1] = rangeIdx(tr.t, t0, end);
     if (i1 - i0 < MIN_GAIN * w.drawn) continue;

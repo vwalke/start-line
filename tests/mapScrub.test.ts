@@ -108,6 +108,15 @@ describe('a boat at a moment (the scrubber dots)', () => {
     expect(boatAt('b', r, 6500, 2000, 0)!.leg).toBe(1);
     // Without the pre-gun track (the full-race view), nothing before the gun.
     expect(boatAt('b', legRanges(two, false), -2500, 2000, 0)).toBeNull();
+    // The shared last pre-start fix is the first beat (the gun), not pre-start.
+    expect(boatAt('b', r, 0, 2000, 0)!.leg).toBe(0);
+    expect(boatAt('b', r, -1, 2000, 0)!.leg).toBe(PRE_LEG);
+  });
+
+  it('puts every boat of a real race on the first beat at the gun', () => {
+    const boats = boatsAt(a, null, gun);
+    expect(boats.length).toBe(a.drawings.length);
+    for (const b of boats) expect(b.leg).toBe(0);
   });
 
   it('gives every boat of a real race a dot mid-race, on the track', () => {
@@ -365,6 +374,18 @@ describe('full-rate detail when zoomed in', () => {
     const s = a.drawings[0].segments[1];
     const j = lowerBound(tk.t, s.t[5]);
     expect(Math.hypot(tk.x[j] - s.x[5], tk.y[j] - s.y[5])).toBeLessThan(2);
+  });
+
+  it('falls back to the feed when the log does not cover the window', () => {
+    const id = a.drawings[0].id;
+    const src = withLog(data, id);
+    const boats = src.boats.map((b) =>
+      b.id !== id
+        ? b
+        : { ...b, fullRate: { t: Float64Array.from([0, 100]), lat: Float64Array.from([0, 0]), lon: Float64Array.from([0, 0]) } },
+    );
+    const full = fullRateTracks({ ...src, boats }, fullRateWants(a));
+    expect(full.find((x) => x.id === id)?.source).toBe('feed');
   });
 
   it('draws from the full-rate track, cut at the same leg times, where there is one', () => {
