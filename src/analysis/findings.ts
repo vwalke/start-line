@@ -1,7 +1,7 @@
 /** Plain-English findings from a finished analysis. Short, specific, hedged where the wind is estimated. */
 import { compassRound, median, wrap180 } from './geo';
 import { biasAngle, lineBias } from './line';
-import type { BoatResult, Finding, RaceAnalysis, StartResult } from './types';
+import type { BoatResult, Finding, RaceAnalysis, StartCompare, StartCompareSide, StartResult } from './types';
 
 /** Findings about the start (the line and the starts), shown under the start chart, and the rest (legs, results, wind), shown with the race. */
 export function splitFindings(findings: Finding[]): { start: Finding[]; race: Finding[] } {
@@ -21,6 +21,37 @@ const ord = (n: number): string => n + (['th', 'st', 'nd', 'rd'][n % 100 > 10 &&
 function joinTags(bs: BoatResult[]): string {
   const t = bs.map(tag);
   return t.length <= 1 ? t.join('') : `${t.slice(0, -1).join(', ')} and ${t[t.length - 1]}`;
+}
+
+/** The start comparison's rows, the same for both boats. */
+export const START_COMPARE_ROWS = ['Behind the line at the gun', 'Late', 'Speed at the gun', 'Line position'] as const;
+
+/** One boat's start under START_COMPARE_ROWS ("—" for a missing value). */
+function startSide(b: BoatResult): StartCompareSide {
+  const s = b.start!;
+  const behind = `${r1(s.rank!.m)} m${s.rank!.source === 'ours' ? ' (our track)' : ''}`;
+  return { id: b.id, tag: tag(b), values: [behind, s.lateS == null ? '—' : `${r1(s.lateS)} s`, `${r1(s.speedKn)} kn`, `${r0(s.linePosPct)}% from the pin`] };
+}
+
+/** The best clean start (first by start place) beside the worst (last), when there are two or more. */
+function startCompare(best: BoatResult, worst: BoatResult | null, anyOver: boolean, anyAway: boolean): StartCompare {
+  const out = [anyOver && 'over early', anyAway && 'away from the line'].filter(Boolean);
+  return {
+    rows: [...START_COMPARE_ROWS],
+    best: startSide(best),
+    worst: worst ? startSide(worst) : null,
+    note: out.length ? `Boats ${out.join(' or ')} are left out (listed below).` : null,
+  };
+}
+
+/** The comparison as plain text, for wherever a finding is read as a sentence. */
+export function startCompareText(c: StartCompare): string {
+  const side = (head: string, x: StartCompareSide): string =>
+    `${head}: ${x.tag} — ${c.rows
+      .map((r, i) => (x.values[i] === '—' ? '' : `${r.toLowerCase()}: ${x.values[i]}`))
+      .filter(Boolean)
+      .join('; ')}.`;
+  return [side('Best start', c.best), c.worst && side('Worst start', c.worst), c.note].filter(Boolean).join(' ');
 }
 
 export function buildFindings(a: RaceAnalysis): Finding[] {
@@ -52,28 +83,14 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
   // Starts.
   // Ranked by one value per boat (Vakaros when valid, else our track check); boats with neither are skipped.
   const dtl = (b: BoatResult): number => b.start!.rank!.m;
-  const by = (b: BoatResult): string => (b.start!.rank!.source === 'ours' ? ' by our track check' : '');
-  const late = (s: StartResult, approx = false): string => (s.lateS == null ? '' : `, ${approx ? '≈' + r0(s.lateS) : r1(s.lateS)} s late`);
   const over = started.filter((b) => b.start!.over);
+  const away = started.filter((b) => b.start!.awayFromLine);
+  // Clean starters only (start place set): over-early and away boats have their own findings below.
   const clean = started.filter((b) => b.start!.startPlace != null).sort((x, y) => x.start!.startPlace! - y.start!.startPlace!);
   if (clean.length) {
-    const best = clean[0];
-    const tied = clean.filter((b) => dtl(b) - dtl(best) < 1);
-    const s = best.start!;
-    let text = `Best start: ${joinTags(tied)} — ${r1(dtl(best))} m back${by(best)}${late(s)}, at ${r1(s.speedKn)} kn.`;
-    const fin = tied.filter((b) => b.finishPos != null).map((b) => `${tag(b)} finished ${ord(b.finishPos!)}`);
-    if (fin.length) text += ` ${fin.join('; ')}.`;
-    out.push({ kind: 'start', text, boatIds: tied.map((b) => b.id) });
-    if (clean.length >= 3) {
-      const worst = clean[clean.length - 1];
-      const w = worst.start!;
-      let wt = `Furthest back: ${tag(worst)} — ${r1(dtl(worst))} m${by(worst)}${late(w, true)}`;
-      if (Math.abs(w.twaDeg) > 42) wt += `, sailing low (TWA ${r0(Math.abs(w.twaDeg))}°)`;
-      else if (w.speedKn < median(started.map((b) => b.start!.speedKn)) - 1) wt += `, slow at ${r1(w.speedKn)} kn`;
-      out.push({ kind: 'start', text: wt + '.', boatIds: [worst.id] });
-    }
+    const compare = startCompare(clean[0], clean.length >= 2 ? clean[clean.length - 1] : null, over.length > 0, away.length > 0);
+    out.push({ kind: 'start', text: startCompareText(compare), boatIds: [compare.best.id, ...(compare.worst ? [compare.worst.id] : [])], compare });
   }
-  const away = started.filter((b) => b.start!.awayFromLine);
   if (away.length) {
     const km = (b: BoatResult): string => `${(Math.abs(b.start!.dtlM) / 1000).toFixed(1)} km`;
     out.push({
@@ -92,7 +109,7 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
       boatIds: [b.id],
       text: s.ocs
         ? `${tag(b)} was flagged OCS by race control.`
-        : `${tag(b)}'s bow was ${r1(-dtl(b))} m over the line at the gun ${s.rank!.source === 'ours' ? 'by our estimate' : 'by the Vakaros DTL'} (not flagged OCS — GPS and bow offset are approximate).`,
+        : `${tag(b)} was over ${r1(-dtl(b))} m by ${s.rank!.source === 'ours' ? 'our track estimate' : 'Vakaros DTL'} (not flagged OCS)`,
     });
   }
   // Boats race control's OCS check couldn't see: no usable Vakaros fix, and our figure is near or over the line.

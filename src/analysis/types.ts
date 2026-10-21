@@ -272,6 +272,24 @@ export interface Finding {
   text: string;
   /** The boats this finding is about, if any. */
   boatIds?: string[];
+  /** The best and worst start side by side (a 'start' finding); `text` is its plain-text form. */
+  compare?: StartCompare;
+}
+
+/** One boat's column in a start comparison: its tag and one value per row. */
+export interface StartCompareSide {
+  id: string;
+  tag: string;
+  values: string[];
+}
+
+/** The best and worst clean starts (by start place) under the same row labels; no worst with one clean starter. */
+export interface StartCompare {
+  rows: string[];
+  best: StartCompareSide;
+  worst: StartCompareSide | null;
+  /** Who was left out (over early, away from the line), if anyone. */
+  note: string | null;
 }
 
 /** A data caveat about the race: its full sentence (`text`) and what a short chip and bullet need. */

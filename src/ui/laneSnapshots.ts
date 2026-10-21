@@ -8,8 +8,8 @@
  * a gap, else none (the boat is missing in that frame, never placed). Trails come from the same drawn tracks
  * (the pre-gun track and the legs), broken wherever consecutive fixes are a gap apart (mapPoints.ts's rule).
  *
- * The view is wind-up (the analysis's wind at the gun, as the start chart) and shared by the three frames
- * (their positions and trails); a true-wind arrow points downwind, and places are by distance made to windward
+ * The view is wind-up (the analysis's wind at the gun, as the start chart) and shared by the three frames: fitted
+ * tightly to what they draw (laneView); a true-wind badge points downwind, and places are by distance made to windward
  * along the wind. With no wind estimate the view is north up and the wind is assumed square to the line, from
  * the course side. "Over" (a ring on the map only): a boat over early (StartReplay, the worker's startCross facts,
  * as Map C) is over at a frame until its clearing (clearedMs; never cleared: still over); from then on it is
@@ -18,7 +18,7 @@
 import { dot, len, sub, type Vec } from '../analysis/geo';
 import type { StartReplay } from '../analysis/startReplay';
 import type { RaceAnalysis } from '../analysis/types';
-import { degLabel, ordinal } from './format';
+import { degLabel } from './format';
 import { boatAt, legRanges, lowerBound, rotator, rotTrack, timeRange, type LegRange } from './mapPieces';
 import { drawingGapMs } from './mapPoints';
 import { gunRel } from './scrub';
@@ -28,14 +28,15 @@ import type { Box } from './view';
 export const LANE_FRAMES_S = [60, 120, 180] as const;
 /** Every frame's trail starts here, s from the gun (or where the data does). */
 export const LANE_TRAIL_FROM_S = -30;
-/** The shared view takes in boats (positions and trails) this far from the line's middle, at most: max(LANE_REACH_LINES × the line, LANE_REACH_MIN_M). */
-export const LANE_REACH_LINES = 3;
-export const LANE_REACH_MIN_M = 600;
-/** The view's padding: this share of its size each way, and at least LANE_PAD_M. */
-const LANE_PAD = 0.08;
-const LANE_PAD_M = 20;
-/** Room for the wind arrow and its label above the boats, as a share of the padded view's size. */
-const LANE_WIND_ROOM = 0.2;
+/**
+ * The outlier guard (it only ever leaves points out, never pads): points further than max(LANE_GUARD_LINES × the
+ * line, LANE_GUARD_MIN_M) from the line's middle don't count toward the shared view, nor do boats away from the line.
+ */
+export const LANE_GUARD_LINES = 3;
+export const LANE_GUARD_MIN_M = 400;
+/** The view's padding: this share of its width / height on each side, and at least LANE_PAD_M. */
+export const LANE_PAD = 0.08;
+export const LANE_PAD_M = 10;
 /** Outside its track (before the first fix, after the last), a boat is placed at its end fix when that is this close in time, ms (a feed that starts at −59.9 s). */
 export const LANE_SNAP_MS = 1000;
 
@@ -218,21 +219,29 @@ function trailOf(a: RaceAnalysis, id: string, twd: number, from: number, to: num
 }
 
 /**
- * The frame's caption: "USA 016: ≈ 6th of 15 to windward." for the selected boat, or its one note ("…: no position
+ * The frame's caption: "USA 016: ≈ 6 of 15" for the selected boat's place (approximate), or its one note ("…: no position
  * (tracker gap)." / "…: not tracked."); "No tracks at this time." for an empty frame; '' with no boat selected.
+ * `spoken`: the same for the frame's screen-reader label, the place said as "USA 016: ≈ 6 of 15 upwind.".
  */
-function frameCaption(f: Omit<LaneFrame, 'caption' | 'label'>, me: string | null): string {
-  if (f.empty) return 'No tracks at this time.';
+function frameCaption(f: Omit<LaneFrame, 'caption' | 'label'>, me: string | null): { caption: string; spoken: string } {
+  const note = (t: string): { caption: string; spoken: string } => ({ caption: t, spoken: t });
+  if (f.empty) return note('No tracks at this time.');
   const mine = me != null ? f.boats.find((b) => b.id === me) : undefined;
-  if (!mine) return '';
-  if (!mine.tracked) return `${mine.sail}: not tracked.`;
-  if (!mine.pos) return `${mine.sail}: no position (tracker gap).`;
-  if (mine.rank == null) return '';
-  return `${mine.sail}: ≈ ${ordinal(mine.rank)} of ${f.placed} to windward${mine.hold ? ' (last fix)' : ''}.`;
+  if (!mine) return note('');
+  if (!mine.tracked) return note(`${mine.sail}: not tracked.`);
+  if (!mine.pos) return note(`${mine.sail}: no position (tracker gap).`);
+  if (mine.rank == null) return note('');
+  const place = `${mine.sail}: ≈ ${mine.rank} of ${f.placed}`;
+  const hold = mine.hold ? ' (last fix)' : '';
+  return { caption: place + hold, spoken: `${place} upwind${hold}.` };
 }
 
-/** The view: the line, the boats' positions and trails in any frame (points near the start only); padded, with room at the top for the wind arrow; shared by all frames. */
-function laneView(line: [Vec, Vec], pts: readonly Vec[], reach: number): Box {
+/**
+ * The shared view: the tight box around the line's ends and every point drawn in any frame (positions and trails
+ * from gun −0:30), padded LANE_PAD each side (at least LANE_PAD_M). Points beyond `guard` from the line's middle
+ * are left out (a stray boat can't blow the view up); nothing else is added (the wind badge sits outside the map).
+ */
+export function laneView(line: [Vec, Vec], pts: readonly Vec[], guard: number): Box {
   const mid: Vec = [(line[0][0] + line[1][0]) / 2, (line[0][1] + line[1][1]) / 2];
   const box: Box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
   const grow = ([x, y]: Vec): void => {
@@ -243,10 +252,10 @@ function laneView(line: [Vec, Vec], pts: readonly Vec[], reach: number): Box {
   };
   grow(line[0]);
   grow(line[1]);
-  for (const p of pts) if (len(sub(p, mid)) <= reach) grow(p);
-  const size = Math.max(box.x1 - box.x0, box.y1 - box.y0);
-  const pad = Math.max(LANE_PAD_M, LANE_PAD * size);
-  return { x0: box.x0 - pad, y0: box.y0 - pad - LANE_WIND_ROOM * (size + 2 * pad), x1: box.x1 + pad, y1: box.y1 + pad };
+  for (const p of pts) if (len(sub(p, mid)) <= guard) grow(p);
+  const px = Math.max(LANE_PAD_M, LANE_PAD * (box.x1 - box.x0));
+  const py = Math.max(LANE_PAD_M, LANE_PAD * (box.y1 - box.y0));
+  return { x0: box.x0 - px, y0: box.y0 - py, x1: box.x1 + px, y1: box.y1 + py };
 }
 
 /** The three lane snapshots of race `a` for the selected boat and its group. */
@@ -283,8 +292,11 @@ export function laneSnapshots(a: RaceAnalysis, o: LaneOptions): LaneSnapshots {
         else if (r.clearedMs > from) over = 'cleared';
       }
       const trail = d ? trailOf(a, b.id, twd, from, t) : [];
-      if (pos) allPts.push(pos);
-      for (const seg of trail) allPts.push(...seg);
+      // A boat away from the line (start.awayFromLine) is drawn but doesn't size the view.
+      if (!b.start?.awayFromLine) {
+        if (pos) allPts.push(pos);
+        for (const seg of trail) allPts.push(...seg);
+      }
       return {
         id: b.id,
         sail: b.sail,
@@ -304,16 +316,16 @@ export function laneSnapshots(a: RaceAnalysis, o: LaneOptions): LaneSnapshots {
     const placed = boats.filter((b) => b.pos).length;
     const empty = boats.every((b) => !b.pos && !b.trail.length);
     const base = { s, t, from, title: gunRel(t, gun), boats, empty, placed };
-    const caption = frameCaption(base, o.me);
+    const { caption, spoken } = frameCaption(base, o.me);
     const label = empty
       ? `Lane snapshot at ${base.title}: no tracks at this time.`
-      : [`Lane snapshot at ${base.title}: ${placed} of ${boats.length} boats placed.`, caption, up ? `${words.title}.` : ''].filter(Boolean).join(' ');
+      : [`Lane snapshot at ${base.title}: ${placed} of ${boats.length} boats placed.`, spoken, up ? `${words.title}.` : ''].filter(Boolean).join(' ');
     frames.push({ ...base, caption, label });
   }
   const line: [Vec, Vec] = [rot(left), rot(right)];
   // Downwind in map coordinates: the upwind axis turned as the view is, reversed (straight down when wind-up).
   const upMap = up ? rot(up) : null;
   const wind: LaneWind | null = upMap ? { down: [-upMap[0], -upMap[1]], label: words.label, title: words.title, assumed: !windUp } : null;
-  const view = laneView(line, allPts, Math.max(LANE_REACH_LINES * lineM, LANE_REACH_MIN_M));
+  const view = laneView(line, allPts, Math.max(LANE_GUARD_LINES * lineM, LANE_GUARD_MIN_M));
   return { frames, line, wind, view, windUp, note: words.note, me: o.me };
 }

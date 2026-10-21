@@ -125,7 +125,8 @@ describe('boat list and findings share the selection', () => {
 
   it('tags findings with the boats they are about', () => {
     const best = a.findings.find((f) => f.text.startsWith('Best start'))!;
-    expect(best.boatIds?.sort()).toEqual(['4', '6']);
+    // The single best starter and the worst, no tied batch.
+    expect(best.boatIds).toEqual(['6', '5']);
     expect(a.findings.find((f) => /#3 lost/.test(f.text))!.boatIds).toEqual(['3']);
     expect(a.findings.find((f) => f.kind === 'wind')!.boatIds).toBeUndefined();
   });
@@ -133,7 +134,7 @@ describe('boat list and findings share the selection', () => {
   it('highlights the selected boat’s findings and dims the rest', () => {
     expect(findingsList(a.findings, null)).not.toMatch(/ (hl|dim)"/);
     const html = findingsList(a.findings, '3');
-    const items = [...html.matchAll(/<li class="([^"]+)">([^<]*)<\/li>/g)].map((m) => ({ cls: m[1], text: m[2] }));
+    const items = [...html.matchAll(/<li class="([^"]+)">(.*?)<\/li>/g)].map((m) => ({ cls: m[1], text: m[2] }));
     expect(items).toHaveLength(a.findings.length);
     for (const [i, it] of items.entries()) expect(it.cls.endsWith(a.findings[i].boatIds?.includes('3') ? ' hl' : ' dim')).toBe(true);
     expect(items.find((x) => x.text.includes('#3 lost'))!.cls).toBe('leg hl');
@@ -144,10 +145,9 @@ describe('findings split between the start and the race', () => {
   const { start, race } = splitFindings(a.findings);
 
   it('puts the line and the starts under the start chart, the rest with the race, in order', () => {
-    expect(start.map((f) => f.kind)).toEqual(['line', 'start', 'start']);
+    expect(start.map((f) => f.kind)).toEqual(['line', 'start']);
     expect(start[0].text).toMatch(/^The pin \(left\) end was favoured by 10° ≈ 17 m against the estimated wind of 12°\./);
-    expect(start[1].text).toMatch(/^Best start: #6 and #4/);
-    expect(start[2].text).toMatch(/^Furthest back: #5/);
+    expect(start[1].text).toMatch(/^Best start: #6 — .+ Worst start: #5 — /);
     expect(race.every((f) => f.kind === 'leg' || f.kind === 'result' || f.kind === 'wind')).toBe(true);
     expect(race.some((f) => /#3 lost/.test(f.text))).toBe(true);
     expect(race.at(-1)!.kind).toBe('wind');
@@ -159,7 +159,9 @@ describe('findings split between the start and the race', () => {
 
   it('highlights the selected boat in both lists', () => {
     // #6 started best; #3 lost the most on a leg.
-    expect(findingsList(start, '6')).toMatch(/<li class="start hl">Best start/);
+    expect(findingsList(start, '6')).toMatch(/<li class="start hl"><table class="start-cmp" aria-label="Best and worst start">/);
+    expect(findingsList(start, '5')).toMatch(/<li class="start hl"><table class="start-cmp"/);
+    expect(findingsList(start, '4')).toMatch(/<li class="start dim"><table class="start-cmp"/);
     expect(findingsList(start, '6')).toMatch(/<li class="line (hl|dim)">/);
     expect(findingsList(race, '3')).toMatch(/<li class="leg hl">#3 lost/);
     expect(findingsList(race, '3')).toMatch(/<li class="wind dim">/);

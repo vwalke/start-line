@@ -47,7 +47,7 @@ import {
   type LadderLayout,
 } from './coach';
 import { createRegattaRunner, regattaJobs, regattaViewHtml, type RegattaJob, type WorkerPort } from './coachRegatta';
-import { askLogHtml, askPanelHtml, askPanelShown, createAskCoach, leftText, type AskPanelState } from './coachAsk';
+import { askLogHtml, askPanelHtml, askPanelShown, askStarters, askStartersHtml, createAskCoach, leftText, type AskPanelState } from './coachAsk';
 import { raceAskContext, regattaAskContext } from './coachAskContext';
 import type { AskContext } from '../analysis/coach/askContext';
 import type { AskIds } from '../data/askCoach/protocol';
@@ -142,7 +142,7 @@ import {
 import { mapKey, raceNotesKey, startKey } from './captions';
 import { MAP_GAP_TITLE, mapHasGaps, mapTipHtml, mapTipLines, mapTipPos, pickAt, pickMapPoint, type MapPoints, type PlaceRead } from './mapPoints';
 import { createFullscreen, inertOthers, lockScroll, moveNodes, trapFocus, type ScrollLock } from './fullscreen';
-import { boatLabel, degLabel, esc, f1, gunTimeLine } from './format';
+import { boatLabel, esc, f1, gunTimeLine, legCount } from './format';
 import { dismissHint, hintStore, showHint } from './hints';
 import { renderKeepOpen, renderKeyLine } from './info';
 import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
@@ -371,7 +371,13 @@ export function startApp(): void {
       replayWaits.set(id, resolve);
       worker.postMessage({ id, type: 'start-replay', key: raceKeyOf(a) } satisfies WorkerRequest);
     });
-  const lanes = mountLaneSnapshots($<HTMLDetailsElement>('lane-snapshots'), () => ({ a: analysis, me: highlight, group: coachGroup }), startReplaysOf);
+  // Open by default but worked out only while the Start tab is on screen (remeasure draws it on show).
+  const lanes = mountLaneSnapshots(
+    $<HTMLDetailsElement>('lane-snapshots'),
+    () => ({ a: analysis, me: highlight, group: coachGroup }),
+    startReplaysOf,
+    () => tab === 'start' && !reportOn,
+  );
 
   let analysis: RaceAnalysis | null = null;
   /** The one selected boat, shared by the boat list, both charts, the table and the findings. */
@@ -502,19 +508,10 @@ export function startApp(): void {
     const a = analysis;
     if (!a) return;
     const m = a.meta;
-    const w = a.wind;
-    const windText =
-      w.method === 'tacks'
-        ? `Wind est. ${w.estimates.map((e) => degLabel(e.twdDeg)).join(' → ')} from tack headings`
-        : w.method === 'model'
-          ? `Wind ${degLabel(w.twdAtGunDeg)} from the weather model`
-          : `Wind assumed ${degLabel(w.twdAtGunDeg)} (first leg dead upwind)`;
-    const model = w.model && w.method === 'tacks' ? ` · model ${degLabel(w.model.dirAtGunDeg)}` : '';
     const listed = m.eventId == null || m.eventId === eventId ? listedOf(m.division, m.raceNumber) : undefined;
     els.summary.innerHTML = `${raceTitleHtml(m, listed)}
       <p>${esc(gunTimeLine(m.gunMs, m.tzOffsetMs))} ·
-      ${a.boats.length} boats · ${a.legs.map((l) => esc(l.name)).join(', ')} ·
-      <span title="No wind sensor on the boats: estimated from the fleet's steady upwind headings">${windText}${model}</span> ·
+      ${a.boats.length} boats · ${legCount(a.legs.length)} ·
       <span class="muted">${esc(m.sourceLabel)}</span></p>`;
     renderRaceHead();
     vkx.mount(els.raceHead, a);
@@ -676,13 +673,15 @@ export function startApp(): void {
     }
   });
 
-  // ---- Ask Coach (optional): the panel shows only when /api/coach/status says it is on.
+  // ---- Ask Coach (optional): the panel (top of the Coach tab, open by default) shows only when /api/coach/status says it is on.
   /** Builds the context of what is on screen, at the moment a question is sent; null with no boat. */
   let askContextNow: (() => AskContext) | null = null;
   let askIds: AskIds = {};
   let askPanelView: CoachView | null = null;
-  let askOpen = false;
+  let askOpen = true;
   let askShownKey = '';
+  /** The starter questions on show (redrawn only when they change, so a focused chip keeps its focus). */
+  let askStarterText = '';
   const ask = createAskCoach({ render: renderAsk });
   const askBox = <T extends HTMLElement>(sel: string): T | null => els.coachAsk.querySelector<T>(sel);
 
@@ -726,9 +725,20 @@ export function startApp(): void {
       els.coachAsk.innerHTML = askPanelHtml(coachView, askOpen);
       askPanelView = coachView;
       askShownKey = '';
+      askStarterText = '';
     }
     ask.setKey([coachView, raceKeyOf(a), me.id, group].join('#'));
     if (on) renderAsk(ask.state());
+  }
+
+  /** The starter chips from the boat's own race (askStarters); sent like a typed question. */
+  function syncAskStarters(a: RaceAnalysis, me: BoatResult, deb: CoachDebrief | null): void {
+    const list = askBox<HTMLElement>('[data-ask-sugs]');
+    const qs = askStarters(coachView, a, me, deb);
+    if (!list || qs.join('\n') === askStarterText) return;
+    askStarterText = qs.join('\n');
+    const st = ask.state();
+    list.innerHTML = askStartersHtml(qs, st.busy || st.remaining === 0);
   }
 
   function sendAsk(text: string): void {
@@ -794,12 +804,14 @@ export function startApp(): void {
       renderRegatta(a, me.sail);
       askContextNow = () =>
         regattaAskContext({ races: regattaRunner.races(), progress: regattaRunner.progress(), boat: me, event: a.meta.eventName, division: a.meta.division });
+      syncAskStarters(a, me, null);
       return;
     }
     const listed = raceList ? findListed(raceList, a.meta.division, a.meta.raceNumber) : undefined;
     const raceTitle = listed ? raceName(listed) : undefined;
     if (!ensureCoach(a)) {
       askContextNow = () => raceAskContext({ a, me, raceName: raceTitle, head: coachChips(a, me, null), deb: null, stories: [], group: coachGroup });
+      syncAskStarters(a, me, null);
       renderKeepOpen(els.coachHead, (open) => coachHeadHtml(coachChips(a, me, null), open));
       els.coachGroup.innerHTML = '';
       els.coachLadder.innerHTML = '<p class="muted coach-none">Working out the wind…</p>';
@@ -835,6 +847,7 @@ export function startApp(): void {
     const head = coachChips(a, me, coachLadder, deb?.totalS ?? null, deb?.raceCov ?? null);
     const group = coachGroup;
     askContextNow = () => raceAskContext({ a, me, raceName: raceTitle, head, deb, stories, group });
+    syncAskStarters(a, me, deb);
     coachLayout = model && coachLadder ? ladderLayout(coachLadder, model.wind, a.meta.gunMs, widthPx, coachEach) : null;
     renderKeyLine(els.coachLadderCap, { chips: coachLadder ? ladderChips(a, coachLadder, coachGroup, coachEach) : [], bullets: [] });
   }
@@ -1654,6 +1667,7 @@ export function startApp(): void {
       refitStart();
       renderStart();
       renderStartSog();
+      lanes.refresh();
       topScrolls[0].update();
     } else if (t === 'race') {
       renderPlaces();

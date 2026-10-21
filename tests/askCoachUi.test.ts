@@ -11,6 +11,7 @@ import {
   askPanelHtml,
   askPanelShown,
   createAskCoach,
+  STARTERS,
   historyOf,
   leftText,
   newSessionId,
@@ -299,12 +300,16 @@ describe('Ask Coach panel: a conversation', () => {
 describe('Ask Coach panel: HTML', () => {
   it('the panel: collapsible, suggestions per view, counter and limit, aria-live log, the note', () => {
     const race = askPanelHtml('race');
-    expect(race).toMatch(/^<details class="coach-ask-box">/);
-    expect(askPanelHtml('race', true)).toContain('<details class="coach-ask-box" open>');
-    for (const q of ASK_SUGGESTIONS.race) expect(race).toContain(`data-ask-suggest="${q.replace(/'/g, '&#39;')}"`);
+    // Open by default, still collapsible.
+    expect(race).toMatch(/^<details class="coach-ask-box" open>/);
+    expect(askPanelHtml('race', false)).toMatch(/^<details class="coach-ask-box">/);
+    expect(race).toContain('<ul class="chips ask-sugs" data-ask-sugs aria-label="Starter questions">');
+    expect(race.match(/data-ask-suggest=/g)).toHaveLength(STARTERS);
+    for (const q of ASK_SUGGESTIONS.race.slice(0, STARTERS)) expect(race).toContain(`data-ask-suggest="${q.replace(/'/g, '&#39;')}"`);
+    expect(askPanelHtml('race', true, ['Why did I lose places on Beat 1?'])).toContain('data-ask-suggest="Why did I lose places on Beat 1?"');
     expect(ASK_SUGGESTIONS.race.length).toBeGreaterThanOrEqual(3);
     expect(ASK_SUGGESTIONS.regatta).toContain('How were my starts across the regatta?');
-    expect(askPanelHtml('regatta')).toContain('questions about this regatta');
+    expect(askPanelHtml('regatta')).toContain('tap a question or ask your own about this regatta');
     expect(race).toContain(`maxlength="${QUESTION_MAX}"`);
     expect(race).toContain(`0/${QUESTION_MAX}`);
     expect(race).toContain('aria-live="polite"');

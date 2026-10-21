@@ -11,6 +11,12 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 
 ## What it shows
 
+The masthead's sub-title, "Your race, start to finish.", is written once, in
+`index.html` (`<p class="tag">`); `npm run icons` copies it into the web
+manifest's description. Under the race title one line gives the gun on the
+venue's clock, marked `(local)` (and your own clock when it differs), the
+number of boats and legs (`4 legs`) and the data source.
+
 Under the race header the digest has three tabs, **Start**, **Race** and
 **Coach**; the boat list beside (on a phone, above) them and the selected boat
 are shared by all three.
@@ -246,26 +252,42 @@ Switching races keeps the tab.
   and leaves out any that would overlap another label or the line, so
   zooming in reveals more; hover or tap a boat for its name either way.
 - **Lane snapshots** (`ui/laneSnapshots.ts`, drawn by `ui/laneSnapshotsView.ts`;
-  Chris): a collapsed section under the start chart. Opened, it shows three
-  small maps side by side (stacked on a phone) at gun +1:00, +2:00 and +3:00,
-  so a coach can see how each boat came off the line and whether it held its
-  lane. Each frame draws every boat as a dot with its trail back to gun −0:30
-  (or where the data starts), the start line, and a true-wind arrow pointing
-  downwind, in one view shared by the three frames (their positions and
-  trails, up to a reach from the line). The wind is at the top: the
-  analysis's wind at the gun, as the start chart, so the arrow points
-  straight down, labelled with the TWD and its source (`TWD ~18° est.` from
-  the fleet's tacks, `TWD 18° (model)`, `TWD ~18° assumed` from the course).
-  With no wind estimate the view is north up and the wind is assumed square
-  to the line, blowing from the course side (`Wind assumed ⟂ line`, a dashed
-  arrow). No mark is drawn. The selected boat and its Coach group (Top 3 by
+  Chris): a section under the start chart, open by default (collapsible). It shows three
+  maps at gun +1:00, +2:00 and +3:00, one at a time at the panel's full width
+  (on a phone too), so a coach can see how each boat came off the line and
+  whether it held its lane. A segmented control (`+1:00 | +2:00 | +3:00`,
+  aria-pressed), ‹ › buttons and the ← → keys (with focus in the section)
+  step between them, clamped at the ends (no wrap: ‹ is disabled on +1:00, ›
+  on +3:00). It opens on +1:00 and keeps the frame picked across redraws (a
+  new boat, say) for the session; switching repaints the last drawing, with
+  nothing worked out again. All three are drawn in the same view (one
+  viewBox), so boats don't jump; the two not on show are `hidden` (from
+  screen readers too). Each frame draws every boat as a dot with its trail back to gun −0:30
+  (or where the data starts) and the start line, in one view shared by the
+  three frames. The view is fitted tightly to what they draw: the line's
+  ends and every position and trail point, padded 8% each way (at least
+  10 m). Nothing else is added. The only guard leaves points out (it never
+  pads): boats away from the line, and points more than 3× the line's length
+  (at least 400 m) from its middle, so one stray boat can't blow the view
+  up. The map keeps that extent's aspect, full width, its height capped on
+  a desktop (60vh, 560 px; 70vh on a phone) and centred. Text (sail labels
+  13 / 12 px), dots and strokes stay the same size on screen at any frame
+  size: strokes are non-scaling, and text and dots are sized from the map's
+  measured px per metre (re-measured on resize). The true wind is a small
+  badge over the map's top-right corner, outside the map: an arrow pointing
+  downwind and the TWD with its source (`TWD ~18° est.` from the fleet's
+  tacks, `TWD 18° (model)`, `TWD ~18° assumed` from the course). The wind
+  is at the top (the analysis's wind at the gun, as the start chart), so the
+  arrow points straight down. With no wind estimate the view is north up
+  and the wind is assumed square to the line, blowing from the course side
+  (`Wind assumed ⟂ line`, a dashed arrow turned that way). No mark is drawn. The selected boat and its Coach group (Top 3 by
   default) are highlighted and labelled, the rest faded. Positions are the
   track map scrubber's: interpolated across short steps, held hollow for up
   to 5 s in a gap, else the boat is missing in that frame (never placed);
   trails break at gaps. A boat whose feed starts within 1 s of a frame is
   placed at its first fix. Each frame's caption is just the selected boat's
-  approximate place to windward (`USA 016: ≈ 6th of 15 to windward.`:
-  distance made from the line's middle along the wind, or along the line's
+  place upwind among the boats placed (`USA 016: ≈ 6 of 15`: an approximate
+  ranking by distance made from the line's middle along the wind, or along the line's
   perpendicular when the wind is assumed), or its one note (`no position
   (tracker gap).` / `not tracked.`); a frame with no positions and no trails
   says `No tracks at this time.` A boat over early (the over-early facts from
@@ -276,8 +298,8 @@ Switching races keeps the tab.
   adds a legend for the rings (a solid ring `OCS`, a dashed one `OCS,
   cleared`, both always). Each frame's screen-reader
   label is short: `Lane snapshot at gun +1:00: 15 of 15 boats placed. USA
-  016: ≈ 6th of 15 to windward. True wind from 18° (estimated).` Nothing is
-  worked out until the section is opened.
+  016: ≈ 6 of 15 upwind. True wind from 18° (estimated).` Nothing is
+  worked out while the section is collapsed or the Start tab is not showing.
 - **Key lines** (`ui/info.ts`, `ui/captions.ts`): under every chart and
   table, one short row of chips with the key facts only, e.g.
   `Line 143 m · RC fav. 2° · 4 m · wind est. (medium) · hulls to scale`,
@@ -469,8 +491,18 @@ Switching races keeps the tab.
   left out of the scale. The choices (and the start chart's `Names`) are
   remembered in this browser.
 - **Findings:** plain-English notes, split in two. **Start findings** sit
-  under the start chart: the favoured end (in degrees and metres), best and
-  worst start, boats over the line or that race control couldn't check.
+  under the start chart: the favoured end (in degrees and metres), the best
+  start beside the worst, and boats over the line or that race control
+  couldn't check. Best and worst are the first and last clean starters by
+  start place (one boat each, no ties); boats over early or away from the line
+  are left out of both (they have their own lines, and a small note says so).
+  The two sit in a small table with the same rows for each: `Behind the line
+  at the gun`, `Late`, `Speed at the gun` and `Line position` (% from the
+  pin); with one clean starter only the best shows. The finding's text keeps
+  a plain-text form of the same. A boat over the line but not flagged reads
+  `#USA 019 (Balthasar) was over 2.3 m by Vakaros DTL (not flagged OCS)`
+  (`by our track estimate` when the figure is ours; the boat name, never a
+  person's).
   **Race findings** (Race tab) follow the place changes: the biggest single-leg gain and
   loss, the quickest boats upwind and downwind, places gained or lost, and a
   wind cross-check. Below them, the race's data caveats (`RaceAnalysis.notes`,
@@ -872,12 +904,22 @@ with them:
 
 ## Ask Coach (optional)
 
-A chat panel under the Coach cards, in the Race and Regatta views: the
-sailor asks about the race (or regatta) on screen and an Anthropic model
-answers **only from the Coach's own numbers**, which the browser sends with
-the question. The feature is **off unless `ANTHROPIC_API_KEY` is set**:
-`/api/coach/status` then says `enabled:false` and the panel isn't shown at
-all; `/api/coach/ask` answers 503 `not-configured`.
+A chat panel at the top of the Coach tab (under the boat's heading, above
+the gap chart and the cards), in the Race and Regatta views: an accent-
+bordered card, open by default (collapsible). The sailor asks about the race
+(or regatta) on screen and an Anthropic model answers **only from the
+Coach's own numbers**, which the browser sends with the question. Three
+one-tap starter questions come from the boat's own race (`askStarters`,
+`ui/coachAsk.ts`): the leg the top Coach card sits on (`Why did I lose
+places on Beat 1?` when places went there, else `Where did I lose time on
+Run 1?`; with no card on a leg, the leg that lost the most places), `What
+cost me the most?`, and `How was my start?` (`How much did being over early
+cost me?` when over). Missing data falls back to the general questions; the
+Regatta view uses its own three. A tap sends the question exactly as typed
+and Ask would (same limits). The feature is **off unless
+`ANTHROPIC_API_KEY` is set**: `/api/coach/status` then says `enabled:false`
+and the panel isn't shown at all (nothing takes its place);
+`/api/coach/ask` answers 503 `not-configured`.
 
 **Setup (one-time)**
 

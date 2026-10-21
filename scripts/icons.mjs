@@ -23,6 +23,9 @@ const CARBON = '#16181c';
 
 const iconSvg = readFileSync(join(root, 'brand', 'logo-icon.svg'), 'utf8');
 const faviconSvg = readFileSync(join(root, 'brand', 'logo-favicon.svg'), 'utf8');
+// The app's sub-title lives in one place, index.html's masthead; the manifest description starts with it.
+const subTitle = readFileSync(join(root, 'index.html'), 'utf8').match(/<p class="tag">([^<]+)<\/p>/)?.[1];
+if (!subTitle) throw new Error('index.html no longer has the masthead sub-title (<p class="tag">)');
 
 // The tile is <g clip-path="url(#…)"><rect ink/>…artwork…</g>; pull the artwork out
 // so the square variants can drop the rounded clip.
@@ -143,7 +146,7 @@ function ico(images) {
 const manifest = {
   name: 'Recall',
   short_name: 'Recall',
-  description: 'How your start and each leg went, in one screen. A lean start and leg digest from Vakaros RaceSense public data.',
+  description: `${subTitle} A lean start and leg digest from Vakaros RaceSense public data.`,
   start_url: '/',
   scope: '/',
   display: 'standalone',

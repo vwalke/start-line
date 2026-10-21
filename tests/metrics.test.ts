@@ -49,8 +49,8 @@ describe('Benelux Act III race 8 vs prototype CSV', () => {
 
   it('writes plain-English findings naming the best and worst starters', () => {
     const text = analysis.findings.map((f) => f.text).join('\n');
-    expect(text).toMatch(/Best start: #6 and #4/);
-    expect(text).toMatch(/Furthest back: #5/);
+    expect(text).toMatch(/Best start: #6 — behind the line at the gun: 5\.9 m; late: 3\.1 s; speed at the gun: 5\.4 kn; line position: 78% from the pin\. Worst start: #5 — /);
+    expect(text).not.toMatch(/Furthest back|#6 and #4/);
     expect(text).toMatch(/#3 lost \d+ s on Beat 1/);
   });
 

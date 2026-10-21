@@ -2,7 +2,7 @@
  * The boat list beside the digest and the findings list. Both follow the one
  * shared selection (`highlight`) used by the charts and the table.
  */
-import type { Finding, RaceAnalysis } from '../analysis/types';
+import type { Finding, RaceAnalysis, StartCompare } from '../analysis/types';
 import { boatColor, NC_COLOR } from './charts';
 import { esc } from './format';
 import { codeShort, codeWords } from './resultText';
@@ -56,13 +56,23 @@ export function boatList(a: RaceAnalysis, highlight: string | null, ncOpen = fal
     <ul class="boat-items" aria-labelledby="boats-title">${items}</ul>${notRacing(a, highlight, ncOpen)}`;
 }
 
+/** The best and worst start side by side: a row per stat, a column per boat (the selected boat's column marked). */
+export function startCompareHtml(c: StartCompare, highlight: string | null): string {
+  const sides = [{ head: 'Best', x: c.best }, ...(c.worst ? [{ head: 'Worst', x: c.worst }] : [])];
+  const on = (id: string): string => (id === highlight ? ' class="on"' : '');
+  const head = sides.map(({ head, x }) => `<th scope="col"${on(x.id)}><span class="cmp-k">${head}</span> ${esc(x.tag)}</th>`).join('');
+  const rows = c.rows.map((r, i) => `<tr><th scope="row">${esc(r)}</th>${sides.map(({ x }) => `<td${on(x.id)}>${esc(x.values[i])}</td>`).join('')}</tr>`).join('');
+  const note = c.note ? `<p class="cmp-note">${esc(c.note)}</p>` : '';
+  return `<table class="start-cmp" aria-label="${c.worst ? 'Best and worst start' : 'Best start'}"><thead><tr><td></td>${head}</tr></thead><tbody>${rows}</tbody></table>${note}`;
+}
+
 /** Findings; with a boat selected, the ones about it are marked and the rest dimmed. */
 export function findingsList(findings: Finding[], highlight: string | null): string {
   return findings
     .map((f) => {
       const on = highlight != null && !!f.boatIds?.includes(highlight);
       const cls = highlight == null ? f.kind : `${f.kind} ${on ? 'hl' : 'dim'}`;
-      return `<li class="${cls}">${esc(f.text)}</li>`;
+      return `<li class="${cls}">${f.compare ? startCompareHtml(f.compare, highlight) : esc(f.text)}</li>`;
     })
     .join('');
 }

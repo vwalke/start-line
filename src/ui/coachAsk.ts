@@ -1,6 +1,7 @@
 /**
- * The Coach tab's Ask Coach panel (optional): a collapsible card under the cards, in both views,
- * shown only when GET /api/coach/status says the feature is on. Suggested questions as chips, a
+ * The Coach tab's Ask Coach panel (optional): an accent card at the top of the tab, open by default
+ * (collapsible), in both views, shown only when GET /api/coach/status says the feature is on (else
+ * nothing at all). Three one-tap starter questions from the boat's own race (askStarters), a
  * 500-character box, the answer streamed in (plain text: escaped, line breaks and "- " bullets
  * only), Stop, the questions left, and the failures in words.
  *
@@ -11,6 +12,8 @@
  * renders `askPanelHtml` once per view and `askLogHtml` on every change), so it is tested as is.
  */
 import type { AskContext } from '../analysis/coach/askContext';
+import type { CoachDebrief } from '../analysis/coach/debrief';
+import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { askCoach, askStatus, type AskAvailability } from '../data/askCoach/api';
 import { HISTORY_MAX, QUESTION_MAX, type AskIds, type AskTurn } from '../data/askCoach/protocol';
 import type { CoachView } from './coach';
@@ -20,6 +23,50 @@ export const ASK_SUGGESTIONS: Record<CoachView, readonly string[]> = {
   race: ['What cost me the most this race?', 'Where did I gain?', 'How was my start?', 'What should I practice?'],
   regatta: ['How were my starts across the regatta?', 'What keeps costing me time?', 'Where did I gain?', 'What should I practice?'],
 };
+
+/** How many starter questions the panel offers. */
+export const STARTERS = 3;
+
+/** The places the boat lost on each leg (rank at the leg's end vs at its start: the start place for the first); null when unknown. */
+function placesLost(me: BoatResult): (number | null)[] {
+  return me.legs.map((l, i) => {
+    const before = i === 0 ? (me.start?.startPlace ?? null) : (me.legs[i - 1]?.rankAtEnd ?? null);
+    const after = l?.rankAtEnd ?? null;
+    return before != null && after != null ? after - before : null;
+  });
+}
+
+/**
+ * The panel's one-tap starter questions, from the boat's own race: the leg the top Coach card sits on
+ * (places lost there, or time), what cost the most, and the start (over early, or how it went). Missing
+ * data falls back to the view's general suggestions; always STARTERS distinct questions. Never a name:
+ * leg names and the boat's own facts only.
+ */
+export function askStarters(view: CoachView, a: RaceAnalysis | null, me: BoatResult | null, deb: Pick<CoachDebrief, 'cards' | 'noData'> | null): string[] {
+  const out: string[] = [];
+  if (view === 'race' && a && me) {
+    const lost = placesLost(me);
+    const card = deb && !deb.noData ? deb.cards[0] : undefined;
+    const mid = card ? (card.t0 + card.t1) / 2 : null;
+    const li = mid == null ? -1 : me.legs.findIndex((l) => l != null && mid >= l.startMs && mid < l.endMs);
+    if (li >= 0 && a.legs[li]) out.push((lost[li] ?? 0) > 0 ? `Why did I lose places on ${a.legs[li].name}?` : `Where did I lose time on ${a.legs[li].name}?`);
+    else {
+      // No card on a leg: the leg where the most places went, if any.
+      const worst = lost.reduce<number>((w, x, i) => ((x ?? 0) > 0 && (w < 0 || x! > lost[w]!) ? i : w), -1);
+      if (worst >= 0 && a.legs[worst]) out.push(`Why did I lose places on ${a.legs[worst].name}?`);
+    }
+    out.push('What cost me the most?');
+    if (me.start?.over) out.push('How much did being over early cost me?');
+    else if (me.start) out.push('How was my start?');
+  }
+  for (const q of ASK_SUGGESTIONS[view]) if (out.length < STARTERS && !out.includes(q)) out.push(q);
+  return out.slice(0, STARTERS);
+}
+
+/** The starter chips (disabled while an answer streams or no questions are left). */
+export function askStartersHtml(qs: readonly string[], disabled = false): string {
+  return qs.map((q) => `<li><button type="button" class="chip ask-sug" data-ask-suggest="${esc(q)}"${disabled ? ' disabled' : ''}>${esc(q)}</button></li>`).join('');
+}
 
 export const ASK_NOTE = "Answers use only Coach's numbers; AI can make mistakes.";
 
@@ -192,13 +239,12 @@ export function answerHtml(text: string): string {
 
 export const leftText = (n: number | null): string => (n == null ? '' : n <= 0 ? 'No questions left in this chat' : `${n} ${n === 1 ? 'question' : 'questions'} left in this chat`);
 
-/** The panel's fixed part, for one view: heading, suggestions, the log's slot, the form, the note. */
-export function askPanelHtml(view: CoachView, open = false): string {
-  const chips = ASK_SUGGESTIONS[view].map((q) => `<li><button type="button" class="chip ask-sug" data-ask-suggest="${esc(q)}">${esc(q)}</button></li>`).join('');
+/** The panel's fixed part, for one view: heading, starter questions (their slot refilled by the app), the log's slot, the form, the note. */
+export function askPanelHtml(view: CoachView, open = true, starters: readonly string[] = ASK_SUGGESTIONS[view].slice(0, STARTERS)): string {
   const what = view === 'regatta' ? 'this regatta' : 'this race';
   return `<details class="coach-ask-box"${open ? ' open' : ''}>
-    <summary><h3 id="coach-ask-title">Ask Coach</h3><span class="muted ask-sub">questions about ${what}</span></summary>
-    <ul class="chips ask-sugs" aria-label="Suggested questions">${chips}</ul>
+    <summary><h3 id="coach-ask-title">Ask Coach</h3><span class="ask-sub">tap a question or ask your own about ${what}</span></summary>
+    <ul class="chips ask-sugs" data-ask-sugs aria-label="Starter questions">${askStartersHtml(starters)}</ul>
     <div class="ask-log" data-ask-log aria-live="polite" aria-busy="false"></div>
     <form class="ask-form" data-ask-form>
       <label class="vh" for="coach-ask-q">Your question about ${what}</label>
