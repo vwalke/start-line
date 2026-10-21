@@ -763,7 +763,7 @@ all; `/api/coach/ask` answers 503 `not-configured`.
    | `ASK_COACH_DAILY_USD` | `2` | estimated spend cap per UTC day, $; over it the panel says "Ask Coach is resting for today" |
    | `ASK_COACH_SESSION_MAX` | `10` | questions per chat (per IP + chat; a chat resets on a change of race, boat, view or peer group) |
    | `ASK_COACH_DAILY_MAX` | `30` | questions per IP per 24 h |
-   | `ASK_COACH_GATEWAY_URL` | (none) | a [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/) base, `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic`, used instead of `https://api.anthropic.com` (logs, analytics, its own limits) |
+   | `ASK_COACH_GATEWAY_URL` | (none) | a [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/) base, `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic`, used instead of `https://api.anthropic.com` (logs, analytics, its own limits). `http://localhost`, `http://127.0.0.1` and `http://[::1]` are allowed for a local stub; any other `http` URL is ignored |
    | `ASK_COACH_EFFORT` | `low` | `low` / `medium` / `high`, sent with up-front thinking off where the model allows it (Haiku: `disabled`; Sonnet 5.5: `between_tools`; others: left on), or `default` to send neither (for a model without the effort setting) |
    | `ASK_COACH_PRICES` | price table | `in,out,cacheWrite,cacheRead` $/MTok for the spend estimate; known: Haiku 5.5 `0.10,0.50,0.125,0.01`, Sonnet 5.5; other models are priced high on purpose |
 

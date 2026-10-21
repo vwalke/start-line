@@ -107,7 +107,7 @@ export function createAskCoach(o: { render: (s: AskPanelState) => void; fetch?: 
     },
     async ask(question, context, ids) {
       const q = question.trim().slice(0, QUESTION_MAX);
-      if (!q || st.busy || !st.avail?.enabled) return;
+      if (!q || st.busy || !st.avail?.enabled || st.remaining === 0) return;
       const history = historyOf(st.turns);
       const turn: AskTurnView = { q, a: '', state: 'streaming' };
       st.turns.push(turn);

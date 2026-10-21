@@ -562,7 +562,9 @@ export function startApp(): void {
 
   function sendAsk(text: string): void {
     const ctx = askContextNow?.();
-    if (!ctx || !text.trim()) return;
+    const st = ask.state();
+    // Busy / no questions left: keep the draft (Enter still fires while Ask is disabled).
+    if (!ctx || !text.trim() || st.busy || !st.avail?.enabled || st.remaining === 0) return;
     void ask.ask(text, ctx, askIds);
     const q = askBox<HTMLTextAreaElement>('[data-ask-q]');
     if (q) q.value = '';

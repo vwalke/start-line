@@ -95,12 +95,37 @@ describe('Ask Coach panel: availability', () => {
     expect(n).toBe(1);
   });
 
-  it('asking while off sends nothing', async () => {
+  it('asking while off, busy, or out of questions sends nothing', async () => {
     const f = server({ status: () => json(200, { ok: true, enabled: false }) });
     const { c } = coach(f);
     await c.check();
     await c.ask('Where did I gain?', CTX, IDS);
     expect(f.asks).toHaveLength(0);
+    const live = server({
+      ask: () =>
+        new Response(
+          new ReadableStream({
+            start() {
+              /* hang so the first ask stays busy */
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8' } },
+        ),
+    });
+    const hanging = coach(live);
+    await hanging.c.check();
+    const first = hanging.c.ask('q1', CTX, IDS);
+    await new Promise((r) => setTimeout(r, 10));
+    await hanging.c.ask('q2', CTX, IDS);
+    hanging.c.stop();
+    await first;
+    expect(live.asks).toHaveLength(1);
+    const spent = server();
+    const { c: out } = coach(spent);
+    await out.check();
+    out.state().remaining = 0;
+    await out.ask('q', CTX, IDS);
+    expect(spent.asks).toHaveLength(0);
   });
 });
 

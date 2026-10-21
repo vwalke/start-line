@@ -152,6 +152,9 @@ describe('Ask Coach: settings', () => {
     expect(o).toMatchObject({ model: 'claude-sonnet-5-5', baseUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw/anthropic', dailyUsd: 0.5, effort: null, prices: { in: 1, out: 2, cacheWrite: 3, cacheRead: 4 } });
     const bad = askConfig({ ...ENV, ASK_COACH_MODEL: 'bad model!', ASK_COACH_GATEWAY_URL: 'http://plain.example', ASK_COACH_SESSION_MAX: '-1', ASK_COACH_DAILY_MAX: 'lots', ASK_COACH_DAILY_USD: 'x' })!;
     expect(bad).toMatchObject({ model: DEFAULT_MODEL, baseUrl: 'https://api.anthropic.com', sessionMax: 10, dailyMax: 30, dailyUsd: 2 });
+    expect(askConfig({ ...ENV, ASK_COACH_GATEWAY_URL: 'http://127.0.0.1:8799/anthropic' })!.baseUrl).toBe('http://127.0.0.1:8799/anthropic');
+    expect(askConfig({ ...ENV, ASK_COACH_GATEWAY_URL: 'http://localhost:8799' })!.baseUrl).toBe('http://localhost:8799');
+    expect(askConfig({ ...ENV, ASK_COACH_GATEWAY_URL: 'http://[::1]:8799' })!.baseUrl).toBe('http://[::1]:8799');
     expect(askConfig({ ...ENV, ASK_COACH_MODEL: 'claude-unknown-9' })!.prices).toEqual(FALLBACK_PRICES);
   });
 
@@ -324,6 +327,23 @@ describe('Ask Coach: our event stream', () => {
     expect(signal!.aborted).toBe(true);
     expect(ev.map((e) => e.event)).toEqual(['meta', 'error']);
     expect(data(ev[1]).error).toBe('timeout');
+  });
+
+  it('a request already aborted does not call upstream or consume a question', async () => {
+    const f = mockAnthropic();
+    const limits = freshLimits(2, 30);
+    const ctl = new AbortController();
+    ctl.abort();
+    const req = new Request(`${ORIGIN}/api/coach/ask`, {
+      method: 'POST',
+      body: JSON.stringify(body()),
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.9' },
+      signal: ctl.signal,
+    });
+    const r = await handleAsk(ctx(req), deps({ fetch: f, limits }));
+    expect(r.status).toBe(400);
+    expect(f.calls).toHaveLength(0);
+    expect(await limits.session.remaining(`${req.headers.get('cf-connecting-ip')}|${SESSION}`, NOW)).toBe(2);
   });
 
   it('the browser going away (stream cancelled) aborts the upstream and still books the spend', async () => {

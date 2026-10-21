@@ -6,7 +6,7 @@
  * OFF unless the secret ANTHROPIC_API_KEY is set: status says enabled:false and ask answers 503
  * not-configured. Settings (env vars, all optional; see README "Ask Coach (optional)"):
  *   ASK_COACH_MODEL        model id                         default claude-haiku-5-5
- *   ASK_COACH_GATEWAY_URL  Cloudflare AI Gateway base (https://gateway.ai.cloudflare.com/v1/<acct>/<gw>/anthropic), replaces https://api.anthropic.com
+ *   ASK_COACH_GATEWAY_URL  Cloudflare AI Gateway base (https://gateway.ai.cloudflare.com/v1/<acct>/<gw>/anthropic), replaces https://api.anthropic.com; http://localhost (or 127.0.0.1 / ::1) is allowed for a local stub
  *   ASK_COACH_EFFORT       low | medium | high | default    default low, with up-front thinking off where the model allows (default: send no effort/thinking settings)
  *   ASK_COACH_SESSION_MAX  questions per chat (per IP + chat id)  default 10
  *   ASK_COACH_DAILY_MAX    questions per IP per 24 h        default 30
@@ -116,11 +116,19 @@ function pricesOf(model: string, raw: string | undefined): Prices {
   return PRICES[model] ?? FALLBACK_PRICES;
 }
 
-/** The base URL: the gateway's when it is an https URL, else Anthropic's. */
+/** Loopback only: http is for a local stub (wrangler / ASK_COACH_GATEWAY_URL), not an arbitrary host. */
+function isLoopback(u: URL): boolean {
+  const h = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1';
+}
+
+/** The base URL: the gateway's when it is https (or http on loopback), else Anthropic's. */
 function baseOf(raw: string | undefined): string {
   const s = (raw ?? '').trim().replace(/\/+$/, '');
   try {
-    if (s && new URL(s).protocol === 'https:') return s;
+    if (!s) return ANTHROPIC_BASE;
+    const u = new URL(s);
+    if (u.protocol === 'https:' || (u.protocol === 'http:' && isLoopback(u))) return s;
   } catch {
     /* not a URL: the default */
   }
@@ -536,6 +544,9 @@ export async function handleAsk(ctx: AskCtx, deps: AskDeps = {}): Promise<Respon
   const p = parseAsk(body);
   if ('error' in p) return fail(p.error === 'too-long' ? 413 : 400, p.error);
 
+  // Already gone (Stop / tab closed during parse): do not spend a slot or call out.
+  if (req.signal?.aborted) return fail(400, 'bad-request');
+
   const now = (deps.now ?? Date.now)();
   const state = isolateState(cfg);
   const limits = deps.limits === undefined ? { session: state.session, daily: state.daily } : deps.limits;
@@ -560,6 +571,10 @@ export async function handleAsk(ctx: AskCtx, deps: AskDeps = {}): Promise<Respon
     ctl.abort();
   }, deps.timeoutMs ?? UPSTREAM_TIMEOUT_MS);
   const onGone = (): void => ctl.abort();
+  if (req.signal?.aborted) {
+    clearTimeout(timer);
+    return fail(400, 'bad-request');
+  }
   req.signal?.addEventListener?.('abort', onGone);
   const done = (): void => {
     clearTimeout(timer);

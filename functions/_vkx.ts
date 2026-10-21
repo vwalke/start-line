@@ -159,7 +159,7 @@ function sameHex(a: string | undefined, b: string): boolean {
 
 export class RateLimiter {
   private hits = new Map<string, number[]>();
-  /** Salt is created on first allow(): Workers forbid getRandomValues at module load. */
+  /** Salt is created on first remaining()/allow(): Workers forbid getRandomValues at module load. */
   private salt: string | undefined;
   constructor(
     readonly max = RATE_MAX,
@@ -171,7 +171,9 @@ export class RateLimiter {
   }
   /** How many more the client may make now (nothing is counted). */
   async remaining(ip: string, now: number): Promise<number> {
-    const list = (this.hits.get(await this.keyOf(ip)) ?? []).filter((t) => now - t < this.windowMs);
+    const key = await this.keyOf(ip);
+    const list = (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs);
+    if (this.hits.has(key)) this.hits.set(key, list);
     return Math.max(0, this.max - list.length);
   }
   /** True when the client may upload now (and counts it). The IP is hashed with a per-isolate salt and only kept here. */
