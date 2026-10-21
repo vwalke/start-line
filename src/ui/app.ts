@@ -5,6 +5,7 @@
 import { buildCoach, coachRaceKey, rivalLadder, type CoachModel, type CoachRaw, type RivalLadder } from '../analysis/coach';
 import { coachDebrief, type CoachDebrief } from '../analysis/coach/debrief';
 import { legStories } from '../analysis/coach/legStory';
+import { progressAt, progressBase, type ProgressBase } from '../analysis/coach/progress';
 import type { Group } from '../analysis/coach/groups';
 import { splitFindings } from '../analysis/findings';
 import { START_TRAIL_MS, type BoatResult, type RaceAnalysis } from '../analysis/types';
@@ -76,12 +77,13 @@ import {
   startScale,
   startSnapshot,
   trackMap,
-  trackSogIndex,
+  trackPoints,
   type StartFrame,
 } from './charts';
 import { mapKey, raceNotesKey, startKey } from './captions';
+import { MAP_GAP_TITLE, mapHasGaps, mapTipHtml, mapTipLines, pickAt, pickMapPoint, type MapPoints, type PlaceRead } from './mapPoints';
 import { createFullscreen, inertOthers, lockScroll, moveNodes, trapFocus, type ScrollLock } from './fullscreen';
-import { boatLabel, degLabel, duration, esc, f1, gunTimeLine, localTime } from './format';
+import { boatLabel, degLabel, esc, f1, gunTimeLine } from './format';
 import { dismissHint, hintStore, showHint } from './hints';
 import { renderKeepOpen, renderKeyLine } from './info';
 import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
@@ -103,8 +105,6 @@ import {
 import {
   START_COLOUR_KEY,
   hasGaps,
-  nearestSample,
-  segmentTimes,
   parseStartColour,
   sogHoverLeg,
   sogKey,
@@ -112,7 +112,6 @@ import {
   startColourControls,
   startSogRange,
   trackSogRange,
-  type SogIndex,
 } from './sog';
 import {
   COLOUR_KEY,
@@ -129,7 +128,7 @@ import {
   writePref,
 } from './speed';
 import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
-import { carryView, clampView, clientToChart, fitView, presetActive, type Box, type View } from './view';
+import { carryView, clampView, clientToChart, fitView, presetActive, viewBox, type Box, type View } from './view';
 import { createVkxUpload } from './vkxUpload';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -168,6 +167,7 @@ export function startApp(): void {
     startKey: $('start-speed-key'),
     map: $('map-chart'),
     mapTip: $('map-tip'),
+    mapZoom: $('map-zoom'),
     legend: $('map-legend'),
     colour: $('map-colour'),
     speedKey: $('map-speed-key'),
@@ -296,8 +296,12 @@ export function startApp(): void {
   let sogWindow = parseStartSogWindow(readPref(START_SOG_WINDOW_KEY));
   /** The speed-through-the-start series drawn last, for the hover. */
   let sogSeries: StartSogSeries | null = null;
-  /** Boat speed hover: the map's box and fix lookup, built on first hover after each render. */
-  let hover: { box: Box; ix: SogIndex } | null = null;
+  /** The track map's pan/zoom: its fit box (the leg selection's `mapBox`), the race and leg it was made for, and the view on it. */
+  let mapFit: Box | null = null;
+  let mapFitFor: { a: RaceAnalysis; leg: number | null } | null = null;
+  let mapView: View = { cx: 0, cy: 0, k: 1 };
+  /** Point details: the map's fix and gap lookup for a race and leg, built on first hover or tap. */
+  let mapPts: { a: RaceAnalysis; leg: number | null; p: MapPoints } | null = null;
   let fitBox: Box | null = null;
   let view: View = { cx: 0, cy: 0, k: 1 };
   /** The chart open full screen, if any (it shares the selection, zoom and names with the page). */
@@ -425,9 +429,8 @@ export function startApp(): void {
         : '';
     els.startKey.hidden = startColour !== 'speed';
     renderFullKey();
-    els.map.innerHTML = trackMap(a, highlight, legSel, { colour: trackColour, rankBy, top: speedTop, sogScale });
-    hover = null;
-    els.mapTip.hidden = true;
+    fitMap(a);
+    renderMap();
     els.legend.innerHTML = legLegend(a, legSel);
     // In Rank or Boat speed the leg swatches would read as a colour key for the tracks; the buttons stay, the swatches go.
     els.legend.classList.toggle('speed', trackColour !== 'leg');
@@ -437,8 +440,8 @@ export function startApp(): void {
         ? speedKey(a, legSel, rankBy, speedTop, highlight)
         : trackColour === 'sog'
           ? legSel == null && sogScale === 'leg'
-            ? sogLegKey(a, hasGaps(segmentTimes(a, null)))
-            : sogKey(trackSogRange(a, legSel), legSel == null ? 'Whole race' : `${a.legs[legSel]?.name ?? 'This leg'}`, hasGaps(segmentTimes(a, legSel)))
+            ? sogLegKey(a, mapHasGaps(a, null), MAP_GAP_TITLE)
+            : sogKey(trackSogRange(a, legSel), legSel == null ? 'Whole race' : `${a.legs[legSel]?.name ?? 'This leg'}`, mapHasGaps(a, legSel), MAP_GAP_TITLE)
           : '';
     els.speedKey.hidden = trackColour === 'leg';
     renderKeyLine(els.mapCap, mapKey(a, { highlight, colour: trackColour, rankBy, sogScale, leg: legSel }));
@@ -850,69 +853,6 @@ export function startApp(): void {
     if (analysis && full !== 'start' && w && isNarrowStart(w) !== fitNarrow) fitStart(analysis);
   }
 
-  /** Boat speed: the nearest drawn fix under the pointer (the selected boat's, within 40 px; else anyone's within 8 px). */
-  function showHover(ev: PointerEvent): void {
-    const a = analysis;
-    const svg = els.map.querySelector('svg');
-    if (!a || trackColour !== 'sog' || !svg) return;
-    if (!hover) {
-      const box = mapBox(a, legSel);
-      hover = { box, ix: trackSogIndex(a, legSel) };
-    }
-    const { box, ix } = hover;
-    const rect = svg.getBoundingClientRect();
-    const [x, y] = clientToChart(box, fitView(box), rect, ev.clientX, ev.clientY);
-    const px = 1 / (Math.min(rect.width / (box.x1 - box.x0), rect.height / (box.y1 - box.y0)) || 1);
-    const i = nearestSample(ix, x, y, (highlight ? 40 : 8) * px, highlight);
-    let dot = svg.querySelector<SVGCircleElement>('circle.sog-hover');
-    if (i < 0) {
-      dot?.remove();
-      els.mapTip.hidden = true;
-      return;
-    }
-    if (!dot) {
-      dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      dot.setAttribute('class', 'sog-hover');
-      svg.append(dot);
-    }
-    dot.setAttribute('cx', String(ix.x[i]));
-    dot.setAttribute('cy', String(ix.y[i]));
-    dot.setAttribute('r', String(4 * px));
-    dot.setAttribute('stroke-width', String(1.5 * px));
-    const b = a.boats.find((q) => q.id === ix.ids[ix.boat[i]]);
-    const who = b ? `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}` : ix.ids[ix.boat[i]];
-    els.mapTip.innerHTML = `<b>${esc(who)}</b><br>${localTime(ix.t[i], a.meta.tzOffsetMs)} <span class="muted">(gun +${duration((ix.t[i] - a.meta.gunMs) / 1000)})</span><br><b>${f1(ix.sog[i])} kn</b> SOG<br><span class="muted">${esc(sogHoverLeg(a, ix.leg[i], legSel, sogScale))}</span>`;
-    els.mapTip.hidden = false;
-    // Beside the pointer, flipped to the left near the right edge.
-    const wrap = els.mapTip.parentElement!.getBoundingClientRect();
-    const left = ev.clientX - wrap.left;
-    const flip = left + 12 + els.mapTip.offsetWidth > wrap.width;
-    els.mapTip.style.left = `${flip ? left - 12 - els.mapTip.offsetWidth : left + 12}px`;
-    els.mapTip.style.top = `${Math.max(0, ev.clientY - wrap.top - els.mapTip.offsetHeight - 10)}px`;
-  }
-  function hideHover(): void {
-    els.map.querySelector('circle.sog-hover')?.remove();
-    els.mapTip.hidden = true;
-  }
-  let hoverFrame = 0;
-  let hoverEv: PointerEvent | null = null;
-  const queueHover = (ev: PointerEvent): void => {
-    if (trackColour !== 'sog') return;
-    hoverEv = ev;
-    if (!hoverFrame) {
-      hoverFrame = requestAnimationFrame(() => {
-        hoverFrame = 0;
-        if (hoverEv) showHover(hoverEv);
-      });
-    }
-  };
-  els.map.addEventListener('pointermove', queueHover);
-  els.map.addEventListener('pointerdown', queueHover);
-  els.map.addEventListener('pointerleave', () => {
-    hoverEv = null;
-    hideHover();
-  });
-
   let frame = 0;
   /** Store the start view, sync presets and touch-action now, redraw on the next frame. */
   function setView(v: View): void {
@@ -953,6 +893,157 @@ export function startApp(): void {
     getView: () => view,
     setView,
     getRect: () => (els.start.querySelector('svg') ?? els.start).getBoundingClientRect(),
+    onGesture: retireHint,
+  });
+
+  // ---- Track map: pan/zoom as the start chart, and point details in every colour mode.
+  /** The map drawn for the race, leg selection, colouring, selection and view; any tooltip goes with the old drawing. */
+  function renderMap(): void {
+    const a = analysis;
+    if (!a) return;
+    clearTimeout(mapSettle);
+    const t0 = performance.now();
+    els.map.innerHTML = trackMap(a, highlight, legSel, { colour: trackColour, rankBy, top: speedTop, sogScale, view: mapView });
+    mapDrawMs = performance.now() - t0;
+    els.mapTip.hidden = true;
+  }
+
+  /** A new race or leg selection: fit its box (Fit: everything, or the leg's segments and marks). */
+  function fitMap(a: RaceAnalysis): void {
+    if (mapFit && mapFitFor?.a === a && mapFitFor.leg === legSel) return;
+    mapFitFor = { a, leg: legSel };
+    mapFit = mapBox(a, legSel);
+    syncMapView(fitView(mapFit));
+  }
+
+  /** Store the map view; presets and touch-action follow it. */
+  function syncMapView(v: View): void {
+    if (!mapFit) return;
+    mapView = clampView(mapFit, v);
+    for (const b of els.mapZoom.querySelectorAll('button[data-zoom]')) {
+      b.setAttribute('aria-pressed', String(presetActive(mapFit, mapView, Number(b.getAttribute('data-zoom')))));
+    }
+    els.map.classList.toggle('zoomed', mapView.k > 1);
+  }
+
+  /** A redraw slower than this (a big fleet) moves only the viewBox during a gesture… */
+  const MAP_SLOW_MS = 30;
+  /** …and redraws once the view has rested this long. */
+  const MAP_SETTLE_MS = 150;
+  let mapFrame = 0;
+  let mapSettle = 0;
+  let mapDrawMs = 0;
+  /** Pan/zoom: store the view now, redraw on the next frame (line widths, labels and the scale bar follow the zoom). */
+  function setMapView(v: View): void {
+    if (!mapFit) return;
+    syncMapView(v);
+    hideMapTip();
+    if (mapFrame) return;
+    mapFrame = requestAnimationFrame(() => {
+      mapFrame = 0;
+      const svg = els.map.querySelector('svg');
+      if (!svg || !mapFit || mapDrawMs <= MAP_SLOW_MS) return renderMap();
+      const vb = viewBox(mapFit, mapView);
+      svg.setAttribute('viewBox', `${vb.x0} ${vb.y0} ${vb.w} ${vb.h}`);
+      clearTimeout(mapSettle);
+      mapSettle = window.setTimeout(renderMap, MAP_SETTLE_MS);
+    });
+  }
+
+  els.mapZoom.addEventListener('click', (ev) => {
+    const btn = (ev.target as Element).closest('button[data-zoom]');
+    if (!btn || !mapFit) return;
+    const next = Number(btn.getAttribute('data-zoom'));
+    if (!Number.isFinite(next) || next <= 0) return;
+    // Presets zoom about the current centre; Fit goes back to the leg selection's frame.
+    setMapView(next === 1 ? fitView(mapFit) : { ...mapView, k: next });
+  });
+
+  let coachPlace: { model: NonNullable<CoachModel>; base: ProgressBase } | null = null;
+  /**
+   * A boat's place at a moment (coach/progress.ts: the fleet by distance to go along the course), once the
+   * race's coach model is ready (asked for here); none from interpolated roundings, or with no course.
+   */
+  function placeReader(a: RaceAnalysis): ((id: string, t: number) => PlaceRead | null) | undefined {
+    if (!ensureCoach(a)) return undefined;
+    const model = coach?.model;
+    if (!model) return undefined;
+    if (coachPlace?.model !== model) coachPlace = { model, base: progressBase(a, model) };
+    const { base } = coachPlace;
+    return (id, t) => {
+      const at = progressAt(a, model, base, t);
+      const r = at.byId.get(id);
+      return r && !r.est ? { place: r.place, of: at.of } : null;
+    };
+  }
+
+  /** The fix or gap under the pointer (the selected boat's within 40 px, else anyone's within 8; more for a finger): tooltip and dot. */
+  function showMapTip(ev: PointerEvent, touch: boolean): void {
+    const a = analysis;
+    const svg = els.map.querySelector('svg');
+    if (!a || !svg || !mapFit) return;
+    if (mapPts?.a !== a || mapPts.leg !== legSel) mapPts = { a, leg: legSel, p: trackPoints(a, legSel) };
+    const { p } = mapPts;
+    const rect = svg.getBoundingClientRect();
+    const [x, y] = clientToChart(mapFit, mapView, rect, ev.clientX, ev.clientY);
+    const vb = viewBox(mapFit, mapView);
+    // Map units per css px at this zoom: pick radii and the dot stay the same size on screen.
+    const px = 1 / (Math.min(rect.width / vb.w, rect.height / vb.h) || 1);
+    const pick = pickMapPoint(p, x, y, (touch ? 44 : 40) * px, (touch ? 20 : 8) * px, highlight);
+    if (!pick) return hideMapTip();
+    let dot = svg.querySelector<SVGCircleElement>('circle.sog-hover');
+    if (!dot) {
+      dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('class', 'sog-hover');
+      svg.append(dot);
+    }
+    const [cx, cy] = pickAt(p, pick, x, y);
+    dot.setAttribute('cx', String(cx));
+    dot.setAttribute('cy', String(cy));
+    dot.setAttribute('r', String(4 * px));
+    dot.setAttribute('stroke-width', String(1.5 * px));
+    const legLine = trackColour === 'sog' ? (l: number) => sogHoverLeg(a, l, legSel, sogScale) : undefined;
+    els.mapTip.innerHTML = mapTipHtml(mapTipLines(a, p, pick, { legLine, placeAt: placeReader(a) }));
+    els.mapTip.hidden = false;
+    // Beside the pointer, above it; flipped left near the right edge and below near the top, and kept inside the map.
+    const wrap = els.mapTip.parentElement!.getBoundingClientRect();
+    const [w, h] = [els.mapTip.offsetWidth, els.mapTip.offsetHeight];
+    const left = ev.clientX - wrap.left;
+    const top = ev.clientY - wrap.top;
+    const fit = (v: number, room: number): number => Math.max(0, Math.min(v, room));
+    els.mapTip.style.left = `${fit(left + 12 + w > wrap.width ? left - 12 - w : left + 12, wrap.width - w)}px`;
+    els.mapTip.style.top = `${fit(top - h - 10 < 0 ? top + 16 : top - h - 10, wrap.height - h)}px`;
+  }
+  function hideMapTip(): void {
+    els.map.querySelector('circle.sog-hover')?.remove();
+    els.mapTip.hidden = true;
+  }
+  let hoverFrame = 0;
+  let hoverEv: PointerEvent | null = null;
+  // Mouse: on hover (not while dragging the map). Touch and pen: on a clean tap (panzoom's onTap), so it never fights a pan or pinch.
+  els.map.addEventListener('pointermove', (ev) => {
+    if (ev.pointerType !== 'mouse') return;
+    if (ev.buttons) return hideMapTip();
+    hoverEv = ev;
+    if (!hoverFrame) {
+      hoverFrame = requestAnimationFrame(() => {
+        hoverFrame = 0;
+        if (hoverEv) showMapTip(hoverEv, false);
+      });
+    }
+  });
+  els.map.addEventListener('pointerleave', (ev) => {
+    if (ev.pointerType !== 'mouse') return;
+    hoverEv = null;
+    hideMapTip();
+  });
+
+  attachPanZoom(els.map, {
+    getBox: () => mapFit,
+    getView: () => mapView,
+    setView: setMapView,
+    getRect: () => (els.map.querySelector('svg') ?? els.map).getBoundingClientRect(),
+    onTap: (ev) => showMapTip(ev, ev.pointerType !== 'mouse'),
     onGesture: retireHint,
   });
 

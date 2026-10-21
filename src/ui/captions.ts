@@ -102,8 +102,8 @@ export function mapKey(a: RaceAnalysis, o: { highlight?: string | null; colour: 
   } else {
     bullets.push("Boat speed: SOG, 4 s mean; colours span the fleet's 5th–95th percentile.");
     if (o.leg == null) bullets.push("Scale: Per leg uses each leg's own range; Whole race, one range.");
-    bullets.push('Hover or tap a track for boat, time, speed and leg.');
   }
+  bullets.push('Hover or tap a track for time, speed, course, heel, place; dashed = no data.');
   bullets.push('Select a boat anywhere to highlight it on every chart and table.');
   return { chips, bullets };
 }

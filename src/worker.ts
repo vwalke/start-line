@@ -110,6 +110,7 @@ function drawingBuffers(a: RaceAnalysis): Transferable[] {
   const out = new Set<ArrayBuffer>();
   for (const d of [...a.drawings, ...a.excluded.map((e) => e.drawing)]) {
     for (const tk of [d.trail, ...d.segments]) for (const arr of [tk.x, tk.y, tk.t, tk.sog]) out.add(arr.buffer as ArrayBuffer);
+    for (const s of d.segments) if (s.roll) out.add(s.roll.buffer as ArrayBuffer);
     out.add(d.startSog.t.buffer as ArrayBuffer);
     out.add(d.startSog.sog.buffer as ArrayBuffer);
   }

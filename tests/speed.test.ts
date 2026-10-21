@@ -548,6 +548,8 @@ describe('a picked boat under Top N (M24 race 4)', () => {
   const polylines = (svg: string): string[] => [...svg.matchAll(/<polyline class="trk[^"]*"[^>]*>[\s\S]*?<\/polyline>/g)].map((m) => m[0]);
   const idOf = (p: string): string => /data-id="([^"]+)"/.exec(p)![1];
   const coloured = (p: string): boolean => / stroke="#[0-9a-f]{6}"/.test(p);
+  // A boat's track is split at telemetry gaps (several polylines per leg on this ~2.5 s feed): count boats.
+  const boatsOf = (ps: string[]): number => new Set(ps.map(idOf)).size;
   const labels = (svg: string): string[] => [...svg.matchAll(/<text class="spd-pick-lbl"[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
   const drawn = (id: string, l: number): boolean => a.drawings.some((d) => d.id === id && d.segments.some((s) => s.leg === l && s.x.length > 1));
   // A leg with a clean top 3 (no tie at the cut) and boats drawn well outside it.
@@ -573,7 +575,7 @@ describe('a picked boat under Top N (M24 race 4)', () => {
   it('colours exactly the top 3 and draws a pick outside them in neutral ink with its rank', () => {
     const svg = trackMap(a, slow, leg, { colour: 'rank', top: 3 });
     const ps = polylines(svg);
-    expect(ps.filter((p) => idOf(p) !== slow && coloured(p))).toHaveLength(3);
+    expect(boatsOf(ps.filter((p) => idOf(p) !== slow && coloured(p)))).toBe(3);
     const mine = ps.filter((p) => idOf(p) === slow);
     expect(mine.length).toBeGreaterThan(0);
     for (const p of mine) {
@@ -593,7 +595,7 @@ describe('a picked boat under Top N (M24 race 4)', () => {
   it('keeps a picked top-3 boat in its rank colour, with no label', () => {
     const svg = trackMap(a, second, leg, { colour: 'rank', top: 3 });
     const ps = polylines(svg);
-    expect(ps.filter(coloured)).toHaveLength(3);
+    expect(boatsOf(ps.filter(coloured))).toBe(3);
     expect(ps.filter((p) => idOf(p) === second).every((p) => coloured(p) && p.includes(' on'))).toBe(true);
     expect(svg).toContain('spd-sel');
     expect(svg).not.toContain('picked');
@@ -635,7 +637,7 @@ describe('a picked boat under Top N (M24 race 4)', () => {
     expect(speedKey(a, null, 'leg', 3, slow)).toContain(`picked: ${label(slow)}, ${list}`);
     for (const l of a.legs) {
       const n = [...per[l.index]].filter(([id, r]) => r.rank <= 3 && drawn(id, l.index)).length;
-      expect(polylines(svg).filter((p) => p.includes(`data-leg="${l.index}"`) && coloured(p))).toHaveLength(n);
+      expect(boatsOf(polylines(svg).filter((p) => p.includes(`data-leg="${l.index}"`) && coloured(p)))).toBe(n);
     }
   });
 
@@ -654,7 +656,7 @@ describe('a picked boat under Top N (M24 race 4)', () => {
     const t3 = a.boats.find((b) => b.id === third)!.legs[leg]!.timeS;
     const tied = { ...a, boats: a.boats.map((b) => (b.id === fourth ? { ...b, legs: b.legs.map((l, i) => (i === leg && l ? { ...l, timeS: t3 } : l)) } : b)) };
     expect(legRanks(tied.boats, leg).get(fourth)!.rank).toBe(3);
-    expect(polylines(trackMap(tied, null, leg, { colour: 'rank', top: 3 })).filter(coloured)).toHaveLength(drawn(fourth, leg) ? 4 : 3);
+    expect(boatsOf(polylines(trackMap(tied, null, leg, { colour: 'rank', top: 3 })).filter(coloured))).toBe(drawn(fourth, leg) ? 4 : 3);
     expect(speedKey(tied, leg, 'leg', 3)).toMatch(/fastest → #3 on this leg.* · <span class="spd-tie">2 tied at #3<\/span>/s);
     expect(speedKey(a, leg, 'leg', 3)).not.toContain('tied');
     expect(speedKey(tied, leg, 'leg', 'all')).not.toContain('tied');

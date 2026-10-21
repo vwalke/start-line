@@ -433,13 +433,14 @@ const bar = (lo: string, hi: string): string =>
 export const keySwatch = (cls: string, label: string, title = ''): string =>
   `<span class="key-sw"${title ? ` title="${esc(title)}"` : ''}><span class="${cls}" aria-hidden="true"></span> ${esc(label)}</span>`;
 
-const gapNote = (gaps: boolean): string => (gaps ? keySwatch('spd-none', 'no data', `Telemetry gap: fixes over ${SOG_GAP_MS / 1000} s apart`) : '');
+const SOG_GAP_TITLE = `Telemetry gap: fixes over ${SOG_GAP_MS / 1000} s apart`;
+const gapNote = (gaps: boolean, title = SOG_GAP_TITLE): string => (gaps ? keySwatch('spd-none', 'no data', title) : '');
 
 /** "4.0 kn [bar] 8.0 kn", "SOG · what it spans", and the "no data" swatch when the drawing has gaps (the method is in the ⓘ). */
-export function sogKey(r: SogRange | null, what: string, gaps = false): string {
+export function sogKey(r: SogRange | null, what: string, gaps = false, gapTitle?: string): string {
   if (!r) return `<span class="muted">No speed data to colour by.</span>`;
   return `${bar(`${f1(r.lo)} kn`, `${f1(r.hi)} kn`)}
-    <span class="muted">SOG · ${esc(what)}</span>${gapNote(gaps)}`;
+    <span class="muted">SOG · ${esc(what)}</span>${gapNote(gaps, gapTitle)}`;
 }
 
 /**
@@ -448,9 +449,9 @@ export function sogKey(r: SogRange | null, what: string, gaps = false): string {
  * The gap swatch stays on the first line with the description; .sog-legs wraps
  * below (flex-basis: 100%).
  */
-export function sogLegKey(a: RaceAnalysis, gaps = false): string {
+export function sogLegKey(a: RaceAnalysis, gaps = false, gapTitle?: string): string {
   const list = legRangeList(a);
   if (!list) return `<span class="muted">No speed data to colour by.</span>`;
   return `${bar('slow', 'fast')}
-    <span>slow → fast within each leg</span>${gapNote(gaps)}<span class="sog-legs">${esc(list)}</span>`;
+    <span>slow → fast within each leg</span>${gapNote(gaps, gapTitle)}<span class="sog-legs">${esc(list)}</span>`;
 }
