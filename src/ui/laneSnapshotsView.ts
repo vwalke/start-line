@@ -10,8 +10,7 @@ import type { RaceAnalysis } from '../analysis/types';
 import { boatColor, DOT_LABEL_MAX } from './charts';
 import { esc } from './format';
 import { textWidth, type Rect } from './labels';
-import { LANE_TRAIL_FROM_S, laneSnapshots, type LaneBoat, type LaneFrame, type LaneSnapshots } from './laneSnapshots';
-import { gunRel } from './scrub';
+import { laneSnapshots, type LaneBoat, type LaneFrame, type LaneSnapshots } from './laneSnapshots';
 import type { Box } from './view';
 
 /** A frame is drawn about this wide, css px: strokes and text are sized for it (the SVG scales). */
@@ -19,42 +18,31 @@ const FRAME_PX = 300;
 
 const xy = (p: Vec): string => `${p[0].toFixed(1)},${p[1].toFixed(1)}`;
 
-/** How far from `p` along unit `u` to the edge of `b`. */
-function toEdge(p: Vec, u: Vec, b: Box): number {
-  let t = Infinity;
-  if (u[0] > 0) t = Math.min(t, (b.x1 - p[0]) / u[0]);
-  if (u[0] < 0) t = Math.min(t, (b.x0 - p[0]) / u[0]);
-  if (u[1] > 0) t = Math.min(t, (b.y1 - p[1]) / u[1]);
-  if (u[1] < 0) t = Math.min(t, (b.y0 - p[1]) / u[1]);
-  return Number.isFinite(t) ? Math.max(0, t) : 0;
-}
-
-const inBox = (p: Vec, b: Box): boolean => p[0] >= b.x0 && p[0] <= b.x1 && p[1] >= b.y0 && p[1] <= b.y1;
-
-/** The line, its ends, and the first mark (in view) or an arrow toward it at the frame's edge. */
-function courseSvg(L: LaneSnapshots, u: number): string {
+/** The line and its ends. */
+function lineSvg(L: LaneSnapshots, u: number): string {
   const [p, r] = L.line;
   const line = `<line class="startline" x1="${p[0].toFixed(1)}" y1="${p[1].toFixed(1)}" x2="${r[0].toFixed(1)}" y2="${r[1].toFixed(1)}" stroke-width="${(2.2 * u).toFixed(2)}"/>`;
   const ends = `<circle class="lane-pin" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${(3.2 * u).toFixed(2)}" stroke-width="${(0.8 * u).toFixed(2)}"/><rect class="lane-rc" x="${(r[0] - 3 * u).toFixed(1)}" y="${(r[1] - 3 * u).toFixed(1)}" width="${(6 * u).toFixed(2)}" height="${(6 * u).toFixed(2)}"/>`;
-  let mark = '';
-  if (L.mark && inBox(L.mark, L.view)) {
-    mark = `<circle class="mark" cx="${L.mark[0].toFixed(1)}" cy="${L.mark[1].toFixed(1)}" r="${(4.5 * u).toFixed(2)}" stroke-width="${(1.2 * u).toFixed(2)}"/>`;
-  } else if (L.markDir) {
-    const mid: Vec = [(p[0] + r[0]) / 2, (p[1] + r[1]) / 2];
-    const d = L.markDir;
-    const e = toEdge(mid, d, L.view);
-    const head: Vec = [mid[0] + d[0] * (e - 8 * u), mid[1] + d[1] * (e - 8 * u)];
-    const tail: Vec = [mid[0] + d[0] * (e - 40 * u), mid[1] + d[1] * (e - 40 * u)];
-    const n: Vec = [-d[1], d[0]];
-    const a1: Vec = [head[0] - d[0] * 7 * u + n[0] * 4 * u, head[1] - d[1] * 7 * u + n[1] * 4 * u];
-    const a2: Vec = [head[0] - d[0] * 7 * u - n[0] * 4 * u, head[1] - d[1] * 7 * u - n[1] * 4 * u];
-    mark =
-      `<g class="lane-markdir"><title>Toward ${esc(L.markName)}</title>` +
-      `<line x1="${tail[0].toFixed(1)}" y1="${tail[1].toFixed(1)}" x2="${head[0].toFixed(1)}" y2="${head[1].toFixed(1)}" stroke-width="${(1.6 * u).toFixed(2)}"/>` +
-      `<polygon points="${xy(head)} ${xy(a1)} ${xy(a2)}"/>` +
-      `<text x="${(tail[0] + n[0] * 6 * u).toFixed(1)}" y="${(tail[1] + n[1] * 6 * u).toFixed(1)}" font-size="${(10 * u).toFixed(2)}" stroke-width="${(2.5 * u).toFixed(2)}">${esc(L.markName)}</text></g>`;
-  }
-  return line + ends + mark;
+  return line + ends;
+}
+
+/** The true-wind arrow in the top-right corner (the room laneView keeps), pointing downwind, its label to its left; dashed when assumed. */
+function windSvg(L: LaneSnapshots, u: number): string {
+  if (!L.wind) return '';
+  const v = L.view;
+  const d = L.wind.down;
+  const c: Vec = [v.x1 - 24 * u, v.y0 + 24 * u];
+  const tail: Vec = [c[0] - d[0] * 15 * u, c[1] - d[1] * 15 * u];
+  const head: Vec = [c[0] + d[0] * 15 * u, c[1] + d[1] * 15 * u];
+  const n: Vec = [-d[1], d[0]];
+  const a1: Vec = [head[0] - d[0] * 7 * u + n[0] * 4 * u, head[1] - d[1] * 7 * u + n[1] * 4 * u];
+  const a2: Vec = [head[0] - d[0] * 7 * u - n[0] * 4 * u, head[1] - d[1] * 7 * u - n[1] * 4 * u];
+  return (
+    `<g class="lane-wind${L.wind.assumed ? ' assumed' : ''}"><title>${esc(L.wind.title)}</title>` +
+    `<line x1="${tail[0].toFixed(1)}" y1="${tail[1].toFixed(1)}" x2="${head[0].toFixed(1)}" y2="${head[1].toFixed(1)}" stroke-width="${(1.8 * u).toFixed(2)}"${L.wind.assumed ? ` stroke-dasharray="${(3 * u).toFixed(2)} ${(2 * u).toFixed(2)}"` : ''}/>` +
+    `<polygon points="${xy(head)} ${xy(a1)} ${xy(a2)}"/>` +
+    `<text x="${(c[0] - 20 * u).toFixed(1)}" y="${(c[1] + 3.5 * u).toFixed(1)}" font-size="${(10 * u).toFixed(2)}" stroke-width="${(2.5 * u).toFixed(2)}" text-anchor="end">${esc(L.wind.label)}</text></g>`
+  );
 }
 
 /** Dot radius, css px (× unit). */
@@ -104,8 +92,17 @@ function placeLabels(boats: readonly LaneBoat[], want: (b: LaneBoat) => boolean,
   return out;
 }
 
-/** One boat's trail and dot, coloured for the selected boat and its group, the rest faded; the over / cleared ring. */
-function boatSvg(b: LaneBoat, colour: string, faded: boolean, label: LabelAt | null, u: number): { trail: string; dot: string; flag: string } {
+/** "+26 s" (from the gun). */
+const plusS = (ms: number, gun: number): string => {
+  const s = Math.round((ms - gun) / 1000);
+  return `${s < 0 ? '−' : '+'}${Math.abs(s)} s`;
+};
+
+/**
+ * One boat's trail and dot, coloured for the selected boat and its group, the rest faded; a small ring when over
+ * early (solid while over, dashed once cleared), said in the dot's title ("USA 019, over early (OCS), cleared +35 s").
+ */
+function boatSvg(b: LaneBoat, colour: string, faded: boolean, label: LabelAt | null, u: number, gun: number): { trail: string; dot: string; flag: string } {
   const cls = `lane-${b.role}${faded ? ' dim' : ''}`;
   const sw = (b.role === 'me' ? 2.4 : b.role === 'group' ? 1.6 : 1.1) * u;
   const trail = b.trail
@@ -115,17 +112,16 @@ function boatSvg(b: LaneBoat, colour: string, faded: boolean, label: LabelAt | n
   const [x, y] = [b.pos[0].toFixed(1), b.pos[1].toFixed(1)];
   const r = dotR(b) * u;
   const fill = b.hold ? `fill="var(--surface)" stroke="${faded ? 'var(--ink-3)' : colour}"` : `fill="${faded ? 'var(--ink-3)' : colour}"`;
-  const state = b.over === 'over' ? ', over (OCS)' : b.over === 'cleared' ? ', OCS, cleared' : '';
+  const state = b.over === 'over' ? ', over early (OCS)' : b.over === 'cleared' ? `, over early (OCS), cleared ${plusS(b.clearedMs!, gun)}` : '';
   const ring = b.over
-    ? `<circle class="lane-${b.over}" cx="${x}" cy="${y}" r="${(r + 3 * u).toFixed(2)}" stroke-width="${(1.5 * u).toFixed(2)}"${b.over === 'over' ? '' : ` stroke-dasharray="${(2.5 * u).toFixed(2)} ${(2 * u).toFixed(2)}"`}/>`
+    ? `<circle class="lane-${b.over}" cx="${x}" cy="${y}" r="${(r + 2.5 * u).toFixed(2)}" stroke-width="${(1.3 * u).toFixed(2)}"${b.over === 'over' ? '' : ` stroke-dasharray="${(2.5 * u).toFixed(2)} ${(2 * u).toFixed(2)}"`}/>`
     : '';
-  const ocs = b.over === 'over' ? `<text class="lane-ocs" x="${x}" y="${(b.pos[1] + r + 12 * u).toFixed(1)}" font-size="${(9 * u).toFixed(2)}" stroke-width="${(2.5 * u).toFixed(2)}" text-anchor="middle">OCS</text>` : '';
   const text = label
     ? `<text class="lane-lbl${b.role === 'me' ? ' on' : ''}" x="${label.x.toFixed(1)}" y="${label.y.toFixed(1)}" font-size="${label.fs.toFixed(2)}" stroke-width="${(2.5 * u).toFixed(2)}">${esc(b.sail)}</text>`
     : '';
   const dot = `<g class="lane-boat ${cls}" data-id="${esc(b.id)}"><title>${esc(b.sail)}${b.hold ? ' (last fix, in a gap)' : ''}${state}</title><circle class="lane-dot${b.hold ? ' hold' : ''}" cx="${x}" cy="${y}" r="${r.toFixed(2)}" ${fill} stroke-width="${(1 * u).toFixed(2)}"/>${text}</g>`;
   // Over / cleared: never faded with the boat.
-  return { trail, dot, flag: ring + ocs };
+  return { trail, dot, flag: ring };
 }
 
 /** One frame: its SVG (shared view) and caption. */
@@ -146,7 +142,7 @@ function frameHtml(a: RaceAnalysis, L: LaneSnapshots, f: LaneFrame): string {
     if (small && r) return boatColor(r, fleet);
     return b.role === 'me' ? 'var(--ink)' : b.role === 'group' ? 'var(--accent)' : 'var(--ink-2)';
   };
-  const drawn = f.boats.map((b) => ({ b, ...boatSvg(b, colourOf(b), sel && b.role === 'other', labels.get(b.id) ?? null, u) }));
+  const drawn = f.boats.map((b) => ({ b, ...boatSvg(b, colourOf(b), sel && b.role === 'other', labels.get(b.id) ?? null, u, a.meta.gunMs) }));
   // The faded boats first, then the group, the selected boat on top.
   const order = { other: 0, group: 1, me: 2 } as const;
   drawn.sort((p, q) => order[p.b.role] - order[q.b.role]);
@@ -155,21 +151,15 @@ function frameHtml(a: RaceAnalysis, L: LaneSnapshots, f: LaneFrame): string {
     : '';
   const svg =
     `<svg class="chart lane-svg" viewBox="${v.x0.toFixed(1)} ${v.y0.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}" role="img" aria-label="${esc(f.label)}">` +
-    `<title>${esc(f.label)}</title>${courseSvg(L, u)}` +
+    `<title>${esc(f.label)}</title>${lineSvg(L, u)}${windSvg(L, u)}` +
     `<g class="lane-trails">${drawn.map((d) => d.trail).join('')}</g><g class="lane-dots">${drawn.map((d) => d.dot).join('')}</g><g class="lane-flags">${drawn.map((d) => d.flag).join('')}</g>${empty}</svg>`;
   return `<figure class="lane-frame${f.empty ? ' empty' : ''}" data-s="${f.s}"><figcaption><b>${esc(f.title)}</b> <span class="lane-cap">${esc(f.caption)}</span></figcaption>${svg}</figure>`;
 }
 
-/** The section's body: the three frames and a key line (orientation, what the trails and rings mean). */
+/** The section's body: the three frames and a key line (who is highlighted, the wind's source). */
 export function laneSnapshotsHtml(a: RaceAnalysis, L: LaneSnapshots, groupText?: string): string {
   const me = L.me != null ? a.boats.find((b) => b.id === L.me) : undefined;
-  const key = [
-    me ? `${me.sail} highlighted${groupText ? `, with ${groupText}` : ''}; the rest faded.` : 'Pick a boat to highlight it and its group.',
-    L.note ?? 'Wind ↓ from top (estimated).',
-    `Trails from ${gunRel(LANE_TRAIL_FROM_S * 1000, 0)} (or where the data starts); broken at tracker gaps.`,
-    'Lane: across the line, pin to RC. Place toward the mark: approximate, along the course axis.',
-    'Red ring: over early (OCS) until it cleared; dashed: cleared by then.',
-  ];
+  const key = [me ? `${me.sail} highlighted${groupText ? `, with ${groupText}` : ''}; the rest faded.` : 'Pick a boat to highlight it and its group.', L.note];
   return `<div class="lane-frames">${L.frames.map((f) => frameHtml(a, L, f)).join('')}</div><p class="lane-key muted">${key.map(esc).join(' ')}</p>`;
 }
 
