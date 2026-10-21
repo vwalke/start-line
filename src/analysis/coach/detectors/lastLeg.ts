@@ -56,7 +56,7 @@ export function detectLastLeg(ctx: CoachCtx): Opportunity | null {
   const t1 = end;
   if (!(t1 > t0) || trackLegAt(tr, t1) !== last) return null;
   const refs = ctx.a.boats
-    .filter((b) => b.id !== ctx.boat && finishRank(b) != null && finishRank(b)! < p && finishRank(b)! >= p - D10_PLACES)
+    .filter((b) => b.id !== ctx.boat && b.finishMs != null && finishRank(b) != null && finishRank(b)! < p && finishRank(b)! >= p - D10_PLACES)
     .sort((x, y) => finishRank(x)! - finishRank(y)!);
   if (!refs.length) return null;
   const pts = ctx.gaps(
