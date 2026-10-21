@@ -32,6 +32,9 @@ export function raceName(r: Pick<ListedRace, 'practice' | 'number' | 'rsNumber' 
   return r.rsNumber != null ? `RS ${r.rsNumber}` : 'Race';
 }
 
+/** A race name, short for tight spots: "Race 7" → `R7`; others as they are (`RS 6`, `Practice`). */
+export const shortRaceName = (name: string): string => name.replace(/^Race (\d+)$/, 'R$1');
+
 /** RaceSense's number when it differs from the one shown (practice included), for transparency. */
 export const rsSuffix = (r: Pick<ListedRace, 'practice' | 'number' | 'rsNumber'>): string | null =>
   r.rsNumber != null && (r.practice || r.number !== r.rsNumber) && !(r.number == null && !r.practice) ? `RS ${r.rsNumber}` : null;

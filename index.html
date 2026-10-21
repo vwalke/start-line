@@ -53,8 +53,7 @@
           <div id="tabs" class="tabs" role="tablist" aria-label="Digest">
             <button type="button" role="tab" id="tab-start" aria-controls="panel-start" aria-selected="true" tabindex="0">Start</button>
             <button type="button" role="tab" id="tab-race" aria-controls="panel-race" aria-selected="false" tabindex="-1">Race</button>
-            <!-- Behind the ?coach=1 flag (ui/tabs.ts coachEnabled). -->
-            <button type="button" role="tab" id="tab-coach" aria-controls="panel-coach" aria-selected="false" tabindex="-1" hidden>Coach</button>
+            <button type="button" role="tab" id="tab-coach" aria-controls="panel-coach" aria-selected="false" tabindex="-1">Coach</button>
           </div>
           <div id="panel-start" class="panel" role="tabpanel" aria-labelledby="tab-start" tabindex="-1">
             <section class="card has-fs">
@@ -149,6 +148,7 @@
               <div class="capline" id="coach-ladder-cap"></div>
             </section>
             <section id="coach-cards" class="coach-cards" aria-label="Biggest gains"></section>
+            <section id="coach-regatta" class="card coach-regatta" aria-label="Regatta" hidden></section>
             <section id="coach-legs" class="coach-legs" aria-labelledby="coach-legs-title"></section>
           </div>
         </div>

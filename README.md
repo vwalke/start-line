@@ -11,20 +11,42 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 
 ## What it shows
 
-Under the race header the digest has two tabs, **Start** and **Race**; the
-boat list beside (on a phone, above) them and the selected boat are shared by
-both.
+Under the race header the digest has three tabs, **Start**, **Race** and
+**Coach**; the boat list beside (on a phone, above) them and the selected boat
+are shared by all three.
 
 - **Start tab:** the start chart with its start findings, speed through the
   start, and the Start by boat table.
 - **Race tab:** the tracks-by-leg map, place changes, the race findings and
   warnings, and the Legs by boat table with the Upwind / Downwind summaries.
+- **Coach tab** (on for everyone; the old `?coach=1` is ignored): the boat
+  selected in the boat list (or a chart) in the race picked in the Race menu.
+  It has no race or boat picker of its own; with no boat selected it asks for
+  one. Two views:
+  - **Race:** its place (official when linked) and the gap to the winner, the
+    gap to a group of rivals (Top 3 / boats near me / whole fleet / custom)
+    over the race with the fleet's wind under it, the biggest gains as cards,
+    and a story per leg. Works on every race the menu offers, rebuilt and
+    tracker-only ones included.
+  - **Regatta:** the same boat over every race the Race menu lists (its
+    numbering; practice left out; rebuilt and tracker-only races in). A row of
+    places (official, else RaceSense's or the tracker's `~`, "of N"); the
+    findings that recur, ranked by seconds at stake and with how many races
+    they turned up in ("Slow at the gun in 4 of 9 races, ~60 s total"); best
+    and worst legs by type against the fleet's median leg time; and the top 3
+    things to work on, by fixed rules (no AI). A race with tracker coverage
+    under 80 % is shown and marked ⚠, its seconds weighted down in proportion.
+    The races are analysed on first opening, one at a time on a second worker
+    (`src/ui/coachRegatta.ts`, `src/analysis/coach/regatta.ts`) with progress,
+    and cached for the visit; the race on screen is never held up.
+
+  The group, boat and view are in the URL (`grp=`, `boat=`, `cview=regatta`).
 
 Each table stays on the tab with the charts it's read against, because
 picking a boat in a chart and finding its row (or the reverse) is the main
 way they're used; a separate Tables tab would split every such pair. The tabs
 are a tablist (arrow keys, Home / End) that sticks under the boat strip on a
-phone. The tab is in the URL hash (`#start`, `#race`; replaced, never added to
+phone. The tab is in the URL hash (`#start`, `#race`, `#coach`; replaced, never added to
 history) and kept with the last race viewed. A hash on the URL wins; a link
 without one opens Start, or the saved tab when it reopens the saved race.
 Switching races keeps the tab.
@@ -662,7 +684,7 @@ npm run lint && npm run typecheck && npm test
   `/api/landing` returns every listed event at once, so this covers the whole
   feed. Typing never loads an event: pick one in the Event list, or press
   Enter when exactly one matches. Esc clears the search; `/` focuses it.
-- Deep links: `?event=<eventId>&div=<division>&race=<n>`, optionally with `#start` or `#race` for the tab (`race` is RaceSense's number, or a rebuilt race's `YYYYMMDDHHMM`). `&ys=<Yachtscoring event>`, `&ys=0` or `&ysc=<class>` set the official-results link. Add `&nc=all` to keep coach boats and spare trackers as competitors. By default they are set aside, judged from their event results and tracks (`src/analysis/participation.ts`), not from their names.
+- Deep links: `?event=<eventId>&div=<division>&race=<n>`, optionally with `#start`, `#race` or `#coach` for the tab (`race` is RaceSense's number, or a rebuilt race's `YYYYMMDDHHMM`). `&ys=<Yachtscoring event>`, `&ys=0` or `&ysc=<class>` set the official-results link. Add `&nc=all` to keep coach boats and spare trackers as competitors. By default they are set aside, judged from their event results and tracks (`src/analysis/participation.ts`), not from their names.
 
 **Boat-log uploads locally** (no Cloudflare): `npm run dev:vkx` starts Vite as
 usual plus the real `/api/vkx/*` handlers over an in-memory R2 bucket

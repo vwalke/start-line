@@ -1,9 +1,12 @@
 /**
  * Heavy lifting off the main thread: fetch the race's telemetry window,
- * normalize it to RaceData, run the analysis, post back the result.
+ * normalize it to RaceData, run the analysis, post back the result. The
+ * Coach tab's Regatta view runs a second instance of this worker, asking
+ * for one race at a time and getting back only a small digest for one boat.
  */
 import { analyzeRace } from './analysis/analyze';
 import { coachRaceKey, coachRaw, type CoachRaw } from './analysis/coach';
+import { digestRace, type RaceDigest } from './analysis/coach/regatta';
 import type { RaceAnalysis } from './analysis/types';
 import type { RaceData } from './data/types';
 import { buildRaceData, currentDoc, findRace, listRaces, nextGunMs, telemetryWindow, type OfficialRaceInput } from './data/racesense/adapter';
@@ -12,25 +15,26 @@ import { fetchTelemetry, fetchWind } from './data/racesense/api';
 import type { RegattaResponse } from './data/racesense/types';
 import { mergeUploadBytes } from './data/vkx/merge';
 
+export interface RaceRequest {
+  id: number;
+  eventId: string;
+  regatta: RegattaResponse;
+  division: string;
+  raceNumber: number;
+  /** `nc=all`: keep coach/spare boats as competitors. */
+  allCompetitors?: boolean;
+  /** The event's class label from the landing list, for the class dimensions. */
+  classLabel?: string;
+  /** This race's official results (linked by gun); places and codes win, times if plausible. */
+  official?: OfficialRaceInput | null;
+  /** Uploaded boat logs for this race (gzipped payloads, data/vkx): merged into their boats' tracks. */
+  vkx?: { bytes: ArrayBuffer; uploadedAt: number }[];
+}
+
 export type WorkerRequest =
-  | {
-      id: number;
-      type: 'live';
-      eventId: string;
-      regatta: RegattaResponse;
-      division: string;
-      raceNumber: number;
-      /** `nc=all`: keep coach/spare boats as competitors. */
-      allCompetitors?: boolean;
-      /** The event's class label from the landing list, for the class dimensions. */
-      classLabel?: string;
-      /** Keep raw RaceData so the Coach tab can build the wind series. Off unless `?coach=1`. */
-      coach?: boolean;
-      /** This race's official results (linked by gun); places and codes win, times if plausible. */
-      official?: OfficialRaceInput | null;
-      /** Uploaded boat logs for this race (gzipped payloads, data/vkx): merged into their boats' tracks. */
-      vkx?: { bytes: ArrayBuffer; uploadedAt: number }[];
-    }
+  | (RaceRequest & { type: 'live' })
+  /** Coach's Regatta view: one race analysed for one boat (by sail), down to its digest; nothing kept. */
+  | (RaceRequest & { type: 'regatta-race'; sail: string })
   /** Coach (lazy, on the tab's first open): the fleet wind series and start crossings of the race last analysed, from its raw fixes. */
   | { id: number; type: 'coach-raw'; key: string };
 
@@ -39,6 +43,7 @@ export type WorkerResponse =
   | { id: number; type: 'done'; analysis: RaceAnalysis }
   /** `raw` null: that race isn't the one last analysed here; the caller works the wind out from the drawn tracks, with no start crossings. */
   | { id: number; type: 'coach-raw'; raw: CoachRaw | null }
+  | { id: number; type: 'regatta-race'; digest: RaceDigest }
   | { id: number; type: 'error'; message: string };
 
 const ctx = self as unknown as {
@@ -48,8 +53,11 @@ const ctx = self as unknown as {
 
 /** The race last analysed, kept for the Coach tab's wind (its raw fixes are not posted back). */
 let last: { key: string; analysis: RaceAnalysis; data: RaceData } | null = null;
+/** The newest race request: an older one finishing late doesn't take `last`. */
+let latest = 0;
 
-async function handle(req: Extract<WorkerRequest, { type: 'live' }>): Promise<RaceAnalysis> {
+/** Fetch, normalise and analyse one race. */
+async function analyse(req: RaceRequest): Promise<{ analysis: RaceAnalysis; data: RaceData }> {
   const progress = (message: string): void => ctx.postMessage({ id: req.id, type: 'progress', message });
   const doc = currentDoc(req.regatta);
   const ref = { division: req.division, raceNumber: req.raceNumber };
@@ -84,9 +92,16 @@ async function handle(req: Extract<WorkerRequest, { type: 'live' }>): Promise<Ra
   }
   pages.length = 0;
   if (req.vkx?.length) data = await mergeUploadBytes(data, req.vkx);
-  const analysis = analyzeRace(data, { allCompetitors: req.allCompetitors });
-  // Without the flag the worker drops the raw tracks, as before this tab existed.
-  last = req.coach ? { key: coachRaceKey(req.eventId, req.division, req.raceNumber, !!req.allCompetitors), analysis, data } : null;
+  return { analysis: analyzeRace(data, { allCompetitors: req.allCompetitors }), data };
+}
+
+async function handle(req: Extract<WorkerRequest, { type: 'live' }>): Promise<RaceAnalysis> {
+  // Let the previous race's raw fixes go before this one's are fetched.
+  last = null;
+  latest = req.id;
+  const { analysis, data } = await analyse(req);
+  // One race's raw fixes are kept (replaced by the next race's); the Coach wind is worked out from them only when asked for.
+  if (req.id === latest) last = { key: coachRaceKey(req.eventId, req.division, req.raceNumber, !!req.allCompetitors), analysis, data };
   return analysis;
 }
 
@@ -112,9 +127,14 @@ ctx.onmessage = (ev) => {
     }
     return;
   }
+  const fail = (err: unknown): void => ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) });
+  if (req.type === 'regatta-race') {
+    analyse(req).then(({ analysis, data }) => ctx.postMessage({ id: req.id, type: 'regatta-race', digest: digestRace(analysis, data, req.sail, req.official?.rows ?? null) }), fail);
+    return;
+  }
   handle(req).then(
     // The drawn tracks (x, y, t, SOG per fix) are most of the payload: move their buffers rather than copy them.
     (analysis) => ctx.postMessage({ id: req.id, type: 'done', analysis }, drawingBuffers(analysis)),
-    (err: unknown) => ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) }),
+    fail,
   );
 };

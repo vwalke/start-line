@@ -50,8 +50,8 @@ function trimmed(o: Card, taken: readonly Opportunity[]): Card {
 
 const better = (p: Card, q: Card): number => q.score - p.score || p.t0 - q.t0;
 
-/** The cards to show, best first (at most TOP_N), from every detector's opportunities. */
-export function rankOpportunities(opps: readonly Opportunity[]): Card[] {
+/** The cards to show, best first (at most `max`: TOP_N for a race's cards; the Regatta view keeps them all), from every detector's opportunities. */
+export function rankOpportunities(opps: readonly Opportunity[], max = TOP_N): Card[] {
   // Untrimmed; each round trims them afresh against what is taken so far.
   const queue: Card[] = opps
     .map((o) => {
@@ -66,5 +66,5 @@ export function rankOpportunities(opps: readonly Opportunity[]): Card[] {
     queue.splice(head.i, 1);
     if (head.c.seconds >= MIN_SECONDS[head.c.confidence]) taken.push(head.c);
   }
-  return taken.sort(better).slice(0, TOP_N);
+  return taken.sort(better).slice(0, max);
 }

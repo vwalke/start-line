@@ -318,8 +318,6 @@ input[type='search']:disabled, select:disabled { opacity: 0.6; }
 .tabs [role='tab'][aria-selected='true'] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
 .tabs [role='tab'][aria-selected='true']:focus-visible { outline-color: var(--ink); }
 .panel[hidden] { display: none; }
-/* Coach is only offered with ?coach=1. */
-.tabs [role='tab'][hidden] { display: none; }
 .panel:focus { outline: none; }
 
 .boatbar {
@@ -836,12 +834,25 @@ html.fs-on { overflow: hidden; }
   .fs-rotate { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); }
 }
 
-/* Coach tab (behind ?coach=1, ui/coach.ts). */
+/* Coach tab (ui/coach.ts). */
 .coach-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 8px; }
-.coach-pick .coach-boat select { width: auto; max-width: 100%; font-weight: 600; }
-.coach-races { font-size: 0.85rem; }
-.coach-races button small { margin-left: 3px; opacity: 0.8; }
-.coach-races button:disabled { cursor: not-allowed; color: var(--ink-3); }
+.coach-view { font-size: 0.85rem; }
+/* The Regatta view (ui/coachRegatta.ts). */
+.coach-regatta h4 { margin: 16px 0 6px; font-size: 0.95rem; }
+.regatta-status { margin: 0 0 8px; font-size: 0.85rem; color: var(--ink-2); }
+.regatta-status.busy::before { content: '⏳ '; }
+.regatta-places { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; font-size: 0.85rem; }
+.regatta-places .rp { padding: 3px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+.regatta-places .rp small { margin-left: 3px; color: var(--ink-3); }
+.regatta-places .rp.pending, .regatta-places .rp.running { color: var(--ink-3); border-style: dashed; }
+.regatta-places .rp.low { border-color: var(--bad); }
+.regatta-places .warn, .regatta-table .warn { color: var(--bad); }
+.regatta-top { margin: 0; padding-left: 1.4em; font-size: 0.9rem; }
+.regatta-top li + li { margin-top: 6px; }
+.regatta-scroll { overflow-x: auto; }
+.regatta-table { border-collapse: collapse; font-size: 0.82rem; width: 100%; }
+.regatta-table th, .regatta-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.regatta-table thead th { color: var(--ink-2); font-weight: 600; }
 .coach-head h3:empty { display: none; }
 .coach-group { align-items: flex-start; margin-bottom: 6px; }
 .coach-custom { font-size: 0.8rem; color: var(--ink-2); }

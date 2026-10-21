@@ -1,5 +1,6 @@
 /**
- * The Coach tab (behind `?coach=1`), phase 1: pick a boat and a race, one
+ * The Coach tab, for the race picked in the Race menu and the boat selected in the app (no
+ * pickers of its own; the Regatta view is coachRegatta.ts). Phase 1: one
  * line of key-number chips with ⚠ caveats and the one ⓘ, and the rival ladder
  * — the boat's gap in seconds to a group of boats over the race (ahead up,
  * behind down), the group median bold and each group boat thin, roundings
@@ -7,14 +8,14 @@
  * Gaps in the data are breaks (and a shaded band), never joined up.
  *
  * The group (Chris's "Ivan group") lives in the URL as `grp=top3|near|fleet|c:<id>,<id>`,
- * the boat as `boat=<id>`, next to the race (`event`, `div`, `race`).
+ * the boat as `boat=<id>`, the view as `cview=regatta`, next to the race (`event`, `div`, `race`).
  */
 import { DEFAULT_GROUPS, NEAR_PLACES, type Group, type GroupKind } from '../analysis/coach/groups';
 import { RACE_MIN_COVERAGE } from '../analysis/coach/debrief';
 import type { CoachModel, RivalLadder } from '../analysis/coach';
 import { COACH_NEAR_FIX_S } from '../analysis/coach/tracks';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
-import type { RegattaDoc } from '../data/racesense/types';
+import { LOW_COVERAGE, fleetOf } from '../analysis/coach/regatta';
 import { boatLabel, degLabel, duration, esc, localTime, ordinal, pct, tzLabel } from './format';
 import { infoHtml, warnChip, type Chip } from './info';
 
@@ -28,7 +29,7 @@ export function parseBoatParam(raw: string | null | undefined): string | null {
 }
 
 /**
- * The boat to highlight when Coach is on. A `boat=` deep-link wins over a saved
+ * The boat to highlight as a race opens. A `boat=` deep-link wins over a saved
  * lastView boat so a shared link opens that boat; an unknown id falls through.
  */
 export function coachHighlight(urlBoat: string | null, savedBoat: string | null, known: Iterable<string>): string | null {
@@ -38,8 +39,8 @@ export function coachHighlight(urlBoat: string | null, savedBoat: string | null,
   return null;
 }
 
-/** Below this race coverage the header warns, 0–1. */
-export const COACH_LOW_COVERAGE = 0.8;
+/** Below this race coverage the header warns, 0–1 (and the Regatta view marks the race low data). */
+export const COACH_LOW_COVERAGE = LOW_COVERAGE;
 /** A hole at least this long gets the ⚠ no data chip, s. */
 export const COACH_HOLE_CHIP_S = 60;
 
@@ -66,42 +67,31 @@ const GROUP_SHORT: Record<GroupKind, string> = { leaders: 'top 3', near: 'boats 
 /** The rival ladder's group when the URL names none. */
 export const defaultLadderGroup = (): Group => ({ kind: DEFAULT_GROUPS.rivalLadder });
 
+export type CoachView = 'race' | 'regatta';
+/** The Coach view in the URL: `cview=regatta`; the race view needs none. */
+export const VIEW_PARAM = 'cview';
+export const parseCoachView = (raw: string | null | undefined): CoachView => (raw === 'regatta' ? 'regatta' : 'race');
+
 /**
- * A boat's place in each finished race of the division, by tracked finish time (RaceSense's
- * finishes; official results may differ). Races in number order; place null = no tracked finish.
+ * The boat Coach shows: the boat selected in the app (the boat list, a chart, `boat=`) when it
+ * sailed this race; null otherwise (Coach then asks for one, no fallback to another boat).
  */
-export function racePlaces(doc: RegattaDoc, division: string, sail: string): { raceNumber: number; place: number | null; of: number }[] {
-  const div = doc.divisions?.find((d) => d.name === division);
-  if (!div) return [];
-  return (div.races ?? [])
-    .filter((r) => !r.isPractice && (r.finishes ?? []).length > 0)
-    .sort((a, b) => a.raceNumber - b.raceNumber)
-    .map((r) => {
-      const order = [...r.finishes]
-        .filter((f) => Number.isFinite(Date.parse(f.finishingTime)))
-        .sort((a, b) => Date.parse(a.finishingTime) - Date.parse(b.finishingTime))
-        .map((f) => f.sailNumber);
-      const i = order.indexOf(sail);
-      return { raceNumber: r.raceNumber, place: i >= 0 ? i + 1 : null, of: order.length };
-    });
+export const coachBoatFor = (a: Pick<RaceAnalysis, 'boats'>, selected: string | null): string | null =>
+  selected && a.boats.some((b) => b.id === selected) ? selected : null;
+
+/**
+ * The Coach panel's top line: Race (the race picked in the Race menu) or Regatta (every race of
+ * the event). Race and boat are the app's own selection: no picker of its own here.
+ */
+export function coachViewHtml(view: CoachView): string {
+  const btn = (v: CoachView, label: string, title: string): string =>
+    `<button type="button" data-coach-view="${v}" aria-pressed="${view === v}" title="${esc(title)}">${label}</button>`;
+  return `<div class="seg coach-view" role="group" aria-label="Coach view">${btn('race', 'Race', 'This race (the Race menu)')}${btn('regatta', 'Regatta', 'Every race of the event')}</div>`;
 }
 
-/** The picker: boat select, then the races as a segmented control (`R1 2nd`) and a disabled Weekend. */
-export function coachPickerHtml(a: RaceAnalysis, boat: string | null, races: { raceNumber: number; place: number | null }[]): string {
-  const opts = [...a.boats]
-    .sort((p, q) => p.sail.localeCompare(q.sail, undefined, { numeric: true }))
-    .map((b) => `<option value="${esc(b.id)}"${b.id === boat ? ' selected' : ''}>${esc(boatLabel(b, b.id))}</option>`)
-    .join('');
-  const segs = races
-    .map((r) => {
-      const on = r.raceNumber === a.meta.raceNumber;
-      const place = r.place != null ? ordinal(r.place) : '—';
-      return `<button type="button" data-coach-race="${r.raceNumber}" aria-pressed="${on}" aria-label="Race ${r.raceNumber}, ${r.place != null ? `${place} by the tracker` : 'no tracked finish'}">R${r.raceNumber}<small>${place}</small></button>`;
-    })
-    .join('');
-  return `<label class="coach-boat"><span class="vh">Boat</span><select id="coach-boat" aria-label="Boat to coach">${opts}</select></label>
-    <div class="seg coach-races" role="group" aria-label="Race">${segs}<button type="button" disabled title="Coming in a later update" aria-label="Weekend (coming later)">Weekend</button></div>`;
-}
+/** No boat selected: where to pick one. */
+export const COACH_NO_BOAT = 'Pick a boat in the boat list to coach it.';
+export const coachNoBoatHtml = (): string => `<p class="muted coach-none coach-noboat">${esc(COACH_NO_BOAT)}</p>`;
 
 /** "11:05" in the venue's clock. */
 const hm = (ms: number, tz: number): string => localTime(ms, tz).slice(0, 5);
@@ -116,10 +106,14 @@ export function coachChips(
 ): Chip[] {
   const tz = a.meta.tzOffsetMs;
   const chips: Chip[] = [];
-  chips.push(b.finishPos != null ? { text: `${ordinal(b.finishPos)} of ${a.boats.length}`, title: 'Place by the tracked finish' } : warnChip('no tracked finish'));
+  const official = a.meta.results?.places === 'official';
+  const placeBy = official ? 'Official place' : b.finishSource === 'tracker' ? 'Place by the tracker finish (~)' : 'Place by the tracked finish';
+  if (b.finishPos != null) chips.push({ text: `${ordinal(b.finishPos)} of ${fleetOf(a)}`, title: placeBy });
+  else if (b.finishCode) chips.push({ text: b.finishCode, title: 'Official result' });
+  else chips.push(warnChip(official ? 'no official place' : 'no tracked finish'));
   const win = a.boats.find((x) => x.finishPos === 1);
   if (b.finishPos != null && b.finishPos > 1 && b.finishMs != null && win?.finishMs != null) {
-    chips.push({ text: `${Math.round((b.finishMs - win.finishMs) / 1000)} s behind ${win.name && win.name !== `#${win.sail}` ? win.name : win.sail}`, title: `Tracked finish times; ${boatLabel(win, win.id)} won` });
+    chips.push({ text: `${Math.round((b.finishMs - win.finishMs) / 1000)} s behind ${win.name && win.name !== `#${win.sail}` ? win.name : win.sail}`, title: `Finish times; ${boatLabel(win, win.id)} won` });
   }
   chips.push({ text: `gun ${hm(a.meta.gunMs, tz)}`, title: `Venue time (${tzLabel(tz)})` });
   if (atStakeS != null && atStakeS > 0) chips.push({ text: `≈ ${Math.round(atStakeS)} s at stake`, title: 'Seconds at stake over the cards below' });
