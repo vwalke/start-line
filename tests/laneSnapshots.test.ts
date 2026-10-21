@@ -254,7 +254,7 @@ describe('lane snapshots: data gaps', () => {
     const [, f1, f2] = L.frames.map((f) => boatIn(f, 'S'));
     expect(f1.pos).toBeNull();
     expect(L.frames[1].missing).toEqual(['S']);
-    expect(L.frames[1].caption).toContain('S: no position (tracker gap).');
+    expect(L.frames[1].caption).toBe('S: no position (tracker gap).');
     // −60 → +40 drawn, nothing made up past the last fix before the gap.
     expect(f1.trail).toHaveLength(1);
     near(f1.trail[0].at(-1)!, [0, -(-100 + 2 * 40)]);
@@ -296,6 +296,35 @@ describe('lane snapshots: data gaps', () => {
     expect(boatIn(L.frames[1], 'A').trail[0][0]).toEqual([0, 100]);
     const html = laneSnapshotsHtml(race([{ id: 'A', tr: track(0, -100, 0) }]), L);
     expect(html).toContain('No data before the gun');
+  });
+
+  it('feed starts after −60 s but before the gun: the −60 s frame says when tracking starts', () => {
+    const L = laneSnapshots(race([{ id: 'A', tr: track(0, -100, -30) }, { id: 'B', tr: track(50, -100, -20) }]), { me: 'A' });
+    expect(L.frames[0].empty).toBe(true);
+    expect(L.frames[0].caption).toBe('Tracking starts at gun −0:30.');
+    expect(L.frames[0].label).toContain('Tracking starts at gun −0:30.');
+    // The +1:00 frame still draws the pre-gun trail.
+    near(boatIn(L.frames[1], 'A').trail[0][0], [0, -(-100 + 2 * -30)]);
+  });
+
+  it('the selected boat in a tracker gap: said once, not repeated under "Not tracked"', () => {
+    const L = laneSnapshots(race([{ id: 'S', tr: track(0, -100, -120, 180, [[40, 80]]) }, { id: 'A', tr: track(20, -100) }, { id: 'Ghost' }]), { me: 'S' });
+    const cap = L.frames[1].caption;
+    expect(cap).toMatch(/^S: no position \(tracker gap\)\./);
+    expect(cap.match(/\bS\b/g)).toHaveLength(1);
+    expect(cap).toContain('Not tracked: Ghost.');
+    expect(L.frames[1].label).toContain('S: no position (tracker gap). Not tracked: Ghost.');
+  });
+
+  it('the selected boat with no track at all: "not tracked" once; other missing boats still listed', () => {
+    const L = laneSnapshots(race([{ id: 'A', tr: track(0, -100) }, { id: 'Ghost' }, { id: 'Gone' }]), { me: 'Ghost' });
+    for (const f of L.frames) {
+      expect(f.caption).toMatch(/^Ghost: not tracked\./);
+      expect(f.caption.match(/Ghost/g)).toHaveLength(1);
+      expect(f.caption).not.toContain('tracker gap');
+      expect(f.caption).toContain('Not tracked: Gone.');
+      expect(f.label.match(/Ghost/g)).toHaveLength(1);
+    }
   });
 
   it('a boat with no track at all: listed as not tracked in every frame', () => {

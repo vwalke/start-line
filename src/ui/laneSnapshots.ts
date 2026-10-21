@@ -65,6 +65,8 @@ export interface LaneBoat {
   pos: Vec | null;
   /** In a gap, held at the fix before it (drawn hollow). */
   hold: boolean;
+  /** The boat has a track (any fix) in the race; false: never tracked. */
+  tracked: boolean;
   /** The trail since the frame before, map coordinates, one polyline per stretch without a gap. */
   trail: Vec[][];
   role: LaneRole;
@@ -196,13 +198,20 @@ function sails(xs: readonly string[], max = 4): string {
   return xs.length <= max ? xs.join(', ') : `${xs.slice(0, max).join(', ')} +${xs.length - max} more`;
 }
 
-/** The frame's caption: the selected boat's lane and its approximate place toward the mark; who is over; who isn't tracked. */
-function frameCaption(f: Omit<LaneFrame, 'caption' | 'label'>, me: string | null, gun: number, markName: string): string {
-  if (f.empty) return f.t < gun ? 'No data before the gun.' : 'No tracks at this time.';
+/**
+ * The frame's caption: the selected boat's lane and its approximate place toward the mark; who is over; who isn't tracked
+ * (the selected boat said once, in its own words). `firstFix`: the fleet's earliest fix, ms (null: none).
+ */
+function frameCaption(f: Omit<LaneFrame, 'caption' | 'label'>, me: string | null, gun: number, markName: string, firstFix: number | null): string {
+  if (f.empty) {
+    if (f.t >= gun) return 'No tracks at this time.';
+    return firstFix != null && firstFix > f.t && firstFix < gun ? `Tracking starts at ${gunRel(firstFix, gun)}.` : 'No data before the gun.';
+  }
   const parts: string[] = [];
   const mine = me != null ? f.boats.find((b) => b.id === me) : undefined;
   if (mine) {
-    if (!mine.pos) parts.push(`${mine.sail}: no position (tracker gap).`);
+    if (!mine.tracked) parts.push(`${mine.sail}: not tracked.`);
+    else if (!mine.pos) parts.push(`${mine.sail}: no position (tracker gap).`);
     else {
       const lane = mine.across != null ? laneText(mine.across) : '';
       const rank = mine.rank != null ? `≈ ${ordinal(mine.rank)} of ${f.placed} toward ${markName}` : '';
@@ -215,7 +224,8 @@ function frameCaption(f: Omit<LaneFrame, 'caption' | 'label'>, me: string | null
   if (over.length) parts.push(`Over (OCS): ${sails(over)}.`);
   if (cleared.length) parts.push(`OCS, cleared: ${sails(cleared)}.`);
   if (above.length) parts.push(`Above the line: ${sails(above)}.`);
-  if (f.missing.length) parts.push(`Not tracked: ${sails(f.missing)}.`);
+  const missing = f.boats.filter((b) => !b.pos && b !== mine).map((b) => b.sail);
+  if (missing.length) parts.push(`Not tracked: ${sails(missing)}.`);
   return parts.join(' ');
 }
 
@@ -276,6 +286,16 @@ export function laneSnapshots(a: RaceAnalysis, o: LaneOptions): LaneSnapshots {
   const group = new Set(o.group ?? []);
   const repOf = new Map((o.replays ?? []).map((r) => [r.boat, r]));
   const drawn = new Map(a.drawings.map((d) => [d.id, d]));
+  // Who has any fix at all, and the fleet's earliest fix (for an empty pre-gun frame's caption).
+  const tracked = new Set<string>();
+  let firstFix: number | null = null;
+  for (const d of a.drawings) {
+    for (const r of legRanges(d, true)) {
+      if (r.hi <= r.lo) continue;
+      tracked.add(d.id);
+      if (firstFix == null || r.src.t[r.lo] < firstFix) firstFix = r.src.t[r.lo];
+    }
+  }
   const frames: LaneFrame[] = [];
   const allPts: Vec[] = [];
   let prev = gun + LANE_FIRST_FROM_S * 1000;
@@ -300,6 +320,7 @@ export function laneSnapshots(a: RaceAnalysis, o: LaneOptions): LaneSnapshots {
         sail: b.sail,
         pos,
         hold: !!at?.hold,
+        tracked: tracked.has(b.id),
         trail: d ? trailOf(a, b.id, twd, from, t) : [],
         role: b.id === o.me ? 'me' : group.has(b.id) ? 'group' : 'other',
         over,
@@ -317,7 +338,7 @@ export function laneSnapshots(a: RaceAnalysis, o: LaneOptions): LaneSnapshots {
     const placed = boats.length - missing.length;
     const empty = boats.every((b) => !b.pos && !b.trail.length);
     const base = { s, t, from, title: gunRel(t, gun), boats, empty, missing, placed };
-    const caption = frameCaption(base, o.me, gun, fm?.name ?? 'the first mark');
+    const caption = frameCaption(base, o.me, gun, fm?.name ?? 'the first mark', firstFix);
     const label = `Lane snapshot at ${base.title}${empty ? '' : `: ${placed} of ${boats.length} boats placed`}. ${caption}`;
     frames.push({ ...base, caption, label });
     prev = t;
