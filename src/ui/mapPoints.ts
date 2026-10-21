@@ -340,3 +340,33 @@ export function mapTipLines(a: Pick<RaceAnalysis, 'boats' | 'legs' | 'meta'>, p:
 /** The lines as the tooltip's HTML: the boat in bold, the rest one per line. */
 export const mapTipHtml = (lines: string[]): string =>
   lines.map((l, k) => (k === 0 ? `<b>${esc(l)}</b>` : esc(l))).join('<br>');
+
+/** A box in the map's wrapper, css px. */
+export interface TipBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Where the map's tooltip goes (its top-left in the wrapper, css px): beside the pointer (`x`, `y`), above it;
+ * flipped left near the right edge and below near the top, and kept inside the wrapper (`room`). When it would
+ * cover `avoid` (the replay's label), the first of the other three corners that doesn't; if all would, as first placed.
+ */
+export function mapTipPos(x: number, y: number, size: { w: number; h: number }, room: { w: number; h: number }, avoid: TipBox | null = null): { left: number; top: number } {
+  const { w, h } = size;
+  const fit = (v: number, r: number): number => Math.max(0, Math.min(v, r));
+  const right = x + 12;
+  const leftOf = x - 12 - w;
+  const above = y - h - 10;
+  const below = y + 16;
+  const xs = right + w > room.w ? [leftOf, right] : [right, leftOf];
+  const ys = above < 0 ? [below, above] : [above, below];
+  const at = (cx: number, cy: number): { left: number; top: number } => ({ left: fit(cx, room.w - w), top: fit(cy, room.h - h) });
+  const tries = [at(xs[0], ys[0]), at(xs[1], ys[0]), at(xs[0], ys[1]), at(xs[1], ys[1])];
+  if (!avoid) return tries[0];
+  const clear = (p: { left: number; top: number }): boolean =>
+    p.left + w <= avoid.left || p.left >= avoid.left + avoid.width || p.top + h <= avoid.top || p.top >= avoid.top + avoid.height;
+  return tries.find(clear) ?? tries[0];
+}

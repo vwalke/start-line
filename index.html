@@ -73,6 +73,7 @@
               <!-- Touch only, until dismissed (ui/hints.ts). -->
               <p class="hint touch-hint" id="start-hint" hidden><span>Pinch to zoom · drag to pan · double-tap to zoom in</span><button type="button" id="start-hint-dismiss" class="hint-x" aria-label="Dismiss zoom hint" title="Dismiss">×</button></p>
               <div class="capline" id="start-cap"></div>
+              <p id="start-replay" class="replay-links" hidden></p>
               <div id="start-findings-box" class="findings-box" hidden>
                 <h4 id="start-findings-title">Start findings</h4>
                 <ul id="start-findings" class="findings" aria-labelledby="start-findings-title"></ul>
@@ -108,6 +109,7 @@
                 </div>
                 <div id="map-legend" class="legend" role="group" aria-label="Show one leg" aria-controls="map-chart"></div>
                 <div id="map-colour" class="segs" aria-controls="map-chart"></div>
+                <div id="map-replay" class="replay" role="group" aria-label="Replay an over-early start" aria-controls="map-chart" hidden></div>
               </div>
               <p id="map-speed-key" class="speed-key" hidden></p>
               <div class="map-wrap">

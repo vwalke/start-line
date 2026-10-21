@@ -12,7 +12,7 @@ import { matchClass, type ClassDims } from '../data/classes';
 import { esc, f1, f2 } from './format';
 import { placeLabels, textWidth, type LabelReq, type Rect, type StartNames } from './labels';
 import { MAP_GAP_S, drawingGapMs, mapPoints, mapPointsOf, type MapPoints } from './mapPoints';
-import { drawingPieces, rotTrack, rotator, legRanges, boatAt, type BoatAt, type FullRateSet, type MapPiece, type PieceOptions } from './mapPieces';
+import { drawingPieces, rotTrack, rotator, legRanges, boatAt, timeRange, type BoatAt, type FullRateSet, type MapPiece, type PieceOptions } from './mapPieces';
 import {
   addSogTrack,
   emptySogPaths,
@@ -31,6 +31,8 @@ import {
 } from './sog';
 import { casedByDay, speedColor, speedRanking, speedStyle, type RankBy, type SogScale, type SpeedTop, type TrackColour } from './speed';
 import { FAV_GAP_PX, favouredTexts, lineBiasSvg } from './startLine';
+import { replayLabel, replaySpans } from './replay';
+import type { StartReplay } from '../analysis/startReplay';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
 
 const SLOTS = 8;
@@ -638,6 +640,12 @@ export interface TrackMapOptions {
    * the trails and the boats (`g.scrub-trk`, `g.scrub-dots`), filled each frame from `scrubFrame`.
    */
   scrub?: boolean;
+  /**
+   * Replaying the selected boat's over-early start (Map C, ui/replay.ts): while scrubbing the whole race, its
+   * stretch over the line and its dip back are drawn on top of its track (up to the scrubber's time), with
+   * markers where it went back and recrossed, and a label. Ignored for another boat or one leg.
+   */
+  replay?: StartReplay | null;
 }
 
 /** A segment's points in map coordinates (wind at the top), worked out once per segment. */
@@ -1103,7 +1111,88 @@ export function scrubFrame(a: RaceAnalysis, highlight: string | null, leg: numbe
   const sc = mapScale(box);
   const layer = trackLayer(a, highlight, leg, opts, { leg, win: s.win, clip: mapClip(box, zoom), pre: true, full: s.full }, sc);
   const boats = boatsAt(a, highlight, s.t, s.full);
-  return { tracks: `${layer.gaps}${layer.paths}${layer.hi}`, dots: layer.labels + dotsSvg(a, highlight, leg, opts, boats, sc), pieces: layer.pieces, boats };
+  const r = opts.replay && opts.replay.boat === highlight && leg == null ? replaySvg(a, opts.replay, s, sc) : null;
+  return {
+    tracks: `${layer.gaps}${layer.paths}${layer.hi}${r?.tracks ?? ''}`,
+    dots: (r?.marks ?? '') + layer.labels + dotsSvg(a, highlight, leg, opts, boats, sc) + (r?.label ?? ''),
+    pieces: layer.pieces,
+    boats,
+  };
+}
+
+/**
+ * A replay's highlight at the scrubber's moment: the boat's track over the line (warning red) and its dip back
+ * (red dashed), each only as far as `s.t` and within the trail, read from the source the map draws (the
+ * full-rate track when there is one) and cut at the facts' times on it, broken at gaps as the track is;
+ * a ring where it went back and a dot where it recrossed, once reached; the label just off the line on the
+ * pre-start side, kept inside the view.
+ */
+function replaySvg(a: RaceAnalysis, r: StartReplay, s: ScrubAt, sc: MapScale): { tracks: string; marks: string; label: string } {
+  const { box, unit, k } = sc;
+  const twd = a.wind.twdAtGunDeg;
+  const d = a.drawings.find((x) => x.id === r.boat);
+  if (!d) return { tracks: '', marks: '', label: '' };
+  const ranges = legRanges(d, true, s.full?.get(d.id));
+  const gapMs = drawingGapMs(d);
+  const at = (t: number): Vec | null => {
+    const b = boatAt(d.id, ranges, t, gapMs, twd);
+    return b && !b.hold ? [b.mx, b.my] : null;
+  };
+  const sw = (width: number): string => `stroke-width="${(width * k).toFixed(2)}"`;
+  /** The drawn track over [from, to] ∩ the trail up to now: its ends cut at those times, broken at gaps. */
+  const stretch = (span: [number, number] | null): Vec[][] => {
+    if (!span) return [];
+    const from = Math.max(span[0], s.win[0]);
+    const to = Math.min(span[1], s.t, s.win[1]);
+    if (!(to > from)) return [];
+    const x: number[] = [];
+    const y: number[] = [];
+    const t: number[] = [];
+    const push = (p: Vec | null, tt: number): void => {
+      if (!p || (t.length && tt <= t[t.length - 1])) return;
+      x.push(p[0]);
+      y.push(p[1]);
+      t.push(tt);
+    };
+    push(at(from), from);
+    for (const g of ranges) {
+      const rot = rotTrack(twd, g.src);
+      const [i0, i1] = timeRange(g.src.t, from, to, g.lo, g.hi);
+      for (let i = i0; i < i1; i++) if (g.src.t[i] > from && g.src.t[i] < to) push([rot.x[i], rot.y[i]], g.src.t[i]);
+    }
+    push(at(to), to);
+    return segRuns(x, y, t, gapMs).runs;
+  };
+  const { over, dip } = replaySpans(r);
+  let tracks = '';
+  for (const run of stretch(over)) tracks += `<polyline class="ocs-case" points="${pts(run)}" ${sw(5.4)}/><polyline class="ocs-over" points="${pts(run)}" ${sw(3.2)}/>`;
+  const dash = `stroke-dasharray="${(5 * k).toFixed(2)} ${(3.5 * k).toFixed(2)}"`;
+  for (const run of stretch(dip)) tracks += `<polyline class="ocs-case" points="${pts(run)}" ${sw(4.6)}/><polyline class="ocs-dip" points="${pts(run)}" ${sw(2.4)} ${dash}/>`;
+  const mark = (cls: string, tMs: number | null): string => {
+    if (tMs == null || tMs > s.t || tMs < s.win[0]) return '';
+    const p = at(tMs);
+    return p ? `<circle class="ocs-mark ${cls}" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${(4.2 * unit).toFixed(2)}" ${sw(1.8)}/>` : '';
+  };
+  const marks = mark('back', r.wentBackMs) + mark('clear', r.clearedMs);
+  // The label: off the line's middle on the pre-start side (away from the first mark), inside the view.
+  const rot = rotator(twd);
+  const L = rot(a.line.left);
+  const R = rot(a.line.right);
+  const mid: Vec = [(L[0] + R[0]) / 2, (L[1] + R[1]) / 2];
+  const first = a.legPts?.[1];
+  const towards = first ? rot(first) : null;
+  let n: Vec = [-(R[1] - L[1]), R[0] - L[0]];
+  const nl = Math.hypot(n[0], n[1]) || 1;
+  n = [n[0] / nl, n[1] / nl];
+  if (towards && (towards[0] - mid[0]) * n[0] + (towards[1] - mid[1]) * n[1] > 0) n = [-n[0], -n[1]];
+  const text = replayLabel(r);
+  const fs = 12 * k;
+  const half = textWidth(text, fs) / 2;
+  const edge = 6 * unit;
+  const cx = Math.min(box.x1 - edge - half, Math.max(box.x0 + edge + half, mid[0] + n[0] * 26 * unit));
+  const cy = Math.min(box.y1 - 24 * unit, Math.max(box.y0 + 16 * unit, mid[1] + n[1] * 26 * unit + 4 * unit));
+  const label = `<text class="ocs-lbl" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" font-size="${fs}" stroke-width="${(3.5 * k).toFixed(2)}" text-anchor="middle">${esc(text)}</text>`;
+  return { tracks, marks, label };
 }
 
 /** Each drawn boat's gap threshold by id (racing and set aside). */

@@ -559,6 +559,22 @@ svg .dot.off { opacity: 0.4; }
 svg .dot-hdg { stroke: var(--ink); stroke-linecap: round; }
 svg text.dot-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; font-weight: 600; pointer-events: none; }
 svg .boat-at { pointer-events: none; }
+/* Replay start (Map C): over the line in the warning red, the dip back red dashed, on a surface casing; went back (ring) and recrossed (dot). */
+svg .ocs-case { fill: none; stroke: var(--surface); stroke-linejoin: round; stroke-linecap: round; opacity: 0.85; pointer-events: none; }
+svg .ocs-over, svg .ocs-dip { fill: none; stroke: var(--bad); stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
+svg .ocs-dip { stroke-linecap: butt; }
+svg .ocs-mark { pointer-events: none; }
+svg .ocs-mark.back { fill: var(--surface); stroke: var(--bad); }
+svg .ocs-mark.clear { fill: var(--bad); stroke: var(--surface); }
+svg text.ocs-lbl { fill: var(--bad); stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; font-weight: 600; pointer-events: none; }
+.replay { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 0.8rem; color: var(--ink-2); }
+.replay[hidden], .replay-links[hidden] { display: none; }
+.replay .sep { color: var(--ink-3); }
+.replay-btn { font: inherit; padding: 3px 9px; border: 1px solid var(--bad); border-radius: 6px; background: var(--surface); color: var(--bad); font-weight: 600; cursor: pointer; }
+.replay-btn[aria-pressed='true'] { background: var(--bad-bg); }
+.replay-links { margin: 4px 0 0; font-size: 0.85rem; color: var(--ink-2); }
+.replay-links .sep { color: var(--ink-3); }
+.replay-link { font-weight: 600; }
 @media (prefers-color-scheme: dark) {
   svg .dot[style]:not(.hold) { fill: var(--cd); }
   svg .dot.hold[style] { stroke: var(--cd); }
