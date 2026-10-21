@@ -471,6 +471,8 @@ svg .scalebar text { fill: var(--ink-2); }
 .seg button { font: inherit; padding: 3px 9px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2); cursor: pointer; margin-left: -1px; }
 .seg button:first-of-type { border-radius: 6px 0 0 6px; margin-left: 0; }
 .seg button:last-of-type { border-radius: 0 6px 6px 0; }
+/* The trail's "Window" (last) shows only with a Coach card's window open; without it, All ends the group. */
+#map-trail button[data-trail='all']:has(+ button[hidden]) { border-radius: 0 6px 6px 0; }
 .seg button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--surface); position: relative; }
 .seg button:focus-visible { position: relative; z-index: 1; }
 .seg button[aria-pressed='true']:focus-visible { outline-color: var(--ink); }
@@ -575,6 +577,15 @@ svg text.ocs-lbl { fill: var(--bad); stroke: var(--surface); stroke-linejoin: ro
 .replay-links { margin: 4px 0 0; font-size: 0.85rem; color: var(--ink-2); }
 .replay-links .sep { color: var(--ink-3); }
 .replay-link { font-weight: 600; }
+/* A Coach card on the map (Map D): the comparison boats' trails on an ink casing, their dots ringed and labelled; the "vs" line. */
+svg .trk-vs { fill: none; stroke: var(--ink); opacity: 0.3; stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
+svg .dot-vs { fill: none; stroke: var(--ink); pointer-events: none; }
+.map-focus { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 0.8rem; color: var(--ink-2); }
+.map-focus[hidden] { display: none; }
+.map-focus .sep { color: var(--ink-3); }
+.vs-sw { display: inline-block; width: 9px; height: 9px; border: 1.6px solid var(--ink); border-radius: 50%; }
+.coach-opp .opp-map { margin: 8px 0 0; font-size: 0.85rem; }
+.opp-map-link { font-weight: 600; }
 @media (prefers-color-scheme: dark) {
   svg .dot[style]:not(.hold) { fill: var(--cd); }
   svg .dot.hold[style] { stroke: var(--cd); }
@@ -1064,6 +1075,34 @@ svg .cl-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 .vkx-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .vkx-actions button { font: inherit; min-height: 36px; padding: 4px 14px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
 .vkx-actions .vkx-ok { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+/* ---------- Start tab: lane snapshots (ui/laneSnapshotsView.ts) ---------- */
+.lane-snapshots { margin: 8px 0 0; }
+.lane-snapshots > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--ink-2); padding: 4px 0; min-height: 28px; }
+.lane-snapshots > summary .muted { font-weight: 500; }
+.lane-frames { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+.lane-frame { margin: 0; border: 1px solid var(--rule); border-radius: 8px; padding: 6px; background: var(--surface); display: flex; flex-direction: column; }
+.lane-frame figcaption { font-size: 0.78rem; color: var(--ink-2); line-height: 1.35; min-height: 3.2em; }
+.lane-frame figcaption b { color: var(--ink); }
+.lane-svg { width: 100%; height: auto; display: block; margin-top: auto; padding-top: 4px; }
+.lane-key { font-size: 0.75rem; margin: 6px 0 0; }
+svg .lane-pin { fill: var(--s4); stroke: var(--ink); }
+svg .lane-rc { fill: var(--ink-2); }
+svg .lane-markdir line, svg .lane-markdir polygon { stroke: var(--ink-2); fill: var(--ink-2); }
+svg .lane-markdir text, svg .lane-lbl, svg .lane-ocs { fill: var(--ink); stroke: var(--surface); paint-order: stroke; font-weight: 600; }
+svg .lane-lbl.on { font-weight: 700; }
+svg .lane-trail { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+svg .lane-trail.dim { opacity: 0.35; }
+svg .lane-boat.dim { opacity: 0.45; }
+svg .lane-dot:not(.hold) { stroke: var(--surface); }
+svg .lane-over, svg .lane-cleared { fill: none; stroke: var(--bad); }
+svg .lane-above { fill: none; stroke: var(--ink-3); }
+svg .lane-ocs { fill: var(--bad); }
+svg .lane-empty { fill: var(--ink-3); }
+@media (max-width: 600px) {
+  .lane-frames { grid-template-columns: minmax(0, 1fr); }
+  .lane-frame figcaption { min-height: 0; }
+}
 
 /* ---------- the boat Report (ui/report.ts, reportView.ts): one page, printed on A4 or Letter ---------- */
 .content { position: relative; }
