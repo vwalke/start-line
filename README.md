@@ -119,7 +119,7 @@ are shared by all three.
     within 130 m of a mark (`zoneTracks`, the uploaded boat at 10 Hz, the feed's
     at most every 0.4 s). Leaders are only used where their own fixes pass the
     gate.
-  - **Regatta denominators:** dirty air and each kind of rounding count only the
+  - **Regatta denominators:** dirty air, each kind of rounding, and heel count only the
     races the detector had the data to measure ("3 of 4*" in the table, with a
     footnote); everything else counts every race with enough tracker data.
   - **Leg by leg:** places are in the whole fleet, out of a fixed fleet (every

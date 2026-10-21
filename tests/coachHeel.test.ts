@@ -240,6 +240,13 @@ describe('D11 heel: upwind', () => {
     expect(coachDebrief(ctx.a, ctx.m, 'me')!.quality.D11).toEqual([]);
   });
 
+  it('leaders already on the next leg are not compared in that window (same-clock, same-leg only)', () => {
+    const { ctx } = world([...others({ heel: () => 15 }), { id: 'me', kn: [6.34, 6], heel: () => 20 }, ...fleet()]);
+    // Beat 1 lasted 30 s for the top 3: every 2-min window of the boat's beat ends after they have rounded.
+    for (const id of ctx.leaders) ctx.m.tracks.get(id)!.bounds = [GUN, GUN + 30_000, GUN + END];
+    expect(legHeel(ctx, 0)).toBeNull();
+  });
+
   it('no roll for the boat, or for its group: never guessed', () => {
     expect(detectHeel(world([...others({ heel: () => 15 }), { id: 'me', kn: [6, 6], heel: null }, ...fleet()]).ctx).legs).toEqual([]);
     // Leaders and peers (the boats ahead) without roll.
@@ -300,12 +307,24 @@ describe('D11 heel: upwind', () => {
     expect(t.chips).toHaveLength(3);
     expect(t.sentence).toMatch(/, ~5° more heeled than the top 3\.$/);
     expect(cardHtml(d6, 0, ctx.a, false)).toContain('heel 20° vs 15° top 3');
-    // attachHeel alone: a D11 on another leg stays a card.
+    // attachHeel alone: a D11 on another named leg stays a card (even if the clock were close).
     const h = detectHeel(ctx).opps[0];
-    const away = { ...h, t0: GUN + 2_000_000, t1: GUN + 2_100_000, spans: [[GUN + 2_000_000, GUN + 2_100_000]] as [number, number][] };
+    const away = {
+      ...h,
+      t0: GUN + 2_000_000,
+      t1: GUN + 2_100_000,
+      spans: [[GUN + 2_000_000, GUN + 2_100_000]] as [number, number][],
+      facts: { ...h.facts, leg: 'Beat 2', legs: 'Beat 2' },
+    };
     const r = attachHeel([d6 as Opportunity, null], [away]);
     expect(r.heel).toEqual([away]);
     expect(r.angles[0]).toBe(d6);
+    // Same named leg, no clock overlap (D6 summed another beat, window align missed): still a chip, not two cards.
+    const named = { ...h, t0: GUN + 2_000_000, t1: GUN + 2_100_000, spans: [[GUN + 2_000_000, GUN + 2_100_000]] as [number, number][] };
+    const bare = { ...d6, chips: undefined, t0: GUN, t1: GUN + 100_000, spans: [[GUN, GUN + 100_000]] as [number, number][] };
+    const r2 = attachHeel([bare, null], [named]);
+    expect(r2.heel).toEqual([]);
+    expect(r2.angles[0]?.chips?.map((x) => x.kind)).toEqual(['D11']);
   });
 });
 

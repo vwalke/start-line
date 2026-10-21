@@ -141,15 +141,26 @@ const overlaps = (p: Opportunity, q: Opportunity): boolean => p.t0 < q.t1 && q.t
 const spanOverlap = (p: Opportunity, q: Opportunity): boolean =>
   (p.spans ?? [[p.t0, p.t1]]).some(([a, b]) => (q.spans ?? [[q.t0, q.t1]]).some(([c, d]) => a < d && c < b));
 
+/** D6 / D7 name the fired legs in `facts.legs` (`Beat 1 + Beat 2`); D11 names one in `facts.leg`. */
+const sameAngleLeg = (angle: Opportunity, heel: Opportunity): boolean => {
+  const name = heel.facts.leg;
+  if (typeof name !== 'string' || !name) return false;
+  const legs = angle.facts.legs ?? angle.facts.leg;
+  return typeof legs === 'string' && legs.split(' + ').includes(name);
+};
+
 /**
  * D11 on a leg where D6 / D7 already fired (the same VMG loss, measured against the fleet): a chip on
  * that card (its facts, with the variant), not a card of its own; the rest stay D11 cards.
+ * Match the timed spans, or the named leg when D6/D7 summed several and a window-align miss would
+ * otherwise leave both cards (and count the same seconds twice).
  */
 export function attachHeel(angles: readonly (Opportunity | null)[], heel: readonly Opportunity[]): { angles: (Opportunity | null)[]; heel: Opportunity[] } {
   const out = angles.map((o) => o);
   const rest: Opportunity[] = [];
   for (const h of heel) {
-    const i = out.findIndex((o) => o && o.kind === (h.facts.legKind === 'upwind' ? 'D6' : 'D7') && spanOverlap(o, h));
+    const want = h.facts.legKind === 'upwind' ? 'D6' : 'D7';
+    const i = out.findIndex((o) => o && o.kind === want && (spanOverlap(o, h) || sameAngleLeg(o, h)));
     if (i < 0) {
       rest.push(h);
       continue;

@@ -105,31 +105,38 @@ export function heelTracks(a: RaceAnalysis, data: RaceData): Record<string, Heel
     let i1 = i0;
     while (i1 < src.t.length && src.t[i1] <= end) i1++;
     if (i1 - i0 < 2) continue;
-    const n = i1 - i0;
-    const t = src.t.slice(i0, i1);
+    // No IMU in the window: skip before projecting / detecting manoeuvres (90-boat fleets, older feeds).
+    let any = false;
+    for (let k = i0; k < i1; k++) if (Number.isFinite(src.roll[k])) { any = true; break; }
+    if (!any) continue;
+    // Feed: thin to HEEL_STEP_MS before the expensive work. An uploaded log keeps every fix.
+    const step = full ? 0 : HEEL_STEP_MS;
+    const idx: number[] = [];
+    let last = -Infinity;
+    for (let k = i0; k < i1; k++) {
+      if (src.t[k] - last < step - 50 && k !== i1 - 1) continue;
+      idx.push(k);
+      last = src.t[k];
+    }
+    if (idx.length < 2) continue;
+    const n = idx.length;
+    const t = Float64Array.from(idx, (k) => src.t[k]);
     const x = new Float64Array(n);
     const y = new Float64Array(n);
-    let any = false;
+    const roll = Float32Array.from(idx, (k) => src.roll[k]);
     for (let k = 0; k < n; k++) {
-      const p = proj.toXY(src.lat[i0 + k], src.lon[i0 + k]);
+      const p = proj.toXY(src.lat[idx[k]], src.lon[idx[k]]);
       x[k] = p[0];
       y[k] = p[1];
-      if (Number.isFinite(src.roll[i0 + k])) any = true;
     }
-    if (!any) continue;
     const xy = { t, x, y };
-    const hs = heelSeries(t, src.roll.subarray(i0, i1), signedTwa(xy, twdAt).twa, detectManoeuvres(xy, twdAt, gun, end));
-    const step = full ? 0 : HEEL_STEP_MS;
+    const hs = heelSeries(t, roll, signedTwa(xy, twdAt).twa, detectManoeuvres(xy, twdAt, gun, end));
     const keep: number[] = [];
-    let last = -Infinity;
-    for (let k = 0; k < n; k++) {
-      if (t[k] < gun || t[k] - last < step - 50) continue;
-      keep.push(k);
-      last = t[k];
-    }
+    for (let k = 0; k < n; k++) if (t[k] >= gun) keep.push(k);
+    if (keep.length < 2) continue;
     out[r.id] = {
       t: Float64Array.from(keep, (k) => t[k]),
-      roll: Float32Array.from(keep, (k) => src.roll[i0 + k]),
+      roll: Float32Array.from(keep, (k) => roll[k]),
       lee: Float32Array.from(keep, (k) => hs.lee[k]),
     };
   }
@@ -259,8 +266,9 @@ function windowsOn(ctx: CoachCtx, leg: number, kind: 'upwind' | 'downwind', ids:
     if (!bh || !bs) continue;
     const rs: (HeelSide & { id: string })[] = [];
     for (const r of refs) {
-      // Same leg for the whole window: the same breeze, the same kind of sailing.
-      if (trackLegAt(r.tr, c) !== leg || trackLegAt(r.tr, e - 1) !== leg) continue;
+      // Same leg for the whole window (ends and the middle): the same breeze, the same kind of sailing.
+      // Leaders who have already rounded onto the next beat/run are left out, not compared across legs.
+      if (trackLegAt(r.tr, c) !== leg || trackLegAt(r.tr, e - 1) !== leg || trackLegAt(r.tr, (c + e) >> 1) !== leg) continue;
       const h = heelIn(r.h, c, e);
       const s = h && speedIn(r.sp, kind, c, e);
       if (h && s) rs.push({ ...h, ...s, id: r.id });
