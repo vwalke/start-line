@@ -16,6 +16,7 @@ import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchUsableRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import { eventFinished, linkRequest, linksOf, mergeOrphans, officialFor, orphanContexts, probeFetcher } from '../data/recovery';
+import { raceWindowsFromListed } from '../data/vkx/match';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { boatList, findingsList } from './boats';
 import {
@@ -245,7 +246,10 @@ export function startApp(): void {
     });
 
   /** Boat-log uploads: new ones re-run the race on screen (loadRace keeps its view). */
-  const vkx = createVkxUpload({ reload: () => current && void loadRace(current.division, current.raceNumber) });
+  const vkx = createVkxUpload({
+    reload: () => current && void loadRace(current.division, current.raceNumber),
+    windows: (div) => (raceList ? raceWindowsFromListed(raceList.races, div) : []),
+  });
 
   let coachReq = 0;
   const coachPending = new Map<number, (w: CoachRaw | null) => void>();
@@ -396,8 +400,8 @@ export function startApp(): void {
       ${a.boats.length} boats · ${a.legs.map((l) => esc(l.name)).join(', ')} ·
       <span title="No wind sensor on the boats: estimated from the fleet's steady upwind headings">${windText}${model}</span> ·
       <span class="muted">${esc(m.sourceLabel)}</span></p>`;
-    vkx.mount(els.summary, a);
     renderRaceHead();
+    vkx.mount(els.raceHead, a);
   }
 
   function render(): void {

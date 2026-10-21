@@ -68,6 +68,49 @@ export function raceWindowsFromDoc(doc: RegattaDoc, division: string, extra: Rac
   }
   const all = [...out, ...extra.filter((e) => !out.some((o) => o.id === e.id))].sort((a, b) => a.gunMs - b.gunMs);
   // An estimated end stops short of the next gun.
+  return trimEnds(all);
+}
+
+/** The fields raceWindowsFromListed reads (ListedRace is structurally this). */
+export interface ListedRaceWindow {
+  division: string;
+  raceNumber: number;
+  gunMs: number;
+  lastFinishMs: number | null;
+  finished: boolean;
+  practice?: boolean;
+  number?: number | null;
+  officialNumber?: number | null;
+  rsNumber?: number | null;
+}
+
+/** Shown number for a listed race: official or ordinal when the list has one, else the RaceSense / rebuilt key. */
+const listedLabel = (r: ListedRaceWindow): string => {
+  const n = r.number ?? r.officialNumber ?? r.rsNumber ?? r.raceNumber;
+  return `R${n}`;
+};
+
+/**
+ * Race windows from Recall's race list, including races rebuilt by recovery
+ * (orphans keyed YYYYMMDDHHMM). Practice is skipped. Same end-cap rule as
+ * raceWindowsFromDoc.
+ */
+export function raceWindowsFromListed(races: readonly ListedRaceWindow[], division: string): RaceWindow[] {
+  const mine = races.filter((r) => r.division === division && !r.practice).sort((a, b) => a.gunMs - b.gunMs);
+  const out: RaceWindow[] = mine.map((r) => {
+    const known = r.finished && r.lastFinishMs != null;
+    return {
+      id: String(r.raceNumber),
+      label: listedLabel(r),
+      gunMs: r.gunMs,
+      endMs: known ? r.lastFinishMs! : r.gunMs + MAX_RACE_MS,
+      endKnown: known,
+    };
+  });
+  return trimEnds(out);
+}
+
+function trimEnds(all: RaceWindow[]): RaceWindow[] {
   return all.map((w, i) => {
     const next = all[i + 1];
     return !w.endKnown && next && w.endMs > next.gunMs - NEXT_GUN_GAP_MS ? { ...w, endMs: Math.max(w.gunMs + 60_000, next.gunMs - NEXT_GUN_GAP_MS) } : w;

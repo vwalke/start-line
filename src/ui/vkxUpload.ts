@@ -46,6 +46,8 @@ export interface VkxRace {
 export interface VkxHost {
   /** Re-run the race on screen (app.ts loadRace with the current view): new uploads to merge. */
   reload(): void;
+  /** Current race windows (including recovery orphans), so one file can cover official R7 and R8. */
+  windows?(division: string): RaceWindow[];
 }
 
 type Avail = { kind: 'checking' } | { kind: 'ok' } | { kind: 'off'; why: string };
@@ -67,9 +69,17 @@ export function eastern(ms: number): string {
 
 const pctText = (x: number | null): string => (x == null ? '?' : `${Math.round(x * 100)}%`);
 
-/** "R7 23% → 100%" (≈ when the before is estimated from the check windows). */
+/** "R7 · tracker 23% → 100%" (≈ when the before is estimated from the check windows). */
 export function gainText(r: Pick<PlannedRace, 'race' | 'before' | 'beforeExact' | 'after'>): string {
-  return `${r.race.label} ${r.beforeExact || r.before == null ? '' : '≈'}${pctText(r.before)} → ${pctText(r.after)}`;
+  return `${r.race.label} · tracker ${r.beforeExact || r.before == null ? '' : '≈'}${pctText(r.before)} → ${pctText(r.after)}`;
+}
+
+/** Title-case an ALL-CAPS boat name ("RELATIVE OBSCURITY" → "Relative Obscurity"). */
+export function prettyBoatName(name: string): string {
+  const n = name.trim();
+  if (!n) return '';
+  if (n !== n.toUpperCase()) return n;
+  return n.toLowerCase().replace(/(^|[\s\-_/'])\p{L}/gu, (s) => s.toUpperCase());
 }
 
 function chipLi(c: Chip): string {
@@ -77,17 +87,35 @@ function chipLi(c: Chip): string {
   return `<li class="chip${c.warn ? ' warn' : ''}"${c.title ? ` title="${esc(c.title)}"` : ''}>${warn}${esc(c.text)}</li>`;
 }
 
+function labelledChip(label: string, text: string): string {
+  return `<li class="chip"><span class="vkx-k">${esc(label)}</span> ${esc(text)}</li>`;
+}
+
 /** The confirm dialog's body (pure: tested). */
-export function confirmHtml(races: PlannedRace[], boat: { sail: string; name: string }, rateHz: number, extra: Chip[] = [], pick: { sn: number; sail: string }[] = []): string {
-  const chips: Chip[] = [{ text: `${boat.sail}${boat.name ? ` ${boat.name}` : ''}` }, ...races.map((r) => ({ text: gainText(r) })), { text: `${rateHz} Hz` }, ...extra];
+export function confirmHtml(
+  races: PlannedRace[],
+  boat: { sail: string; name: string },
+  rateHz: number,
+  extra: Chip[] = [],
+  pick: { sn: number; sail: string }[] = [],
+  fileName = '',
+): string {
+  const boatText = `${boat.sail}${boat.name ? ` ${prettyBoatName(boat.name)}` : ''}`;
+  const chips = [
+    ...(fileName ? [labelledChip('File', fileName)] : []),
+    labelledChip('Boat', boatText),
+    ...races.map((r) => labelledChip('Race', gainText(r))),
+    labelledChip('Rate', `${rateHz} Hz`),
+    ...extra.map(chipLi),
+  ];
   const select = pick.length > 1
     ? `<label class="vkx-pick">Which boat? <select data-vkx="boat">${pick.map((b) => `<option value="${b.sn}">${esc(b.sail)}</option>`).join('')}</select></label>`
     : '';
   return `<form method="dialog" class="vkx-form">
-    <h3 class="vkx-title">Add boat log</h3>
-    <ul class="chips">${chips.map(chipLi).join('')}</ul>
+    <h3 class="vkx-title" id="vkx-title">Add boat log</h3>
+    <ul class="chips">${chips.join('')}</ul>
     ${select}
-    <p class="vkx-public"><strong>Shared publicly with everyone viewing this race</strong></p>
+    <p class="vkx-public">Shared publicly with everyone viewing this race.</p>
     <div class="vkx-actions"><button type="submit" value="cancel" class="vkx-cancel">Cancel</button><button type="submit" value="ok" class="vkx-ok">Upload</button></div>
   </form>`;
 }
@@ -101,7 +129,7 @@ export function barHtml(o: {
 }): string {
   const items: string[] = [];
   if (o.avail.kind === 'off') {
-    items.push(`<li><button type="button" class="vkx-add" disabled title="${esc(o.avail.why)}"><span aria-hidden="true">⚠ </span>uploads unavailable</button></li>`);
+    items.push(`<li class="chip muted" title="${esc(o.avail.why)}">uploads unavailable</li>`);
   } else {
     const busy = o.flow.kind === 'busy' || o.avail.kind === 'checking';
     items.push(`<li><button type="button" class="vkx-add" data-vkx="add"${busy ? ' disabled' : ''}>Add boat log (.vkx)</button></li>`);
@@ -254,19 +282,24 @@ export function createVkxUpload(host: VkxHost) {
     const same = race && keyOf(race) === keyOf(r);
     race = r;
     if (!same) {
-      avail = { kind: 'checking' };
       uploads = [];
       if (flow.kind !== 'busy') flow = { kind: 'idle' };
+      // Already know uploads aren't set up: don't 503 the console on every race.
+      if (avail.kind === 'off') {
+        paint();
+        return;
+      }
+      avail = { kind: 'checking' };
       void refresh();
     }
     paint();
   }
 
-  /** Put the bar at the end of `parent` (the race header, re-rendered on every render). */
-  function mount(parent: HTMLElement, a: RaceAnalysis): void {
+  /** Sit the bar just after `after` (the recovery chips in `#race-head`). */
+  function mount(after: HTMLElement, a: RaceAnalysis): void {
     const m = a.meta;
     if (race && race.analysis !== a && m.eventId === race.eventId && m.raceNumber === race.raceNumber && m.division === race.division) race = { ...race, analysis: a };
-    if (el.parentElement !== parent || parent.lastElementChild !== el) parent.append(el);
+    if (el.previousElementSibling !== after || el.parentElement !== after.parentElement) after.after(el);
     paint();
   }
 
@@ -291,7 +324,8 @@ export function createVkxUpload(host: VkxHost) {
     }
     const s = parsed.summary;
     const doc = currentDoc(r.regatta);
-    const windows: RaceWindow[] = raceWindowsFromDoc(doc, r.division);
+    const fromList = host.windows?.(r.division) ?? [];
+    const windows: RaceWindow[] = fromList.length ? fromList : raceWindowsFromDoc(doc, r.division);
     const listed = new Set(listRaces(doc).filter((x) => x.division === r.division && x.finishers > 0).map((x) => String(x.raceNumber)));
     const finished = Object.fromEntries(listRaces(doc).filter((x) => x.division === r.division).map((x) => [String(x.raceNumber), x.finished]));
     const known: Record<string, Record<string, number | null>> = {
@@ -325,7 +359,7 @@ export function createVkxUpload(host: VkxHost) {
     if (s.stop) extra.push({ text: 'log cut short', warn: true, title: s.stop });
     for (const p of races.filter((x) => !listed.has(x.race.id))) bullets.push(`${p.race.label} isn't in Recall's race list yet (no finishes in the feed); the log is kept for it.`);
     const candidates = sparse.length ? sparse[0].candidates : [];
-    dialog.innerHTML = confirmHtml(races, { sail: boatSail, name }, s.rateHz, extra, candidates);
+    dialog.innerHTML = confirmHtml(races, { sail: boatSail, name }, s.rateHz, extra, candidates, file.name);
     setFlow({ kind: 'busy', text: 'Waiting for your OK…' });
     const answer = await new Promise<string>((resolve) => {
       // Esc / cancel leave returnValue as it was: clear it so only this dialog's Upload counts as consent.

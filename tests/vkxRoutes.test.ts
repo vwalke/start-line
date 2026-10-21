@@ -27,6 +27,14 @@ describe('vkx route files', () => {
   });
 
   it('are unknown to the catch-all proxy (so it never serves them by accident)', () => {
-    expect(parseRoute('vkx/upload').kind).toBe('error');
+    for (const p of ['vkx', 'vkx/upload', 'vkx/list', 'vkx/data', 'vkx/delete', 'vkx/list/extra']) {
+      expect(parseRoute(p)).toEqual({ kind: 'error', status: 404, error: 'Unknown endpoint' });
+    }
+  });
+
+  it('leaves the Yachtscoring /api/ys routes on the proxy', () => {
+    expect(parseRoute('ys/event')).toMatchObject({ kind: 'ys', resource: 'search' });
+    expect(parseRoute('ys/event/50575')).toMatchObject({ kind: 'ys', resource: 'event' });
+    expect(parseRoute('ys/event/50575/races')).toMatchObject({ kind: 'ys', resource: 'races' });
   });
 });

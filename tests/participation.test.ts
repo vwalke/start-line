@@ -139,6 +139,13 @@ describe('a name alone never sets a boat aside', () => {
     // A finish keeps even USA 0000 (Coach Chris).
     const kept = classifyParticipation(withBoat(data, '491', (b) => ({ ...b, sail: 'USA 0000', name: 'Coach Chris' })));
     expect(kept.get('491')!.status).toBe('competitor');
+    // A tracker-only crossing does not: coach / 0000 still sit on the start map otherwise.
+    const tracker = classifyParticipation(withBoat(data, '491', (b) => ({ ...b, sail: 'USA 0000', name: 'Coach Chris', finishSource: 'tracker' })));
+    expect(tracker.get('491')).toEqual({ status: 'non-competitor', reasons: ['Placeholder sail number (not racing)'] });
+    const a2 = analyzeRace(withBoat(data, '491', (b) => ({ ...b, sail: 'USA 0000', name: 'Coach', finishSource: 'tracker' })));
+    expect(excludedIds(a2)).toContain('491');
+    expect(startSnapshot(a2, null, undefined, 'boat', { widthPx: 390 })).not.toContain('USA 0000');
+    expect(startSnapshot(a2, null, undefined, 'boat', { widthPx: 390 })).not.toMatch(/data-id="491"/);
   });
 
   it('matches whole words and placeholder sails only', () => {
@@ -155,6 +162,7 @@ describe('a name alone never sets a boat aside', () => {
     expect(supportNotRacing({ name: 'Coach Chris', sail: 'USA 0000' }, false)).toBe('Placeholder sail number (not racing)');
     expect(supportNotRacing({ name: 'Coach Chris', sail: 'USA 96' }, false)).toBe('Coach boat (not racing)');
     expect(supportNotRacing({ name: 'Coach Chris', sail: 'USA 0000' }, true)).toBeNull();
+    expect(supportNotRacing({ name: 'Coach Chris', sail: 'USA 0000', finishSource: 'tracker' }, true)).toBe('Placeholder sail number (not racing)');
     expect(supportNotRacing({ name: 'Patriot', sail: 'USA 242' }, false)).toBeNull();
   });
 });

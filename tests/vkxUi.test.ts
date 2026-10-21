@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import { buildRaceData } from '../src/data/racesense/adapter';
-import { forgetToken, heldTokens, listUploads, postUpload, rememberToken } from '../src/data/vkx/api';
 import { decodePayload } from '../src/data/vkx/compact';
 import { coveredRaces, type RaceWindow } from '../src/data/vkx/match';
 import { mergeUploads } from '../src/data/vkx/merge';
@@ -9,7 +8,8 @@ import { parseVkx } from '../src/data/vkx/parse';
 import { payloadFor } from '../src/data/vkx/plan';
 import { boatList } from '../src/ui/boats';
 import { mapKey } from '../src/ui/captions';
-import { barHtml, confirmHtml, eastern, gainText } from '../src/ui/vkxUpload';
+import { forgetToken, heldTokens, listUploads, postUpload, rememberToken, resetVkxSession } from '../src/data/vkx/api';
+import { barHtml, confirmHtml, eastern, gainText, prettyBoatName } from '../src/ui/vkxUpload';
 import type { PlannedRace } from '../src/vkxWorker';
 import { DIV, EVENT, R7_GUN, RO, Z, trimVkx, vkxFeed, vkxRegatta } from './vkxHelpers';
 
@@ -30,22 +30,34 @@ const planned = (over: Partial<PlannedRace> = {}): PlannedRace => ({
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  resetVkxSession();
 });
 
 describe('boat-log upload UI', () => {
   it('shows coverage gains as chips, ≈ when estimated', () => {
-    expect(gainText(planned())).toBe('R7 23% → 100%');
-    expect(gainText(planned({ beforeExact: false, before: 0.124, race: { id: 'o8', label: 'R8', gunMs: 0, endMs: 1, endKnown: true } }))).toBe('R8 ≈12% → 100%');
+    expect(gainText(planned())).toBe('R7 · tracker 23% → 100%');
+    expect(gainText(planned({ beforeExact: false, before: 0.124, race: { id: 'o8', label: 'R8', gunMs: 0, endMs: 1, endKnown: true } }))).toBe('R8 · tracker ≈12% → 100%');
     expect(eastern(R7_GUN)).toBe('08:05 EDT');
+    expect(prettyBoatName('RELATIVE OBSCURITY')).toBe('Relative Obscurity');
+    expect(prettyBoatName('Relative Obscurity')).toBe('Relative Obscurity');
   });
 
-  it('confirm: boat, races, rate, and the public-sharing line', () => {
-    const html = confirmHtml([planned(), planned({ race: { id: 'o8', label: 'R8', gunMs: 0, endMs: 1, endKnown: true }, before: 0.124, beforeExact: false })], { sail: RO.sail, name: RO.name }, 10);
-    expect(html).toContain('<li class="chip">USA 833 RELATIVE OBSCURITY</li>');
-    expect(html).toContain('<li class="chip">R7 23% → 100%</li>');
-    expect(html).toContain('<li class="chip">R8 ≈12% → 100%</li>');
-    expect(html).toContain('<li class="chip">10 Hz</li>');
-    expect(html).toContain('Shared publicly with everyone viewing this race');
+  it('confirm: labelled file, boat, races, rate, and the public-sharing line', () => {
+    const html = confirmHtml(
+      [planned(), planned({ race: { id: 'o8', label: 'R8', gunMs: 0, endMs: 1, endKnown: true }, before: 0.124, beforeExact: false })],
+      { sail: RO.sail, name: RO.name },
+      10,
+      [],
+      [],
+      'ro-usa833.vkx',
+    );
+    expect(html).toContain('<span class="vkx-k">File</span> ro-usa833.vkx');
+    expect(html).toContain('<span class="vkx-k">Boat</span> USA 833 Relative Obscurity');
+    expect(html).toContain('<span class="vkx-k">Race</span> R7 · tracker 23% → 100%');
+    expect(html).toContain('<span class="vkx-k">Race</span> R8 · tracker ≈12% → 100%');
+    expect(html).toContain('<span class="vkx-k">Rate</span> 10 Hz');
+    expect(html).toContain('Shared publicly with everyone viewing this race.');
+    expect(html).not.toContain('<strong>Shared publicly');
     expect(html).toMatch(/value="cancel"[^>]*>Cancel/);
     expect(html).toMatch(/value="ok"[^>]*>Upload/);
     expect(html).not.toContain('<select');
@@ -58,14 +70,17 @@ describe('boat-log upload UI', () => {
     expect(pick).toContain('class="chip warn"');
   });
 
-  it('bar: the button, unavailable state, the log chip, remove, warnings', () => {
+  it('bar: the button, muted unavailable chip, the log chip, remove, warnings', () => {
     const idle = barHtml({ avail: { kind: 'ok' }, flow: { kind: 'idle' }, logs: [] });
     expect(idle).toContain('data-vkx="add"');
     expect(idle).toContain('Add boat log (.vkx)');
     expect(idle).toContain('Shared publicly');
     const off = barHtml({ avail: { kind: 'off', why: 'Boat-log uploads are not set up on this site (no storage bound)' }, flow: { kind: 'idle' }, logs: [] });
-    expect(off).toMatch(/<button type="button" class="vkx-add" disabled[^>]*>.*uploads unavailable<\/button>/);
+    expect(off).toContain('class="chip muted"');
+    expect(off).toContain('uploads unavailable');
+    expect(off).not.toContain('vkx-add');
     expect(off).not.toContain('data-vkx="add"');
+    expect(off).not.toContain('⚠');
     expect(off).toContain('Uploads are unavailable: Boat-log uploads are not set up');
     const withLog = barHtml({
       avail: { kind: 'ok' },
@@ -89,9 +104,12 @@ describe('boat-log upload UI', () => {
     const data = buildRaceData(vkxRegatta(), { division: DIV, raceNumber: 7 }, [vkxFeed()], { eventId: EVENT, kind: 'fixture' });
     const a = analyzeRace(mergeUploads(data, [{ track: await decodePayload(p.bytes) }]), { allCompetitors: true });
     const list = boatList(a, null);
-    expect(list).toContain('<span class="log-tag" aria-hidden="true">10 Hz</span>');
+    expect(list).toContain('class="log-hz"');
     expect(list).toContain('from boat log · 10 Hz');
-    expect((list.match(/log-tag/g) ?? []).length).toBe(1);
+    expect(list).toMatch(/<span class="log-hz"[^>]*>10<\/span>/);
+    expect(list).not.toContain('log-tag');
+    expect((list.match(/log-hz/g) ?? []).length).toBe(2); // title + class, or class + text — count tags
+    expect(list.match(/class="log-hz"/g)).toHaveLength(1);
     const key = mapKey(a, { colour: 'leg' });
     expect(key.chips.map((c) => c.text)).toContain('USA 833 from boat log · 10 Hz');
   });
@@ -102,8 +120,12 @@ describe('upload API client', () => {
     const ok = { ok: true, uploads: [{ race: '7', sn: 1, sail: 'X', sha: 'a' }] };
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(ok), { status: 200 })));
     expect(await listUploads(EVENT, DIV, '7')).toMatchObject({ ok: true, uploads: [{ sail: 'X' }] });
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: false, error: 'Boat-log uploads are not set up on this site (no storage bound)' }), { status: 503 })));
+    const fetch503 = vi.fn(async () => new Response(JSON.stringify({ ok: false, error: 'Boat-log uploads are not set up on this site (no storage bound)', code: 'no-storage' }), { status: 503 }));
+    vi.stubGlobal('fetch', fetch503);
     expect(await listUploads(EVENT, DIV, '7')).toEqual({ ok: false, why: 'Boat-log uploads are not set up on this site (no storage bound)' });
+    expect(await listUploads(EVENT, DIV, '8')).toEqual({ ok: false, why: 'Boat-log uploads are not set up on this site (no storage bound)' });
+    expect(fetch503).toHaveBeenCalledTimes(1);
+    resetVkxSession();
     // Dev without functions: the proxy hands back an HTML 404.
     vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>Not found</html>', { status: 404 })));
     expect(await listUploads(EVENT, DIV, '7')).toMatchObject({ ok: false, why: expect.stringMatching(/no upload service/) });

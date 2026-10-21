@@ -82,6 +82,30 @@ function fleetWarning(data: RaceData, courseWps: Waypoint[], turnMarks: (Waypoin
 
 export { START_TRAIL_MS };
 
+/** Marks this close (m) share one label: unused M1/M2 sitting on a snapped windward, etc. */
+export const MARK_NEAR_M = 40;
+
+export const marksNear = (a: Vec[], b: Vec[], m = MARK_NEAR_M): boolean => a.some((p) => b.some((q) => len(sub(p, q)) < m));
+
+/**
+ * Add a mark unless one is already drawn there. A real tracker may replace an
+ * estimate at the same place (`replaceEstimate`); unused course marks must not
+ * (that was M1/M2 overlapping at the top and a stray M1 on the leeward).
+ */
+export function addDrawnMark(out: RaceAnalysis['marks'], m: RaceAnalysis['marks'][number], opts: { replaceEstimate?: boolean; nearM?: number } = {}): void {
+  const nearM = opts.nearM ?? (m.estimated ? 100 : MARK_NEAR_M);
+  const hit = out.find((x) => marksNear(x.xy, m.xy, nearM));
+  if (!hit) {
+    out.push(m);
+    return;
+  }
+  if (opts.replaceEstimate && hit.estimated && !m.estimated) {
+    hit.name = m.name;
+    hit.xy = m.xy;
+    delete hit.estimated;
+  }
+}
+
 export interface AnalyzeOptions {
   /** Treat every boat as a competitor (`nc=all`): no participation filtering. */
   allCompetitors?: boolean;
@@ -660,22 +684,22 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       // A turn with no tracker: drawn hollow where the fleet turned (one per name unless clearly apart).
       const xy = fleet.turns[i].xy;
       const name = legs[i].to;
-      if (!drawnMarks.some((m) => m.estimated && m.name === name && len(sub(m.xy[0], xy)) < 100)) drawnMarks.push({ name, xy: [xy], estimated: true });
+      addDrawnMark(drawnMarks, { name, xy: [xy], estimated: true }, { replaceEstimate: true });
       return;
     }
     const xy = wp.at && ts.length ? wp.at(median(ts)) : wp.xy;
-    const same = drawnMarks.find((m) => m.name === wp.name && m.xy.every((p, k) => xy[k] && len(sub(p, xy[k])) < 15));
-    if (!same) drawnMarks.push({ name: wp.name, xy });
+    addDrawnMark(drawnMarks, { name: wp.name, xy }, { replaceEstimate: true });
   });
   // Trackers no leg ends at (an offset, or every mark when there is one leg).
+  // Never pile a second name on a turn already drawn (M1/M2 overlapping at the top).
   if (turnMarks) {
     const used = new Set(turnMarks.map((w) => w?.key));
     for (const wp of courseWps) {
       if (used.has(wp.key)) continue;
       used.add(wp.key);
-      drawnMarks.push({ name: wp.name, xy: wp.xy });
+      addDrawnMark(drawnMarks, { name: wp.name, xy: wp.xy });
     }
-  } else if (!wps.length) for (const wp of courseWps) drawnMarks.push({ name: wp.name, xy: wp.xy });
+  } else if (!wps.length) for (const wp of courseWps) addDrawnMark(drawnMarks, { name: wp.name, xy: wp.xy });
   const real = drawnMarks.filter((m) => !m.estimated);
   const moved = real.filter((m, i) => real.findIndex((o) => o.name === m.name) !== i).map((m) => m.name);
   if (moved.length) {

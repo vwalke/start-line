@@ -75,8 +75,10 @@ export function nameHint(b: Pick<Boat, 'name' | 'sail' | 'bowNumber'>): string |
  * Conservative: a coach/support entry that isn't racing. Placeholder sail (USA 0000)
  * or a name containing "Coach", and no finish. A boat called Coach that finished stays.
  */
-export function supportNotRacing(b: Pick<Boat, 'name' | 'sail' | 'bowNumber'>, finished: boolean): string | null {
-  if (finished) return null;
+export function supportNotRacing(b: Pick<Boat, 'name' | 'sail' | 'bowNumber' | 'finishSource'>, finished: boolean): string | null {
+  // Official or RaceSense finishes keep a real boat (even one named Coach). A
+  // tracker-only crossing does not: coach / 0000 entries wander over the line.
+  if (finished && b.finishSource !== 'tracker') return null;
   if (placeholderSail(b.sail)) return 'Placeholder sail number (not racing)';
   if ([b.name, b.sail, b.bowNumber ?? ''].some((s) => /\bcoach\b/i.test(s))) return 'Coach boat (not racing)';
   return null;

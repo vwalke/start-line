@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { START_TRAIL_MS, analyzeRace } from '../src/analysis/analyze';
+import { START_TRAIL_MS, addDrawnMark, analyzeRace } from '../src/analysis/analyze';
+import type { RaceAnalysis } from '../src/analysis/types';
 import { currentDoc, PRE_START_FETCH_MS, RACESENSE_DTL_SAMPLE_OFFSET_MS, telemetryWindow } from '../src/data/racesense/adapter';
 import { splitFindings } from '../src/analysis/findings';
 import { boatList, findingsList } from '../src/ui/boats';
@@ -33,6 +34,25 @@ describe('60 s start trails', () => {
       expect(d.trail.x.length - inTrail.length).toBeLessThanOrEqual(1);
       expect(d.trail.x.length).toBeGreaterThan(1.8 * t.filter((x) => x >= gun - 30_000 && x <= ts).length);
     }
+  });
+});
+
+describe('mark labels: overlapping M1/M2 are not both drawn', () => {
+  it('keeps the first mark when an unused tracker sits on the same turn', () => {
+    const out: RaceAnalysis['marks'] = [];
+    addDrawnMark(out, { name: 'M2', xy: [[0, 0]] }, { replaceEstimate: true });
+    addDrawnMark(out, { name: 'M1', xy: [[8, 4]] });
+    addDrawnMark(out, { name: 'Leeward mark', xy: [[400, 0]], estimated: true }, { replaceEstimate: true });
+    addDrawnMark(out, { name: 'M1', xy: [[405, 3]] });
+    expect(out.map((m) => m.name)).toEqual(['M2', 'Leeward mark']);
+  });
+
+  it('omits a second name when two marks overlap on the race map', () => {
+    const p = a.marks[0]?.xy[0] ?? ([0, 0] as [number, number]);
+    const svg = trackMap({ ...a, marks: [{ name: 'M2', xy: [p] }, { name: 'M1', xy: [[p[0] + 1, p[1] + 1]] }] }, null);
+    const labels = [...svg.matchAll(/<text [^>]*class="lbl[^"]*"[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
+    expect(labels.filter((t) => t === 'M1' || t === 'M2')).toHaveLength(1);
+    expect(svg.match(/<circle class="mark"/g)?.length).toBe(2);
   });
 });
 

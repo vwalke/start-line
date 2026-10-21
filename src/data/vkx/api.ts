@@ -33,8 +33,23 @@ function unavailableWhy(status: number, body: unknown): string {
   return `The upload service answered ${status}`;
 }
 
+/** No R2 binding (or no functions): probe once per session so every race load doesn't 503 the console. */
+let sessionOff: ListResult | null = null;
+
+const isNoStorage = (status: number, body: unknown): boolean => {
+  const code = (body as { code?: unknown } | null)?.code;
+  const err = (body as { error?: unknown } | null)?.error;
+  return code === 'no-storage' || (status === 503 && typeof err === 'string' && /no storage bound|not set up/i.test(err));
+};
+
+/** Tests: forget a cached "uploads unavailable" so the next list is a real probe. */
+export function resetVkxSession(): void {
+  sessionOff = null;
+}
+
 /** The race's uploads; never throws (any failure is `ok: false` with a reason). */
 export async function listUploads(event: string, div: string, race: string, opts: { fresh?: boolean; signal?: AbortSignal } = {}): Promise<ListResult> {
+  if (!opts.fresh && sessionOff) return sessionOff;
   // fresh=1 (after our own upload/removal) also skips the server's edge cache.
   const url = `${VKX_BASE}/list?${new URLSearchParams({ event, div, race, ...(opts.fresh ? { fresh: '1' } : {}) })}`;
   try {
@@ -48,8 +63,13 @@ export async function listUploads(event: string, div: string, race: string, opts
       /* an HTML 404 page: no functions */
     }
     if (!res.ok || !body || (body as { ok?: unknown }).ok !== true || !Array.isArray((body as { uploads?: unknown }).uploads)) {
-      return { ok: false, why: unavailableWhy(res.ok ? 404 : res.status, res.ok ? null : body) };
+      const status = res.ok ? 404 : res.status;
+      const out: ListResult = { ok: false, why: unavailableWhy(status, res.ok ? null : body) };
+      // Binding missing or no functions: remember it so later races don't probe again.
+      if (isNoStorage(status, body) || status === 404) sessionOff = out;
+      return out;
     }
+    sessionOff = null;
     return { ok: true, uploads: (body as { uploads: UploadItem[] }).uploads };
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e;

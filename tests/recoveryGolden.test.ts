@@ -229,6 +229,8 @@ describe('J/70 Worlds 2026 Cascais (no Yachtscoring event)', async () => {
     const summary = app.slice(app.indexOf('function renderSummary('), app.indexOf('function render(): void'));
     expect(summary).toContain('raceTitleHtml(m, listed)');
     expect(summary).toContain('renderRaceHead();');
+    // Recovery chips first, then the upload bar (mounted after #race-head).
+    expect(summary.indexOf('renderRaceHead();')).toBeLessThan(summary.indexOf('vkx.mount'));
     const load = app.slice(app.indexOf('async function loadEvent'), app.indexOf('const titleOf'));
     expect(load.indexOf('renderRaceOptions()')).toBeGreaterThan(0);
     expect(load.indexOf('renderRaceOptions()')).toBeLessThan(load.indexOf('const enrichment = enrich('));

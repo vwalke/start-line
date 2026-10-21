@@ -46,9 +46,9 @@ export function boatList(a: RaceAnalysis, highlight: string | null, ncOpen = fal
       // An uploaded boat log (data/vkx): a small tag, the full words in the label.
       const log = b.log ? `from boat log · ${b.log.rateHz} Hz` : '';
       const label = `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}, ${how}${log ? `, ${log}` : ''}`;
-      const tag = log ? `<span class="log-tag" aria-hidden="true">${b.log!.rateHz} Hz</span>` : '';
+      const tag = log ? `<span class="log-hz" title="${esc(log)}" aria-hidden="true">${b.log!.rateHz}</span>` : '';
       return `<li><button type="button" class="boat-item" data-id="${esc(b.id)}" aria-pressed="${highlight === b.id}" aria-label="${esc(label)}" title="${esc(label)}">
-        <i class="sw" style="background:${boatColor(b, a.boats.length)}"></i><b class="sail">${esc(b.sail)}${tag}</b>${name}<span class="pos">${pos}</span></button></li>`;
+        <i class="sw" style="background:${boatColor(b, a.boats.length)}"></i><b class="sail">${esc(b.sail)}</b>${name}<span class="pos">${pos}${tag}</span></button></li>`;
     })
     .join('');
   return `<div class="boats-head"><h3 id="boats-title">Boats</h3><button type="button" class="boats-clear" data-clear${highlight ? '' : ' disabled'}>Clear</button></div>

@@ -8,7 +8,11 @@ import { handleUpload } from '../functions/_vkx';
 import { coverage } from '../src/analysis/coverage';
 import { buildRaceData, currentDoc, listRaces } from '../src/data/racesense/adapter';
 import { decodePayload } from '../src/data/vkx/compact';
-import { agreement, coveredRaces, feedFixes, raceWindowsFromDoc, type RaceWindow } from '../src/data/vkx/match';
+import { discoverOrphans, withOrphans } from '../src/data/orphans';
+import { buildRaceList } from '../src/data/raceList';
+import { orphanContexts } from '../src/data/recovery';
+import { agreement, coveredRaces, feedFixes, raceWindowsFromDoc, raceWindowsFromListed, type RaceWindow } from '../src/data/vkx/match';
+import { regatta, replayProbes } from './recoveryHelpers';
 import { mergeUploads } from '../src/data/vkx/merge';
 import { parseVkx } from '../src/data/vkx/parse';
 import { coverageGain, matchRace, payloadFor } from '../src/data/vkx/plan';
@@ -20,6 +24,28 @@ const edt = (ms: number): string =>
 
 /** Official R8 as the race-recovery work will list it (RaceSense has no such race): gun from the boat's timer, end from FINDINGS. */
 const ORPHAN_R8: RaceWindow = { id: 'o-2026-09-11-2', label: 'R8', gunMs: R8_GUN, endMs: R8_END, endKnown: true };
+
+describe('upload windows include races rebuilt by recovery', () => {
+  it('lists official R7 and orphan R8 (YYYYMMDDHHMM) so one .vkx covers both', async () => {
+    const doc = currentDoc(regatta('rs_j70.json'));
+    const replay = replayProbes('j70_probes.json');
+    const [ctx] = orphanContexts(doc, buildRaceList(doc), null);
+    const res = await discoverOrphans(ctx, replay.fetchRows);
+    const found = new Map([['Open', res.found]]);
+    const merged = withOrphans(doc, found);
+    const list = buildRaceList(merged, { orphans: found });
+    const ws = raceWindowsFromListed(list.races, 'Open');
+    expect(ws.map((w) => [w.id, w.label])).toEqual(
+      expect.arrayContaining([
+        ['7', 'R7'],
+        ['202609111355', 'R8'],
+      ]),
+    );
+    const r8 = ws.find((w) => w.id === '202609111355')!;
+    expect(r8.gunMs).toBe(Date.parse('2026-09-11T13:55:01Z'));
+    expect(raceWindowsFromDoc(merged, 'Open').some((w) => w.id === '202609111355')).toBe(true);
+  });
+});
 
 describe('regatta document: what the app lists for Fri Sep 11 today', () => {
   it('has R7 (gun 08:05:01 EDT) with no finishes — hidden by the race picker — and no R8 that day', () => {

@@ -168,7 +168,15 @@ export class RateLimiter {
   async allow(ip: string, now: number): Promise<boolean> {
     const key = (await sha256Hex(new TextEncoder().encode(`${this.salt}|${ip}`))).slice(0, 24);
     const list = (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs);
-    if (this.hits.size > 10_000) this.hits.clear(); // bound the memory
+    if (this.hits.size > 10_000) {
+      // Bound memory without wiping the limiter (a rotating-IP flood used to clear everyone).
+      const keys = this.hits.keys();
+      for (let n = 0; n < 2_000; n++) {
+        const k = keys.next();
+        if (k.done) break;
+        this.hits.delete(k.value);
+      }
+    }
     if (list.length >= this.max) {
       this.hits.set(key, list);
       return false;
