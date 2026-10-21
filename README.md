@@ -247,28 +247,37 @@ Switching races keeps the tab.
   zooming in reveals more; hover or tap a boat for its name either way.
 - **Lane snapshots** (`ui/laneSnapshots.ts`, drawn by `ui/laneSnapshotsView.ts`;
   Chris): a collapsed section under the start chart. Opened, it shows three
-  small maps side by side (stacked on a phone) at gun −1:00, +1:00 and +2:00,
-  so a coach can see whether a boat held its lane. Each frame draws every
-  boat as a dot with its trail back to the frame before (the first from
-  −1:30, or where the data starts), the start line, and the first mark (an
-  arrow toward it when it's out of view), in one view shared by the three
-  frames, wind at the top (north up when there is no wind estimate; the key
-  says so). The selected boat and its Coach group (Top 3 by default) are
-  highlighted and labelled, the rest faded. Positions are the track map
-  scrubber's: interpolated across short steps, held hollow for up to 5 s in a
-  gap, else the boat is missing in that frame (never placed); trails break
-  at gaps. A boat whose feed starts within 1 s of a frame is placed at its
-  first fix. Each caption gives the selected boat's lane across the line
-  (pin / middle / RC third, or past an end, as a share of the line) and its
-  approximate place toward the first mark (distance still to go along the
-  line-middle → mark axis), who is over early, and who isn't tracked. A
-  boat over early (the over-early facts from the worker, as "Replay start")
-  has a red ring at a frame after the gun until it cleared, a dashed one in
-  the frame whose trail spans its clearing (`OCS, cleared: USA 017 +26 s`);
-  before the gun nobody is OCS yet, so a boat on the course side then is
-  marked "above the line" (grey dashed). With no data before the gun the
-  −1:00 frame says so and the others still draw. Nothing is worked out
-  until the section is opened.
+  small maps side by side (stacked on a phone) at gun +1:00, +2:00 and +3:00,
+  so a coach can see how each boat came off the line and whether it held its
+  lane. Each frame draws every boat as a dot with its trail back to gun −0:30
+  (or where the data starts), the start line, and a true-wind arrow pointing
+  downwind, in one view shared by the three frames (their positions and
+  trails, up to a reach from the line). The wind is at the top: the
+  analysis's wind at the gun, as the start chart, so the arrow points
+  straight down, labelled with the TWD and its source (`TWD ~18° est.` from
+  the fleet's tacks, `TWD 18° (model)`, `TWD ~18° assumed` from the course).
+  With no wind estimate the view is north up and the wind is assumed square
+  to the line, blowing from the course side (`Wind assumed ⟂ line`, a dashed
+  arrow). No mark is drawn. The selected boat and its Coach group (Top 3 by
+  default) are highlighted and labelled, the rest faded. Positions are the
+  track map scrubber's: interpolated across short steps, held hollow for up
+  to 5 s in a gap, else the boat is missing in that frame (never placed);
+  trails break at gaps. A boat whose feed starts within 1 s of a frame is
+  placed at its first fix. Each frame's caption is just the selected boat's
+  approximate place to windward (`USA 016: ≈ 6th of 15 to windward.`:
+  distance made from the line's middle along the wind, or along the line's
+  perpendicular when the wind is assumed), or its one note (`no position
+  (tracker gap).` / `not tracked.`); a frame with no positions and no trails
+  says `No tracks at this time.` A boat over early (the over-early facts from
+  the worker, as "Replay start") has a small red ring, solid before it
+  cleared and dashed from its clearing on, and its dot's tooltip says so
+  (`USA 019, over early (OCS), cleared +35 s`). The key line says who is
+  highlighted and where the wind comes from; when any boat was over early it
+  adds a legend for the rings (a solid ring `OCS`, a dashed one `OCS,
+  cleared`, both always). Each frame's screen-reader
+  label is short: `Lane snapshot at gun +1:00: 15 of 15 boats placed. USA
+  016: ≈ 6th of 15 to windward. True wind from 18° (estimated).` Nothing is
+  worked out until the section is opened.
 - **Key lines** (`ui/info.ts`, `ui/captions.ts`): under every chart and
   table, one short row of chips with the key facts only, e.g.
   `Line 143 m · RC fav. 2° · 4 m · wind est. (medium) · hulls to scale`,
