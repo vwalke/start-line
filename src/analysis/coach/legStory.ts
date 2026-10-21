@@ -36,6 +36,9 @@
  *   where the boat's heel differed consistently from the leaders' (or the
  *   peers') in matched windows, how, by how much, and its VMG against theirs
  *   in those windows; only with the roll data to say so.
+ * - Gate: on a run ending at a two-buoy leeward gate (both buoys tracked), the
+ *   buoy the boat rounded, looking upwind (gateSides.ts), and how many boats
+ *   rounded each; whether it was the favoured one is D13's card.
  */
 import { bearingVec, dot, median, type Vec } from '../geo';
 import { detectManoeuvres, type ManoeuvreTrack } from '../manoeuvres';
@@ -49,6 +52,7 @@ import { coachCoverage } from './opportunity';
 import { coachCtx } from './detectors/context';
 import { heelFacts, heelFired, legHeel, type HeelVariant } from './detectors/heel';
 import { posAt } from './tracks';
+import { gateSides, type GateSide } from './gateSides';
 
 /** A stat over the group needs this many boats with data; fewer → the fleet. */
 export const STORY_MIN_GROUP = 4;
@@ -254,6 +258,8 @@ export interface LegStory {
   marksEstimated: boolean;
   /** Heel against the leaders (or peers) when it differed consistently on the leg (D11's comparison); null otherwise or without roll data. */
   heel?: HeelChip | null;
+  /** A leg ending at a two-buoy leeward gate: the buoy the boat rounded (looking upwind; null when unknown) and how many boats rounded each (gateSides.ts). */
+  gate?: { side: GateSide | null; left: number; right: number } | null;
 }
 
 /** A leg's heel, as a chip: how it differed, by how much, and the VMG in those windows. */
@@ -276,6 +282,13 @@ function heelChipOf(ctx: ReturnType<typeof coachCtx>, li: number): HeelChip | nu
   if (!l?.variant) return null;
   const f = heelFacts(ctx, l);
   return { variant: l.variant, ref: l.ref, dHeel: f.dHeel as number, dStd: (f.std as number) - (f.refStd as number), dVmg: f.dVmg as number, fired: heelFired(l) };
+}
+
+/** The gate chip of a leg (its boats' sides, gateSides.ts): the boat's side and the counts; null when the leg ends at no tracked gate. */
+function gateOf(sides: Map<string, GateSide> | undefined, boat: string): LegStory['gate'] {
+  if (!sides) return null;
+  const n = (s: GateSide): number => [...sides.values()].filter((x) => x === s).length;
+  return { side: sides.get(boat) ?? null, left: n('left'), right: n('right') };
 }
 
 /** The ids with a value (`has`): the set's when `min` of them do, else the fleet's. */
@@ -322,6 +335,33 @@ export function sidePaid(rows: { x: number; gain: number }[]): Pick<SideStat, 'v
   return { verdict, n, left, right, effect };
 }
 
+/** Each boat's span on leg `li` and its mean across-wind position over it (the wind at the leg's middle for all; + = right looking upwind), m. */
+function acrossOnLeg(a: RaceAnalysis, m: CoachModel, li: number): { spans: Map<string, [number, number] | null>; xs: Map<string, number> } {
+  const spans = new Map(a.boats.map((b) => [b.id, legSpan(b, li, a.meta.gunMs)]));
+  const mids = [...spans.values()].filter((s): s is [number, number] => !!s).map(([p, q]) => (p + q) / 2);
+  const axis = mids.length ? m.wind.twdAt(median(mids)) : m.wind.twdAt(a.meta.gunMs);
+  const xs = new Map<string, number>();
+  for (const b of a.boats) {
+    const sp = spans.get(b.id);
+    const x = sp ? meanAcross(m, b.id, sp[0], sp[1], axis) : null;
+    if (x != null) xs.set(b.id, x);
+  }
+  return { spans, xs };
+}
+
+/**
+ * Which side of leg `li` paid over the whole fleet (sidePaid, as the leg story's side with the fleet as the set), and
+ * each boat's side of the fleet's median across the wind (+ = right looking upwind), m. Null when too few boats.
+ */
+export function fleetSide(a: RaceAnalysis, m: CoachModel, li: number, fp: FleetPlaces = fleetPlaces(a)): { verdict: SideVerdict; x: Map<string, number> } | null {
+  const { xs } = acrossOnLeg(a, m, li);
+  const ids = a.boats.map((b) => b.id).filter((id) => xs.has(id) && fp.byId.has(id));
+  if (!ids.length) return null;
+  const mid = median(ids.map((id) => xs.get(id)!));
+  const r = sidePaid(ids.map((id) => ({ x: xs.get(id)! - mid, gain: fp.byId.get(id)!.place[li] - fp.byId.get(id)!.place[li + 1] })));
+  return r ? { verdict: r.verdict, x: new Map(ids.map((id) => [id, xs.get(id)! - mid])) } : null;
+}
+
 /** One story per leg of the race for `boat`, the stats over its group `g` (and itself). */
 export function legStories(a: RaceAnalysis, m: CoachModel, boat: string, g: Group): LegStory[] {
   const fp = fleetPlaces(a);
@@ -331,6 +371,7 @@ export function legStories(a: RaceAnalysis, m: CoachModel, boat: string, g: Grou
   const fleet = a.boats.map((b) => b.id);
   const marksEstimated = a.legSource === 'fleet' || a.marks.some((k) => k.estimated);
   const ctx = m.heel?.has(boat) ? coachCtx(a, m, boat) : null;
+  const gates = gateSides(a);
   return a.legs.map((leg, li) => {
     // Fleet places at the leg's ends: column li (the start, or the mark before) and li + 1; every boat has both.
     const placeAt = (id: string, col: number): number | null => fp.byId.get(id)?.place[col] ?? null;
@@ -344,15 +385,7 @@ export function legStories(a: RaceAnalysis, m: CoachModel, boat: string, g: Grou
     const losers = movers.filter((x) => x.gain < 0).sort((p, q) => p.gain - q.gain || p.to - q.to).slice(0, MOVERS_N);
 
     // Side: across-wind position over each boat's own time on the leg, the wind at the leg's middle for all.
-    const spans = new Map(fleet.map((id) => [id, legSpan(byId.get(id)!, li, a.meta.gunMs)]));
-    const mids = [...spans.values()].filter((s): s is [number, number] => !!s).map(([p, q]) => (p + q) / 2);
-    const axis = mids.length ? m.wind.twdAt(median(mids)) : m.wind.twdAt(a.meta.gunMs);
-    const xs = new Map<string, number>();
-    for (const id of fleet) {
-      const sp = spans.get(id);
-      const x = sp ? meanAcross(m, id, sp[0], sp[1], axis) : null;
-      if (x != null) xs.set(id, x);
-    }
+    const { spans, xs } = acrossOnLeg(a, m, li);
     let side: SideStat | null = null;
     {
       const has = (id: string): boolean => xs.has(id) && hasPlaces(id);
@@ -418,6 +451,7 @@ export function legStories(a: RaceAnalysis, m: CoachModel, boat: string, g: Grou
       coverage: me.legs[li]?.coverage ?? (sp && tr ? coachCoverage(tr.t, sp[0], sp[1]) : (me.coverage ?? null)),
       marksEstimated,
       heel: heelChipOf(ctx, li),
+      gate: gateOf(gates.get(li), boat),
     };
   });
 }

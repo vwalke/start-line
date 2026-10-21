@@ -17,6 +17,7 @@
 import { RACE_MIN_COVERAGE, type CoachDebrief } from '../analysis/coach/debrief';
 import { D3_WINDOW_MS } from '../analysis/coach/detectors/early';
 import { D9_SLOW_S } from '../analysis/coach/detectors/rounding';
+import { D13_TRAFFIC_BOATS } from '../analysis/coach/detectors/gate';
 import { D8_WINDOW_MS } from '../analysis/coach/detectors/shadow';
 import type { Fact, GoodNote } from '../analysis/coach/opportunity';
 import type { PenaltyFinding } from '../analysis/coach/penalty';
@@ -292,6 +293,8 @@ export function cardText(c: Card, tz = 0): CardText {
         tip: TURN_TIP,
       };
     }
+    case 'D13':
+      return gateText(c);
     default:
       return { title: 'Time lost', chips: [], sentence: `About ${sec} s.`, tip: '' };
   }
@@ -422,6 +425,48 @@ function placesText(f: Card['facts']): CardText {
   };
 }
 
+/** "lost 10 places" / "gained 2 places" / "no places lost" (D13: between the contours). */
+const placesPhrase = (gained: Fact): string => {
+  const g = Math.round(num(gained));
+  return g < 0 ? `lost ${-g} ${s1(-g, 'place', 'places')}` : g > 0 ? `gained ${g} ${s1(g, 'place', 'places')}` : 'no places lost';
+};
+/** "net +4 s" / "net −12 s" (+ = gained overall). */
+const netPhrase = (s: Fact): string => `net ${num(s) < 0 ? '−' : '+'}${Math.abs(Math.round(num(s)))} s`;
+const GATE_TIP = 'Before the gate, look upwind: round the buoy further upwind unless it is crowded, and the one on the side you want for the next beat.';
+
+/** D13's card: the unfavoured buoy of a favoured gate (sides looking upwind), D9's places at the same rounding as a chip. */
+function gateText(c: Card): CardText {
+  const f = c.facts;
+  const places = c.chips?.find((x) => x.kind === 'D9')?.facts;
+  const where = roundingName(f);
+  const net = f.netS != null ? ` The ${f.beatSide} paid up the next beat: ${netPhrase(f.netS)}.` : '';
+  // The favoured buoy was busy, but its queue still came out ahead: no traffic excuse (gate.ts busy).
+  const busy = num(f.traffic) >= D13_TRAFFIC_BOATS && f.trafficS != null ? ` The ${f.fav} mark was busy (${r0(f.traffic)} boats just ahead), but they were still ${r0(-num(f.trafficS))} s quicker.` : '';
+  const lost = num(f.gained) < 0 ? `you ${placesPhrase(f.gained)}` : `you ${num(f.gained) > 0 ? 'still ' : ''}${placesPhrase(f.gained)}`;
+  return {
+    title: `Unfavoured gate mark (${f.side})`,
+    chips: [
+      `${f.side} mark · ${r0(f.deltaM)} m downwind`,
+      `${f.fav} side ${r0(f.empS)} s quicker`,
+      places ? `${ordinal(num(places.before))} → ${ordinal(num(places.after))} of ${r0(places.fleet)} at the mark` : num(f.gained) < 0 ? placesPhrase(f.gained) : `${f.fav} mark ${r0(f.nFav)} boats, ${f.side} ${r0(f.nOther)}`,
+    ],
+    sentence: `${where}: took the ${f.side} mark (looking upwind) — ${r0(f.deltaM)} m further downwind, about ${r0(f.beatS)} s on the beat. Boats rounding the ${f.fav} mark at the same time were ${r0(f.ownS)} s quicker 300 m up the beat; ${lost}.${busy}${net}`,
+    tip: GATE_TIP,
+  };
+}
+
+/** D13's ➕ and ✓ lines (no glyph). */
+function gateWent(n: GoodNote): string {
+  const f = n.facts;
+  const where = roundingName(f);
+  if (n.variant === 'traffic') {
+    const gained = num(f.gained) > 0 ? `; ${placesPhrase(f.gained)}` : '';
+    return `${where}: favoured gate was busy (${r0(f.traffic)} ${s1(num(f.traffic), 'boat', 'boats')} ahead) — the clear one was reasonable${gained}`;
+  }
+  if (n.variant === 'net') return `${where}: took the ${f.side} gate (unfavoured by ~${r0(f.deltaM)} m / ${r0(f.beatS)} s), and the ${f.beatSide} paid off up the next beat — ${netPhrase(f.netS)}`;
+  return `${where}: took the favoured ${f.side} mark (${r0(f.deltaM)} m further upwind) and ${placesPhrase(f.gained)}`;
+}
+
 /** D8 as a chip: "20% in dirty air vs fleet 2%". */
 export const dirtyChip = (f: Card['facts']): string => `${pct(num(f.share))} in dirty air vs fleet ${pct(num(f.fleetShare))}`;
 
@@ -454,6 +499,10 @@ export function cardWarnings(c: Card, a: RaceAnalysis, raceCov?: number | null):
           ? 'wind est.'
           : c.kind === 'D12'
             ? 'from the tracker feed'
+            : c.kind === 'D13'
+            ? num(c.facts.shift) === 1
+              ? 'wind shifting'
+              : 'few boats a side'
             : c.kind === 'D9' && c.facts.mode === 'places'
             ? c.facts.shiftSide != null
               ? 'likely a shift'
@@ -484,6 +533,7 @@ export function wentText(n: GoodNote): string {
   const f = n.facts;
   const s = r0(n.seconds ?? f.gainS);
   if (n.detector === 'D9') return `${roundingName(f)}: ${s} s quicker than the top 3 through the zone`;
+  if (n.detector === 'D13') return gateWent(n);
   if (n.detector === 'D1') return `Start: crossed the line ${s} s ahead of the top 3`;
   if (n.detector === 'D3') return `First ${D3_WINDOW_MS / 60_000} minutes: gained ${s} s on the top 3`;
   if (n.detector === 'D11') return `${f.leg}: ${heelClause(f)} and ${vmgWord(f.dVmg)} in VMG`;
@@ -499,6 +549,7 @@ export function goodTexts(n: GoodNote): string[] {
   if (n.detector === 'D5') return ['Banked gains'];
   if (n.detector === 'D8') return [`Clear air: ${pct(num(f.share))} in shadow vs fleet ${pct(num(f.fleetShare))}`];
   if (n.detector === 'D9') return [`Mark roundings: ${r0(f.n)} timed, none slow or wide`];
+  if (n.detector === 'D13') return [gateWent(n)];
   if (n.detector === 'D11') return [`Heel upwind ${r0(f.heel)}° vs ${heelRefShort(f)} ${r0(f.refHeel)}°`];
   const side = n.detector === 'D6' ? 'Upwind' : 'Downwind';
   return [`${side} ${n.detector === 'D6' ? 'pointing' : 'angles'} ${r0(f.twa)}° vs fleet ${r0(f.fTwa)}°`, `${side} VMG ${kn(f.vmg)} vs fleet ${kn(f.fVmg)} kn`];

@@ -99,6 +99,17 @@ export function j105Race(raceNumber: 1 | 2 | 3, f: Fixture = j105Fixture(raceNum
   return buildRaceData(f.regatta, { division: 'J105', raceNumber }, [f.telemetry], { eventId: f.eventId, kind: 'fixture', wind: f.wind });
 }
 
+/** The gate-choice (D13) goldens: whole fleets, 1 Hz around each boat's gate rounding (scripts/make-fixture.mjs --preset gate-<key>). */
+export const GATE_RACES = {
+  j24r2: { division: 'J-24', raceNumber: 2 },
+  j24r5: { division: 'J-24', raceNumber: 5 },
+  j111r5: { division: 'J-111', raceNumber: 5 },
+  ic37r2: { division: 'IC37', raceNumber: 2 },
+  m24r5: { division: 'M24', raceNumber: 5 },
+  viperr2: { division: 'Viper 640', raceNumber: 2 },
+} as const;
+export const gateRace = (key: keyof typeof GATE_RACES): RaceData => trimmedRace(`./fixtures/gate_${key}.json`, GATE_RACES[key].division, GATE_RACES[key].raceNumber);
+
 export type CsvRow = Record<string, string>;
 export function loadExpected(): CsvRow[] {
   const [head, ...lines] = readFileSync(here('./fixtures/benelux_act3_race8_metrics.csv'), 'utf8').trim().split('\n');

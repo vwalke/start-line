@@ -120,7 +120,7 @@ export function regattaAskContext(o: RegattaAskInput): AskContext {
   ].join(' · ');
   const notes: string[] = [];
   if (!s.withData) notes.push('Waiting for the races to be analysed.');
-  if (s.findings.some((f) => f.gated)) notes.push('* of the races with the tracker data to measure it (dirty air needs the boats around you; roundings the zone time or the sparse-data place read).');
+  if (s.findings.some((f) => f.gated)) notes.push('* of the races with the tracker data to measure it (dirty air needs the boats around you; roundings the zone time or the sparse-data place read; gate choice both gate buoys tracked).');
   return compact({
     view: 'regatta' as const,
     boat: askBoat(o.boat),

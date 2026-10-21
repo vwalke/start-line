@@ -25,6 +25,7 @@ export const LEG_STORY_BULLETS: readonly string[] = [
   `Gybe-set: a gybe ${ROUND_LEAD_MS / 1000} s before to ${ROUND_WINDOW_MS / 1000} s after the windward mark; else a bear-away.`,
   `Under ${STORY_MIN_GROUP} boats with data in the group: worked out on the whole fleet (chip says so).`,
   `Heel: yours vs the top 3's in the same ${HEEL_WINDOW_MS / 60_000}-min windows; shown when ${HEEL_DIFF_DEG}°+ apart in most.`,
+  'Gate L/R: the leeward-gate buoy rounded, looking upwind (both buoys tracked; the nearer one at the closest approach).',
 ];
 
 /** Signed, one decimal, with a true minus: "+1.1", "−0.4". */
@@ -90,6 +91,9 @@ export function heelStoryChip(h: HeelChip): string {
   return `${what} · VMG ${v.toFixed(1)} kt ${h.dVmg >= 0 ? 'slower' : 'faster'}`;
 }
 
+/** "Gate L" / "Gate R": the buoy of a leeward gate a boat rounded, looking upwind (the leg stories and the legs table). */
+export const gateChip = (side: 'left' | 'right'): string => `Gate ${side === 'left' ? 'L' : 'R'}`;
+
 /** The leg's chips. Explanations sit in the section ⓘ; caveats are ⚠ chips, not a paragraph. */
 export function legStoryText(s: LegStory, a: RaceAnalysis, boat: string, g: Group): LegStoryText {
   const name = (id: string): string => shortName(a, id);
@@ -150,6 +154,10 @@ export function legStoryText(s: LegStory, a: RaceAnalysis, boat: string, g: Grou
     if (l.length) lines.push(l);
   }
 
+  // The leeward gate at the leg's end: which buoy (looking upwind), and how the fleet split.
+  const gate = s.gate;
+  if (gate) lines.push([{ text: `left gate ${gate.left} · right gate ${gate.right}` }, ...(gate.side ? [{ text: `you ${gate.side}`, cls: 'me' as const }] : [])]);
+
   // Leg times.
   const times: StoryChip[] = [];
   if (s.fastest) times.push({ text: `fastest ${name(s.fastest.id)} ${duration(s.fastest.timeS)}`, cls: s.fastest.id === boat ? 'me' : undefined });
@@ -172,6 +180,7 @@ export function legStoryText(s: LegStory, a: RaceAnalysis, boat: string, g: Grou
   if (places) summary.push({ text: places, cls: 'me' });
   const secs = groupSecondsChip(s, g);
   if (secs) summary.push({ text: secs, cls: 'me' });
+  if (gate?.side) summary.push({ text: gateChip(gate.side), cls: 'me' });
   if (s.heel?.fired) summary.push({ text: heelStoryChip(s.heel), cls: 'me' });
   if (s.coverage != null && s.coverage < STORY_LOW_COVERAGE) summary.push({ text: `tracker ${pct(s.coverage)}`, cls: 'warn' });
   else if (s.coverage == null) summary.push({ text: 'no data', cls: 'warn' });
