@@ -8,7 +8,7 @@ import { median } from '../geo';
 import type { GapPoint } from './ladder';
 import { COACH_MAX_SPAN_S } from './tracks';
 
-export type DetectorKind = 'D1' | 'D2' | 'D3' | 'D4' | 'D5' | 'D6' | 'D7' | 'D8' | 'D9' | 'D10' | 'D11';
+export type DetectorKind = 'D1' | 'D2' | 'D3' | 'D4' | 'D5' | 'D6' | 'D7' | 'D8' | 'D9' | 'D10' | 'D11' | 'D12';
 export type Confidence = 'high' | 'medium' | 'low' | 'none';
 
 /** A fact for the card: a number (formatted by the template) or a name. */

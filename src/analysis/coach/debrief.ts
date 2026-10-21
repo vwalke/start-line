@@ -1,9 +1,11 @@
 /**
  * Recall Coach, phases 2–4: one boat's debrief for one race — every detector
- * (D1, D2 and D8 → D3, D3 → D1 when both fired, D4, D5, D6, D7, D8, D9, D10, D11 → D6 / D7 on a leg they share), ranked and gated (rank.ts), with the ✓ row
+ * (D1, D2 and D8 → D3, D3 → D1 when both fired, D4, D5, D6, D7, D8, D9, D10, D11 → D6 / D7 on a leg they share, D12), ranked and gated (rank.ts), with the ✓ row
  * (detectors that measured the boat as fine with good data) and ➕ Went well (wentWell: legs,
  * roundings and the start where it gained on the leaders, with seconds; at most WENT_WELL_MAX).
- * Pure: the UI fills the templates.
+ * An official code is the penalty card (penalty.ts), pinned outside the ranking: a scored OCS / UFD / BFD's over-the-line
+ * figures move onto it from D1's 'ocs' card (which then isn't shown: D3 after it stays a card of its own), and so do
+ * penalty turns (D12); with no code, penalty turns are a ranked card. Pure: the UI fills the templates.
  */
 import type { RaceAnalysis } from '../types';
 import type { CoachModel } from './index';
@@ -23,6 +25,8 @@ import { longestHole, trackLegAt } from './tracks';
 import { coachCoverage, gapChange, rangeOf, type GoodNote, type Opportunity } from './opportunity';
 import { median } from '../geo';
 import { rankOpportunities, type Card } from './rank';
+import { codeInfo } from '../../data/official/codes';
+import { penaltyOf, turnCard, type PenaltyFinding } from './penalty';
 
 /** Below this race coverage (and with no window at OK_WINDOW) there is no debrief. */
 export const RACE_MIN_COVERAGE = 0.25;
@@ -44,6 +48,8 @@ export const WENT_WELL_OVERLAP = 0.5;
 export interface CoachDebrief {
   /** At most 3, best first. */
   cards: Card[];
+  /** The official code's card (penalty.ts), pinned above `cards`: never ranked, never in `totalS`; null with no code. */
+  penalty?: PenaltyFinding | null;
   /** ✓ Not the problem. */
   ok: GoodNote[];
   /** ➕ Went well (wentWell), the most seconds first. */
@@ -235,10 +241,17 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
   const shadow = detectShadow(ctx);
   const round = detectRounding(ctx);
   const heel = detectHeel(ctx);
-  const merged = mergeStart(start.opp, attachShadow(early, shadow));
+  // A scored start code (OCS / UFD / BFD) is the penalty card: D1's 'ocs' card ("Over early — cleared") moves onto it.
+  const code = ctx.me.finishCode ?? null;
+  const ocsToPenalty = !!code && !!codeInfo(code).start && start.opp?.variant === 'ocs';
+  const turns = m.turns?.get(boat) ?? [];
+  const penalty = penaltyOf(ctx, turns, m.overStart?.get(boat) ?? null);
+  const merged = mergeStart(ocsToPenalty ? null : start.opp, attachShadow(early, shadow));
   const withHeel = attachHeel([up.opp, down.opp], heel.opps);
   const [d6, d7] = withHeel.angles;
-  const found = [merged.start, merged.early, d4, ...cons.opps, d6, d7, shadow.opp, ...round.opps, ...withHeel.heel, last].filter((o): o is Opportunity => !!o);
+  // Penalty turns: on the penalty card with a code, else a ranked card of their own.
+  const turnOpp = penalty ? null : turnCard(ctx, turns);
+  const found = [merged.start, merged.early, d4, ...cons.opps, d6, d7, shadow.opp, ...round.opps, ...withHeel.heel, last, turnOpp].filter((o): o is Opportunity => !!o);
   const clearAir: GoodNote | null =
     shadow.evaluated && !shadow.opp && !shadow.chip ? { kind: 'ok', detector: 'D8', variant: 'ok', facts: { share: shadow.share, fleetShare: shadow.fleetShare }, t0: ctx.gun, t1: m.endMs } : null;
   const ok = [start.ok, shift.opp ? null : shift.ok, cons.opps.length ? null : cons.ok, up.ok, down.ok, clearAir, round.ok, heel.ok].filter((o): o is GoodNote => !!o);
@@ -250,6 +263,7 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
   const cards = (noData ? [] : rankOpportunities(found)).map((c) => ({ ...c, conf: { ...c.conf, hole: longestHole(ctx.tr.t, c.t0, c.t1) } }));
   return {
     cards,
+    penalty,
     ok: noData ? [] : ok,
     plus: noData ? [] : wentWell([...legGains(ctx), ...round.good, ...startGains(ctx, start.fired), ...heel.plus]),
     totalS: cards.reduce((s, c) => s + c.seconds, 0),

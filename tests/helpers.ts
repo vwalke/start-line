@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { buildRaceData } from '../src/data/racesense/adapter';
+import { buildRaceData, currentDoc, nextGunMs, type OfficialRaceInput } from '../src/data/racesense/adapter';
+import { matchBoats } from '../src/data/official/sail';
+import { parseResults, type YsResultBoat, type YsResultReport } from '../src/data/official/yachtscoring';
 import type { RegattaResponse, TelemetryPage, WindResponse } from '../src/data/racesense/types';
 import type { RaceData } from '../src/data/types';
 
@@ -58,6 +60,30 @@ export const j88Race = (): RaceData => trimmedRace('./fixtures/j88_r5.json', 'J8
 
 /** IC37 North Americans race 5 (gun 10:05:01 EDT): all 15 boats, gun − 60 s to the end of Beat 1 (dense to +6 min) — the Coach start case. */
 export const ic37Race = (): RaceData => trimmedRace('./fixtures/ic37_r5.json', 'IC37', 5);
+
+/**
+ * IC37 race 5's official results (Yachtscoring, tests/fixtures/ys50934_r5.json: sails, statuses, places and times
+ * only), parsed and paired by sail with the RaceSense boats as link.ts does; times are EDT (UTC − 4 h). `edit` may
+ * change the report's boats first (a synthetic code).
+ */
+export function ic37Official(edit?: (boats: YsResultBoat[]) => void): OfficialRaceInput {
+  const rep = JSON.parse(readFileSync(here('./fixtures/ys50934_r5.json'), 'utf8')) as YsResultReport;
+  const cls = rep.data![0].divisions![0].classes![0];
+  edit?.(cls.boats!);
+  const rows = parseResults(rep, { circle: rep.data![0].circleName!, className: cls.className! })!;
+  const f = JSON.parse(readFileSync(here('./fixtures/ic37_r5.json'), 'utf8')) as Fixture;
+  const sails = buildRaceData(f.regatta, { division: 'IC37', raceNumber: 5 }, [f.telemetry], { eventId: f.eventId, kind: 'fixture' }).boats.map((b) => b.sail);
+  const m = matchBoats(sails, rows, (s) => ({ sail: s }), (r) => ({ prefix: r.prefix, sail: r.sail }));
+  const rsOf = new Map(m.pairs.map((p) => [p.b, p.a]));
+  return { number: 5, tzOffsetMs: -4 * 3_600_000, rows: rows.map((r) => ({ ...r, rsSail: rsOf.get(r) ?? null })) };
+}
+
+/** IC37 race 5 linked to its official results (ic37Official), as the app builds it. */
+export function ic37LinkedRace(official: OfficialRaceInput = ic37Official()): RaceData {
+  const f = JSON.parse(readFileSync(here('./fixtures/ic37_r5.json'), 'utf8')) as Fixture;
+  const ref = { division: 'IC37', raceNumber: 5 };
+  return buildRaceData(f.regatta, ref, [f.telemetry], { eventId: f.eventId, kind: 'fixture', wind: f.wind ?? undefined, official, nextGunMs: nextGunMs(currentDoc(f.regatta), ref) });
+}
 
 /** The J/105 fixtures' raw form (to edit the telemetry before building). */
 export const j105Fixture = (raceNumber: 1 | 2 | 3): Fixture =>

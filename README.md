@@ -113,6 +113,38 @@ are shared by all three.
     of 5 races with good data") count only the races with heel data. No roll
     for the boat or its group (the J/105 CBC fixtures; older feeds): not
     evaluated. An uploaded .vkx log's heel is read at its full rate.
+  - **Penalties.** An official code is a **penalty card** pinned above the
+    ranked cards (`src/analysis/coach/penalty.ts`): never numbered, never a top-3
+    slot, never in the seconds at stake. The code, its meaning in plain words, and
+    what it cost: "Cost 3 places — 12th on the water, scored 15th" (IC37 NA R5,
+    USA 016, DPI), "No places lost" at +0, or "Scored UFD — 16 points; the result
+    is lost" ("You sailed on to 14th on the water" with a finish). The ranked cards
+    then sit under "Smaller than the penalty: what cost time on the water". A
+    scored OCS / UFD / BFD replaces the "Over early — cleared" card: its figures
+    (over m at the gun, back +N s, recrossed +N s) are chips on the penalty card;
+    an over-early boat scored AOK keeps the card. Ask Coach's context carries the
+    penalty card and the Regatta view's Penalties row.
+  - **D12 penalty turns** (`penaltyTurn.ts`, found in the worker from the raw
+    fixes): course over ground from positions (thinned to 1 s and 2.5 m), the
+    heading change integrated one way round, never across a hole (> 6 s) or an
+    ambiguous step (> 135°); a run ends when the boat turns back 20° or pauses
+    10 s, and splits wherever 8 s of it changes course under 20° (a tack and a
+    gybe with straight sailing between are two manoeuvres). 300° within 60 s is
+    a 360, 660° within 120 s a 720; 6 heading samples per turn, ≥ 1.5 kn, never
+    within 130 m of a mark, only from the boat's start crossing (never before the
+    gun) to its finish. Seconds lost: its speed (mean over 30 s before) and course
+    (the last 10 s before) carried through the loop and 15 s after it, against how
+    far it got along that course. Medium confidence on the feed, high from an
+    uploaded log. With an official code the turn rides on the penalty card ("720
+    at 11:23:40 (+18 min), ≈ 45 s"); without one it is a ranked card ("Penalty
+    turns (720)"), taken first: the start card's first minutes and the legs'
+    rate findings give up the loop's stretch. Over 24 cached races (731 boats)
+    it flags 11 loops, each a continuous one-way turn.
+  - **Regatta view, Penalties:** a row above the pattern cards, one line per code
+    ("DPI in 8 of 8 races · 24 penalty points · ≈ 24 places", "UFD in 1 of 8 races
+    (R3) · 16 points; result lost") and penalty turns ("Penalty turns in 2 of 8
+    races · ≈ 70 s"). A penalty is never a theme, a pattern card or a thing to
+    work on; the place row shows the code with its points and the on-water place.
   - An **uploaded .vkx log** feeds the Coach at its full rate: the analysis
     track is thinned to 1 Hz (merge.ts), but the boat keeps the log's own fixes
     (`Boat.fullRate`) and the worker hands the Coach every boat's raw fixes
@@ -129,7 +161,8 @@ are shared by all three.
     interpolated between its roundings either side (or its finish) along the
     fleet's median splits, or carried on at its own pace; such places show `~`.
     A finish lost in a hole is placed among the finishers by its estimated
-    time; coded boats (DNF…) after the last finisher. Against Top 3 / Near /
+    time; a boat that finished with a code (DPI…) at its on-water place; coded
+    boats that didn't (DNF…) after the last finisher. Against Top 3 / Near /
     custom the closed row adds the leg's seconds against the group's median leg
     time ("lost 12 s vs Top 3") instead of a place within a handful of boats.
 
@@ -484,7 +517,21 @@ next class. An automatically matched event must also beat the next candidate by
 **Finishes.**
 - **Linked:** official places and codes (DSQ, DNF, OCS, …) are the places the
   app uses. An AOK boat that RaceSense flagged OCS is cleared; a coded boat has
-  no place.
+  no place. Every row keeps its score (`placeClass`: a coded boat's points, SCP
+  fractional). The codes are one table (`src/data/official/codes.ts`: plain
+  words, and whether the boat finished): a boat that **finished with a code**
+  (DPI, SCP, ZFP, RDG with a finish time; DSQ / UFD / BFD with one) keeps its
+  finish, race time and legs and gets an **on-water place** (by corrected, else
+  elapsed, time among the official finishers: where it would be without the
+  code) and the places the code cost (points − that, to 0.1, never below 0). DNF,
+  RET, OCS, TLE, NSC, DNS, DNC, DNE, and DSQ / UFD / BFD without a finish time,
+  score as not finishing. Where the app orders boats by how they sailed (the boat
+  order, the places chart's finish, the leg story's finish column, the Coach's
+  groups, D5 / D10's boats ahead) a penalised finisher sits at its on-water place
+  (`finishRank`, `src/analysis/result.ts`); where it shows the result (header
+  chip, Fin column, boat list, Regatta places) it shows the code with its points
+  ("DPI 15", "12th on the water" in the title). Findings text and the winner use
+  official places only.
 - **Official times** are used only if plausible: ≥ 3 finishers have a
   finish-line crossing within 10 min of their official time, the median gap is
   ≤ 60 s, and every official finish is after the gun and before the next gun.

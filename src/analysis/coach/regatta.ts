@@ -7,7 +7,9 @@
  * dirty air, D9 roundings, D11 heel — counts only the races it had the data to measure), the best and worst
  * legs by type, the three things to work on (pattern cards for what recurs), and what went well,
  * by fixed rules. Races the tracker covered poorly are kept
- * and marked, their seconds weighted down. Pure: the UI renders it, the worker builds the digests.
+ * and marked, their seconds weighted down. Penalties (official codes, and penalty turns D12) are a row of their own
+ * (penaltiesOf): never a theme, a pattern card or a thing to work on by seconds. Pure: the UI renders it, the worker
+ * builds the digests.
  */
 import type { OfficialResultRow } from '../../data/official/link';
 import type { FinishSource, RaceData } from '../../data/types';
@@ -19,6 +21,8 @@ import { buildCoach, coachRaw, type CoachModel } from './index';
 import type { Confidence, DetectorKind } from './opportunity';
 import { confidenceOf } from './opportunity';
 import { rankOpportunities } from './rank';
+import { codeInfo } from '../../data/official/codes';
+import { turnSeconds } from './penalty';
 
 export { fleetOf } from './fleet';
 
@@ -28,13 +32,29 @@ export interface RaceFinish {
   code: string | null;
   of: number;
   source: FinishSource;
+  /** A coded result's official score (points); a boat that finished with a code: its on-water place and the places the code cost. */
+  points?: number | null;
+  onWater?: number | null;
+  penaltyPlaces?: number | null;
 }
 
 /** Each boat's result in an analysed race, by sail (the places the header and tables show). */
 export function analysedFinishes(a: RaceAnalysis): Map<string, RaceFinish> {
   const of = fleetOf(a);
   const places = a.meta.results?.places;
-  return new Map(a.boats.map((b) => [b.sail, { place: b.finishPos, code: b.finishCode ?? null, of, source: places ?? b.finishSource ?? 'racesense' }]));
+  return new Map(
+    a.boats.map((b) => [
+      b.sail,
+      {
+        place: b.finishPos,
+        code: b.finishCode ?? null,
+        of,
+        source: places ?? b.finishSource ?? 'racesense',
+        ...(b.finishCode && b.scoredPoints != null ? { points: b.scoredPoints } : {}),
+        ...(b.onWaterPlace != null ? { onWater: b.onWaterPlace, penaltyPlaces: b.penaltyPlaces ?? null } : {}),
+      },
+    ]),
+  );
 }
 
 /** Below this race coverage a race is marked low data and its seconds weighted down (the Coach header warns below it too). */
@@ -87,6 +107,8 @@ export interface RaceDigest {
   evaluated?: string[];
   /** ➕ Went well in this race (the race view's), most seconds first. */
   went?: WentDigest[];
+  /** Penalty turns found on the track (D12: on the penalty card or a card of their own): how many loops and their seconds. */
+  turns?: { loops: number; seconds: number };
 }
 
 /** One ➕ of a race: its family ('start', 'leg:upwind', 'round:leeward', …), what it was, the seconds gained. */
@@ -152,11 +174,27 @@ export function legDigests(a: RaceAnalysis, sail: string): LegDigest[] {
 export function raceDigest(a: RaceAnalysis, model: CoachModel | null, sail: string, official: readonly OfficialResultRow[] | null = null): RaceDigest {
   const me = a.boats.find((b) => b.sail === sail);
   const row = official?.find((r) => r.rsSail === sail);
-  const finish = me ? (analysedFinishes(a).get(sail) ?? null) : row ? { place: row.code == null ? row.place : null, code: row.code, of: official!.length, source: 'official' as const } : null;
+  const finish = me
+    ? (analysedFinishes(a).get(sail) ?? null)
+    : row
+      ? {
+          place: row.code == null ? row.place : null,
+          code: row.code,
+          of: official!.length,
+          source: 'official' as const,
+          ...(row.code != null && row.points != null ? { points: row.points } : {}),
+          ...(row.code != null && row.onWater != null ? { onWater: row.onWater, penaltyPlaces: row.penaltyPlaces ?? null } : {}),
+        }
+      : null;
   if (!me) return { raceNumber: a.meta.raceNumber, sail, tracked: false, finish, coverage: null, noData: true, legs: [], findings: [] };
   const d = model ? coachDebrief(a, model, me.id) : null;
-  const findings: FindingDigest[] =
-    d && !d.noData ? rankOpportunities(d.found, Infinity).map((c) => ({ theme: themeKey(c.kind, c.variant), kind: c.kind, variant: c.variant, seconds: c.seconds, confidence: c.confidence })) : [];
+  // Penalty turns (D12) are a penalty, never a theme: they go to the Penalties row (`turns`), not the findings.
+  const ranked = d && !d.noData ? rankOpportunities(d.found, Infinity) : [];
+  const findings: FindingDigest[] = ranked
+    .filter((c) => c.kind !== 'D12')
+    .map((c) => ({ theme: themeKey(c.kind, c.variant), kind: c.kind, variant: c.variant, seconds: c.seconds, confidence: c.confidence }));
+  const loops = d && !d.noData ? (d.penalty?.turns ?? model?.turns?.get(me.id) ?? []) : [];
+  const turns = loops.length ? { loops: loops.length, seconds: turnSeconds(loops) } : null;
   // D8 as a chip (on D3, or with no card to carry it) still recurs as a theme; its seconds are D3's, not counted twice.
   if (d && !d.noData && d.dirtyAir.chip && !findings.some((f) => f.kind === 'D8')) findings.push({ theme: 'dirty-air', kind: 'D8', variant: 'chip', seconds: 0, confidence: 'medium' });
   // D11 riding on a D6 / D7 card, or found but under a card's minimum seconds, still recurs as a theme (no seconds of its own).
@@ -181,13 +219,14 @@ export function raceDigest(a: RaceAnalysis, model: CoachModel | null, sail: stri
     findings,
     evaluated: d && !d.noData ? evaluatedThemes(d.quality) : [],
     went: d && !d.noData ? d.plus.map((n) => wentOf(a, n)) : [],
+    ...(turns ? { turns } : {}),
   };
 }
 
 /** The worker's path: the Coach model from the race's raw fixes (as the race view builds it), then the digest. */
 export function digestRace(a: RaceAnalysis, data: RaceData, sail: string, official: readonly OfficialResultRow[] | null = null): RaceDigest {
   const raw = a.boats.some((b) => b.sail === sail) ? coachRaw(a, data) : null;
-  return raceDigest(a, raw ? buildCoach(a, raw.wind, raw.crossMs, raw.zones ?? null, raw.heel ?? null) : null, sail, official);
+  return raceDigest(a, raw ? buildCoach(a, raw.wind, raw.crossMs, raw.zones ?? null, raw.heel ?? null, raw.turns ?? null, raw.overStart ?? null) : null, sail, official);
 }
 
 // ---- themes: what a finding is about, across races (coarse enough to recur), and what to work on
@@ -246,6 +285,9 @@ export function themeKey(kind: DetectorKind, variant: string): string {
       return 'last-leg';
     case 'D11':
       return variant === 'over' ? 'heel-over' : variant === 'under' ? 'heel-under' : 'heel-down';
+    case 'D12':
+      // Never a theme (raceDigest leaves D12 out of the findings): the Penalties row says it.
+      return 'penalty-turns';
   }
 }
 export const themeOf = (key: string): Theme => THEMES[key] ?? { label: key, phrase: key, pattern: key };
@@ -280,6 +322,7 @@ const TIPS: Record<string, string> = {
   'D11:under': 'Let the boat heel to its groove: power up, and in light air move weight to leeward.',
   'D11:windward': 'On the runs keep the boat flat; heel to windward only as far as the faster boats do.',
   'D11:rolling': 'Steady the boat on the runs: smooth steering and trim, and keep the weight still.',
+  D12: 'Keep clear early: a penalty turn costs far more than giving room or ducking.',
 };
 export const tipOf = (kind: DetectorKind, variant: string): string => TIPS[`${kind}:${variant}`] ?? TIPS[kind] ?? '';
 
@@ -377,6 +420,76 @@ export interface RegattaSummary {
   top: WorkOn[];
   /** At most WENT_WELL_TOP, the most weighted seconds first. */
   went: WentWell[];
+  /** The Penalties row (penaltiesOf): one entry per official code, and penalty turns; empty with none. */
+  penalties: PenaltyRow[];
+}
+
+/** One line of the Penalties row: a code over the regatta ("DPI in 8 of 8 races · 24 penalty points · ≈ 24 places"), or penalty turns. */
+export interface PenaltyRow {
+  /** The official code, or 'turns' for penalty turns (D12). */
+  code: string;
+  meaning: string;
+  /** Races with it, of the races analysed. */
+  races: number;
+  of: number;
+  raceLabels: string[];
+  /** The result is lost in those races (DSQ, UFD, OCS, DNF, …). */
+  lost: boolean;
+  /** Points the code added over the on-water places (a points penalty), summed; null when no race has both. */
+  penaltyPoints: number | null;
+  /** Places it cost (penaltyPlaces) summed; null as penaltyPoints. */
+  places: number | null;
+  /** The scored points summed (a lost result's points); null with none. */
+  points: number | null;
+  /** Penalty turns: loops and the seconds they cost, summed. */
+  loops?: number;
+  seconds?: number;
+}
+
+/** The codes that are a result, not a penalty: a boat that never started (DNS, DNC) has no Penalties line. */
+const NOT_A_PENALTY = new Set(['DNS', 'DNC']);
+
+/**
+ * The Penalties row: every official code over the races analysed (the boat's scored result, never a speed theme),
+ * the points it added over the on-water places and the places that cost, or the points of a lost result; then
+ * penalty turns (D12) with the seconds they cost. Codes in the order of the most races.
+ */
+export function penaltiesOf(rows: readonly (RegattaRace & { weight: number })[]): PenaltyRow[] {
+  const done = rows.filter((r) => r.status === 'done' && r.digest);
+  const by = new Map<string, PenaltyRow>();
+  const add = (n: number | null | undefined, cur: number | null): number | null => (n == null ? cur : (cur ?? 0) + n);
+  for (const r of done) {
+    const f = r.digest!.finish;
+    const code = f?.code;
+    if (!f || !code || NOT_A_PENALTY.has(code)) continue;
+    const info = codeInfo(code);
+    const cur = by.get(code) ?? { code, meaning: info.meaning, races: 0, of: done.length, raceLabels: [], lost: info.lost, penaltyPoints: null, places: null, points: null };
+    cur.races += 1;
+    cur.raceLabels.push(r.label);
+    if (f.onWater != null && f.points != null && !info.lost) {
+      cur.penaltyPoints = add(Math.round((f.points - f.onWater) * 10) / 10, cur.penaltyPoints);
+      cur.places = add(f.penaltyPlaces, cur.places);
+    } else cur.points = add(f.points, cur.points);
+    by.set(code, cur);
+  }
+  const out = [...by.values()].sort((p, q) => q.races - p.races || p.code.localeCompare(q.code));
+  const turned = done.filter((r) => r.digest!.turns);
+  if (turned.length) {
+    out.push({
+      code: 'turns',
+      meaning: 'Penalty turns (a 360 or a 720) on the track',
+      races: turned.length,
+      of: done.length,
+      raceLabels: turned.map((r) => r.label),
+      lost: false,
+      penaltyPoints: null,
+      places: null,
+      points: null,
+      loops: turned.reduce((s, r) => s + r.digest!.turns!.loops, 0),
+      seconds: turned.reduce((s, r) => s + r.digest!.turns!.seconds, 0),
+    });
+  }
+  return out;
 }
 
 /** A finding counts as recurring from this many races… */
@@ -508,7 +621,7 @@ export function summarizeRegatta(races: readonly RegattaRace[]): RegattaSummary 
   }
   top.sort((p, q) => q.score - p.score || p.title.localeCompare(q.title));
 
-  return { rows, done: done.length, withData: withData.length, total: rows.length, findings, legs, top: top.slice(0, TOP_WORK), went: wentWellOf(withData) };
+  return { rows, done: done.length, withData: withData.length, total: rows.length, findings, legs, top: top.slice(0, TOP_WORK), went: wentWellOf(withData), penalties: penaltiesOf(rows) };
 }
 
 /**

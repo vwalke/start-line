@@ -40,6 +40,7 @@
 import { bearingVec, dot, median, type Vec } from '../geo';
 import { detectManoeuvres, type ManoeuvreTrack } from '../manoeuvres';
 import { placeColumns, roundingMs } from '../places';
+import { finishRank } from '../result';
 import type { BoatResult, LegKind, RaceAnalysis } from '../types';
 import type { CoachModel } from './index';
 import { extraTracked, fleetOf } from './fleet';
@@ -156,16 +157,17 @@ export function fleetPlaces(a: Pick<RaceAnalysis, 'legs' | 'boats' | 'meta'>): F
     );
   }
   // The start: the start place, then the boats with none in their first mark's (else finish) order.
-  const firstKey = (i: number): number[] => [nc > 2 ? place[i][1] : (boats[i].finishPos ?? Infinity)];
+  const firstKey = (i: number): number[] => [nc > 2 ? place[i][1] : (finishRank(boats[i]) ?? Infinity)];
   const started = boats.map((_, i) => i).filter((i) => boats[i].start?.startPlace != null);
   const rest = boats.map((_, i) => i).filter((i) => boats[i].start?.startPlace == null);
   order(0, (i) => [boats[i].start!.startPlace!], () => false, 1, started);
   order(0, firstKey, () => true, started.length + 1, rest);
-  // The finish: the official or recovered place; non-finishers after the last finisher, by how far on they were.
+  // The finish: the official or recovered place (a boat that finished with a code, DPI …, at its on-water place);
+  // non-finishers after the last finisher, by how far on they were.
   const fin = nc - 1;
-  const finished = boats.map((_, i) => i).filter((i) => boats[i].finishPos != null);
+  const finished = boats.map((_, i) => i).filter((i) => finishRank(boats[i]) != null);
   for (const i of finished) {
-    place[i][fin] = boats[i].finishPos!;
+    place[i][fin] = finishRank(boats[i])!;
     est[i][fin] = false;
   }
   const last = Math.max(0, ...finished.map((i) => place[i][fin]));
@@ -173,17 +175,17 @@ export function fleetPlaces(a: Pick<RaceAnalysis, 'legs' | 'boats' | 'meta'>): F
   // (the others keep their official places; it is marked estimated). A coded boat (DNF, …) or one with no
   // estimate goes after the last finisher, by how far on it was.
   const finS = (i: number): number | null => (boats[i].finishMs != null ? (boats[i].finishMs! - gun) / 1000 : null);
-  const unknown = boats.map((_, i) => i).filter((i) => boats[i].finishPos == null && !boats[i].finishCode && elapsed[i][fin] != null);
+  const unknown = boats.map((_, i) => i).filter((i) => finishRank(boats[i]) == null && !boats[i].finishCode && elapsed[i][fin] != null);
   for (const i of unknown) {
     const s = elapsed[i][fin]!.s;
     place[i][fin] = 1 + finished.filter((j) => (finS(j) ?? Infinity) < s).length;
     est[i][fin] = true;
   }
-  const dnf = boats.map((_, i) => i).filter((i) => boats[i].finishPos == null && !unknown.includes(i));
+  const dnf = boats.map((_, i) => i).filter((i) => finishRank(boats[i]) == null && !unknown.includes(i));
   order(fin, (i) => [elapsed[i][fin]?.s ?? Infinity, nc > 2 ? place[i][nc - 2] : 0], () => true, last + 1, dnf);
   // Official `of` (or the tracked fleet): never the assigned DNF slot after the last finisher,
   // which can run past the official count when an extra tracker was dropped.
-  const of = Math.max(fleetOf(a as RaceAnalysis), boats.length, ...boats.map((b) => b.finishPos ?? 0));
+  const of = Math.max(fleetOf(a as RaceAnalysis), boats.length, ...boats.map((b) => finishRank(b) ?? 0));
   return { of, byId: new Map(boats.map((b, i) => [b.id, { place: place[i], est: est[i], elapsedS: elapsed[i].map((e) => e?.s ?? null) }])) };
 }
 

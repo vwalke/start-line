@@ -41,6 +41,18 @@ export interface AskLeg {
   details?: string[];
 }
 
+/** The penalty card (an official code), as the page shows it. */
+export interface AskPenalty {
+  code: string;
+  /** What the code means, in plain words. */
+  meaning?: string;
+  /** The card's title: "Cost 3 places — 12th on the water, scored 15th", "Scored UFD — 16 points; the result is lost". */
+  result?: string;
+  /** Over-the-line figures, penalty turns. */
+  chips?: string[];
+  what?: string;
+}
+
 export interface AskRaceInfo {
   name?: string;
   /** The header chips as shown (place, behind the winner, gun, at stake, ⚠ caveats). */
@@ -88,6 +100,8 @@ export interface AskRegatta {
   /** "4 of 6 races analysed · ⚠ 1 with low tracker data". */
   status?: string;
   places?: AskRegattaRace[];
+  /** The Penalties row: "DPI in 8 of 8 races · 24 penalty points · ≈ 24 places" (never a theme). */
+  penalties?: string[];
   workOn?: AskWorkOn[];
   recurring?: AskRecurring[];
   legTypes?: AskLegType[];
@@ -102,6 +116,8 @@ export interface AskContext {
   /** The peer group the page compares with ("Top 3"). */
   group?: string;
   race?: AskRaceInfo;
+  /** The official code's card, pinned above the findings (not ranked by seconds). */
+  penalty?: AskPenalty;
   findings?: AskFinding[];
   notTheProblem?: string[];
   wentWell?: { text: string; seconds?: number }[];
@@ -157,6 +173,7 @@ const FINDING = obj(
 const REGATTA = obj({
   status: str(L),
   places: arr(obj({ race: str(40), place: str(60), note: str(S), low: { t: 'bool' } }, ['race', 'place']), 40),
+  penalties: strs(8),
   workOn: arr(obj({ title: str(S), why: str(L), tip: str(L), atStakeS: num(0, 1_000_000), pattern: { t: 'bool' }, chips: strs(12, 40) }, ['title']), 6),
   recurring: arr(obj({ finding: str(S), races: str(20), atStakeS: num(0, 1_000_000), weightedS: num(0, 1_000_000), where: strs(40, 20), lowData: { t: 'bool' } }, ['finding', 'races']), 20),
   legTypes: arr(obj({ legs: str(40), sailed: str(60), vsFleet: str(60), best: str(S), worst: str(S) }, ['legs']), 4),
@@ -171,6 +188,7 @@ export const ASK_CONTEXT_SPEC: Spec = obj(
     division: str(64),
     group: str(60),
     race: obj({ name: str(80), header: strs(10), notes: strs(4, L) }),
+    penalty: obj({ code: str(8), meaning: str(S), result: str(S), chips: strs(6), what: str(L) }, ['code']),
     findings: arr(FINDING, 6),
     notTheProblem: strs(12),
     wentWell: arr(obj({ text: str(S), seconds: num(0, 100_000) }, ['text']), 6),
@@ -265,6 +283,7 @@ const TRIM_STEPS: { name: string; run: Trim }[] = [
   { name: 'recurring findings', run: (c) => dropKey(c.regatta, 'recurring') },
   { name: 'tips', run: (c) => [dropEach(c.findings, 'tip'), dropEach(c.regatta?.workOn, 'tip')].some(Boolean) },
   { name: 'race places', run: (c) => dropKey(c.regatta, 'places') },
+  { name: 'penalty chips', run: (c) => dropKey(c.penalty, 'chips') },
   { name: 'findings beyond the first 2', run: (c) => keepFirst(c.findings, 2) },
 ];
 

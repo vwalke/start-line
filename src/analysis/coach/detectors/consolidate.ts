@@ -30,6 +30,7 @@
  * close-hauled.
  */
 import { len, median, sub, vecBearing, wrap180 } from '../../geo';
+import { finishRank } from '../../result';
 import { detectManoeuvres } from '../../manoeuvres';
 import { groupIds, placeOf } from '../groups';
 import { legEnd, type GapPoint } from '../ladder';
@@ -213,8 +214,8 @@ export function d5Peers(ctx: CoachCtx): { ids: string[]; ahead: boolean } {
   const p = placeOf(ctx.me);
   if (p != null) {
     const ahead = ctx.a.boats
-      .filter((b) => b.id !== ctx.boat && b.finishPos != null && b.finishPos < p && b.finishPos >= p - D5_PEERS_AHEAD && ctx.m.tracks.has(b.id))
-      .sort((x, y) => x.finishPos! - y.finishPos!)
+      .filter((b) => b.id !== ctx.boat && finishRank(b) != null && finishRank(b)! < p && finishRank(b)! >= p - D5_PEERS_AHEAD && ctx.m.tracks.has(b.id))
+      .sort((x, y) => finishRank(x)! - finishRank(y)!)
       .map((b) => b.id);
     if (ahead.length >= D5_MIN_PEERS) return { ids: ahead, ahead: true };
   }
@@ -325,7 +326,7 @@ export function detectConsolidate(ctx: CoachCtx): ConsolidateResult {
         const lay = laylineTest(ctx, k, a, s.tPeak, s.tTrough);
         const loss = s.gTrough - s.gPeak;
         if (!((sepM >= D5_SEP_M && shift >= D5_SHIFT_DEG) || (lay && loss >= D5_OVERSTAND_S))) continue;
-        const places = peers.ids.map((id) => ctx.a.boats.find((x) => x.id === id)?.finishPos).filter((x): x is number => x != null);
+        const places = peers.ids.map((id) => ctx.a.boats.find((x) => x.id === id)).map((x) => (x ? finishRank(x) : null)).filter((x): x is number => x != null);
         const side = sideOf(ctx, peers.ids, s.tPeak);
         const opp = make(lay ? 'overstand' : 'banked', peers.ids, s, sepM, side, lay, {
           peersAhead: peers.ahead ? 1 : 0,
