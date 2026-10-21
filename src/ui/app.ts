@@ -22,11 +22,14 @@ import { boatList, findingsList } from './boats';
 import {
   BOAT_PARAM,
   GROUP_PARAM,
+  VIEW_PARAM,
+  coachBoatFor,
   coachChips,
   coachGroupHtml,
   coachHeadHtml,
   coachHighlight,
-  coachPickerHtml,
+  coachNoBoatHtml,
+  coachViewHtml,
   defaultLadderGroup,
   groupParam,
   ladderChart,
@@ -36,9 +39,11 @@ import {
   ladderTipHtml,
   parseBoatParam,
   parseGroupParam,
-  racePlaces,
+  parseCoachView,
+  type CoachView,
   type LadderLayout,
 } from './coach';
+import { createRegattaRunner, regattaJobs, regattaViewHtml, type RegattaJob, type WorkerPort } from './coachRegatta';
 import { cardSpans, coachCardsHtml } from './coachCards';
 import { legStoriesHtml } from './coachLegs';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
@@ -79,7 +84,7 @@ import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
 import { attachTopScroll } from './hscroll';
 import { attachPanZoom } from './panzoom';
 import { PLACE_TIP_MOUSE_REACH, PLACE_TIP_TOUCH_REACH, nearestPlaceDot, placesChart, placesKey } from './places';
-import { DEFAULT_TAB, coachEnabled, parseTab, tabForKey, tabFromHash, tabsFor, withTabHash, type Tab } from './tabs';
+import { DEFAULT_TAB, TABS, parseTab, tabForKey, tabFromHash, withTabHash, type Tab } from './tabs';
 import { startSogSeries, type StartSogSeries } from '../analysis/startSog';
 import {
   START_SOG_WINDOW_KEY,
@@ -186,6 +191,8 @@ export function startApp(): void {
     tabBtn: { start: $('tab-start'), race: $('tab-race'), coach: $('tab-coach') } as Record<Tab, HTMLElement>,
     panel: { start: $('panel-start'), race: $('panel-race'), coach: $('panel-coach') } as Record<Tab, HTMLElement>,
     coachPick: $('coach-pick'),
+    coachLadderCard: $('coach-ladder-card'),
+    coachRegatta: $('coach-regatta'),
     coachTitle: $('coach-title'),
     coachHead: $('coach-head'),
     coachGroup: $('coach-group'),
@@ -208,11 +215,8 @@ export function startApp(): void {
   /** The URL's race, else the last one viewed (recall.lastView), else the latest. */
   const saved = readLastView();
   const plan = resolveStart(location.search, saved);
-  /** The Coach tab is offered only with `?coach=1`. */
-  const coachOn = coachEnabled(location.search);
-  const tabs = tabsFor(coachOn);
-  els.tabBtn.coach.hidden = !coachOn;
-  /** Start | Race (| Coach): the URL hash, else the saved tab when restoring the saved view, else Start. */
+  const tabs = TABS;
+  /** Start | Race | Coach: the URL hash, else the saved tab when restoring the saved view, else Start. */
   let tab: Tab = startTab(location.hash, plan, saved, tabs);
   const params = plan.params;
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
@@ -229,11 +233,11 @@ export function startApp(): void {
       coachWait(msg.type === 'coach-raw' ? msg.raw : null);
       return;
     }
-    if (msg.id !== reqId || msg.type === 'coach-raw') return; // a newer request superseded this one
+    if (msg.id !== reqId || msg.type === 'coach-raw' || msg.type === 'regatta-race') return; // a newer request superseded this one
     const p = pending.get(msg.id);
     if (msg.type === 'progress') setStatus(msg.message);
     else if (msg.type === 'done') p?.resolve(msg.analysis);
-    else p?.reject(new Error(msg.message));
+    else if (msg.type === 'error') p?.reject(new Error(msg.message));
     if (msg.type !== 'progress') pending.delete(msg.id);
   };
   const run = (req: DistributiveOmit<WorkerRequest, 'id'>): Promise<RaceAnalysis> =>
@@ -455,7 +459,7 @@ export function startApp(): void {
     renderCoach();
   }
 
-  // ---- Coach (behind ?coach=1): built lazily the first time the tab shows a race.
+  // ---- Coach: built lazily the first time the tab shows a race.
   const query = new URLSearchParams(location.search);
   let coachGroup: Group = parseGroupParam(query.get(GROUP_PARAM)) ?? defaultLadderGroup();
   /** The coached boat, kept across races: the URL's, then the last one selected. */
@@ -469,20 +473,25 @@ export function startApp(): void {
   let coachDeb: { model: CoachModel; boat: string; d: CoachDebrief | null } | null = null;
   let coachSel: number | null = null;
   let coachLayout: LadderLayout | null = null;
-
-  /** The boat to coach: the selected one, else the remembered one, else the winner. */
-  function coachBoatId(a: RaceAnalysis): string | null {
-    for (const id of [highlight, coachBoat]) if (id && a.boats.some((b) => b.id === id)) return id;
-    return a.boats[0]?.id ?? null;
-  }
+  /** Race (the race picked in the Race menu) or Regatta (every race of the event): `cview=regatta`. */
+  let coachView: CoachView = parseCoachView(query.get(VIEW_PARAM));
+  const raceKeyOf = (a: RaceAnalysis): string => coachRaceKey(a.meta.eventId ?? '', a.meta.division, a.meta.raceNumber, !!a.allCompetitors);
+  /** The Regatta view's races, analysed one at a time on a worker of their own (made on first use). */
+  const regattaRunner = createRegattaRunner(
+    () => new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerPort,
+    () => {
+      // Through renderCoach so official-pending / no-boat / event-mismatch guards apply
+      // (a leftover reply must not paint another boat's digest, or "No races" over "Checking…").
+      if (tab === 'coach' && coachView === 'regatta') renderCoach();
+    },
+  );
 
   /** True when the coach model of `a` is ready; else starts building it (the wind from the worker) and re-renders when done. */
   function ensureCoach(a: RaceAnalysis): boolean {
     if (coach?.a === a) return true;
     if (coachBuilding === a) return false;
     coachBuilding = a;
-    const key = coachRaceKey(a.meta.eventId ?? '', a.meta.division, a.meta.raceNumber, !!a.allCompetitors);
-    void coachRawOf(key).then((raw) => {
+    void coachRawOf(raceKeyOf(a)).then((raw) => {
       if (coachBuilding !== a) return;
       coachBuilding = null;
       coach = { a, model: buildCoach(a, raw?.wind, raw?.crossMs ?? null) };
@@ -491,17 +500,31 @@ export function startApp(): void {
     return false;
   }
 
+  /** Coach follows the app: the race in the Race menu, the boat selected in the boat list (or a chart). */
   function renderCoach(): void {
     const a = analysis;
-    if (!a || !coachOn || tab !== 'coach') return;
+    if (!a || tab !== 'coach') return;
     if (highlight && a.boats.some((b) => b.id === highlight)) coachBoat = highlight;
-    const boat = coachBoatId(a);
+    const boat = coachBoatFor(a, highlight);
     const me = a.boats.find((b) => b.id === boat);
-    els.coachPick.innerHTML = coachPickerHtml(a, boat, regatta && me ? racePlaces(currentDoc(regatta), a.meta.division, me.sail) : []);
+    const regattaOn = coachView === 'regatta';
+    els.coachPick.innerHTML = coachViewHtml(coachView);
     els.coachTitle.textContent = me ? boatLabel(me, me.id) : '';
     els.coachTip.hidden = true;
+    els.coachRegatta.hidden = !me || !regattaOn;
+    for (const el of [els.coachLadderCard, els.coachCards, els.coachLegs]) el.hidden = !me || regattaOn;
+    if (!me) {
+      els.coachHead.innerHTML = coachNoBoatHtml();
+      regattaRunner.want([]);
+      return;
+    }
+    if (regattaOn) {
+      els.coachHead.innerHTML = '';
+      renderRegatta(a, me.sail);
+      return;
+    }
     if (!ensureCoach(a)) {
-      renderKeepOpen(els.coachHead, (open) => coachHeadHtml(me ? coachChips(a, me, null) : [], open));
+      renderKeepOpen(els.coachHead, (open) => coachHeadHtml(coachChips(a, me, null), open));
       els.coachGroup.innerHTML = '';
       els.coachLadder.innerHTML = '<p class="muted coach-none">Working out the wind…</p>';
       els.coachCards.innerHTML = '';
@@ -510,28 +533,55 @@ export function startApp(): void {
       return;
     }
     const model = coach!.model;
-    coachLadder = model && boat ? rivalLadder(model, a, boat, coachGroup) : null;
-    if (model && boat && (coachDeb?.model !== model || coachDeb.boat !== boat)) {
-      coachDeb = { model, boat, d: coachDebrief(a, model, boat) };
+    coachLadder = model ? rivalLadder(model, a, me.id, coachGroup) : null;
+    if (model && (coachDeb?.model !== model || coachDeb.boat !== me.id)) {
+      coachDeb = { model, boat: me.id, d: coachDebrief(a, model, me.id) };
       coachSel = null;
     }
-    const deb = model && boat && coachDeb?.model === model ? coachDeb.d : null;
+    const deb = model && coachDeb?.model === model ? coachDeb.d : null;
     if (coachSel != null && !deb?.cards[coachSel]) coachSel = null;
-    renderKeepOpen(els.coachHead, (open) => coachHeadHtml(me ? coachChips(a, me, coachLadder, deb?.totalS ?? null, deb?.raceCov ?? null) : [], open));
-    els.coachGroup.innerHTML = coachGroupHtml(a, boat, coachGroup, coachEach, coachCustomOpen);
+    renderKeepOpen(els.coachHead, (open) => coachHeadHtml(coachChips(a, me, coachLadder, deb?.totalS ?? null, deb?.raceCov ?? null), open));
+    els.coachGroup.innerHTML = coachGroupHtml(a, me.id, coachGroup, coachEach, coachCustomOpen);
     const widthPx = els.coachLadder.clientWidth || undefined;
     const band = deb && coachSel != null ? cardSpans(deb.cards[coachSel]) : undefined;
     els.coachLadder.innerHTML =
       model && coachLadder
         ? ladderChart(a, model, coachLadder, coachGroup, { widthPx, each: coachEach, highlight: band })
-        : `<p class="muted coach-none">${model ? 'Pick a boat.' : 'No course to measure against in this race.'}</p>`;
-    els.coachCards.innerHTML = deb ? coachCardsHtml(a, deb, coachSel, me?.coverage ?? null) : '';
+        : '<p class="muted coach-none">No course to measure against in this race.</p>';
+    els.coachCards.innerHTML = deb ? coachCardsHtml(a, deb, coachSel, me.coverage ?? null) : '';
     // Leg stories over the picked group; the legs open now stay open.
     const openLegs = new Set([...els.coachLegs.querySelectorAll<HTMLElement>('details.coach-leg[open]')].map((d) => Number(d.dataset.leg)));
-    const stories = model && boat ? legStories(a, model, boat, coachGroup) : [];
-    renderKeepOpen(els.coachLegs, (open) => (boat ? legStoriesHtml(stories, a, boat, coachGroup, openLegs, open) : ''));
+    const stories = model ? legStories(a, model, me.id, coachGroup) : [];
+    renderKeepOpen(els.coachLegs, (open) => legStoriesHtml(stories, a, me.id, coachGroup, openLegs, open));
     coachLayout = model && coachLadder ? ladderLayout(coachLadder, model.wind, a.meta.gunMs, widthPx, coachEach) : null;
     renderKeyLine(els.coachLadderCap, { chips: coachLadder ? ladderChips(a, coachLadder, coachGroup, coachEach) : [], bullets: [] });
+  }
+
+  /** The Race menu's races of this division (practice left out), as Regatta jobs for the boat with sail `sail`. */
+  function jobsFor(a: RaceAnalysis, sail: string): RegattaJob[] {
+    if (!raceList || !regatta || (a.meta.eventId != null && a.meta.eventId !== eventId)) return [];
+    const outcome = outcomeOf();
+    return regattaJobs(raceList.races, {
+      eventId,
+      regatta,
+      division: a.meta.division,
+      sail,
+      allCompetitors,
+      classLabel: events.find((e) => e.eventId === eventId)?.classLabel,
+      officialOf: (r) => officialFor(outcome, r),
+      logsOf: (r) => vkx.buffersFor(eventId, r.division, r.raceNumber),
+    });
+  }
+
+  /** The Regatta view. Official places decide a race's digest, so the races wait until the official link is settled. */
+  function renderRegatta(a: RaceAnalysis, sail: string): void {
+    if (official.status === 'pending') {
+      regattaRunner.want([]);
+      els.coachRegatta.innerHTML = '<p class="regatta-status busy" role="status">Checking for official results before analysing the races…</p>';
+      return;
+    }
+    regattaRunner.want(jobsFor(a, sail));
+    els.coachRegatta.innerHTML = regattaViewHtml(regattaRunner);
   }
 
   function setCoachGroup(g: Group): void {
@@ -540,31 +590,19 @@ export function startApp(): void {
     renderCoach();
   }
 
-  /** Remember the coached boat in the URL (only with the flag). Clearing the highlight does not drop it. */
+  /** Remember the coached boat in the URL. Clearing the highlight does not drop it. */
   function syncCoachBoat(id: string | null): void {
-    if (!coachOn || !id) return;
+    if (!id) return;
     coachBoat = id;
     setUrl({ [BOAT_PARAM]: id });
   }
-  els.coachPick.addEventListener('change', (ev) => {
-    const sel = (ev.target as HTMLElement).closest<HTMLSelectElement>('select#coach-boat');
-    if (!sel) return;
-    coachBoat = sel.value;
-    highlight = sel.value;
-    syncCoachBoat(sel.value);
-    save();
-    render();
-    els.coachPick.querySelector<HTMLElement>('#coach-boat')?.focus();
-  });
   els.coachPick.addEventListener('click', (ev) => {
-    const btn = (ev.target as HTMLElement).closest('button[data-coach-race]');
-    const a = analysis;
-    if (!btn || !a) return;
-    const n = Number(btn.getAttribute('data-coach-race'));
-    if (!Number.isInteger(n) || n === a.meta.raceNumber) return;
-    els.race.value = `${a.meta.division}|${n}`;
-    // The same boat in the other race (the leg and sorts start clean).
-    void loadRace(a.meta.division, n, { leg: null, boat: coachBoatId(a), sort: null });
+    const v = (ev.target as HTMLElement).closest('button[data-coach-view]')?.getAttribute('data-coach-view');
+    if (!v || v === coachView) return;
+    coachView = parseCoachView(v);
+    setUrl({ [VIEW_PARAM]: coachView === 'regatta' ? 'regatta' : null });
+    renderCoach();
+    els.coachPick.querySelector<HTMLElement>(`[data-coach-view="${coachView}"]`)?.focus();
   });
   // A card (or its window chip, the keyboard's way in) shades its window on the gap chart; again, or another card, changes it.
   els.coachCards.addEventListener('click', (ev) => {
@@ -1268,12 +1306,10 @@ export function startApp(): void {
       const v = restore ? applyView(a, restore) : null;
       highlight = v?.boat ?? null;
       // A shared `boat=` wins over lastView so the link opens that boat.
-      if (coachOn) {
-        highlight = coachHighlight(coachBoat, highlight, a.boats.map((b) => b.id));
-        if (highlight) {
-          coachBoat = highlight;
-          setUrl({ [BOAT_PARAM]: highlight });
-        }
+      highlight = coachHighlight(coachBoat, highlight, a.boats.map((b) => b.id));
+      if (highlight) {
+        coachBoat = highlight;
+        setUrl({ [BOAT_PARAM]: highlight });
       }
       ncOpen = false;
       sort = v?.sort ?? null;
@@ -1301,7 +1337,7 @@ export function startApp(): void {
       const off = officialFor(outcomeOf(), listedOf(division, raceNumber));
       const reg = regatta;
       const logs = vkx.buffersFor(id, division, raceNumber);
-      const req = { type: 'live' as const, eventId: id, regatta: reg, division, raceNumber, allCompetitors, classLabel, ...(off ? { official: off } : {}), ...(coachOn ? { coach: true } : {}), ...(logs.length ? { vkx: logs } : {}) };
+      const req = { type: 'live' as const, eventId: id, regatta: reg, division, raceNumber, allCompetitors, classLabel, ...(off ? { official: off } : {}), ...(logs.length ? { vkx: logs } : {}) };
       if (!(await show(run(req), view))) return 'superseded';
       current = { eventId: id, division, raceNumber };
       if (analysis) vkx.raceShown({ eventId: id, division, raceNumber, regatta: reg, analysis });
@@ -1352,8 +1388,9 @@ export function startApp(): void {
     if (!regatta) return;
     raceList = buildRaceList(currentDoc(regatta), { links: linksOf(outcomeOf()), ...(found ? { orphans: found } : orphansFound ? { orphans: orphansFound } : {}) });
     renderRaceOptions();
-    // The header names the race as the picker does: relabel it too (title, RS tag and chips).
+    // The header names the race as the picker does: relabel it too (title, RS tag and chips), and the Coach strip.
     renderSummary();
+    renderCoach();
     reapplyOfficial();
   }
 
@@ -1466,6 +1503,8 @@ export function startApp(): void {
       let list = buildRaceList(doc);
       if (!list.races.length) return 'empty';
       if (id !== eventId) {
+        // Another event: the Regatta view's queue for the last one stops (its cache stays, keyed by event).
+        regattaRunner.want([]);
         official = { status: ysParam === 0 ? 'off' : 'pending' };
         feed = { status: 'idle', used: 0, max: 0, found: 0, exhausted: false };
       }
@@ -1521,9 +1560,14 @@ export function startApp(): void {
   }
 
   els.event.addEventListener('change', () => pickEvent(els.event.value));
+  /** Open a race of the list, as the Race menu does (the menu shows it; `restore` sets the view, else it carries over or resets). */
+  function chooseRace(division: string, raceNumber: number, restore?: ViewState): void {
+    els.race.value = `${division}|${raceNumber}`;
+    void loadRace(division, raceNumber, restore);
+  }
   els.race.addEventListener('change', () => {
     const [div, n] = els.race.value.split('|');
-    void loadRace(div, Number(n));
+    chooseRace(div, Number(n));
   });
 
   // Typing only filters; it never loads an event (each load fetches telemetry).

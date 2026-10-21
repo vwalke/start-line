@@ -1,26 +1,16 @@
 /**
- * The digest's two tabs: Start (start chart, speed through the start, start
- * findings and table) and Race (track map, place changes, race findings,
- * legs table). The tab is page state, not per-race: it stays put when
- * another race is picked. It lives in the URL hash (`#start` / `#race`,
- * replaced, never pushed) and in recall.lastView. A hash on the URL wins;
- * else the saved tab when the saved view is being restored; else Start.
- *
- * A third tab, Coach, exists only behind the `?coach=1` feature flag
- * (`coachEnabled`): the functions take the tabs on offer, Start and Race by default.
+ * The digest's three tabs: Start (start chart, speed through the start, start
+ * findings and table), Race (track map, place changes, race findings, legs
+ * table) and Coach (one boat's debrief, ui/coach.ts). The tab is page state,
+ * not per-race: it stays put when another race is picked. It lives in the URL
+ * hash (`#start` / `#race` / `#coach`, replaced, never pushed) and in
+ * recall.lastView. A hash on the URL wins; else the saved tab when the saved
+ * view is being restored; else Start.
  */
 
-export const TABS = ['start', 'race'] as const;
-/** The tabs with the Coach flag on. */
-export const COACH_TABS = ['start', 'race', 'coach'] as const;
-export type Tab = (typeof COACH_TABS)[number];
+export const TABS = ['start', 'race', 'coach'] as const;
+export type Tab = (typeof TABS)[number];
 export const DEFAULT_TAB: Tab = 'start';
-
-/** The Coach tab's feature flag: `?coach=1` in the URL. */
-export const COACH_FLAG = 'coach';
-export const coachEnabled = (search: string): boolean => new URLSearchParams(search).get(COACH_FLAG) === '1';
-/** The tabs on offer. */
-export const tabsFor = (coach: boolean): readonly Tab[] => (coach ? COACH_TABS : TABS);
 
 /** A tab name among `tabs`, or null for anything else. */
 export const parseTab = (x: unknown, tabs: readonly Tab[] = TABS): Tab | null => (typeof x === 'string' && (tabs as readonly string[]).includes(x) ? (x as Tab) : null);

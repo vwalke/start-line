@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_GROUPS, LEADERS_N, NEAR_PLACES, defaultGroup, groupIds, placeOf, type Group } from '../src/analysis/coach/groups';
 import { GROUP_MIN_SHARE, LAYLINE_MAX_DEG, LAYLINE_MIN_DEG, RUN_LAYLINE_DEG, distToGo, fleetVmg, gapAt, gapSeries, laylineDeg, rung, type Course } from '../src/analysis/coach/ladder';
@@ -10,10 +8,7 @@ import { MS_TO_KN, bearingVec, makeProjection, type Vec } from '../src/analysis/
 import { projectTrack } from '../src/analysis/prepare';
 import { j105Race } from './helpers';
 import type { BoatResult, LegResult } from '../src/analysis/types';
-import { coachHighlight, coachLegendName, groupParam, ladderBoatColor, ladderLegSpans, mergeLadderLegLabels, nullSpans, gapWords, parseBoatParam, parseGroupParam, racePlaces } from '../src/ui/coach';
-import { parseLastView, serializeLastView, startTab, resolveStart, type LastView } from '../src/ui/lastView';
-import { COACH_TABS, TABS, coachEnabled, initialTab, parseTab, tabForKey, tabFromHash, tabsFor } from '../src/ui/tabs';
-import type { RegattaDoc } from '../src/data/racesense/types';
+import { coachHighlight, coachLegendName, groupParam, ladderBoatColor, ladderLegSpans, mergeLadderLegLabels, nullSpans, gapWords, parseBoatParam, parseGroupParam } from '../src/ui/coach';
 
 /** A track from (t s, x m, y m) triples. */
 const track = (id: string, pts: [number, number, number][], bounds: (number | null)[] = [0, 1e9]): CoachTrack => ({
@@ -310,7 +305,7 @@ describe('the group in the URL (grp=)', () => {
   it('a custom list round-trips through the query string, sail numbers with spaces and all', () => {
     const g: Group = { kind: 'custom', ids: ['USA 242', 'USA 328'] };
     expect(groupParam(g)).toBe('c:USA 242,USA 328');
-    const u = new URL('https://recall.example/?event=x&coach=1');
+    const u = new URL('https://recall.example/?event=x');
     u.searchParams.set('grp', groupParam(g));
     expect(parseGroupParam(new URL(u.toString()).searchParams.get('grp'))).toEqual(g);
     expect(parseGroupParam(new URLSearchParams('grp=c:USA%20242,USA%20328').get('grp'))).toEqual(g);
@@ -323,42 +318,6 @@ describe('the group in the URL (grp=)', () => {
     expect(groupIds([{ id: 'A', finishPos: 1, legs: [] }], 'Z', parseGroupParam('c:A,GHOST')!)).toEqual(['A']);
     // An id with a comma can't be listed.
     expect(groupParam({ kind: 'custom', ids: ['A,1', 'B'] })).toBe('c:B');
-  });
-});
-
-describe('the Coach feature flag', () => {
-  it('?coach=1 turns it on; anything else leaves the two tabs', () => {
-    expect(coachEnabled('?coach=1')).toBe(true);
-    expect(coachEnabled('?event=x&coach=1&race=2')).toBe(true);
-    for (const s of ['', '?coach=0', '?coach=true', '?coach', '?Coach=1']) expect(coachEnabled(s)).toBe(false);
-    expect(tabsFor(false)).toEqual(TABS);
-    expect(tabsFor(true)).toEqual(COACH_TABS);
-  });
-
-  it('without the flag #coach is no tab; with it, it opens and keys reach it', () => {
-    expect(parseTab('coach')).toBeNull();
-    expect(tabFromHash('#coach')).toBeNull();
-    expect(initialTab('#coach', 'race', true)).toBe('race');
-    expect(tabFromHash('#coach', COACH_TABS)).toBe('coach');
-    expect(initialTab('#coach', 'race', true, COACH_TABS)).toBe('coach');
-    expect(tabForKey('race', 'ArrowRight')).toBe('start');
-    expect(tabForKey('race', 'ArrowRight', COACH_TABS)).toBe('coach');
-    expect(tabForKey('start', 'End', COACH_TABS)).toBe('coach');
-  });
-
-  it('a saved Coach tab is kept in recall.lastView, and restores only with the flag', () => {
-    const rec: LastView = { v: 1, eventId: 'event-1234', division: 'J105', raceNumber: 3, leg: null, boat: 'USA 96', sort: null, tab: 'coach', savedAt: 1 };
-    expect(parseLastView(serializeLastView(rec))).toEqual(rec);
-    const plan = resolveStart('', rec);
-    expect(startTab('', plan, rec)).toBe('start');
-    expect(startTab('', plan, rec, COACH_TABS)).toBe('coach');
-  });
-
-  it('index.html: the Coach tab and panel are there, hidden until the flag shows them', () => {
-    const html = readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8');
-    expect(html).toContain('<button type="button" role="tab" id="tab-coach" aria-controls="panel-coach" aria-selected="false" tabindex="-1" hidden>Coach</button>');
-    expect(html).toMatch(/<div id="panel-coach" class="panel" role="tabpanel" aria-labelledby="tab-coach" tabindex="-1" hidden>/);
-    for (const id of ['coach-pick', 'coach-head', 'coach-group', 'coach-ladder', 'coach-cards']) expect(html).toContain(`id="${id}"`);
   });
 });
 
@@ -380,29 +339,6 @@ describe('lineCrossing', () => {
 });
 
 describe('Coach UI helpers', () => {
-  it('racePlaces: the boat’s tracked place in each finished race of the division', () => {
-    const fin = (sail: string, iso: string) => ({ sailNumber: sail, finishingTime: iso });
-    const doc = {
-      divisions: [
-        {
-          name: 'J105',
-          races: [
-            { raceNumber: 2, finishes: [fin('B', '2026-10-18T17:00:00Z'), fin('A', '2026-10-18T17:01:00Z')] },
-            { raceNumber: 1, finishes: [fin('A', '2026-10-18T15:00:00Z'), fin('B', '2026-10-18T15:01:00Z')] },
-            { raceNumber: 3, finishes: [fin('B', '2026-10-18T19:00:00Z')] },
-            { raceNumber: 4, finishes: [] },
-          ],
-        },
-      ],
-    } as unknown as RegattaDoc;
-    expect(racePlaces(doc, 'J105', 'A')).toEqual([
-      { raceNumber: 1, place: 1, of: 2 },
-      { raceNumber: 2, place: 2, of: 2 },
-      { raceNumber: 3, place: null, of: 1 },
-    ]);
-    expect(racePlaces(doc, 'J70', 'A')).toEqual([]);
-  });
-
   it('nullSpans: holes in the median of 20 s or more, from the last value before', () => {
     const p = (s: number, v: number | null) => ({ tMs: s * 1000, behindS: v });
     expect(nullSpans([p(0, 1), p(10, null), p(20, null), p(30, 2), p(40, null), p(50, 3)])).toEqual([

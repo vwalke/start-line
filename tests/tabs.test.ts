@@ -16,10 +16,11 @@ const rec: LastView = {
 };
 
 describe('tab parse / serialize', () => {
-  it('names two tabs, Start by default', () => {
-    expect(TABS).toEqual(['start', 'race']);
+  it('names three tabs, Start by default', () => {
+    expect(TABS).toEqual(['start', 'race', 'coach']);
     expect(DEFAULT_TAB).toBe('start');
     expect(parseTab('race')).toBe('race');
+    expect(parseTab('coach')).toBe('coach');
     for (const bad of [null, undefined, '', 'Race', 'legs', 1, {}]) expect(parseTab(bad)).toBeNull();
   });
 
@@ -40,10 +41,11 @@ describe('tab parse / serialize', () => {
 
   it('arrow keys wrap, Home / End jump, other keys do nothing', () => {
     expect(tabForKey('start', 'ArrowRight')).toBe('race');
-    expect(tabForKey('race', 'ArrowRight')).toBe('start');
-    expect(tabForKey('start', 'ArrowLeft')).toBe('race');
+    expect(tabForKey('race', 'ArrowRight')).toBe('coach');
+    expect(tabForKey('coach', 'ArrowRight')).toBe('start');
+    expect(tabForKey('start', 'ArrowLeft')).toBe('coach');
     expect(tabForKey('race', 'Home')).toBe('start');
-    expect(tabForKey('start', 'End')).toBe('race');
+    expect(tabForKey('start', 'End')).toBe('coach');
     for (const k of ['ArrowUp', 'ArrowDown', 'Enter', 'a']) expect(tabForKey('start', k)).toBeNull();
   });
 });

@@ -8,7 +8,7 @@ import type { RaceListItem } from '../data/racesense/adapter';
 import { parsePickerParams, parseYscParam, type PickerParams } from './params';
 import { readPref, removePref, writePref } from './speed';
 import { sortTable, type SortState } from './table';
-import { COACH_TABS, TABS, initialTab, parseTab, type Tab } from './tabs';
+import { TABS, initialTab, parseTab, type Tab } from './tabs';
 
 export const LAST_VIEW_KEY = 'recall.lastView';
 /** As the /api proxy accepts (functions/_lib.ts). */
@@ -71,8 +71,8 @@ export function parseLastView(raw: string | null | undefined): LastView | null {
   const startSort = parseSort(x.startSort);
   if (startSort) out.startSort = startSort;
   if (x.allCompetitors) out.allCompetitors = true;
-  // Added with the tabs: optional, and an unknown one is just dropped (Coach is kept: whether it opens depends on the flag).
-  const tab = parseTab(x.tab, COACH_TABS);
+  // Added with the tabs: optional, and an unknown one is just dropped.
+  const tab = parseTab(x.tab);
   if (tab) out.tab = tab;
   // Added with official results: optional, and a malformed one is just dropped.
   if (typeof x.ys === 'number' && Number.isInteger(x.ys) && x.ys >= 0 && x.ys < 1e7) {
