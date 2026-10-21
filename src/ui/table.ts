@@ -15,6 +15,8 @@ import { boatColor, pickedExcluded } from './charts';
 import { duration, esc, f0, f1, f2, fM, localTime, ordinal, pct, twaLabel } from './format';
 import { capHtml, infoHtml, warnChip, type Chip, type KeyLine } from './info';
 import { windChip } from './startLine';
+import { gateSides } from '../analysis/coach/gateSides';
+import { gateChip } from './coachLegs';
 
 export type SortDir = 'asc' | 'desc';
 /** Which column the rows are sorted by (null = finish order, as analysed). */
@@ -593,6 +595,8 @@ function legColumns(a: RaceAnalysis): Col[] {
     const i = leg.index;
     const group = { id: `L${i}`, label: leg.name, title: `${leg.name} to ${leg.to}` };
     const L = (b: BoatResult): LegResult | null => b.legs[i] ?? null;
+    // A leg ending at a two-buoy leeward gate: each boat's buoy, looking upwind (gateSides.ts).
+    const gate = gateSides(a).get(i);
     cols.push(
       {
         key: `L${i}.vmg`,
@@ -668,7 +672,7 @@ function legColumns(a: RaceAnalysis): Col[] {
       {
         key: `L${i}.time`,
         head: 'Time<br><small>place</small>',
-        title: `${leg.name}: leg time (m:ss) and place at ${leg.to}`,
+        title: `${leg.name}: leg time (m:ss) and place at ${leg.to}${gate ? '; Gate L/R: the gate buoy rounded, looking upwind' : ''}`,
         group,
         sort: (b) => L(b)?.timeS,
         first: 'asc',
@@ -677,7 +681,9 @@ function legColumns(a: RaceAnalysis): Col[] {
           const l = L(b);
           if (!l) return '—';
           const t = l.timeGapS == null ? duration(l.timeS) : gapSpan(`Approximate: a rounding in a ${Math.round(l.timeGapS)} s telemetry gap`, duration(l.timeS));
-          return `${t}${l.rankAtEnd ? ` <small class="rk">${ordinal(l.rankAtEnd)}</small>` : ''}`;
+          const side = gate?.get(b.id);
+          const g = side ? ` <small class="gate" title="Rounded the ${side} buoy of the gate, looking upwind">${gateChip(side)}</small>` : '';
+          return `${t}${l.rankAtEnd ? ` <small class="rk">${ordinal(l.rankAtEnd)}</small>` : ''}${g}`;
         },
       },
     );

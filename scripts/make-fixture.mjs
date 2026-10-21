@@ -21,6 +21,8 @@
 //        finishers (the top 3 and the 4th–9th boats of the debrief's Beat 2 gap) every 4 s, the other 8 boats every
 //        10 s (the fleet's wind needs them all); every boat at full rate 44.5–47.5 min after the gun and every 2 s to
 //        50 min (Beat 2's swing) → tests/fixtures/j105_r3.json (~1.5 MB).
+//   gate-j24r2, gate-j24r5, gate-j111r5, gate-ic37r2, gate-m24r5, gate-viperr2: the gate-choice (D13) goldens, whole
+//        fleets from the coach-testraces cache (see `gate` below) → tests/fixtures/gate_<key>.json.
 // m24 and j88 read the survey downloads (regatta_<event>.json, tele_<event>_<div>_<race>.json
 // as an array of telemetry pages, wind_<event>_<YYYY-MM-DD>.json), e.g. from /workspace/legsplit-data.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -157,6 +159,46 @@ PRESETS.ic37 = {
   round: true,
 };
 
+// The Coach's gate-choice (D13) goldens: whole fleets of races with a tracked leeward gate, from the coach-testraces
+// cache (docs/<event>.json, tele/<event>_<division>_<gun − 60 s>.json as {F, R}), e.g. /workspace/coach-testraces. No
+// wind file. Each competitor at 1 Hz within ±6 min of its own first approach to the gate (within 60 m of either buoy
+// after being 400 m away), every 10 s elsewhere (the legs and the fleet's wind); course marks every 20 s; positions
+// rounded; boat names dropped (sail numbers only); the race only. Out: tests/fixtures/gate_<key>.json.
+// (Every 10 s elsewhere, heading to 1°, SOG to 0.1 kn: the six together stay near 10 MB.)
+const gate = (key, event, division, race, label) => ({
+  event,
+  division,
+  race,
+  regatta: `docs/${event}.json`,
+  tele: (gun) => `tele/${event}_${division.replace(/ /g, '_')}_${gun - 60_000}.json`,
+  out: `tests/fixtures/gate_${key}.json`,
+  note: `Trimmed from public RaceSense data: ${label}, race ${race} (whole fleet: 1 Hz within ±6 min of each boat's gate rounding, every 8 s elsewhere; course marks only; no IMU; no boat names). See scripts/make-fixture.mjs --preset gate-${key}.`,
+  event_: (doc) => ({ classLabel: doc.divisions[0].boatClass, startMs: doc.startDate, endMs: doc.endDate }),
+  races: [race],
+  // 10 s keeps course-over-ground pairs (≤ 12 s apart) for the fleet's wind away from the gate.
+  step: 10_000,
+  nearStep: 1_000,
+  gateDense: { padMs: 6 * 60_000, step: 1_000, nearM: 60, armM: 400 },
+  courseMarksOnly: true,
+  drop: ['division', 'race_number', 'start_number', 'race_stage', 'roll', 'pitch', 'status'],
+  round: true,
+  // Heading to 1°, SOG to 0.1 kn: inside the trackers' noise, and ~10 % smaller.
+  dp: { heading: 0, sog: 1 },
+  noNames: true,
+});
+PRESETS['gate-j24r2'] = gate('j24r2', '6LSa5fm6Vv744mphO4K7', 'J-24', 2, 'J/24 National Championship');
+PRESETS['gate-j24r5'] = gate('j24r5', '6LSa5fm6Vv744mphO4K7', 'J-24', 5, 'J/24 National Championship');
+PRESETS['gate-j111r5'] = gate('j111r5', 'oEpeslRbCGEtYkhCAyVB', 'J-111', 5, 'J/111 North Americans');
+PRESETS['gate-ic37r2'] = gate('ic37r2', 'VaWTh1uA7TrLejoSFlUn', 'IC37', 2, 'IC37 North American Championship');
+PRESETS['gate-m24r5'] = gate('m24r5', 'i6WfokvPgVWlOVwyaaer', 'M24', 5, 'Melges 24 Worlds');
+// Viper R2 only shows that the gate isn't rounded into a beat (the run ends at the finish, past the gate): every 8 s, no gate window.
+PRESETS['gate-viperr2'] = {
+  ...gate('viperr2', 'vfnoXbCfU7JMifjuB1KB', 'Viper 640', 2, 'Viper 640 North Americans'),
+  note: 'Trimmed from public RaceSense data: Viper 640 North Americans, race 2 (whole fleet every 8 s: the run ends at the finish past the gate; course marks only; no IMU; no boat names). See scripts/make-fixture.mjs --preset gate-viperr2.',
+  step: 8_000,
+  gateDense: undefined,
+};
+
 const args = process.argv.slice(2);
 const pi = args.indexOf('--preset');
 const preset = PRESETS[pi >= 0 ? args[pi + 1] : 'benelux'];
@@ -195,10 +237,15 @@ if (preset.slimOthers) {
   );
 }
 
-const wind = JSON.parse(readFileSync(join(dir, typeof preset.wind === 'function' ? preset.wind(gun) : preset.wind), 'utf8'));
-// A single telemetry page, or the array of pages fetchTelemetry returns (null pages skipped).
-const readJson = (f) => JSON.parse(readFileSync(join(dir, f), 'utf8'));
-const rawTele = Array.isArray(preset.tele) ? preset.tele.map(readJson) : readJson(preset.tele);
+const wind = preset.wind ? JSON.parse(readFileSync(join(dir, typeof preset.wind === 'function' ? preset.wind(gun) : preset.wind), 'utf8')) : null;
+// Sail numbers only: no boat names in the fixture.
+if (preset.noNames) for (const d of doc.divisions) d.participants = (d.participants ?? []).map(({ boatName: _boatName, ...p }) => p);
+// A single telemetry page, or the array of pages fetchTelemetry returns (null pages skipped); the cache's {F, R} as a page.
+const readJson = (f) => {
+  const j = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+  return j.F && j.R ? { Fields: j.F, Rows: j.R } : j;
+};
+const rawTele = Array.isArray(preset.tele) ? preset.tele.map(readJson) : readJson(typeof preset.tele === 'function' ? preset.tele(gun) : preset.tele);
 let tele = rawTele;
 if (Array.isArray(rawTele)) {
   const pages = rawTele.filter((p) => p?.Fields && p.Rows);
@@ -227,6 +274,43 @@ const keep = ['ts', 'sn', 'division', 'sail_number', 'race_number', 'role', 'lat
 );
 const idx = Object.fromEntries(tele.Fields.map((f, i) => [f, i]));
 const rows = [...tele.Rows].sort((a, b) => a[idx.ts] - b[idx.ts]);
+// `gateDense`: each competitor's window around its first approach to the leeward gate (either buoy within nearM,
+// after being armM away from both), from each buoy's position at the time (its nearest fix: a gate is moved).
+const gateWin = new Map();
+if (preset.gateDense) {
+  const g = preset.gateDense;
+  const gateSns = (div.courses ?? []).flatMap((c) => c.achievements.filter((a) => a.type === 'gate').flatMap((a) => a.deviceRoles.map((d) => parseInt(d.sn.slice(-4), 16))));
+  const buoys = [...new Set(gateSns)]
+    .map((sn) => rows.filter((r) => r[idx.role] === 'mark' && r[idx.sn] === sn && r[idx.ts] >= t0 && r[idx.ts] <= t1))
+    .filter((rs) => rs.length);
+  const at = (rs, t) => {
+    let lo = 0;
+    let hi = rs.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (rs[mid][idx.ts] <= t) lo = mid;
+      else hi = mid;
+    }
+    return Math.abs(rs[lo][idx.ts] - t) <= Math.abs(rs[hi][idx.ts] - t) ? rs[lo] : rs[hi];
+  };
+  const kx = 111_195 * Math.cos((buoys[0]?.[0][idx.latitude] ?? 0) * (Math.PI / 180));
+  const dist = (r) =>
+    Math.min(
+      ...buoys.map((rs) => {
+        const b = at(rs, r[idx.ts]);
+        return Math.hypot((r[idx.longitude] - b[idx.longitude]) * kx, (r[idx.latitude] - b[idx.latitude]) * 111_195);
+      }),
+    );
+  const armed = new Map();
+  for (const r of rows) {
+    const sail = r[idx.sail_number];
+    if (r[idx.role] !== 'competitor' || !buoys.length || gateWin.has(sail) || r[idx.ts] < gun || r[idx.ts] > t1) continue;
+    const d = dist(r);
+    if (d > g.armM) armed.set(sail, true);
+    else if (armed.get(sail) && d <= g.nearM) gateWin.set(sail, [r[idx.ts] - g.padMs, r[idx.ts] + g.padMs]);
+  }
+  if (args.includes('--debug')) console.log('gate buoys', gateSns, buoys.length, [...gateWin].map(([s, [a]]) => `${s} +${((a + g.padMs - gun) / 60_000).toFixed(1)} min`).join(', '));
+}
 const lastKept = new Map();
 const outRows = [];
 for (const r of rows) {
@@ -239,13 +323,16 @@ for (const r of rows) {
   const sail = r[idx.sail_number];
   // `dense`: stretches of race (ms from the gun) kept at a finer step for every boat (the first that holds `ts`).
   const dense = (preset.dense ?? []).find((d) => ts >= gun + d.from && ts <= gun + d.to);
+  const gw = gateWin.get(sail);
   const step = isMark
     ? 20_000
     : full.has(sail)
       ? 0
       : near
         ? (preset.nearStep ?? 0)
-        : dense
+        : gw && ts >= gw[0] && ts <= gw[1]
+          ? preset.gateDense.step
+          : dense
           ? dense.step
           : extra.has(sail)
             ? (preset.extraStep ?? STEP)
@@ -256,7 +343,7 @@ for (const r of rows) {
   if (prev !== undefined && ts === prev) continue;
   lastKept.set(key, ts);
   // `round`: positions to 1e-6° (~0.1 m), heading to 0.1°, SOG to 0.01 kn — well inside the trackers' noise.
-  const DP = { latitude: 6, longitude: 6, heading: 1, sog: 2 };
+  const DP = { latitude: 6, longitude: 6, heading: 1, sog: 2, ...preset.dp };
   outRows.push(keep.map((f) => (preset.round && DP[f] != null && typeof r[idx[f]] === 'number' ? Number(r[idx[f]].toFixed(DP[f])) : r[idx[f]])));
 }
 
@@ -269,4 +356,4 @@ const fixture = {
   telemetry: { Fields: keep, Rows: outRows },
 };
 writeFileSync(out, JSON.stringify(fixture));
-console.log(`wrote ${out}: ${outRows.length} rows, ${(JSON.stringify(fixture).length / 1e6).toFixed(2)} MB`);
+console.log(`wrote ${out}: ${outRows.length} rows, ${(JSON.stringify(fixture).length / 1e6).toFixed(2)} MB${preset.gateDense ? `, ${gateWin.size} boats with a gate window` : ''}`);

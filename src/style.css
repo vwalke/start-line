@@ -673,6 +673,7 @@ table.metrics {
 .metrics th.sorted.sticky0, .metrics td.sorted.sticky0,
 .metrics th.sorted.sticky1, .metrics td.sorted.sticky1 { background: var(--sorted-bg); }
 .metrics .rk { color: var(--ink-3); font-size: 0.72rem; }
+.metrics .gate { color: var(--ink-3); font-size: 0.72rem; margin-left: 4px; }
 .metrics td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; vertical-align: top; }
 .metrics td.boat, .metrics th.boat { text-align: left; }
 .metrics .sticky0, .metrics .sticky1 { position: sticky; background: var(--surface); z-index: 1; }

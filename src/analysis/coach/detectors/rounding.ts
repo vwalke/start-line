@@ -36,7 +36,7 @@
  * DNS/DNC and official extras are left out of the ranking; a DNF/RET is not carried past its last known mark.
  */
 import { bearingVec, dot, len, median, sub, type Vec } from '../../geo';
-import type { LegKind } from '../../types';
+import type { LegKind, RaceAnalysis } from '../../types';
 import type { ZoneTrack } from '../index';
 import { progressAt, progressBase, type ProgressBase, type ProgressPlaces } from '../progress';
 import { posAt } from '../tracks';
@@ -150,13 +150,18 @@ export interface RoundingPass {
 
 /** The mark rounded at the end of leg `k`: its points (both ends of a gate), and whether it was placed from the fleet's turns. */
 export function markAt(ctx: Pick<CoachCtx, 'a' | 'm'>, k: number): { pts: Vec[]; estimated: boolean; gate: boolean } | null {
-  const turn = ctx.m.course.pts[k + 1];
+  return markOf(ctx.a, ctx.m.course.pts, k);
+}
+
+/** markAt from the analysis alone: `pts` the course's turn points (RaceAnalysis.legPts, the Coach model's course.pts). */
+export function markOf(a: Pick<RaceAnalysis, 'legs' | 'marks' | 'legSource'>, pts: readonly Vec[], k: number): { pts: Vec[]; estimated: boolean; gate: boolean } | null {
+  const turn = pts[k + 1];
   if (!turn) return null;
-  const name = ctx.a.legs[k]?.to;
-  const near = ctx.a.marks.filter((m) => m.name === name && m.xy.some((p) => len(sub(p, turn)) <= D9_MARK_MATCH_M));
+  const name = a.legs[k]?.to;
+  const near = a.marks.filter((m) => m.name === name && m.xy.some((p) => len(sub(p, turn)) <= D9_MARK_MATCH_M));
   const pick = near.length ? near.reduce((b, m) => (Math.min(...m.xy.map((p) => len(sub(p, turn)))) < Math.min(...b.xy.map((p) => len(sub(p, turn)))) ? m : b)) : null;
-  if (pick) return { pts: pick.xy, estimated: !!pick.estimated || ctx.a.legSource === 'none', gate: pick.xy.length > 1 };
-  return { pts: [turn], estimated: ctx.a.legSource === 'fleet' || ctx.a.legSource === 'none', gate: false };
+  if (pick) return { pts: pick.xy, estimated: !!pick.estimated || a.legSource === 'none', gate: pick.xy.length > 1 };
+  return { pts: [turn], estimated: a.legSource === 'fleet' || a.legSource === 'none', gate: false };
 }
 
 const distTo = (pts: readonly Vec[], p: Vec): number => Math.min(...pts.map((q) => len(sub(p, q))));

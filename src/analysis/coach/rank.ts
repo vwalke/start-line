@@ -10,6 +10,9 @@
  * way: a leg's rate finding loses the loop's stretch (the loop explains it), never the other way round; and a loop is
  * taken before any other card, so a start card's first minutes (D3) or a leg's gap give up the loop's stretch too
  * (benelux J70 R8, boat 3: a 360 at +3 min was otherwise "lost ground after the start").
+ * The gate choice (D13) is a moment too: its passage (the last of the run to the first 300 m of the beat) is the
+ * choice's, not the next beat's shift window (D4) or its rate findings (J/24 R2 USA 2607: Beat 2's D4 window took
+ * three quarters of the passage and left the gate card under its minimum).
  */
 import { CONF_WEIGHT, confidenceOf, minSeconds, type ConfLimit, type Opportunity } from './opportunity';
 
@@ -63,8 +66,8 @@ function trimmed(o: Card, taken: readonly Opportunity[]): Card {
 
 /** Start findings: their window is never trimmed by a rate finding. */
 export const START_KINDS: ReadonlySet<Opportunity['kind']> = new Set(['D1', 'D3']);
-/** Moments other than the start whose window a rate finding gives up too: penalty turns. */
-export const MOMENT_KINDS: ReadonlySet<Opportunity['kind']> = new Set(['D12']);
+/** Moments other than the start whose window a rate finding gives up too: penalty turns, and the gate choice. */
+export const MOMENT_KINDS: ReadonlySet<Opportunity['kind']> = new Set(['D12', 'D13']);
 /** Rate × time findings over whole legs: trimmed for the start's window instead. */
 export const RATE_KINDS: ReadonlySet<Opportunity['kind']> = new Set(['D6', 'D7', 'D11']);
 

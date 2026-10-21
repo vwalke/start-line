@@ -140,6 +140,27 @@ are shared by all three.
     turns (720)"), taken first: the start card's first minutes and the legs'
     rate findings give up the loop's stretch. Over 24 cached races (731 boats)
     it flags 11 loops, each a continuous one-way turn.
+  - **D13 gate choice** (`gate.ts`, sides in `gateSides.ts`): at a leeward gate
+    with both buoys tracked, the buoy each boat rounded, named looking upwind from
+    the geometry (never the feed's gateLeft/gateRight: those are looking
+    downwind): the nearer at its closest approach, when clearly nearer (≤ 0.6 of
+    the other) with fixes ≤ 6 s apart around it. The wind at the gate is the
+    fleet's tack bisector on the beat after it; the upper buoy is favoured when it
+    is ≥ max(10 m, 1.5 lengths) higher and worth ≥ 6 s (beat + run VMG), and
+    confirmed when the boats rounding it were quicker from 150 m above the gate on
+    the run to 300 m up the beat, by ≥ half that. The unfavoured buoy, ≥ 5 s slower
+    than the other side's boats rounding within 3 min, is a card ("Leeward gate:
+    took the left mark (looking upwind) — 17 m further downwind, about 9 s on the
+    beat. Boats rounding the right mark at the same time were 46 s quicker 300 m up
+    the beat; you lost 10 places."); seconds = the side difference, high / medium
+    (under 5 boats a side) / low (the wind moved 10°+ around the rounding). No card
+    when the favoured buoy was busy (3+ boats in the 20 s before, and they were no
+    quicker), for a stop (1.6× the median passage) or a penalty turn in the
+    passage; the next beat's side paying nets the cost ("net −12 s", or a ➕).
+    The favoured buoy and 2+ places gained is a Went well line. D9's sparse-data
+    places at the same rounding ride on the card. "Gate L/R" on the legs table and
+    the leg story; a gate-choice subtheme of the leeward roundings in the Regatta
+    view. J/24 Nationals R2/R5 fire; J/111, IC37 and Melges 24 gates don't.
   - **Regatta view, Penalties:** a row above the pattern cards, one line per code
     ("DPI in 8 of 8 races · 24 penalty points · ≈ 24 places", "UFD in 1 of 8 races
     (R3) · 16 points; result lost") and penalty turns ("Penalty turns in 2 of 8

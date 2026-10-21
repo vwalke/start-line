@@ -124,18 +124,22 @@ export function wentOf(a: Pick<RaceAnalysis, 'legs'>, n: GoodNote): WentDigest {
   const f = n.facts;
   const seconds = n.seconds ?? 0;
   if (n.detector === 'D9') return { family: `round:${n.variant}`, label: String(f.mark ?? 'Mark'), seconds };
+  if (n.detector === 'D13') return { family: 'round:gate', label: String(f.mark ?? 'Leeward gate'), seconds };
   if (n.detector === 'D1' || n.detector === 'D3') return { family: 'start', label: n.detector === 'D1' ? 'Start' : 'First minutes', seconds };
   if (n.detector === 'D11') return { family: `heel:${f.legKind === 'downwind' ? 'downwind' : 'upwind'}`, label: String(f.leg ?? 'Leg'), seconds };
   const leg = a.legs.find((l) => l.name === f.leg);
   return { family: `leg:${leg?.kind ?? 'upwind'}`, label: String(f.leg ?? 'Leg'), seconds };
 }
 
-/** The themes a data-gated detector's findings fall in: what the race had data for (D8, each kind of mark D9 timed, the legs D11 compared heel on). */
-export const evaluatedThemes = (q: { D8: boolean; D9: readonly string[]; D11?: readonly string[] }): string[] => [
+/** The themes a data-gated detector's findings fall in: what the race had data for (D8, each kind of mark D9 timed, the legs D11 compared heel on, a gate D13 judged). */
+export const evaluatedThemes = (q: { D8: boolean; D9: readonly string[]; D11?: readonly string[]; D13?: boolean }): string[] => [
   ...(q.D8 ? ['dirty-air'] : []),
   ...q.D9.map((t) => `round-${t}`),
+  ...(q.D13 ? [GATE_THEME] : []),
   ...(q.D11 ?? []).flatMap((k) => HEEL_THEMES[k] ?? []),
 ];
+/** Gate choice (D13): a subtheme of the leeward roundings (its own "of N": the races D13 judged a gate in). */
+export const GATE_THEME = 'round-leeward-gate';
 /** The heel themes each kind of leg D11 compared can measure. */
 const HEEL_THEMES: Record<string, string[]> = { upwind: ['heel-over', 'heel-under'], downwind: ['heel-down'] };
 /** A theme only some races can measure: its "of N races" counts those races only. */
@@ -253,6 +257,7 @@ export const THEMES: Record<string, Theme> = {
   'dirty-air': { label: 'Dirty air early on the beats', phrase: 'in dirty air early on the beats', pattern: 'You sailed in dirty air early on the beats' },
   'round-windward': { label: 'Windward mark roundings', phrase: 'slow or wide at the windward mark', pattern: 'Windward roundings cost you time' },
   'round-leeward': { label: 'Leeward mark roundings', phrase: 'slow or wide at the leeward mark', pattern: 'Leeward roundings cost you time' },
+  [GATE_THEME]: { label: 'Leeward roundings: gate choice', phrase: 'rounding the unfavoured gate mark', pattern: 'The unfavoured gate mark cost you time' },
   'round-offset': { label: 'Offset mark roundings', phrase: 'slow or wide at the offset mark', pattern: 'Offset-mark roundings cost you time' },
   'round-reach': { label: 'Reach mark roundings', phrase: 'slow or wide at the reach marks', pattern: 'Reach-mark roundings cost you time' },
   'heel-over': { label: 'Over-heeled upwind', phrase: 'over-heeled and slower upwind', pattern: 'Over-heeled upwind' },
@@ -288,6 +293,8 @@ export function themeKey(kind: DetectorKind, variant: string): string {
     case 'D12':
       // Never a theme (raceDigest leaves D12 out of the findings): the Penalties row says it.
       return 'penalty-turns';
+    case 'D13':
+      return GATE_THEME;
   }
 }
 export const themeOf = (key: string): Theme => THEMES[key] ?? { label: key, phrase: key, pattern: key };
@@ -323,6 +330,7 @@ const TIPS: Record<string, string> = {
   'D11:windward': 'On the runs keep the boat flat; heel to windward only as far as the faster boats do.',
   'D11:rolling': 'Steady the boat on the runs: smooth steering and trim, and keep the weight still.',
   D12: 'Keep clear early: a penalty turn costs far more than giving room or ducking.',
+  D13: 'Before the gate, look upwind: round the buoy further upwind unless it is crowded.',
 };
 export const tipOf = (kind: DetectorKind, variant: string): string => TIPS[`${kind}:${variant}`] ?? TIPS[kind] ?? '';
 
@@ -511,6 +519,7 @@ const FAMILY_TITLE: Record<string, string> = {
   'round:leeward': 'Leeward roundings',
   'round:offset': 'Offset roundings',
   'round:reach': 'Reach-mark roundings',
+  'round:gate': 'Gate choice',
   'heel:upwind': 'Heel upwind',
   'heel:downwind': 'Heel on the runs',
 };
@@ -570,6 +579,12 @@ export function summarizeRegatta(races: readonly RegattaRace[]): RegattaSummary 
   }
   for (const f of byTheme.values()) f.tip = [...variants.get(f.theme)!.entries()].sort((p, q) => q[1].s - p[1].s || p[0].localeCompare(q[0]))[0][1].tip;
   const findings = [...byTheme.values()].sort((p, q) => q.weightedS - p.weightedS || q.races - p.races || p.label.localeCompare(q.label));
+  // Gate choice is a subtheme of the leeward roundings: listed right under them when both recur.
+  const gi = findings.findIndex((f) => f.theme === GATE_THEME);
+  if (gi >= 0 && findings.some((f) => f.theme === 'round-leeward')) {
+    const [gate] = findings.splice(gi, 1);
+    findings.splice(findings.findIndex((f) => f.theme === 'round-leeward') + 1, 0, gate);
+  }
 
   // Legs by type: weighted mean vs the fleet's median (a poorly covered leg, or one timed across a hole, counts less),
   // and the best and worst single leg, from the well-covered legs when there are any.
@@ -630,11 +645,10 @@ export function summarizeRegatta(races: readonly RegattaRace[]): RegattaSummary 
  */
 export function wentWellOf(races: readonly (RegattaRace & { weight: number })[]): WentWell[] {
   const by = new Map<string, WentWell>();
-  // Heel (D11) went well only in races that had the heel data to compare: those are its "of N".
+  // Heel (D11) and gate choice (D13) went well only in races that had the data to judge: those are their "of N".
   const ofFamily = (family: string): number => {
-    const k = family.startsWith('heel:') ? family.slice(5) : null;
-    if (!k) return races.length;
-    const theme = HEEL_THEMES[k][0];
+    const theme = family === 'round:gate' ? GATE_THEME : family.startsWith('heel:') ? HEEL_THEMES[family.slice(5)]?.[0] : null;
+    if (!theme) return races.length;
     return races.filter((x) => (x.digest?.evaluated ?? []).includes(theme) || (x.digest?.went ?? []).some((w) => w.family === family)).length;
   };
   for (const r of races) {
