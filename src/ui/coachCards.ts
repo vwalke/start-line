@@ -6,6 +6,11 @@
  * in code. Then the ✓ Not the problem row and the ➕ Went well list (at most 3,
  * with the seconds gained).
  *
+ * An official code is the penalty card (analysis/coach/penalty.ts), pinned above the ranked cards and never
+ * numbered: the code, what it means, what it cost in places ("Cost 3 places — 12th on the water, scored 15th"), the
+ * over-the-line figures of a scored OCS / UFD / BFD and any penalty turns. The ranked cards then sit under a heading
+ * that says they are smaller than the penalty.
+ *
  * A card's window chip is a toggle button: pressed, the gap chart shades the
  * card's window (a click anywhere on the card does the same).
  */
@@ -14,6 +19,9 @@ import { D3_WINDOW_MS } from '../analysis/coach/detectors/early';
 import { D9_SLOW_S } from '../analysis/coach/detectors/rounding';
 import { D8_WINDOW_MS } from '../analysis/coach/detectors/shadow';
 import type { Fact, GoodNote } from '../analysis/coach/opportunity';
+import type { PenaltyFinding } from '../analysis/coach/penalty';
+import type { PenaltyTurn } from '../analysis/coach/detectors/penaltyTurn';
+import { pointsText } from '../data/official/codes';
 import type { Card } from '../analysis/coach/rank';
 import type { RaceAnalysis } from '../analysis/types';
 import { duration, esc, f1, localTime, ordinal, pct } from './format';
@@ -269,6 +277,21 @@ export function cardText(c: Card, tz = 0): CardText {
     }
     case 'D11':
       return heelText(c.variant, f);
+    case 'D12': {
+      const loops = num(f.loops);
+      const at = localTime(num(f.firstMs), tz);
+      const mins = Math.round(num(f.firstS) / 60);
+      const what = c.variant === '720' ? 'a 720' : 'a 360';
+      return {
+        title: c.variant === '720' ? 'Penalty turns (720)' : 'Penalty turn (360)',
+        chips: [`at ${at} (+${mins} min)`, `${r0(f.turns)} ${s1(num(f.turns), 'turn', 'turns')}`, ...(loops > 1 ? [`${loops} times`] : [])],
+        sentence:
+          loops > 1
+            ? `You did penalty turns ${loops} times, the first (${what}) at ${at}, ${mins} min after the gun; together they cost about ${sec} s against your course and speed before each.`
+            : `You did ${what} at ${at}, ${mins} min after the gun; it cost about ${sec} s against your course and speed before it.`,
+        tip: TURN_TIP,
+      };
+    }
     default:
       return { title: 'Time lost', chips: [], sentence: `About ${sec} s.`, tip: '' };
   }
@@ -293,6 +316,7 @@ const ocsTitle = (f: Card['facts']): string => `Over early — cleared at +${r0(
 const ocsLead = (f: Card['facts'], behindS: string): string =>
   `You were over at the gun and had to come back; you cleared at +${r0(f.crossS)} s, about ${behindS} s behind the front row.`;
 const OCS_TIP = 'Hold a safe gap to the line in the last 30 s; a bow out costs far more than a second late.';
+const TURN_TIP = 'Keep clear early: a penalty turn costs far more than giving room or ducking.';
 
 /** D1 with the D3 after it (debrief.ts mergeStart): the start and the first 5 minutes as one card. */
 function startText(c: Card, rank: string, front: string): CardText {
@@ -428,7 +452,9 @@ export function cardWarnings(c: Card, a: RaceAnalysis, raceCov?: number | null):
         ? 'marks est.'
         : c.limit === 'wind'
           ? 'wind est.'
-          : c.kind === 'D9' && c.facts.mode === 'places'
+          : c.kind === 'D12'
+            ? 'from the tracker feed'
+            : c.kind === 'D9' && c.facts.mode === 'places'
             ? c.facts.shiftSide != null
               ? 'likely a shift'
               : 'sparse data'
@@ -503,6 +529,66 @@ export function cardHtml(c: Card, i: number, a: RaceAnalysis, on: boolean, raceC
   </article>`;
 }
 
+// ---- the penalty card
+
+/** "15th", or "13.9 points" (an SCP score is fractional). */
+const scoredWord = (p: number): string => (Number.isInteger(p) ? ordinal(p) : `${pointsText(p)} points`);
+const placesWord = (n: number): string => `${pointsText(n)} ${n === 1 ? 'place' : 'places'}`;
+
+/** A penalty turn as the card says it: "720 at 11:23:40 (+18 min), ≈ 45 s". */
+export function turnChip(t: PenaltyTurn, gunMs: number, tz: number): string {
+  const lost = t.lostS != null ? `, ≈ ${Math.round(t.lostS)} s` : '';
+  return `${t.turns === 2 ? '720' : '360'} at ${localTime(t.t0, tz)} (+${Math.round((t.t0 - gunMs) / 60_000)} min)${lost}`;
+}
+
+/** The penalty card's text: the title (what it cost), the chips (the code first), a sentence (what the code means) and a tip. */
+export function penaltyText(p: PenaltyFinding, a: Pick<RaceAnalysis, 'meta'>): CardText & { code: string } {
+  const tz = a.meta.tzOffsetMs;
+  const gun = a.meta.gunMs;
+  let title: string;
+  let sailed = '';
+  if (p.lost) {
+    title = `Scored ${p.code}${p.points != null ? ` — ${pointsText(p.points)} points` : ''}; the result is lost`;
+    if (p.onWater != null) sailed = ` You sailed on to ${ordinal(p.onWater)} on the water.`;
+  } else if (p.onWater != null && p.points != null) {
+    const where = `${ordinal(p.onWater)} on the water, scored ${scoredWord(p.points)}`;
+    const n = p.penaltyPlaces ?? 0;
+    title = p.points < p.onWater ? `Score adjusted — ${where}` : n > 0 ? `Cost ${placesWord(n)} — ${where}` : `No places lost — ${where}`;
+  } else title = `Scored ${p.code}${p.points != null ? ` — ${pointsText(p.points)} points` : ''}`;
+  const o = p.over;
+  const overChips = o
+    ? [
+        ...(o.overM != null ? [`over ${Math.max(1, Math.round(o.overM))} m at gun`] : []),
+        ...(o.backS != null ? [`back +${Math.round(o.backS)} s`] : []),
+        ...(o.clearedS != null ? [`recrossed +${Math.round(o.clearedS)} s`] : []),
+      ]
+    : [];
+  const turnChips = p.turns.map((t) => `penalty turn ${turnChip(t, gun, tz)}`);
+  const turnS = p.turns.reduce((s, t) => s + (t.lostS ?? 0), 0);
+  const turns = p.turns.length
+    ? ` The track shows ${p.turns.length === 1 ? 'a penalty turn' : `${p.turns.length} penalty turns`} (${p.turns.map((t) => (t.turns === 2 ? '720' : '360')).join(', ')})${turnS >= 1 ? `, about ${Math.round(turnS)} s lost` : ''}.`
+    : '';
+  const over = o && (o.overM != null || o.backS != null) ? ` You were over at the gun${o.clearedS != null ? ` and recrossed at +${Math.round(o.clearedS)} s` : ''}.` : '';
+  const tip = o ? OCS_TIP : p.turns.length ? TURN_TIP : '';
+  return { code: p.code, title, chips: [...overChips, ...turnChips], sentence: `${p.meaning}.${sailed}${over}${turns}`, tip };
+}
+
+/** The pinned penalty card (no number, no seconds chip: a penalty is not ranked by seconds). */
+export function penaltyHtml(p: PenaltyFinding, a: Pick<RaceAnalysis, 'meta'>): string {
+  const t = penaltyText(p, a);
+  const chips = [`<li class="chip pen" title="${esc(`Official result: ${p.meaning}`)}">${esc(p.code)}</li>`, ...t.chips.map((x) => chip(x))].join('');
+  return `<article class="card coach-penalty" data-code="${esc(p.code)}" aria-labelledby="coach-penalty-h">
+    <h4 id="coach-penalty-h"><span class="vh">Penalty: </span>${esc(t.title)}</h4>
+    <ul class="chips">${chips}</ul>
+    <p class="opp-what">${esc(t.sentence)}</p>
+    ${t.tip ? `<p class="opp-tip"><b>Tip</b> ${esc(t.tip)}</p>` : ''}
+  </article>`;
+}
+
+/** The ranked cards' heading under a penalty card: they are what cost time on the water, smaller than the penalty. */
+export const rankedHead = (p: PenaltyFinding): string =>
+  p.lost || (p.penaltyPlaces ?? 0) > 0 ? 'Smaller than the penalty: what cost time on the water' : 'What cost time on the water';
+
 /** "Only 2 clear gains with this data" (fewer than 3 cards, at least one). */
 export const fewerLine = (n: number): string => `Only ${n} clear ${n === 1 ? 'gain' : 'gains'} with this data`;
 
@@ -515,16 +601,18 @@ export function wentWellHtml(lines: readonly { text: string; seconds: number }[]
 
 /** The cards, the "only N" line, the ✓ row and the ➕ Went well list; or the no-data line with its coverage chip. */
 export function coachCardsHtml(a: RaceAnalysis, d: CoachDebrief, selected: number | null, trackerCov: number | null): string {
+  // The penalty is the official result: shown whatever the tracker covered.
   if (d.noData) {
-    return `<section class="card coach-nodata"><p>Not enough tracker data for a debrief</p><ul class="chips">${warnLi(`tracker ${pct(trackerCov ?? d.raceCov)}`)}</ul></section>`;
+    return `${d.penalty ? penaltyHtml(d.penalty, a) : ''}<section class="card coach-nodata"><p>Not enough tracker data for a debrief</p><ul class="chips">${warnLi(`tracker ${pct(trackerCov ?? d.raceCov)}`)}</ul></section>`;
   }
   const n = d.cards.length;
+  const pen = d.penalty ? `${penaltyHtml(d.penalty, a)}<h4 class="coach-ranked-head">${esc(rankedHead(d.penalty))}</h4>` : '';
   const fewer = n < 3 ? `<p class="coach-fewer muted">${n ? esc(fewerLine(n)) : 'No clear gains with this data'}</p>` : '';
   const cards = n ? `<div class="coach-opps">${d.cards.map((c, i) => cardHtml(c, i, a, selected === i, d.raceCov)).join('')}</div>` : '';
   const ok = d.ok.flatMap(goodTexts).map((x) => chip(`✓ ${x}`, 'good'));
   const row = ok.length ? `<section class="card coach-ok"><ul class="chips"><li class="ok-lbl">Not the problem</li>${ok.join('')}</ul></section>` : '';
   const went = wentWellHtml(d.plus.map((n) => ({ text: wentText(n), seconds: n.seconds ?? num(n.facts.gainS) })));
-  return `${fewer}${cards}${went}${row}`;
+  return `${pen}${fewer}${cards}${went}${row}`;
 }
 
 /** The windows of card `i` (several for a card summed over legs), for the chart's band. */

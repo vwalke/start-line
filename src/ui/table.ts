@@ -7,6 +7,8 @@
  * column (leftmost) gives each boat's place in that sort.
  */
 import { LOW_COVERAGE } from '../analysis/coverage';
+import { finishRank } from '../analysis/result';
+import { codeShort, codeWords } from './resultText';
 import type { BoatResult, KindSummary, LegKind, LegResult, RaceAnalysis, StartResult } from '../analysis/types';
 import { OCS_BLIND_NOTE, SPAN_MS, startNotes } from '../analysis/validity';
 import { boatColor, pickedExcluded } from './charts';
@@ -60,7 +62,7 @@ export function compareValues(x: SortVal, y: SortVal, dir: SortDir): number {
 /** Boats ordered by `value` in `dir`; ties keep finish order (DNF last), then sail order. */
 export function sortBoats(boats: BoatResult[], value: (b: BoatResult) => SortVal, dir: SortDir): BoatResult[] {
   return [...boats].sort(
-    (a, b) => compareValues(value(a), value(b), dir) || (a.finishPos ?? 1e9) - (b.finishPos ?? 1e9) || a.colorSlot - b.colorSlot,
+    (a, b) => compareValues(value(a), value(b), dir) || (finishRank(a) ?? 1e9) - (finishRank(b) ?? 1e9) || a.colorSlot - b.colorSlot,
   );
 }
 
@@ -319,10 +321,10 @@ function finCol(key: string, sticky = 'sticky0'): Col {
   return {
     key,
     head: 'Fin',
-    title: 'Finish position (DNF = no finish)',
-    sort: (b) => b.finishPos,
+    title: 'Finish position (DNF = no finish; an official code with its points, sorted at its place on the water)',
+    sort: (b) => finishRank(b),
     first: 'asc',
-    cell: (b) => (b.finishPos == null ? 'DNF' : String(b.finishPos)),
+    cell: (b) => (b.finishPos != null ? String(b.finishPos) : b.finishCode ? `<span title="${esc(codeWords(b))}">${esc(codeShort(b)!)}</span>` : 'DNF'),
     cls: `num ${sticky}`,
     role: 'fin',
   };

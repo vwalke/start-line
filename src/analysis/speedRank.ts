@@ -7,6 +7,7 @@
  * outlier can't squash the rest of the fleet into one colour, as a time-based
  * scale would.
  */
+import { finishRank } from './result';
 import type { BoatResult } from './types';
 
 export interface SpeedRank {
@@ -68,7 +69,7 @@ export function raceLegRanks(boats: BoatResult[], legCount: number): Map<string,
  * Non-finishers are unranked.
  */
 export function overallRanks(boats: BoatResult[]): Map<string, SpeedRank> {
-  const finishers = boats.filter((b) => b.finishPos != null || valid(b.raceTimeS));
+  const finishers = boats.filter((b) => finishRank(b) != null || valid(b.raceTimeS));
   const byTime = finishers.every((b) => valid(b.raceTimeS));
   const gap = (b: BoatResult): number | null => {
     const gs = b.legs.map((l) => l?.distGapS).filter((g): g is number => g != null);
@@ -76,7 +77,7 @@ export function overallRanks(boats: BoatResult[]): Map<string, SpeedRank> {
   };
   const entries: Entry[] = [];
   for (const b of finishers) {
-    const key = byTime ? b.raceTimeS : b.finishPos;
+    const key = byTime ? b.raceTimeS : finishRank(b);
     if (key == null || !Number.isFinite(key)) continue;
     entries.push({ id: b.id, key, timeS: valid(b.raceTimeS) ? b.raceTimeS : NaN, gapS: gap(b) });
   }

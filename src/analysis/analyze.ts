@@ -54,6 +54,7 @@ import {
   type WindEstimate,
   type WindInfo,
 } from './types';
+import { finishRank } from './result';
 import { assessStart, rankStarts, sampleGap } from './validity';
 import { classifyLeg, estimateTwd, makeTwdAt, steadyIndices, straddles } from './wind';
 
@@ -562,6 +563,8 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       colorSlot: ranked ? sailOrder.indexOf(b) : -1,
       finishPos: official ? (ranked ? (b.officialPlace ?? null) : null) : pos >= 0 ? pos + 1 : null,
       ...(b.officialCode ? { finishCode: b.officialCode } : {}),
+      ...(official && b.officialPoints != null ? { scoredPoints: b.officialPoints } : {}),
+      ...(official && ranked && b.officialCode && b.onWaterPlace != null ? { onWaterPlace: b.onWaterPlace, ...(b.penaltyPlaces != null ? { penaltyPlaces: b.penaltyPlaces } : {}) } : {}),
       ...(b.finishSource ? { finishSource: b.finishSource } : {}),
       finishMs: b.finishMs,
       raceTimeS,
@@ -676,7 +679,8 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   }
   placeSummaries(results, 'upwind');
   placeSummaries(results, 'downwind');
-  results.sort((a, b) => (a.finishPos ?? 1e9) - (b.finishPos ?? 1e9) || a.colorSlot - b.colorSlot);
+  // Finish order on the water: a boat that finished with a code (DPI, …) sits at its on-water place.
+  results.sort((a, b) => (finishRank(a) ?? 1e9) - (finishRank(b) ?? 1e9) || (a.finishPos == null ? 1 : 0) - (b.finishPos == null ? 1 : 0) || a.colorSlot - b.colorSlot);
 
   const wind: WindInfo = {
     method,

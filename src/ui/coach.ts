@@ -15,6 +15,8 @@ import { RACE_MIN_COVERAGE } from '../analysis/coach/debrief';
 import type { CoachModel, RivalLadder } from '../analysis/coach';
 import { COACH_NEAR_FIX_S } from '../analysis/coach/tracks';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
+import { finishRank } from '../analysis/result';
+import { codeShort, codeWords } from './resultText';
 import { LOW_COVERAGE, fleetOf } from '../analysis/coach/regatta';
 import { boatLabel, degLabel, duration, esc, localTime, ordinal, pct, tzLabel } from './format';
 import { infoHtml, warnChip, type Chip } from './info';
@@ -109,10 +111,12 @@ export function coachChips(
   const official = a.meta.results?.places === 'official';
   const placeBy = official ? 'Official place' : b.finishSource === 'tracker' ? 'Place by the tracker finish (~)' : 'Place by the tracked finish';
   if (b.finishPos != null) chips.push({ text: `${ordinal(b.finishPos)} of ${fleetOf(a)}`, title: placeBy });
-  else if (b.finishCode) chips.push({ text: b.finishCode, title: 'Official result' });
+  else if (b.finishCode) chips.push({ text: codeShort(b)!, title: `Official result: ${codeWords(b)}` });
   else chips.push(warnChip(official ? 'no official place' : 'no tracked finish'));
   const win = a.boats.find((x) => x.finishPos === 1);
-  if (b.finishPos != null && b.finishPos > 1 && b.finishMs != null && win?.finishMs != null) {
+  // Behind the winner on the water (a boat that finished with a code too).
+  const rank = finishRank(b);
+  if (rank != null && rank > 1 && b.finishMs != null && win?.finishMs != null && win.id !== b.id) {
     chips.push({ text: `${Math.round((b.finishMs - win.finishMs) / 1000)} s behind ${win.name && win.name !== `#${win.sail}` ? win.name : win.sail}`, title: `Finish times; ${boatLabel(win, win.id)} won` });
   }
   chips.push({ text: `gun ${hm(a.meta.gunMs, tz)}`, title: `Venue time (${tzLabel(tz)})` });
@@ -152,10 +156,10 @@ export function coachGroupHtml(a: RaceAnalysis, boat: string | null, g: Group, e
   const ticked = new Set(g.kind === 'custom' ? g.ids : []);
   const boxes = [...a.boats]
     .filter((b) => b.id !== boat)
-    .sort((p, q) => (p.finishPos ?? 1e9) - (q.finishPos ?? 1e9))
+    .sort((p, q) => (finishRank(p) ?? 1e9) - (finishRank(q) ?? 1e9))
     .map(
       (b) =>
-        `<li><label><input type="checkbox" data-coach-custom="${esc(b.id)}"${ticked.has(b.id) ? ' checked' : ''}> ${b.finishPos != null ? `${ordinal(b.finishPos)} ` : ''}${esc(boatLabel(b, b.id))}</label></li>`,
+        `<li><label><input type="checkbox" data-coach-custom="${esc(b.id)}"${ticked.has(b.id) ? ' checked' : ''}> ${b.finishPos != null ? `${ordinal(b.finishPos)} ` : b.finishCode ? `${esc(codeShort(b)!)} ` : ''}${esc(boatLabel(b, b.id))}</label></li>`,
     )
     .join('');
   const custom = `<details class="coach-custom"${customOpen ? ' open' : ''}><summary${g.kind === 'custom' ? ' class="on"' : ''}>${esc(GROUP_LABEL.custom)}${g.kind === 'custom' ? ` (${ticked.size})` : ''}</summary><ul>${boxes}</ul></details>`;

@@ -18,6 +18,9 @@ import { startCross } from '../startCross';
 import { boundsOf, coachTracks, longestHole, projectCoachTrack, type CoachTrack } from './tracks';
 import { fleetTwdSeries, type TwdSeries, type TwdSeriesData, twdSeriesFrom } from './twdSeries';
 import { heelTracks, type HeelTrack } from './detectors/heel';
+import { findTurns, type PenaltyTurn } from './detectors/penaltyTurn';
+import type { OverStart } from './penalty';
+import { codeInfo } from '../../data/official/codes';
 
 /** Which race an analysis is (event, division, race, `nc=all`): how the main thread asks the worker for that race's wind. */
 export const coachRaceKey = (eventId: string, division: string, raceNumber: number, allCompetitors = false): string =>
@@ -43,6 +46,10 @@ export interface CoachModel {
   zones: Map<string, ZoneTrack> | null;
   /** Each boat's heel (detectors/heel.ts heelTracks; an uploaded log's at its full rate); null without raw fixes, absent from boats with no roll (D11 not evaluated). */
   heel?: Map<string, HeelTrack> | null;
+  /** Each boat's penalty turns (detectors/penaltyTurn.ts, from the raw fixes: turnTracks); null without raw fixes (D12 not evaluated). */
+  turns?: Map<string, PenaltyTurn[]> | null;
+  /** A boat over at the gun or scored with a start code (OCS / UFD / BFD): when it went back and recrossed (overStarts); null without raw fixes. */
+  overStart?: Map<string, OverStart> | null;
 }
 
 /** Start-line crossings are looked for from this long before the gun (start.py), ms… */
@@ -59,6 +66,10 @@ export interface CoachRaw {
   zones?: Record<string, ZoneTrack>;
   /** Each racing boat's heel from the raw fixes (heelTracks), for D11; boats without roll left out. */
   heel?: Record<string, HeelTrack>;
+  /** Each racing boat's penalty turns (turnTracks), for D12; boats with none left out. */
+  turns?: Record<string, PenaltyTurn[]>;
+  /** The over-the-line boats' return figures (overStarts), for the penalty card of a scored OCS / UFD / BFD. */
+  overStart?: Record<string, OverStart>;
 }
 
 /** A boat's fixes near the marks, projected (the analysis's frame), time-sorted. */
@@ -199,13 +210,72 @@ export function startCrossings(a: RaceAnalysis, data: RaceData): Record<string, 
   return out;
 }
 
-/** The worker's half for the Coach: the wind, the start crossings, the fixes near the marks and the heel, from the raw fixes. */
-export const coachRaw = (a: RaceAnalysis, data: RaceData): CoachRaw => ({
-  wind: coachWind(a, data),
-  crossMs: startCrossings(a, data),
-  zones: zoneTracks(a, data),
-  heel: heelTracks(a, data),
-});
+/**
+ * Every racing boat's penalty turns (detectors/penaltyTurn.ts findTurns) from its raw fixes (an uploaded log at its
+ * full rate), in the analysis's frame: from its start (the line crossing, else the gun; never before the gun) to its
+ * finish (else its last timed rounding, else its last fix), away from the marks (markPoints).
+ */
+export function turnTracks(a: RaceAnalysis, data: RaceData, crossMs: Record<string, number | null>): Record<string, PenaltyTurn[]> {
+  const out: Record<string, PenaltyTurn[]> = {};
+  const marks = markPoints(a);
+  const sl = data.startLine;
+  const proj = makeProjection({ lat: (sl.left.lat + sl.right.lat) / 2, lon: (sl.left.lon + sl.right.lon) / 2 });
+  const byId = new Map(data.boats.map((b) => [b.id, b]));
+  const gun = a.meta.gunMs;
+  for (const r of a.boats) {
+    const b = byId.get(r.id);
+    if (!b) continue;
+    const src = b.fullRate ?? b.track;
+    const n = src.t.length;
+    if (n < 2) continue;
+    const tr = projectCoachTrack({ ...b.track, t: src.t, lat: src.lat, lon: src.lon }, proj);
+    const lastLeg = [...r.legs].reverse().find((l) => l != null)?.endMs ?? null;
+    const toMs = r.finishMs ?? lastLeg ?? src.t[n - 1];
+    const turns = findTurns(tr, { fromMs: Math.max(gun, crossMs[r.id] ?? gun), toMs, marks, fullRate: !!b.fullRate });
+    if (turns.length) out[r.id] = turns;
+  }
+  return out;
+}
+
+/**
+ * When each boat over at the gun, or scored with a start code (OCS / UFD / BFD: codes.ts `start`), went back to the
+ * pre-start side and recrossed (startCross), for the penalty card's over-the-line chips.
+ */
+export function overStarts(a: RaceAnalysis, data: RaceData): Record<string, OverStart> {
+  const out: Record<string, OverStart> = {};
+  const first = a.legPts?.[1];
+  if (!first) return out;
+  const sl = data.startLine;
+  const proj = makeProjection({ lat: (sl.left.lat + sl.right.lat) / 2, lon: (sl.left.lon + sl.right.lon) / 2 });
+  const { left, right } = a.line;
+  const along = sub(right, left);
+  const L = len(along);
+  if (!(L > 0)) return out;
+  let side: Vec = [-along[1] / L, along[0] / L];
+  if (dot(sub(first, left), side) < 0) side = [-side[0], -side[1]];
+  const byId = new Map(data.boats.map((b) => [b.id, b]));
+  const gun = a.meta.gunMs;
+  for (const r of a.boats) {
+    const b = byId.get(r.id);
+    if (!b || !(r.start?.over || (r.finishCode && codeInfo(r.finishCode).start))) continue;
+    const c = startCross(projectCoachTrack(b.track, proj), left, right, side, gun, { bowM: b.bowOffsetM, fromMs: gun - CROSS_FROM_MS, toMs: gun + CROSS_TO_MS });
+    out[r.id] = { wentBackMs: c.wentBackMs, clearedMs: c.clearedMs };
+  }
+  return out;
+}
+
+/** The worker's half for the Coach: the wind, the start crossings, the fixes near the marks, the heel, the penalty turns and the over-the-line returns, from the raw fixes. */
+export function coachRaw(a: RaceAnalysis, data: RaceData): CoachRaw {
+  const crossMs = startCrossings(a, data);
+  return {
+    wind: coachWind(a, data),
+    crossMs,
+    zones: zoneTracks(a, data),
+    heel: heelTracks(a, data),
+    turns: turnTracks(a, data, crossMs),
+    overStart: overStarts(a, data),
+  };
+}
 
 /**
  * The coach model of a race: the drawn tracks, and the wind series given (from the worker) or else
@@ -217,6 +287,8 @@ export function buildCoach(
   crossMs: Record<string, number | null> | null = null,
   zones: Record<string, ZoneTrack> | null = null,
   heel: Record<string, HeelTrack> | null = null,
+  turns: Record<string, PenaltyTurn[]> | null = null,
+  overStart: Record<string, OverStart> | null = null,
 ): CoachModel | null {
   const course = courseOf(a);
   if (!course) return null;
@@ -239,6 +311,8 @@ export function buildCoach(
     crossMs,
     zones: zones ? new Map(Object.entries(zones)) : null,
     heel: heel ? new Map(Object.entries(heel)) : null,
+    turns: turns ? new Map(Object.entries(turns)) : null,
+    overStart: overStart ? new Map(Object.entries(overStart)) : null,
   };
 }
 

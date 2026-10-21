@@ -3,6 +3,7 @@
  * "Ivan group", Vann's "boats near me"). A gap to a set is the median of the
  * gaps to its boats, so one boat's own mistake doesn't swing it.
  */
+import { finishRank } from '../result';
 import type { BoatResult } from '../types';
 
 export type GroupKind = 'leaders' | 'near' | 'fleet' | 'custom';
@@ -30,11 +31,12 @@ export type CoachChart = keyof typeof DEFAULT_GROUPS;
 
 export const defaultGroup = (chart: CoachChart): Group => ({ kind: DEFAULT_GROUPS[chart] });
 
-type Ranked = Pick<BoatResult, 'id' | 'finishPos' | 'legs'>;
+type Ranked = Pick<BoatResult, 'id' | 'finishPos' | 'onWaterPlace' | 'legs'>;
 
-/** The boat's place: its finish, else its rank at the last mark it was timed at; null with neither. */
+/** The boat's place: its finish on the water (result.ts finishRank), else its rank at the last mark it was timed at; null with neither. */
 export function placeOf(b: Ranked): number | null {
-  if (b.finishPos != null) return b.finishPos;
+  const fin = finishRank(b);
+  if (fin != null) return fin;
   for (let k = b.legs.length - 1; k >= 0; k--) {
     const r = b.legs[k]?.rankAtEnd;
     if (r != null) return r;
@@ -49,20 +51,21 @@ export function placeOf(b: Ranked): number | null {
  */
 export function groupIds(boats: readonly Ranked[], me: string, g: Group): string[] {
   const others = boats.filter((b) => b.id !== me);
-  const byFinish = others.filter((b) => b.finishPos != null).sort((a, b) => a.finishPos! - b.finishPos!);
+  // Finish order on the water: a boat that finished with a code (DPI, …) at its on-water place.
+  const byFinish = others.filter((b) => finishRank(b) != null).sort((a, b) => finishRank(a)! - finishRank(b)!);
   switch (g.kind) {
     case 'leaders':
       return byFinish.slice(0, LEADERS_N).map((b) => b.id);
     case 'near': {
       const mine = boats.find((b) => b.id === me);
       const p = mine ? placeOf(mine) : null;
-      return p == null ? [] : byFinish.filter((b) => Math.abs(b.finishPos! - p) <= NEAR_PLACES).map((b) => b.id);
+      return p == null ? [] : byFinish.filter((b) => Math.abs(finishRank(b)! - p) <= NEAR_PLACES).map((b) => b.id);
     }
     case 'fleet':
-      return [...byFinish, ...others.filter((b) => b.finishPos == null)].map((b) => b.id);
+      return [...byFinish, ...others.filter((b) => finishRank(b) == null)].map((b) => b.id);
     case 'custom': {
       const want = new Set(g.ids);
-      return [...byFinish, ...others.filter((b) => b.finishPos == null)].filter((b) => want.has(b.id)).map((b) => b.id);
+      return [...byFinish, ...others.filter((b) => finishRank(b) == null)].filter((b) => want.has(b.id)).map((b) => b.id);
     }
   }
 }

@@ -6,7 +6,10 @@
  * Then the per-confidence minimum (D1's lower at high confidence: minSeconds), and the top 3 (ties → the earlier window).
  * The start comes first: a start finding (D1, the merged start card, or D3) keeps its window
  * (gun − 10 s → crossing + 5 min); the whole-leg rate findings (D6, D7, D11) lose that stretch
- * from their spans, and their seconds pro rata, before anything is ranked.
+ * from their spans, and their seconds pro rata, before anything is ranked. Penalty turns (D12) are moments the same
+ * way: a leg's rate finding loses the loop's stretch (the loop explains it), never the other way round; and a loop is
+ * taken before any other card, so a start card's first minutes (D3) or a leg's gap give up the loop's stretch too
+ * (benelux J70 R8, boat 3: a 360 at +3 min was otherwise "lost ground after the start").
  */
 import { CONF_WEIGHT, confidenceOf, minSeconds, type ConfLimit, type Opportunity } from './opportunity';
 
@@ -60,6 +63,8 @@ function trimmed(o: Card, taken: readonly Opportunity[]): Card {
 
 /** Start findings: their window is never trimmed by a rate finding. */
 export const START_KINDS: ReadonlySet<Opportunity['kind']> = new Set(['D1', 'D3']);
+/** Moments other than the start whose window a rate finding gives up too: penalty turns. */
+export const MOMENT_KINDS: ReadonlySet<Opportunity['kind']> = new Set(['D12']);
 /** Rate × time findings over whole legs: trimmed for the start's window instead. */
 export const RATE_KINDS: ReadonlySet<Opportunity['kind']> = new Set(['D6', 'D7', 'D11']);
 
@@ -92,8 +97,10 @@ const better = (p: Card, q: Card): number => q.score - p.score || p.t0 - q.t0;
 
 /** The cards to show, best first (at most `max`: TOP_N for a race's cards; the Regatta view keeps them all), from every detector's opportunities. */
 export function rankOpportunities(opps: readonly Opportunity[], max = TOP_N): Card[] {
-  // The start's windows (of start findings that can make a card on their own seconds) come first.
-  const start = opps.filter((o) => START_KINDS.has(o.kind) && o.seconds >= minSeconds(o.kind, confidenceOf(o.conf).level)).flatMap(spansOf);
+  // The start's windows (of start findings that can make a card on their own seconds) come first; so do penalty turns'.
+  const start = opps
+    .filter((o) => (START_KINDS.has(o.kind) || MOMENT_KINDS.has(o.kind)) && o.seconds >= minSeconds(o.kind, confidenceOf(o.conf).level))
+    .flatMap(spansOf);
   // Untrimmed; each round trims them afresh against what is taken so far.
   const queue: Card[] = opps
     .map((o) => (start.length && RATE_KINDS.has(o.kind) ? clearStart(o, start) : o))
@@ -105,7 +112,8 @@ export function rankOpportunities(opps: readonly Opportunity[], max = TOP_N): Ca
     .filter((c) => c.confidence !== 'none' && c.seconds > 0);
   const taken: Card[] = [];
   while (queue.length) {
-    const now = queue.map((c, i) => ({ c: trimmed(c, taken), i })).sort((p, q) => better(p.c, q.c));
+    const moment = (c: Card): number => (MOMENT_KINDS.has(c.kind) ? 1 : 0);
+    const now = queue.map((c, i) => ({ c: trimmed(c, taken), i })).sort((p, q) => moment(q.c) - moment(p.c) || better(p.c, q.c));
     const head = now[0];
     queue.splice(head.i, 1);
     if (head.c.seconds >= minSeconds(head.c.kind, head.c.confidence)) taken.push(head.c);

@@ -892,6 +892,17 @@ html.fs-on { overflow: hidden; }
 .coach-cards button.chip.opp-when:hover { color: var(--ink); }
 .coach-cards button.chip.opp-when[aria-pressed="true"] { background: var(--accent); color: var(--surface); box-shadow: none; }
 .coach-cards button.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The penalty card (an official code): pinned above the ranked cards, never numbered; the code in the loss colour. */
+.coach-penalty { margin-bottom: 12px; border-left: 4px solid var(--bad); }
+.coach-penalty h4 { margin: 2px 0 6px; font-size: 1rem; line-height: 1.25; }
+.coach-penalty .chips { font-size: 0.78rem; }
+.coach-penalty .chip.pen { background: var(--bad-bg); color: var(--bad); font-weight: 800; box-shadow: none; }
+.coach-penalty .opp-what { margin: 8px 0 0; font-size: 0.88rem; line-height: 1.4; color: var(--ink-2); }
+.coach-penalty .opp-tip { margin: 8px 0 0; padding: 6px 10px; border-radius: 8px; background: var(--grid); color: var(--ink); font-size: 0.85rem; line-height: 1.4; }
+.coach-penalty .opp-tip b { color: var(--accent); }
+.coach-ranked-head { margin: 0 0 8px; font-size: 0.9rem; color: var(--ink-2); }
+.regatta-penalties { margin: 10px 0 0; padding: 8px 12px; list-style: none; border-left: 4px solid var(--bad); font-size: 0.88rem; line-height: 1.5; }
+.regatta-penalties b { color: var(--bad); }
 .coach-ok .chips { font-size: 0.8rem; gap: 6px; }
 .coach-ok .ok-lbl { font-weight: 700; color: var(--ink); margin: 0 2px 0 4px; }
 .coach-ok .ok-lbl:first-child { margin-left: 0; }

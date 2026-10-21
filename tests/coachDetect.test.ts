@@ -665,6 +665,14 @@ describe('D10 last leg', () => {
     expect(o.t0).toBe(GUN + 600_000);
   });
 
+  it('a coded finisher 1–2 places ahead on the water is a peer; one with no finish time is not (aheadS would be NaN)', () => {
+    const gaps = (ids: string[], from: number, to: number) => ramp(from, to, () => 0, ids.map(() => (s: number) => s / 20));
+    const dpi = boats.map((b) => (b.id === 'a' ? { ...b, finishPos: null, finishCode: 'DPI', onWaterPlace: 1 } : b));
+    expect(detectLastLeg(world({ boats: dpi, tracks, gaps }).ctx)!.refBoats).toEqual(['a', 'b']);
+    const noTime = boats.map((b) => (b.id === 'a' ? { ...b, finishPos: null, onWaterPlace: 1, finishMs: null } : b));
+    expect(detectLastLeg(world({ boats: noTime, tracks, gaps }).ctx)!.refBoats).toEqual(['b']);
+  });
+
   it('quiet when the boats ahead finished a minute or more ahead, or nobody pulled away', () => {
     const far = boats.map((b) => (b.id === 'a' || b.id === 'b' ? { ...b, finishMs: b.finishMs! - D10_AHEAD_S * 1000 } : b));
     const gaps = (ids: string[], from: number, to: number) => ramp(from, to, () => 0, ids.map(() => (s: number) => s / 10));

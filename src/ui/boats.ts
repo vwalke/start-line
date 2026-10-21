@@ -5,6 +5,7 @@
 import type { Finding, RaceAnalysis } from '../analysis/types';
 import { boatColor, NC_COLOR } from './charts';
 import { esc } from './format';
+import { codeShort, codeWords } from './resultText';
 
 /**
  * Boats set aside as not racing: a collapsed group under the competitors
@@ -41,8 +42,8 @@ export function boatList(a: RaceAnalysis, highlight: string | null, ncOpen = fal
       const name = b.name !== `#${b.sail}` ? `<span class="bname">${esc(b.name)}</span>` : '';
       // An official code (DSQ, DNF…) when linked; "~" marks a place from the tracks' finish-line crossings.
       const tracker = b.finishSource === 'tracker' && a.meta.results?.places === 'tracker';
-      const pos = b.finishPos == null ? (b.finishCode ?? 'DNF') : `${tracker ? '~' : ''}${b.finishPos}`;
-      const how = b.finishCode ? `scored ${b.finishCode}` : b.finishPos == null ? 'did not finish' : `finished ${b.finishPos}${tracker ? ' (tracker finish)' : ''}`;
+      const pos = b.finishPos == null ? (codeShort(b) ?? 'DNF') : `${tracker ? '~' : ''}${b.finishPos}`;
+      const how = b.finishCode ? codeWords(b) : b.finishPos == null ? 'did not finish' : `finished ${b.finishPos}${tracker ? ' (tracker finish)' : ''}`;
       // An uploaded boat log (data/vkx): a small tag, the full words in the label.
       const log = b.log ? `from boat log · ${b.log.rateHz} Hz` : '';
       const label = `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}, ${how}${log ? `, ${log}` : ''}`;

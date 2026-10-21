@@ -145,10 +145,23 @@ export interface BoatResult {
   name: string;
   /** Stable colour slot (by sail order), independent of result; -1 when set aside as not racing. */
   colorSlot: number;
+  /**
+   * The result's place: the official place when linked (null with a code), else the tracked finish order. A boat
+   * that finished with a code has none here: its place in the finish order is `onWaterPlace` (result.ts finishRank).
+   */
   finishPos: number | null;
   finishMs: number | null;
   /** Official scoring code (DSQ, DNF, …) when official results are linked; finishPos is then null. */
   finishCode?: string;
+  /** The official race score (points), coded or not, when linked. */
+  scoredPoints?: number;
+  /**
+   * A boat that finished with a code (DPI, SCP, …; DSQ / UFD / BFD with a finish time): its place on the water
+   * among the official finishers (where it would be without the code), and the places the code cost (scored
+   * points − that, ≥ 0, to 0.1). It keeps its finish, race time and legs.
+   */
+  onWaterPlace?: number;
+  penaltyPlaces?: number;
   /** Where finishMs came from, when the race's results were resolved ('tracker': a finish-line crossing, shown as ~). */
   finishSource?: FinishSource;
   raceTimeS: number | null;

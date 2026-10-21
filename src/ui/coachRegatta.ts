@@ -8,7 +8,8 @@
  * costs nothing and a change of any of those re-runs only what it touches. Nothing here needs a
  * race to have been opened before (the cold-load case).
  */
-import { legWord, summarizeRegatta, type LegTypeSummary, type RaceFinish, type RegattaRace, type RegattaSummary, type WentWell, type WorkOn } from '../analysis/coach/regatta';
+import { legWord, summarizeRegatta, type LegTypeSummary, type PenaltyRow, type RaceFinish, type RegattaRace, type RegattaSummary, type WentWell, type WorkOn } from '../analysis/coach/regatta';
+import { codeInfo, pointsText } from '../data/official/codes';
 import type { ListedRace } from '../data/raceList';
 import type { OfficialRaceInput } from '../data/racesense/adapter';
 import type { RegattaResponse } from '../data/racesense/types';
@@ -188,8 +189,16 @@ export function createRegattaRunner(makeWorker: () => WorkerPort, onChange: () =
 
 const SOURCE_WORDS: Record<FinishSource, string> = { official: 'official', racesense: "RaceSense's finish", tracker: 'tracker finish' };
 
-/** `12th`, `~12th` (a tracker finish), the official code, or a dash. */
-export const finishShort = (f: RaceFinish | null): string => (f?.place != null ? `${f.source === 'tracker' ? '~' : ''}${ordinal(f.place)}` : (f?.code ?? '—'));
+/** `12th`, `~12th` (a tracker finish), the official code (`DPI 15` with its points when the boat finished with it), or a dash. */
+export const finishShort = (f: RaceFinish | null): string =>
+  f?.place != null
+    ? `${f.source === 'tracker' ? '~' : ''}${ordinal(f.place)}`
+    : f?.code && f.onWater != null && f.points != null && !codeInfo(f.code).lost
+      ? `${f.code} ${pointsText(f.points)}`
+      : (f?.code ?? '—');
+
+/** A coded result's on-water place, for the place chip: "12th on the water"; empty without one. */
+const onWaterText = (f: RaceFinish | null): string => (f?.place == null && f?.onWater != null ? `${ordinal(f.onWater)} on the water` : '');
 
 export const secs = (s: number): string => `${s > 0 ? '+' : s < 0 ? '−' : ''}${Math.abs(Math.round(s))} s`;
 
@@ -203,7 +212,10 @@ export function placeWhat(r: RegattaSummary['rows'][number]): string {
   const f = r.digest?.finish ?? null;
   if (r.status === 'pending' || r.status === 'running') return 'not analysed yet';
   if (r.status === 'error') return `couldn't load: ${r.error ?? ''}`;
-  if (f) return `${f.place != null ? `${ordinal(f.place)} of ${f.of}` : `${f.code ?? 'no place'}`}, ${SOURCE_WORDS[f.source]}${r.digest?.tracked ? '' : ', no track'}`;
+  if (f) {
+    const coded = f.code ? `${f.code}${f.points != null ? ` (${pointsText(f.points)} points)` : ''}${onWaterText(f) ? `, ${onWaterText(f)}` : ''}` : 'no place';
+    return `${f.place != null ? `${ordinal(f.place)} of ${f.of}` : coded}, ${SOURCE_WORDS[f.source]}${r.digest?.tracked ? '' : ', no track'}`;
+  }
   return r.digest?.tracked ? 'no finish' : 'not in this race';
 }
 
@@ -225,7 +237,8 @@ export function regattaPlacesHtml(s: RegattaSummary): string {
   const li = s.rows.map((r) => {
     const f = r.digest?.finish ?? null;
     const place = r.status === 'done' ? finishShort(f) : r.status === 'error' ? '!' : '…';
-    const of = r.status === 'done' && f ? `<small>of ${f.of}</small>` : '';
+    const water = r.status === 'done' ? onWaterText(f) : '';
+    const of = r.status === 'done' && f ? `<small>of ${f.of}${water ? ` · ${water}` : ''}</small>` : '';
     const what = placeWhat(r);
     const warn = r.low ? ' <span class="warn" title="Low tracker coverage: counted less">⚠</span>' : '';
     return `<li class="rp ${r.status}${r.low ? ' low' : ''}" data-race="${r.raceNumber}" title="${esc(`${r.name}: ${what}`)}"><b>${esc(r.label)}</b> <span class="rp-place">${esc(place)}</span>${of}${warn}</li>`;
@@ -246,6 +259,39 @@ export function patternCardHtml(t: WorkOn): string {
     <p class="opp-what">${esc(t.why)}.</p>
     ${t.tip ? `<p class="opp-tip"><b>Tip</b> ${esc(t.tip)}</p>` : ''}
   </article>`;
+}
+
+/**
+ * A Penalties line: "DPI in 8 of 8 races · 24 penalty points · ≈ 24 places", "UFD in 1 of 8 races (R3) · 16 points; result lost",
+ * "Penalty turns in 2 of 8 races · ≈ 70 s".
+ */
+export const penaltyRowText = (p: PenaltyRow): string => {
+  const t = penaltyRowParts(p);
+  return `${t.label} ${t.rest}`;
+};
+
+/** A Penalties line in two: what (the code, or "Penalty turns") and the rest. */
+export function penaltyRowParts(p: PenaltyRow): { label: string; rest: string } {
+  const where = p.races < p.of ? ` (${p.raceLabels.join(', ')})` : '';
+  const races = `in ${p.races} of ${p.of} ${p.of === 1 ? 'race' : 'races'}${where}`;
+  if (p.code === 'turns') return { label: 'Penalty turns', rest: `${races} · ≈ ${Math.round(p.seconds ?? 0)} s` };
+  const parts = [races];
+  if (p.penaltyPoints != null) parts.push(`${pointsText(p.penaltyPoints)} penalty ${p.penaltyPoints === 1 ? 'point' : 'points'}`, `≈ ${pointsText(Math.round((p.places ?? 0) * 10) / 10)} ${p.places === 1 ? 'place' : 'places'}`);
+  if (p.points != null) parts.push(`${pointsText(p.points)} points${p.lost ? `; ${p.races === 1 ? 'result' : 'results'} lost` : ''}`);
+  else if (p.lost) parts.push(p.races === 1 ? 'result lost' : 'results lost');
+  return { label: p.code, rest: parts.join(' · ') };
+}
+
+/** The Penalties row: above the pattern cards, apart from them (a penalty is the scored result, never a speed theme). */
+export function penaltiesHtml(s: Pick<RegattaSummary, 'penalties'>): string {
+  if (!s.penalties.length) return '';
+  const li = s.penalties
+    .map((p) => {
+      const t = penaltyRowParts(p);
+      return `<li data-code="${esc(p.code)}" title="${esc(p.meaning)}"><b>${esc(t.label)}</b> ${esc(t.rest)}</li>`;
+    })
+    .join('');
+  return `<h4>Penalties</h4><ul class="card regatta-penalties" aria-label="Penalties">${li}</ul>`;
 }
 
 /** A Went well line over the regatta: "Beats: gained on the top 3 in 3 of 5 races (best R2 Beat 1, 45 s)". */
@@ -281,7 +327,7 @@ export function regattaHtml(s: RegattaSummary, p: RegattaProgress): string {
     ? `<div class="regatta-scroll"><table class="regatta-table regatta-legs"><thead><tr><th scope="col">Legs</th><th scope="col">Sailed</th><th scope="col" title="Leg time vs the fleet's median for the leg (+ = slower)">vs fleet median</th><th scope="col">Best</th><th scope="col">Worst</th></tr></thead><tbody>${legRows}</tbody></table></div>`
     : '';
   const gatedNote = s.findings.some((f) => f.gated) ? '<p class="muted regatta-note">* of the races with the tracker data to measure it (dirty air needs the boats around you; roundings the zone time or the sparse-data place read; heel the roll column).</p>' : '';
-  return `${status}${places}
+  return `${status}${places}${penaltiesHtml(s)}
     <h4>Top 3 to work on</h4>${top}
     ${went}
     <h4>Recurring findings</h4>${findings}${gatedNote}

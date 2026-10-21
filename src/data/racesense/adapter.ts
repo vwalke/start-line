@@ -5,6 +5,7 @@
  * the same code runs against the offline fixtures in tests.
  */
 import { awayFromStart, crossings, feedRaceNumber, fleetOnsetFloor, lineFrom, officialTimesPlausible, trackerFinish, PLAUSIBLE_SEARCH_MS, type MarkSeries } from '../finishes';
+import { finishedWithCode } from '../official/codes';
 import type { OfficialResultRow } from '../official/link';
 import type { Boat, CourseMark, EntryResults, LatLon, Line, MarkTrack, RaceData, RaceResults, RcStart, Track, WindSample } from '../types';
 import type {
@@ -593,10 +594,13 @@ function resolveResults(
 
   const byRs = new Map(official.rows.filter((r) => r.rsSail).map((r) => [r.rsSail!, r]));
   const utc = (wall: number | null): number | null => (wall == null ? null : wall - official.tzOffsetMs);
-  const fins = official.rows.filter((r) => r.code == null && r.place != null);
+  // A boat that finished with a code (DPI, SCP, …; DSQ / UFD / BFD with a finish time) is a finisher here: its
+  // time counts for the plausibility check and it keeps its finish (codes.ts finishedWithCode).
+  const finished = (r: OfficialResultRow | undefined): boolean => !!r && (r.code == null || finishedWithCode(r.code, r.finishWallMs != null));
+  const fins = official.rows.filter((r) => (r.code == null && r.place != null) || (r.code != null && finished(r)));
   const pairs = boats
     .map((b) => ({ b, o: byRs.get(b.sail) }))
-    .filter((x) => x.o && x.o.code == null && utc(x.o.finishWallMs) != null)
+    .filter((x) => finished(x.o) && utc(x.o!.finishWallMs) != null)
     .map(({ b, o }) => ({ officialMs: utc(o!.finishWallMs)!, crossings: lineAt ? crossings(fixes.get(b.id)!, lineAt, gunMs, endMs + PLAUSIBLE_SEARCH_MS) : [] }));
   const allOfficial = fins.map((r) => utc(r.finishWallMs)).filter((t): t is number => t != null);
   const plaus = allOfficial.length ? officialTimesPlausible(pairs, gunMs, ctx.nextGunMs, allOfficial) : { ok: false, n: 0, medianS: null, why: 'no official finish times' };
@@ -607,14 +611,17 @@ function resolveResults(
     const rsFin = b.finishMs;
     b.officialPlace = o && o.code == null ? o.place : null;
     b.officialCode = o ? o.code : null;
+    b.officialPoints = o?.points ?? null;
+    b.onWaterPlace = o?.code != null ? (o.onWater ?? null) : null;
+    b.penaltyPlaces = o?.code != null ? (o.penaltyPlaces ?? null) : null;
     if (o?.code === 'OCS') b.ocs = true;
     else if (o && o.code == null) b.ocs = false;
-    if (!o || o.code != null) {
+    if (!o || !finished(o)) {
       b.finishMs = null;
       delete b.finishSource;
       continue;
     }
-    // Officially placed: the place stands even with an implausible-looking RaceSense finish.
+    // Officially placed (or finished with a code): the result stands even with an implausible-looking RaceSense finish.
     if (b.entry) b.entry = { ...b.entry, finishPlausible: true, finishNote: undefined };
     const ot = utc(o.finishWallMs);
     if (plaus.ok && ot != null) {

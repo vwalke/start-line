@@ -502,7 +502,7 @@ export function startApp(): void {
     void coachRawOf(raceKeyOf(a)).then((raw) => {
       if (coachBuilding !== a) return;
       coachBuilding = null;
-      coach = { a, model: buildCoach(a, raw?.wind, raw?.crossMs ?? null, raw?.zones ?? null, raw?.heel ?? null) };
+      coach = { a, model: buildCoach(a, raw?.wind, raw?.crossMs ?? null, raw?.zones ?? null, raw?.heel ?? null, raw?.turns ?? null, raw?.overStart ?? null) };
       if (analysis === a) renderCoach();
     });
     return false;

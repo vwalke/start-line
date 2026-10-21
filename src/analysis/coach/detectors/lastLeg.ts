@@ -7,6 +7,7 @@
  * the range from the least to the most.
  */
 import { MS_TO_KN, median } from '../../geo';
+import { finishRank } from '../../result';
 import { COVERAGE_GAP_S } from '../../coverage';
 import { COACH_MAX_SPAN_S, trackLegAt, type CoachTrack } from '../tracks';
 import { NOISE_BASE_S, coachCoverage, gapChange, refCoverage, windOkShare, type Opportunity } from '../opportunity';
@@ -41,7 +42,8 @@ function legStart(tr: CoachTrack, leg: number): number | null {
 export function detectLastLeg(ctx: CoachCtx): Opportunity | null {
   const n = ctx.a.legs.length;
   const last = n - 1;
-  const p = ctx.me.finishPos;
+  // The finish on the water (a boat that finished with a code, DPI …, at its on-water place).
+  const p = finishRank(ctx.me);
   const fin = ctx.me.finishMs;
   const tr = ctx.tr;
   if (p == null || fin == null || n < 1 || !tr.t.length) return null;
@@ -53,7 +55,9 @@ export function detectLastLeg(ctx: CoachCtx): Opportunity | null {
   const t0 = inGap ? Math.max(from, end - D10_TRACKED_MS) : from;
   const t1 = end;
   if (!(t1 > t0) || trackLegAt(tr, t1) !== last) return null;
-  const refs = ctx.a.boats.filter((b) => b.finishPos != null && b.finishPos < p && b.finishPos >= p - D10_PLACES).sort((x, y) => x.finishPos! - y.finishPos!);
+  const refs = ctx.a.boats
+    .filter((b) => b.id !== ctx.boat && b.finishMs != null && finishRank(b) != null && finishRank(b)! < p && finishRank(b)! >= p - D10_PLACES)
+    .sort((x, y) => finishRank(x)! - finishRank(y)!);
   if (!refs.length) return null;
   const pts = ctx.gaps(
     refs.map((r) => r.id),
@@ -62,7 +66,7 @@ export function detectLastLeg(ctx: CoachCtx): Opportunity | null {
   );
   const each = refs.map((r, k) => {
     const g = gapChange(pts, t0, t1, (q) => q.each[k]);
-    return { id: r.id, d: g ? g.g1 - g.g0 : null, aheadS: (fin - r.finishMs!) / 1000, place: r.finishPos! };
+    return { id: r.id, d: g ? g.g1 - g.g0 : null, aheadS: (fin - r.finishMs!) / 1000, place: finishRank(r)! };
   });
   const read = each.filter((e): e is typeof e & { d: number } => e.d != null);
   if (!read.length) return null;

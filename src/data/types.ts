@@ -58,6 +58,15 @@ export interface Boat {
   officialPlace?: number | null;
   /** Official scoring code (DNF, DNS, DNC, OCS, DSQ, RET, …); null for an official finisher. */
   officialCode?: string | null;
+  /** The official race score (points), coded or not; null when the results have none. */
+  officialPoints?: number | null;
+  /**
+   * A boat that finished with a code (data/official/codes.ts finishedWithCode: DPI, SCP, …; DSQ / UFD / BFD with a
+   * finish time): its place on the water among the official finishers, and the places the code cost. It keeps
+   * its finish time (`finishMs`) like any finisher.
+   */
+  onWaterPlace?: number | null;
+  penaltyPlaces?: number | null;
   /**
    * Set by the source when the tracks show this boat wasn't in the race (a race with no
    * RaceSense finishes: never near the start and no finish; data/finishes.ts awayFromStart):

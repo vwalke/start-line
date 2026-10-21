@@ -1,0 +1,155 @@
+{
+ "note": "Trimmed from Yachtscoring's public result-detail-report: 2026 IC37 North American Championship (event 50934), race 5. Sail numbers, statuses, places and times only.",
+ "data": [
+  {
+   "circleName": "1",
+   "divisions": [
+    {
+     "divisionName": "One Design",
+     "classes": [
+      {
+       "className": "IC 37",
+       "boats": [
+        {
+         "sailPrefix": "GBR",
+         "sailNumber": "015",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T10:54:54.000Z",
+         "elapsedTime": 2994,
+         "correctedTime": 2994,
+         "placeClass": 1
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "11",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T10:55:40.000Z",
+         "elapsedTime": 3040,
+         "correctedTime": 3040,
+         "placeClass": 2
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "12",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T10:56:00.000Z",
+         "elapsedTime": 3060,
+         "correctedTime": 3060,
+         "placeClass": 3
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "028",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T10:56:13.000Z",
+         "elapsedTime": 3073,
+         "correctedTime": 3073,
+         "placeClass": 4
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "029",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T10:56:33.000Z",
+         "elapsedTime": 3093,
+         "correctedTime": 3093,
+         "placeClass": 5
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "002",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T10:56:44.000Z",
+         "elapsedTime": 3104,
+         "correctedTime": 3104,
+         "placeClass": 6
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "023",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T10:58:31.000Z",
+         "elapsedTime": 3211,
+         "correctedTime": 3211,
+         "placeClass": 7
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "005",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T10:58:35.000Z",
+         "elapsedTime": 3215,
+         "correctedTime": 3215,
+         "placeClass": 8
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "008",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T10:58:53.000Z",
+         "elapsedTime": 3233,
+         "correctedTime": 3233,
+         "placeClass": 9
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "027",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T10:59:26.000Z",
+         "elapsedTime": 3266,
+         "correctedTime": 3266,
+         "placeClass": 10
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "019",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T10:59:44.000Z",
+         "elapsedTime": 3284,
+         "correctedTime": 3284,
+         "placeClass": 11
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "22",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T11:00:03.000Z",
+         "elapsedTime": 3303,
+         "correctedTime": 3303,
+         "placeClass": 13
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "017",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T11:00:06.000Z",
+         "elapsedTime": 3306,
+         "correctedTime": 3306,
+         "placeClass": 14
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "020",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-10T11:03:14.000Z",
+         "elapsedTime": 3494,
+         "correctedTime": 3494,
+         "placeClass": 15
+        },
+        {
+         "sailPrefix": null,
+         "sailNumber": "USA 016",
+         "finishStatus": "DPI",
+         "finishTime": "2026-10-10T11:00:02.000Z",
+         "elapsedTime": 3302,
+         "correctedTime": 3302,
+         "placeClass": 15
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

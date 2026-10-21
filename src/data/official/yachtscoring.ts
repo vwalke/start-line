@@ -8,6 +8,7 @@
  * Owner and crew fields are stripped by the proxy and never read here.
  */
 import { DAY, HOUR, MINUTE, cachedJson } from '../cache';
+import { finishedWithCode, penaltyPlacesOf } from './codes';
 
 export const YS_BASE = '/api/ys';
 export const YS_EVENT_URL = 'https://www.yachtscoring.com/emenu/';
@@ -49,6 +50,7 @@ export interface YsResultBoat {
   finishStatus?: string | null;
   finishTime?: string | null;
   elapsedTime?: number | null;
+  correctedTime?: number | null;
   placeClass?: number | null;
 }
 
@@ -91,8 +93,21 @@ export interface OfficialResult {
   code: string | null;
   /** Place in class for a finisher; null with a code (Yachtscoring ranks those fleet size + 1). */
   place: number | null;
+  /**
+   * The race score, coded or not (`placeClass`): a finisher's place; a coded boat's points (DPI: on-water place +
+   * the penalty; SCP fractional, 13.9; DNF-type: entries + 1). Null when Yachtscoring has none. Absent on old rows.
+   */
+  points?: number | null;
   finishWallMs: number | null;
   elapsedS: number | null;
+  correctedS?: number | null;
+  /**
+   * A boat that finished with a code (codes.ts finishedWithCode: DPI, SCP, …; DSQ / UFD / BFD with a finish time):
+   * its place among the finishers by corrected (else elapsed, else finish) time, where it would be without the
+   * code; and scored points − that place (penaltyPlacesOf). Null otherwise.
+   */
+  onWater?: number | null;
+  penaltyPlaces?: number | null;
 }
 
 const wall = (s: string | null | undefined): number => (s ? Date.parse(s.endsWith('Z') || /[+-]\d\d:?\d\d$/.test(s) ? s : `${s}Z`) : NaN);
@@ -125,24 +140,60 @@ export function parseResults(report: YsResultReport | null | undefined, cls: Pic
     for (const d of c.divisions ?? []) {
       for (const k of d.classes ?? []) {
         if (txt(k.className) !== cls.className) continue;
-        return (k.boats ?? []).map((b) => {
+        const rows: OfficialResult[] = (k.boats ?? []).map((b) => {
           const status = txt(b.finishStatus).toUpperCase() || 'AOK';
           const fin = wall(b.finishTime);
           const ok = status === 'AOK';
+          const points = b.placeClass != null && Number.isFinite(b.placeClass) && b.placeClass > 0 ? b.placeClass : null;
           return {
             prefix: b.sailPrefix ?? null,
             sail: txt(b.sailNumber),
             name: txt(b.name),
             code: ok ? null : status,
-            place: ok && b.placeClass != null && b.placeClass > 0 ? b.placeClass : null,
+            place: ok ? points : null,
+            points,
             finishWallMs: Number.isFinite(fin) ? fin : null,
             elapsedS: b.elapsedTime != null && Number.isFinite(b.elapsedTime) ? b.elapsedTime : null,
+            correctedS: secs(b.correctedTime),
+            onWater: null,
+            penaltyPlaces: null,
           };
         });
+        return withOnWater(rows);
       }
     }
   }
   return null;
+}
+
+const secs = (v: number | null | undefined): number | null => (v != null && Number.isFinite(v) && v > 0 ? v : null);
+
+/** A row's finish as one comparable number: corrected, else elapsed, s; else the finish wall clock (s). */
+type Timed = Pick<OfficialResult, 'correctedS' | 'elapsedS' | 'finishWallMs'>;
+const timeKeys = (rows: readonly Timed[]): ((r: Timed) => number | null) => {
+  // One kind of time for the whole class: the first every timed row has (corrected for handicap fleets).
+  const all = (f: (r: Timed) => number | null): boolean => rows.every((r) => f(r) != null);
+  const corrected = (r: Timed): number | null => secs(r.correctedS);
+  const elapsed = (r: Timed): number | null => secs(r.elapsedS);
+  if (all(corrected)) return corrected;
+  if (all(elapsed)) return elapsed;
+  return (r) => (r.finishWallMs != null ? r.finishWallMs / 1000 : null);
+};
+
+/**
+ * The on-water place of each boat that finished with a code (codes.ts finishedWithCode): 1 + the official finishers
+ * (AOK, and the other coded finishers) with a strictly earlier time; ties share. Then penaltyPlaces = points − that.
+ */
+export function withOnWater(rows: OfficialResult[]): OfficialResult[] {
+  const finishers = rows.filter((r) => (r.code == null && r.place != null) || (r.code != null && finishedWithCode(r.code, r.finishWallMs != null)));
+  const key = timeKeys(finishers);
+  return rows.map((r) => {
+    if (r.code == null || !finishers.includes(r)) return r;
+    const mine = key(r);
+    if (mine == null) return r;
+    const onWater = 1 + finishers.filter((o) => o !== r && (key(o) ?? Infinity) < mine).length;
+    return { ...r, onWater, penaltyPlaces: penaltyPlacesOf(r.points ?? null, onWater) };
+  });
 }
 
 /** Every boat a report lists for each class (circle|class → boats), for the sail-overlap score. */

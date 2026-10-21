@@ -4,7 +4,8 @@
  * can see), seconds rounded, no clock timestamps beyond the cards' own windows, and boats named by
  * name and sail only. Pure.
  */
-import type { AskContext, AskFinding, AskLeg } from '../analysis/coach/askContext';
+import type { AskContext, AskFinding, AskLeg, AskPenalty } from '../analysis/coach/askContext';
+import type { PenaltyFinding } from '../analysis/coach/penalty';
 import type { CoachDebrief } from '../analysis/coach/debrief';
 import type { Group } from '../analysis/coach/groups';
 import type { LegStory } from '../analysis/coach/legStory';
@@ -12,9 +13,9 @@ import type { Card } from '../analysis/coach/rank';
 import { summarizeRegatta, legWord, type RegattaRace } from '../analysis/coach/regatta';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { GROUP_LABEL } from './coach';
-import { cardText, cardWarnings, chipsMax, d5RefChip, fewerLine, goodTexts, secondsChip, wentText, windowChip } from './coachCards';
+import { cardText, cardWarnings, chipsMax, d5RefChip, fewerLine, goodTexts, penaltyText, secondsChip, wentText, windowChip } from './coachCards';
 import { legStoryText, type StoryChip } from './coachLegs';
-import { LEG_TYPE, finishShort, legExtremeText, placeWhat, regattaWentText, secs, type RegattaProgress } from './coachRegatta';
+import { LEG_TYPE, finishShort, legExtremeText, penaltyRowText, placeWhat, regattaWentText, secs, type RegattaProgress } from './coachRegatta';
 import type { Chip } from './info';
 
 /** The boat as the app names it: sail, and the boat name when it has one. */
@@ -53,6 +54,12 @@ export function askFinding(c: Card, a: RaceAnalysis, raceCov: number | null): As
   });
 }
 
+/** The penalty card as the page shows it. */
+export function askPenalty(p: PenaltyFinding, a: RaceAnalysis): AskPenalty {
+  const t = penaltyText(p, a);
+  return compact({ code: p.code, meaning: p.meaning, result: t.title, chips: t.chips, what: t.sentence });
+}
+
 export function askLeg(s: LegStory, a: RaceAnalysis, boat: string, g: Group): AskLeg {
   const t = legStoryText(s, a, boat, g);
   return compact({ leg: s.name, summary: t.summary.map(storyText), details: [...t.lines.flat().map(storyText), ...(t.sentence ? [t.sentence] : [])] });
@@ -84,6 +91,7 @@ export function raceAskContext(o: RaceAskInput): AskContext {
     division: a.meta.division,
     group: GROUP_LABEL[o.group.kind],
     race: compact({ name: o.raceName ?? `Race ${a.meta.raceNumber}`, header: o.head.map(warnText), notes }),
+    penalty: deb?.penalty ? askPenalty(deb.penalty, a) : undefined,
     findings: deb?.cards.map((c) => askFinding(c, a, deb.raceCov)),
     notTheProblem: deb?.ok.flatMap(goodTexts),
     wentWell: deb?.plus.map((n) => ({ text: wentText(n), seconds: Math.round(n.seconds ?? (typeof n.facts.gainS === 'number' ? n.facts.gainS : 0)) })),
@@ -120,6 +128,7 @@ export function regattaAskContext(o: RegattaAskInput): AskContext {
     division: o.division,
     regatta: compact({
       status,
+      penalties: s.penalties.map(penaltyRowText),
       places: s.rows.map((r) => {
         const f = r.digest?.finish ?? null;
         const place = r.status === 'done' ? `${finishShort(f)}${f ? ` of ${f.of}` : ''}` : r.status === 'error' ? 'not loaded' : 'pending';

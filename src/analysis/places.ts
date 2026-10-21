@@ -9,6 +9,7 @@
  * out, so the others close up. Finish: the finish order. Boats set aside as
  * not racing are never in `RaceAnalysis.boats`, so never here.
  */
+import { finishRank } from './result';
 import type { BoatResult, LegDef, RaceAnalysis } from './types';
 
 export interface PlaceColumn {
@@ -76,7 +77,8 @@ export function placeChanges(a: Pick<RaceAnalysis, 'legs' | 'boats'>): PlaceChan
   const columns = placeColumns(a.legs);
   const cols: (number | null)[][] = columns.map((c) => {
     if (c.kind === 'start') return a.boats.map((b) => b.start?.startPlace ?? null);
-    if (c.kind === 'finish') return a.boats.map((b) => b.finishPos);
+    // The finish on the water: a boat that finished with a code (DPI, …) at its on-water place.
+    if (c.kind === 'finish') return a.boats.map((b) => finishRank(b));
     return orderPlaces(
       a.boats.map((b) => roundingMs(b, c.legIndex!)),
       a.boats.map((b) => b.legs[c.legIndex!]?.rankAtEnd ?? null),
@@ -100,7 +102,7 @@ export function placeChanges(a: Pick<RaceAnalysis, 'legs' | 'boats'>): PlaceChan
       gains,
       since,
       lastCol: prev,
-      dnf: b.finishPos == null,
+      dnf: finishRank(b) == null,
       net: first >= 0 && prev > first ? places[first]! - places[prev]! : null,
     };
   });
