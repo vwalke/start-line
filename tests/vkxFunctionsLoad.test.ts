@@ -32,7 +32,7 @@ describe('Pages Functions import', () => {
   it('creates the rate-limit salt on first allow(), not on new RateLimiter()', async () => {
     vi.resetModules();
     const spy = vi.spyOn(crypto, 'getRandomValues');
-    const { RateLimiter } = await import('../functions/_vkx.ts');
+    const { RateLimiter } = await import('../functions/_vkx');
     expect(spy).not.toHaveBeenCalled();
     const lim = new RateLimiter(2, 60_000);
     expect(spy).not.toHaveBeenCalled();
