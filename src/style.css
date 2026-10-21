@@ -1086,6 +1086,9 @@ svg .cl-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 .lane-frame figcaption b { color: var(--ink); }
 .lane-svg { width: 100%; height: auto; display: block; margin-top: auto; padding-top: 4px; }
 .lane-key { font-size: 0.75rem; margin: 6px 0 0; }
+.lane-legend { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; margin-left: 10px; vertical-align: middle; }
+.lane-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.lane-swatch { flex: none; display: block; }
 svg .lane-pin { fill: var(--s4); stroke: var(--ink); }
 svg .lane-rc { fill: var(--ink-2); }
 svg .lane-wind line, svg .lane-wind polygon { stroke: var(--ink-2); fill: var(--ink-2); }

@@ -308,10 +308,34 @@ describe('lane snapshots: over early', () => {
     expect(boatIn(L.frames[2], 'Late').clearedMs).toBe(sec(90));
   });
 
-  it('not in the captions, labels or key: only on the map', () => {
+  it('not in the captions or labels: on the map, and the key\'s legend says what the rings mean', () => {
     const html = laneSnapshotsHtml(race(boats), L);
     for (const f of L.frames) expect(f.caption + f.label).not.toMatch(/OCS|over early|cleared/i);
-    expect(html.split('lane-key')[1]).not.toMatch(/OCS|ring|over early|cleared/i);
+    const key = html.split('<p class="lane-key muted">')[1];
+    // Just the legend: no other over-early words in the key.
+    expect(key.split('<span class="lane-legend">')[0]).not.toMatch(/OCS|ring|over early|cleared/i);
+  });
+
+  it('the legend: a solid ring "OCS" and a dashed ring "OCS, cleared", the swatches as the map draws them (aria-hidden)', () => {
+    const html = laneSnapshotsHtml(race(boats), L);
+    const legend = html.split('<span class="lane-legend">')[1].split('</p>')[0];
+    const items = legend.match(/<span class="lane-legend-item">.*?<\/svg>[^<]*<\/span>/g)!;
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatch(/<\/svg>OCS<\/span>$/);
+    expect(items[1]).toMatch(/<\/svg>OCS, cleared<\/span>$/);
+    for (const i of items) expect(i).toContain('<svg class="lane-swatch" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false">');
+    // The map's ring around an unhighlighted dot, at one css px per unit: same classes, width and dashes.
+    expect(items[0]).toContain('<circle class="lane-over" cx="7" cy="7" r="5.70" stroke-width="1.30"/>');
+    expect(items[1]).toContain('<circle class="lane-cleared" cx="7" cy="7" r="5.70" stroke-width="1.30" stroke-dasharray="2.50 2.00"/>');
+    expect(items[0]).not.toContain('dasharray');
+    expect(html.match(/class="lane-legend"/g)).toHaveLength(1);
+  });
+
+  it('no legend when no boat was over early (none OCS, or the replays not in yet)', () => {
+    const clean = laneSnapshots(race(boats), { me: 'Early', replays: [] });
+    expect(laneSnapshotsHtml(race(boats), clean)).not.toMatch(/lane-legend|lane-swatch|OCS/);
+    const pending = laneSnapshots(race(boats), { me: 'Early', replays: null });
+    expect(laneSnapshotsHtml(race(boats), pending)).not.toMatch(/lane-legend|lane-swatch|OCS/);
   });
 
   it('the rings: solid while over, dashed once cleared, no "OCS" text; the dot\'s title says it, with when it cleared', () => {
@@ -445,7 +469,7 @@ describe('lane snapshots: renderer', () => {
     expect(x1).toBeLessThan(L.view.x1);
     expect(html.match(/>TWD ~0° est\.<\/text>/g)).toHaveLength(3);
     // The key: who is highlighted, and the wind's source; nothing else.
-    expect(html.split('<p class="lane-key muted">')[1]).toBe('B highlighted, with the top 3 (Coach group); the rest faded. True wind ↓ from the top, estimated from the fleet&#39;s tacks.</p>');
+    expect(html.split('<p class="lane-key muted">')[1].split('<span class="lane-legend">')[0]).toBe('B highlighted, with the top 3 (Coach group); the rest faded. True wind ↓ from the top, estimated from the fleet&#39;s tacks.');
     // A true wind is drawn solid (dashed only when assumed).
     expect(html).not.toMatch(/<g class="lane-wind"><title>[^<]*<\/title><line [^>]*dasharray/);
     expect(L.frames[0].label).toMatch(/True wind from 0° \(estimated\)\.$/);
@@ -554,6 +578,10 @@ describe('IC37 R5: USA 016 selected', () => {
     expect(html.match(/<title>USA 017, over early \(OCS\), cleared \+26 s<\/title>/g)).toHaveLength(3);
     expect(html.match(/<title>USA 019, over early \(OCS\), cleared \+35 s<\/title>/g)).toHaveLength(3);
     for (const f of L.frames) expect(f.caption + f.label).not.toMatch(/OCS|cleared/);
+    // The key's legend for the rings, both kinds.
+    const legend = html.split('<span class="lane-legend">')[1];
+    expect(legend).toMatch(/<circle class="lane-over"[^>]*\/><\/svg>OCS<\/span>/);
+    expect(legend).toMatch(/<circle class="lane-cleared"[^>]*stroke-dasharray[^>]*\/><\/svg>OCS, cleared<\/span>/);
     // Nobody else is ever marked over.
     const others = L.frames.flatMap((f) => f.boats.filter((b) => b.over && b.id !== idOf('USA 017') && b.id !== idOf('USA 019')));
     expect(others).toEqual([]);

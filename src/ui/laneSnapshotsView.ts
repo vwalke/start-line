@@ -98,6 +98,17 @@ const plusS = (ms: number, gun: number): string => {
   return `${s < 0 ? '−' : '+'}${Math.abs(s)} s`;
 };
 
+/** The over-early ring around a dot of radius `r` (solid while over, dashed once cleared); the key's swatches use it too. */
+const ringSvg = (over: 'over' | 'cleared', cx: string, cy: string, r: number, u: number): string =>
+  `<circle class="lane-${over}" cx="${cx}" cy="${cy}" r="${(r + 2.5 * u).toFixed(2)}" stroke-width="${(1.3 * u).toFixed(2)}"${over === 'over' ? '' : ` stroke-dasharray="${(2.5 * u).toFixed(2)} ${(2 * u).toFixed(2)}"`}/>`;
+
+/** The key's legend for the rings, both kinds (shown when any boat was over early): a swatch (aria-hidden) and its words. */
+function ringLegend(): string {
+  const item = (over: 'over' | 'cleared', text: string): string =>
+    `<span class="lane-legend-item"><svg class="lane-swatch" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false">${ringSvg(over, '7', '7', 3.2, 1)}</svg>${text}</span>`;
+  return `<span class="lane-legend">${item('over', 'OCS')}${item('cleared', 'OCS, cleared')}</span>`;
+}
+
 /**
  * One boat's trail and dot, coloured for the selected boat and its group, the rest faded; a small ring when over
  * early (solid while over, dashed once cleared), said in the dot's title ("USA 019, over early (OCS), cleared +35 s").
@@ -113,9 +124,7 @@ function boatSvg(b: LaneBoat, colour: string, faded: boolean, label: LabelAt | n
   const r = dotR(b) * u;
   const fill = b.hold ? `fill="var(--surface)" stroke="${faded ? 'var(--ink-3)' : colour}"` : `fill="${faded ? 'var(--ink-3)' : colour}"`;
   const state = b.over === 'over' ? ', over early (OCS)' : b.over === 'cleared' ? `, over early (OCS), cleared ${plusS(b.clearedMs!, gun)}` : '';
-  const ring = b.over
-    ? `<circle class="lane-${b.over}" cx="${x}" cy="${y}" r="${(r + 2.5 * u).toFixed(2)}" stroke-width="${(1.3 * u).toFixed(2)}"${b.over === 'over' ? '' : ` stroke-dasharray="${(2.5 * u).toFixed(2)} ${(2 * u).toFixed(2)}"`}/>`
-    : '';
+  const ring = b.over ? ringSvg(b.over, x, y, r, u) : '';
   const text = label
     ? `<text class="lane-lbl${b.role === 'me' ? ' on' : ''}" x="${label.x.toFixed(1)}" y="${label.y.toFixed(1)}" font-size="${label.fs.toFixed(2)}" stroke-width="${(2.5 * u).toFixed(2)}">${esc(b.sail)}</text>`
     : '';
@@ -156,11 +165,12 @@ function frameHtml(a: RaceAnalysis, L: LaneSnapshots, f: LaneFrame): string {
   return `<figure class="lane-frame${f.empty ? ' empty' : ''}" data-s="${f.s}"><figcaption><b>${esc(f.title)}</b> <span class="lane-cap">${esc(f.caption)}</span></figcaption>${svg}</figure>`;
 }
 
-/** The section's body: the three frames and a key line (who is highlighted, the wind's source). */
+/** The section's body: the three frames and a key line (who is highlighted, the wind's source; the rings' legend when a boat was over early). */
 export function laneSnapshotsHtml(a: RaceAnalysis, L: LaneSnapshots, groupText?: string): string {
   const me = L.me != null ? a.boats.find((b) => b.id === L.me) : undefined;
   const key = [me ? `${me.sail} highlighted${groupText ? `, with ${groupText}` : ''}; the rest faded.` : 'Pick a boat to highlight it and its group.', L.note];
-  return `<div class="lane-frames">${L.frames.map((f) => frameHtml(a, L, f)).join('')}</div><p class="lane-key muted">${key.map(esc).join(' ')}</p>`;
+  const anyOver = L.frames.some((f) => f.boats.some((b) => b.over));
+  return `<div class="lane-frames">${L.frames.map((f) => frameHtml(a, L, f)).join('')}</div><p class="lane-key muted">${key.map(esc).join(' ')}${anyOver ? ringLegend() : ''}</p>`;
 }
 
 /** The Coach group, as the key line names it. */

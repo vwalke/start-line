@@ -271,8 +271,10 @@ Switching races keeps the tab.
   says `No tracks at this time.` A boat over early (the over-early facts from
   the worker, as "Replay start") has a small red ring, solid before it
   cleared and dashed from its clearing on, and its dot's tooltip says so
-  (`USA 019, over early (OCS), cleared +35 s`). The key line says only who
-  is highlighted and where the wind comes from. Each frame's screen-reader
+  (`USA 019, over early (OCS), cleared +35 s`). The key line says who is
+  highlighted and where the wind comes from; when any boat was over early it
+  adds a legend for the rings (a solid ring `OCS`, a dashed one `OCS,
+  cleared`, both always). Each frame's screen-reader
   label is short: `Lane snapshot at gun +1:00: 15 of 15 boats placed. USA
   016: ≈ 6th of 15 to windward. True wind from 18° (estimated).` Nothing is
   worked out until the section is opened.
