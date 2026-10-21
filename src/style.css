@@ -838,19 +838,21 @@ html.fs-on { overflow: hidden; }
 .coach-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 8px; }
 .coach-view { font-size: 0.85rem; }
 /* The Regatta view (ui/coachRegatta.ts). */
-.coach-regatta h4 { margin: 16px 0 6px; font-size: 0.95rem; }
+#coach-ladder-card[hidden], .coach-cards[hidden], .coach-regatta[hidden], .coach-legs[hidden] { display: none; }
+.coach-regatta { color: var(--ink); }
+.coach-regatta h4 { margin: 16px 0 6px; font-size: 0.95rem; color: var(--ink); }
 .regatta-status { margin: 0 0 8px; font-size: 0.85rem; color: var(--ink-2); }
 .regatta-status.busy::before { content: '⏳ '; }
 .regatta-places { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; font-size: 0.85rem; }
-.regatta-places .rp { padding: 3px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+.regatta-places .rp { padding: 3px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); }
 .regatta-places .rp small { margin-left: 3px; color: var(--ink-3); }
 .regatta-places .rp.pending, .regatta-places .rp.running { color: var(--ink-3); border-style: dashed; }
 .regatta-places .rp.low { border-color: var(--bad); }
 .regatta-places .warn, .regatta-table .warn { color: var(--bad); }
-.regatta-top { margin: 0; padding-left: 1.4em; font-size: 0.9rem; }
+.regatta-top { margin: 0; padding-left: 1.4em; font-size: 0.9rem; color: var(--ink); }
 .regatta-top li + li { margin-top: 6px; }
 .regatta-scroll { overflow-x: auto; }
-.regatta-table { border-collapse: collapse; font-size: 0.82rem; width: 100%; }
+.regatta-table { border-collapse: collapse; font-size: 0.82rem; width: 100%; color: var(--ink); }
 .regatta-table th, .regatta-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--rule); vertical-align: top; }
 .regatta-table thead th { color: var(--ink-2); font-weight: 600; }
 .coach-head h3:empty { display: none; }

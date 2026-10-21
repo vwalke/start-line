@@ -480,7 +480,9 @@ export function startApp(): void {
   const regattaRunner = createRegattaRunner(
     () => new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerPort,
     () => {
-      if (tab === 'coach' && coachView === 'regatta' && !els.coachRegatta.hidden) els.coachRegatta.innerHTML = regattaViewHtml(regattaRunner);
+      // Through renderCoach so official-pending / no-boat / event-mismatch guards apply
+      // (a leftover reply must not paint another boat's digest, or "No races" over "Checking…").
+      if (tab === 'coach' && coachView === 'regatta') renderCoach();
     },
   );
 

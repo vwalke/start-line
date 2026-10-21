@@ -21,6 +21,8 @@ import { raceName, shortRaceName } from './races';
 export interface WorkerPort {
   postMessage(msg: WorkerRequest): void;
   onmessage: ((ev: MessageEvent<WorkerResponse>) => void) | null;
+  /** Real workers implement this; the runner uses it to drop in-flight work when the queue is cleared. */
+  terminate?(): void;
 }
 
 /** One race the view wants: the menu's race and the request that analyses it for the boat. */
@@ -35,7 +37,11 @@ export interface RegattaJob {
 /** The cache key: what changes a race's digest (the boat, `nc=all`, official results, uploaded logs). */
 export function regattaJobKey(r: Omit<RaceRequest, 'id' | 'regatta'> & { sail: string }): string {
   const logs = (r.vkx ?? []).map((v) => v.uploadedAt).join(',');
-  return [r.eventId, r.division, r.raceNumber, r.allCompetitors ? 'all' : '', r.sail, r.official?.number ?? '-', logs].join('|');
+  const row = r.official?.rows.find((x) => x.rsSail === r.sail);
+  // Official race number plus this boat's place/code and the fleet size, so
+  // relinking the same number to another event does not reuse the old digest.
+  const official = r.official ? `${r.official.number}:${r.official.rows.length}:${row?.place ?? ''}:${row?.code ?? ''}` : '-';
+  return [r.eventId, r.division, r.raceNumber, r.allCompetitors ? 'all' : '', r.sail, official, logs].join('|');
 }
 
 /**
@@ -98,8 +104,10 @@ type Cached = { status: 'done'; digest: NonNullable<RegattaRace['digest']> } | {
 
 /**
  * Analyse the wanted races one at a time on a worker made on first use. `onChange` runs after
- * each race (and each progress message): the caller re-renders. A race still running when the
- * wanted list changes finishes into the cache; nothing is ever asked twice in a visit.
+ * each race (and each progress message) that is still wanted: the caller re-renders. A race still
+ * running when the wanted list changes to other races finishes into the cache; nothing is ever
+ * asked twice in a visit. Clearing the list (left the event, or no boat) drops the in-flight
+ * race and terminates the worker so it cannot leak or paint stale results.
  */
 export function createRegattaRunner(makeWorker: () => WorkerPort, onChange: () => void): RegattaRunner {
   let port: WorkerPort | null = null;
@@ -107,6 +115,13 @@ export function createRegattaRunner(makeWorker: () => WorkerPort, onChange: () =
   let jobs: readonly RegattaJob[] = [];
   let running: { id: number; job: RegattaJob; message: string } | null = null;
   let nextId = 0;
+
+  const wanted = (key: string): boolean => jobs.some((j) => j.key === key);
+
+  const dropWorker = (): void => {
+    port?.terminate?.();
+    port = null;
+  };
 
   const workerOf = (): WorkerPort => {
     if (port) return port;
@@ -116,15 +131,19 @@ export function createRegattaRunner(makeWorker: () => WorkerPort, onChange: () =
       if (!running || msg.id !== running.id) return;
       if (msg.type === 'progress') {
         running.message = msg.message;
-        onChange();
+        if (wanted(running.job.key)) onChange();
         return;
       }
       const key = running.job.key;
-      if (msg.type === 'regatta-race') cache.set(key, { status: 'done', digest: msg.digest });
-      else cache.set(key, { status: 'error', error: msg.type === 'error' ? msg.message : 'unexpected reply' });
+      const d = msg.type === 'regatta-race' ? msg.digest : null;
+      if (d && d.sail === running.job.request.sail && d.raceNumber === running.job.raceNumber) {
+        cache.set(key, { status: 'done', digest: d });
+      } else {
+        cache.set(key, { status: 'error', error: msg.type === 'error' ? msg.message : 'unexpected reply' });
+      }
       running = null;
       pump();
-      onChange();
+      if (wanted(key) || jobs.length) onChange();
     };
     return port;
   };
@@ -140,6 +159,11 @@ export function createRegattaRunner(makeWorker: () => WorkerPort, onChange: () =
   return {
     want(next) {
       jobs = next;
+      // Nothing wanted: stop the queue and kill the in-flight fetch (event change, or no boat).
+      if (running && !wanted(running.job.key) && !jobs.length) {
+        running = null;
+        dropWorker();
+      }
       pump();
     },
     races() {

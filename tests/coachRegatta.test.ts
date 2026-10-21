@@ -82,6 +82,8 @@ describe('the Coach panel follows the app: no race chips, no boat select', () =>
     // The Race menu loads the race on screen (`analysis`), whose render redraws Coach.
     expect(app.slice(app.indexOf("els.race.addEventListener('change'")).slice(0, 200)).toContain('chooseRace(div, Number(n))');
     expect(app.slice(app.indexOf('  function render(): void'), app.indexOf('// ---- Coach:'))).toContain('renderCoach();');
+    // A leftover worker reply re-renders through renderCoach (guards), never writes the panel itself.
+    expect(app).toMatch(/if \(tab === 'coach' && coachView === 'regatta'\) renderCoach\(\)/);
     expect(read('../src/ui/coach.ts')).not.toMatch(/Weekend|coming later/i);
   });
 });
@@ -147,6 +149,20 @@ describe('Regatta races: the race menu’s list (J/70 Worlds: practice out, rebu
     expect(withLog[1].key).toBe(jobs[1].key);
     expect(withLog[0].request.vkx).toHaveLength(1);
     expect(regattaJobs(list.races, base).map((j) => j.key)).toEqual(jobs.map((j) => j.key));
+    // Same official race number, different place for this boat: a relink must not reuse the digest.
+    const row = (place: number): { prefix: string; sail: string; name: string; code: null; place: number; finishWallMs: null; elapsedS: null; rsSail: string } => ({
+      prefix: 'USA',
+      sail: '833',
+      name: '',
+      code: null,
+      place,
+      finishWallMs: null,
+      elapsedS: null,
+      rsSail: 'USA 833',
+    });
+    const offA = regattaJobs(list.races, { ...base, officialOf: () => ({ number: 1, tzOffsetMs: 0, rows: [row(3)] }) })[0].key;
+    const offB = regattaJobs(list.races, { ...base, officialOf: () => ({ number: 1, tzOffsetMs: 0, rows: [row(12)] }) })[0].key;
+    expect(offA).not.toBe(offB);
   });
 });
 
@@ -154,9 +170,22 @@ describe('Regatta races: the race menu’s list (J/70 Worlds: practice out, rebu
 function fakeWorker() {
   const sent: WorkerRequest[] = [];
   let made = 0;
-  const port: WorkerPort = { postMessage: (m) => void sent.push(m), onmessage: null };
-  const reply = (msg: WorkerResponse): void => port.onmessage!({ data: msg } as MessageEvent<WorkerResponse>);
-  return { make: () => (made++, port), sent, reply, made: () => made };
+  let terminated = 0;
+  let port: WorkerPort | null = null;
+  const make = (): WorkerPort => {
+    made++;
+    port = {
+      postMessage: (m) => void sent.push(m),
+      onmessage: null,
+      terminate: () => {
+        terminated++;
+        port = null;
+      },
+    };
+    return port;
+  };
+  const reply = (msg: WorkerResponse): void => port?.onmessage?.({ data: msg } as MessageEvent<WorkerResponse>);
+  return { make, sent, reply, made: () => made, terminated: () => terminated };
 }
 
 const job = (n: number, sail = 'USA 833'): RegattaJob => ({
@@ -213,6 +242,12 @@ describe('Regatta runner: lazy, one race at a time, cached (the empty “Weekend
     // Switch boats while race 2 runs for USA 833.
     runner.want([job(1, 'POR 1'), job(2, 'POR 1')]);
     expect(w.sent).toHaveLength(2);
+    // The view is the new boat only: USA 833's cached race 1 must not appear.
+    expect(runner.races().map((r) => [r.status, r.digest?.sail ?? null])).toEqual([
+      ['pending', null],
+      ['pending', null],
+    ]);
+    expect(regattaViewHtml(runner)).not.toContain('1st');
     w.reply({ id: w.sent[1].id, type: 'regatta-race', digest: digest(2) });
     expect(w.sent.slice(2).map((m) => [(m as { raceNumber: number }).raceNumber, (m as { sail: string }).sail])).toEqual([[1, 'POR 1']]);
     w.reply({ id: w.sent[2].id, type: 'regatta-race', digest: digest(1, { sail: 'POR 1' }) });
@@ -220,8 +255,37 @@ describe('Regatta runner: lazy, one race at a time, cached (the empty “Weekend
     // Back to USA 833: both cached, nothing posted (race 2 finished into the cache after the switch).
     runner.want([job(1), job(2)]);
     expect(w.sent).toHaveLength(4);
-    expect(runner.races().every((r) => r.status === 'done')).toBe(true);
+    expect(runner.races().every((r) => r.status === 'done' && r.digest?.sail === 'USA 833')).toBe(true);
     expect(w.made()).toBe(1);
+    expect(w.terminated()).toBe(0);
+  });
+
+  it('clearing the queue (left the event, or no boat) drops the in-flight race and kills the worker', () => {
+    const w = fakeWorker();
+    let changes = 0;
+    const runner = createRegattaRunner(w.make, () => changes++);
+    runner.want([job(1), job(2)]);
+    runner.want([]);
+    expect(w.terminated()).toBe(1);
+    expect(runner.races()).toEqual([]);
+    expect(runner.progress()).toEqual({ running: null, message: '', done: 0, total: 0 });
+    // A late reply for the dropped race is ignored (the worker is gone).
+    w.reply({ id: 1, type: 'regatta-race', digest: digest(1) });
+    expect(changes).toBe(0);
+    expect(regattaViewHtml(runner)).toContain('No races in this event yet');
+    // A later want makes a fresh worker; the dropped race is asked again.
+    runner.want([job(1)]);
+    expect(w.made()).toBe(2);
+    expect(w.sent).toHaveLength(2);
+    expect(w.sent[1]).toMatchObject({ raceNumber: 1, sail: 'USA 833' });
+  });
+
+  it('a digest for the wrong boat or race is not cached as that job', () => {
+    const w = fakeWorker();
+    const runner = createRegattaRunner(w.make, () => {});
+    runner.want([job(1)]);
+    w.reply({ id: w.sent[0].id, type: 'regatta-race', digest: digest(1, { sail: 'POR 1' }) });
+    expect(runner.races()[0]).toMatchObject({ status: 'error', digest: null });
   });
 });
 
