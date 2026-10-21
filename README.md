@@ -247,12 +247,13 @@ Switching races keeps the tab.
   zooming in reveals more; hover or tap a boat for its name either way.
 - **Lane snapshots** (`ui/laneSnapshots.ts`, drawn by `ui/laneSnapshotsView.ts`;
   Chris): a collapsed section under the start chart. Opened, it shows three
-  small maps side by side (stacked on a phone) at gun −1:00, +1:00 and +2:00,
-  so a coach can see whether a boat held its lane. Each frame draws every
-  boat as a dot with its trail back to the frame before (the first from
-  −1:30, or where the data starts), the start line, and the first mark (an
-  arrow toward it when it's out of view), in one view shared by the three
-  frames, wind at the top (north up when there is no wind estimate; the key
+  small maps side by side (stacked on a phone) at gun +1:00, +2:00 and +3:00,
+  so a coach can see how each boat came off the line and whether it held its
+  lane. Each frame draws every boat as a dot with its trail back to gun −0:30
+  (or where the data starts), so the trails are 1:30, 2:30 and 3:30 long, the
+  start line, and the first mark (an arrow toward it when it's out of view),
+  in one view shared by the three frames (their positions and trails, up to a
+  reach from the line), wind at the top (north up when there is no wind estimate; the key
   says so). The selected boat and its Coach group (Top 3 by default) are
   highlighted and labelled, the rest faded. Positions are the track map
   scrubber's: interpolated across short steps, held hollow for up to 5 s in a
@@ -263,12 +264,14 @@ Switching races keeps the tab.
   approximate place toward the first mark (distance still to go along the
   line-middle → mark axis), who is over early, and who isn't tracked. A
   boat over early (the over-early facts from the worker, as "Replay start")
-  has a red ring at a frame after the gun until it cleared, a dashed one in
-  the frame whose trail spans its clearing (`OCS, cleared: USA 017 +26 s`);
-  before the gun nobody is OCS yet, so a boat on the course side then is
-  marked "above the line" (grey dashed). With no data before the gun the
-  −1:00 frame says so and the others still draw. Nothing is worked out
-  until the section is opened.
+  has a red ring (`Over (OCS)`) in a frame before it cleared, and a dashed
+  one in every frame from its clearing on (`OCS, cleared: USA 017 +26 s`;
+  every trail starts before the gun, so each shows the excursion). When the
+  fleet's tracking starts after gun −0:30 the captions say where the trails
+  really start: `Tracking starts at gun −0:10.`, or `No data before the
+  gun.` (with when tracking starts, if after the gun); a frame with no
+  positions and no trails says `No tracks at this time.` Nothing is worked
+  out until the section is opened.
 - **Key lines** (`ui/info.ts`, `ui/captions.ts`): under every chart and
   table, one short row of chips with the key facts only, e.g.
   `Line 143 m · RC fav. 2° · 4 m · wind est. (medium) · hulls to scale`,

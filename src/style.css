@@ -1096,7 +1096,6 @@ svg .lane-trail.dim { opacity: 0.35; }
 svg .lane-boat.dim { opacity: 0.45; }
 svg .lane-dot:not(.hold) { stroke: var(--surface); }
 svg .lane-over, svg .lane-cleared { fill: none; stroke: var(--bad); }
-svg .lane-above { fill: none; stroke: var(--ink-3); }
 svg .lane-ocs { fill: var(--bad); }
 svg .lane-empty { fill: var(--ink-3); }
 @media (max-width: 600px) {

@@ -1,17 +1,16 @@
 /**
- * The Start tab's "Lane snapshots" (Chris): the fleet at gun −60 s, +60 s and +120 s, each boat a dot with
- * its trail back to the frame before (the first from LANE_FIRST_FROM_S), so a coach can see whether a
- * boat held its lane off the line. Pure: frames → boats, trails, captions; ui/laneSnapshotsView.ts draws them.
+ * The Start tab's "Lane snapshots" (Chris): the fleet at gun +60 s, +120 s and +180 s, each boat a dot with
+ * its trail back to LANE_TRAIL_FROM_S (gun −30 s) in every frame, so a coach can see how each boat came off
+ * the line and whether it held its lane. Pure: frames → boats, trails, captions; ui/laneSnapshotsView.ts draws them.
  *
  * Positions are the scrubber's (mapPieces.ts boatAt): linear between fixes, held hollow for MAP_HOLD_S inside
  * a gap, else none (the boat is missing in that frame, never placed). Trails come from the same drawn tracks
  * (the pre-gun track and the legs), broken wherever consecutive fixes are a gap apart (mapPoints.ts's rule).
  *
- * The view is wind-up (the analysis's wind at the gun, as the start chart) and shared by the three frames.
- * "Over": a boat over early (StartReplay, the worker's startCross facts, as Map C) is over at a frame at or
- * after the gun until its clearing (clearedMs; never cleared: still over); a frame whose trail spans its
- * clearing says when it cleared. Before the gun nobody is over yet: a boat whose antenna is on the course
- * side of the line then is marked "above the line" instead.
+ * The view is wind-up (the analysis's wind at the gun, as the start chart) and shared by the three frames
+ * (their positions and trails). "Over": a boat over early (StartReplay, the worker's startCross facts, as Map C)
+ * is over at a frame until its clearing (clearedMs; never cleared: still over); from then on it is "cleared",
+ * with when, in every frame (each trail runs from before the gun, so each shows the excursion and the return).
  */
 import { dot, len, sub, type Vec } from '../analysis/geo';
 import type { StartReplay } from '../analysis/startReplay';
@@ -23,10 +22,10 @@ import { gunRel } from './scrub';
 import type { Box } from './view';
 
 /** The frames, s from the gun. */
-export const LANE_FRAMES_S = [-60, 60, 120] as const;
-/** The first frame's trail starts here, s from the gun (or where the data does). */
-export const LANE_FIRST_FROM_S = -90;
-/** The shared view takes in boats this far from the line's middle, at most: max(LANE_REACH_LINES × the line, LANE_REACH_MIN_M). */
+export const LANE_FRAMES_S = [60, 120, 180] as const;
+/** Every frame's trail starts here, s from the gun (or where the data does). */
+export const LANE_TRAIL_FROM_S = -30;
+/** The shared view takes in boats (positions and trails) this far from the line's middle, at most: max(LANE_REACH_LINES × the line, LANE_REACH_MIN_M). */
 export const LANE_REACH_LINES = 3;
 export const LANE_REACH_MIN_M = 600;
 /** The view's padding: this share of its size each way, and at least LANE_PAD_M. */
@@ -67,15 +66,13 @@ export interface LaneBoat {
   hold: boolean;
   /** The boat has a track (any fix) in the race; false: never tracked. */
   tracked: boolean;
-  /** The trail since the frame before, map coordinates, one polyline per stretch without a gap. */
+  /** The trail from LANE_TRAIL_FROM_S to the frame, map coordinates, one polyline per stretch without a gap. */
   trail: Vec[][];
   role: LaneRole;
-  /** OCS at the frame's time (at or after the gun, until clearedMs); 'cleared': cleared since the frame before. */
+  /** OCS at the frame's time (until clearedMs); 'cleared': cleared by then, within the trail. */
   over: LaneOver;
   /** The clearing time (ms) when `over` is 'cleared'. */
   clearedMs: number | null;
-  /** Before the gun, the antenna on the course side of the line. */
-  courseSide: boolean;
   /** Across the line, 0 at the pin and 1 at the RC end (projected along the line; may run past either end). */
   across: number | null;
   third: LaneThird | null;
@@ -91,10 +88,10 @@ export interface LaneFrame {
   t: number;
   /** The trail starts here, ms. */
   from: number;
-  /** "gun −1:00". */
+  /** "gun +1:00". */
   title: string;
   boats: LaneBoat[];
-  /** No boat has a position or a trail (e.g. no data before the gun). */
+  /** No boat has a position or a trail. */
   empty: boolean;
   /** Boats with no position in this frame (sail numbers). */
   missing: string[];
@@ -187,7 +184,7 @@ function trailOf(a: RaceAnalysis, id: string, twd: number, from: number, to: num
   return out;
 }
 
-/** "USA 017 over", "USA 017 cleared +26 s". */
+/** "+26 s" (from the gun). */
 const plusS = (ms: number, gun: number): string => {
   const s = Math.round((ms - gun) / 1000);
   return `${s < 0 ? '−' : '+'}${Math.abs(s)} s`;
@@ -199,14 +196,23 @@ function sails(xs: readonly string[], max = 4): string {
 }
 
 /**
- * The frame's caption: the selected boat's lane and its approximate place toward the mark; who is over; who isn't tracked
- * (the selected boat said once, in its own words). `firstFix`: the fleet's earliest fix, ms (null: none).
+ * Where the trails really start when the data starts after LANE_TRAIL_FROM_S: "Tracking starts at gun −0:10."
+ * (the fleet's first fix, `firstFix`, before the gun), "No data before the gun." (at the gun), "No data before the
+ * gun; tracking starts at gun +0:05." (after it); '' when the trails start on time.
+ */
+function coverageText(from: number, gun: number, firstFix: number | null): string {
+  if (firstFix == null || firstFix <= from) return '';
+  if (firstFix < gun) return `Tracking starts at ${gunRel(firstFix, gun)}.`;
+  return Math.round((firstFix - gun) / 1000) <= 0 ? 'No data before the gun.' : `No data before the gun; tracking starts at ${gunRel(firstFix, gun)}.`;
+}
+
+/**
+ * The frame's caption: the selected boat's lane and its approximate place toward the mark; who is over or cleared; who
+ * isn't tracked (the selected boat said once, in its own words); where the trails start when the data starts late.
+ * `firstFix`: the fleet's earliest fix, ms (null: none).
  */
 function frameCaption(f: Omit<LaneFrame, 'caption' | 'label'>, me: string | null, gun: number, markName: string, firstFix: number | null): string {
-  if (f.empty) {
-    if (f.t >= gun) return 'No tracks at this time.';
-    return firstFix != null && firstFix > f.t && firstFix < gun ? `Tracking starts at ${gunRel(firstFix, gun)}.` : 'No data before the gun.';
-  }
+  if (f.empty) return 'No tracks at this time.';
   const parts: string[] = [];
   const mine = me != null ? f.boats.find((b) => b.id === me) : undefined;
   if (mine) {
@@ -220,16 +226,16 @@ function frameCaption(f: Omit<LaneFrame, 'caption' | 'label'>, me: string | null
   }
   const over = f.boats.filter((b) => b.over === 'over').map((b) => b.sail);
   const cleared = f.boats.filter((b) => b.over === 'cleared').map((b) => `${b.sail} ${plusS(b.clearedMs!, gun)}`);
-  const above = f.boats.filter((b) => b.courseSide).map((b) => b.sail);
   if (over.length) parts.push(`Over (OCS): ${sails(over)}.`);
   if (cleared.length) parts.push(`OCS, cleared: ${sails(cleared)}.`);
-  if (above.length) parts.push(`Above the line: ${sails(above)}.`);
   const missing = f.boats.filter((b) => !b.pos && b !== mine).map((b) => b.sail);
   if (missing.length) parts.push(`Not tracked: ${sails(missing)}.`);
+  const coverage = coverageText(f.from, gun, firstFix);
+  if (coverage) parts.push(coverage);
   return parts.join(' ');
 }
 
-/** The view: the line, the boats placed in any frame (near the start only), the mark if near; padded, shared by all frames. */
+/** The view: the line, the boats' positions and trails in any frame (points near the start only), the mark if near; padded, shared by all frames. */
 function laneView(line: [Vec, Vec], mark: Vec | null, pts: readonly Vec[], reach: number): Box {
   const mid: Vec = [(line[0][0] + line[1][0]) / 2, (line[0][1] + line[1][1]) / 2];
   const box: Box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
@@ -277,16 +283,10 @@ export function laneSnapshots(a: RaceAnalysis, o: LaneOptions): LaneSnapshots {
   const fm = firstMark(a);
   const axisL = fm ? len(sub(fm.xy, mid)) : 0;
   const axis: Vec | null = fm && axisL > 0 ? [(fm.xy[0] - mid[0]) / axisL, (fm.xy[1] - mid[1]) / axisL] : null;
-  // The course side: the line's normal toward the mark.
-  let side: Vec | null = null;
-  if (alongU && axis) {
-    const n: Vec = [-alongU[1], alongU[0]];
-    side = dot(axis, n) < 0 ? [-n[0], -n[1]] : n;
-  }
   const group = new Set(o.group ?? []);
   const repOf = new Map((o.replays ?? []).map((r) => [r.boat, r]));
   const drawn = new Map(a.drawings.map((d) => [d.id, d]));
-  // Who has any fix at all, and the fleet's earliest fix (for an empty pre-gun frame's caption).
+  // Who has any fix at all, and the fleet's earliest fix (where the trails really start, for the captions).
   const tracked = new Set<string>();
   let firstFix: number | null = null;
   for (const d of a.drawings) {
@@ -298,10 +298,9 @@ export function laneSnapshots(a: RaceAnalysis, o: LaneOptions): LaneSnapshots {
   }
   const frames: LaneFrame[] = [];
   const allPts: Vec[] = [];
-  let prev = gun + LANE_FIRST_FROM_S * 1000;
+  const from = gun + LANE_TRAIL_FROM_S * 1000;
   for (const s of LANE_FRAMES_S) {
     const t = gun + s * 1000;
-    const from = prev;
     const boats: LaneBoat[] = a.boats.map((b) => {
       const d = drawn.get(b.id);
       const at = d ? placeAt(b.id, legRanges(d, true), t, drawingGapMs(d), twd) : null;
@@ -310,22 +309,23 @@ export function laneSnapshots(a: RaceAnalysis, o: LaneOptions): LaneSnapshots {
       const across = en && alongU ? dot(sub(en, left), alongU) / lineM : null;
       const r = repOf.get(b.id);
       let over: LaneOver = null;
-      if (r && t >= gun) {
+      if (r) {
         if (r.clearedMs == null || t < r.clearedMs) over = 'over';
         else if (r.clearedMs > from) over = 'cleared';
       }
+      const trail = d ? trailOf(a, b.id, twd, from, t) : [];
       if (pos) allPts.push(pos);
+      for (const seg of trail) allPts.push(...seg);
       return {
         id: b.id,
         sail: b.sail,
         pos,
         hold: !!at?.hold,
         tracked: tracked.has(b.id),
-        trail: d ? trailOf(a, b.id, twd, from, t) : [],
+        trail,
         role: b.id === o.me ? 'me' : group.has(b.id) ? 'group' : 'other',
         over,
         clearedMs: over === 'cleared' ? r!.clearedMs : null,
-        courseSide: t < gun && en != null && side != null && dot(sub(en, left), side) > 0,
         across,
         third: across != null ? thirdOf(across) : null,
         toMarkM: en && fm && axis ? dot(sub(fm.xy, en), axis) : null,
@@ -339,9 +339,8 @@ export function laneSnapshots(a: RaceAnalysis, o: LaneOptions): LaneSnapshots {
     const empty = boats.every((b) => !b.pos && !b.trail.length);
     const base = { s, t, from, title: gunRel(t, gun), boats, empty, missing, placed };
     const caption = frameCaption(base, o.me, gun, fm?.name ?? 'the first mark', firstFix);
-    const label = `Lane snapshot at ${base.title}${empty ? '' : `: ${placed} of ${boats.length} boats placed`}. ${caption}`;
+    const label = `Lane snapshot at ${base.title}, trails from ${gunRel(from, gun)}${empty ? '' : `: ${placed} of ${boats.length} boats placed`}. ${caption}`;
     frames.push({ ...base, caption, label });
-    prev = t;
   }
   const line: [Vec, Vec] = [rot(left), rot(right)];
   const mark = fm ? rot(fm.xy) : null;
