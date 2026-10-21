@@ -268,7 +268,7 @@ function windowsOn(ctx: CoachCtx, leg: number, kind: 'upwind' | 'downwind', ids:
     for (const r of refs) {
       // Same leg for the whole window (ends and the middle): the same breeze, the same kind of sailing.
       // Leaders who have already rounded onto the next beat/run are left out, not compared across legs.
-      if (trackLegAt(r.tr, c) !== leg || trackLegAt(r.tr, e - 1) !== leg || trackLegAt(r.tr, (c + e) >> 1) !== leg) continue;
+      if (trackLegAt(r.tr, c) !== leg || trackLegAt(r.tr, e - 1) !== leg || trackLegAt(r.tr, (c + e) / 2) !== leg) continue;
       const h = heelIn(r.h, c, e);
       const s = h && speedIn(r.sp, kind, c, e);
       if (h && s) rs.push({ ...h, ...s, id: r.id });
