@@ -53,7 +53,7 @@ import type { AskContext } from '../analysis/coach/askContext';
 import type { AskIds } from '../data/askCoach/protocol';
 import { cardSpans, coachCardsHtml } from './coachCards';
 import { legStoriesHtml } from './coachLegs';
-import { buildReport, reportFromUrl, reportHref } from './report';
+import { buildReport, reportBoatFor, reportFromUrl, reportHref } from './report';
 import { reportHtml, reportThumb } from './reportView';
 import { summarizeRegatta } from '../analysis/coach/regatta';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
@@ -605,7 +605,8 @@ export function startApp(): void {
     els.report.hidden = !reportOn;
     const a = analysis;
     if (!reportOn || !a) return;
-    const me = a.boats.find((b) => b.id === coachBoatFor(a, highlight));
+    // A cleared selection keeps the boat last selected (coachBoat, still in `boat=`): the report and the URL agree.
+    const me = a.boats.find((b) => b.id === reportBoatFor(a, highlight, coachBoat));
     const regattaOn = coachView === 'regatta';
     if (regattaOn && me && official.status !== 'pending') regattaRunner.want(jobsFor(a, me.sail));
     // The Coach's own model and debrief (the same group, the same cache), so the report says what the Coach tab says.

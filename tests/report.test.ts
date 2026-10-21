@@ -7,7 +7,7 @@ import { coachDebrief } from '../src/analysis/coach/debrief';
 import { summarizeRegatta, type RaceDigest, type RegattaRace } from '../src/analysis/coach/regatta';
 import type { RaceData } from '../src/data/types';
 import { cardText, penaltyText } from '../src/ui/coachCards';
-import { MISSING, REPORT_HASH, buildReport, lineThird, longDuration, reportFromUrl, reportHref, type ReportField, type ReportInput, type ReportModel } from '../src/ui/report';
+import { MISSING, REPORT_HASH, buildReport, lineThird, longDuration, reportBoatFor, reportFromUrl, reportHref, scoredText, type ReportField, type ReportInput, type ReportModel } from '../src/ui/report';
 import { REPORT_NO_BOAT, reportHtml, reportThumb } from '../src/ui/reportView';
 import { ic37LinkedRace, ic37Official, j105Race } from './helpers';
 
@@ -68,6 +68,35 @@ describe('the route: #report or report=1', () => {
   });
 });
 
+describe('the boat the report shows', () => {
+  const a = ic37.a;
+
+  it('the selected boat when set; with the selection cleared, the remembered boat (still in boat=); null when neither sailed', () => {
+    expect(reportBoatFor(a, 'USA 016', 'USA 019')).toBe('USA 016');
+    expect(reportBoatFor(a, null, 'USA 019')).toBe('USA 019');
+    expect(reportBoatFor(a, null, 'USA 999')).toBeNull();
+    expect(reportBoatFor(a, null, null)).toBeNull();
+    expect(reportBoatFor(a, 'USA 999', 'USA 998')).toBeNull();
+  });
+});
+
+describe('the scored place in the header', () => {
+  const res: Parameters<typeof scoredText>[0] = { finishPos: null };
+
+  it('a points code reads like the Coach: the scored place, then the code and the places it cost', () => {
+    expect(scoredText({ ...res, finishCode: 'DPI', scoredPoints: 15, onWaterPlace: 12, penaltyPlaces: 3 }, 15)).toBe('15th (DPI, +3 places)');
+    expect(scoredText({ ...res, finishCode: 'SCP', scoredPoints: 9, onWaterPlace: 8, penaltyPlaces: 1 }, 15)).toBe('9th (SCP, +1 place)');
+    expect(scoredText({ ...res, finishCode: 'DPI', scoredPoints: 12, onWaterPlace: 12, penaltyPlaces: 0 }, 15)).toBe('12th (DPI)');
+  });
+
+  it('a code with no scored place is the code alone; an uncoded boat is unchanged', () => {
+    expect(scoredText({ ...res, finishCode: 'DNF', scoredPoints: 16 }, 15)).toBe('DNF');
+    expect(scoredText({ ...res, finishCode: 'DSQ', scoredPoints: 16, onWaterPlace: 4 }, 15)).toBe('DSQ');
+    expect(scoredText({ ...res, finishPos: 12 }, 15)).toBe('12th of 15');
+    expect(scoredText(res, 15)).toBe(MISSING);
+  });
+});
+
 describe('IC37 R5, USA 016 (DPI): the report', () => {
   const m = buildReport(input('USA 016'));
   const deb = coachDebrief(ic37.a, ic37.m!, 'USA 016')!;
@@ -75,7 +104,7 @@ describe('IC37 R5, USA 016 (DPI): the report', () => {
   it('the header: event, division, race, boat; on the water and scored with the code; times; the wind marked estimated', () => {
     expect(m).toMatchObject({ state: 'ready', scope: 'race', event: '2026 IC37 North American Championship', division: 'IC37', race: 'Race 5', sail: 'USA 016', boatName: 'Fair American', groupLabel: 'Top 3' });
     expect(fieldOf(m.header, 'On the water').value).toBe('12th of 15');
-    expect(fieldOf(m.header, 'Scored')).toMatchObject({ value: 'DPI 15 (+3 places)', warn: true });
+    expect(fieldOf(m.header, 'Scored')).toMatchObject({ value: '15th (DPI, +3 places)', warn: true });
     expect(fieldOf(m.header, 'Scored').note).toMatch(/^Discretionary penalty/);
     expect(fieldOf(m.header, 'Race time').value).toBe('55:02');
     expect(fieldOf(m.header, 'Elapsed (official)').value).toMatch(/^\d+:\d\d$/);

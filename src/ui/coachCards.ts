@@ -583,7 +583,7 @@ export function cardHtml(c: Card, i: number, a: RaceAnalysis, on: boolean, raceC
 // ---- the penalty card
 
 /** "15th", or "13.9 points" (an SCP score is fractional). */
-const scoredWord = (p: number): string => (Number.isInteger(p) ? ordinal(p) : `${pointsText(p)} points`);
+export const scoredWord = (p: number): string => (Number.isInteger(p) ? ordinal(p) : `${pointsText(p)} points`);
 const placesWord = (n: number): string => `${pointsText(n)} ${n === 1 ? 'place' : 'places'}`;
 
 /** A penalty turn as the card says it: "720 at 11:23:40 (+18 min), ≈ 45 s". */

@@ -29,8 +29,8 @@ import { finishRank } from '../analysis/result';
 import type { BoatResult, LegKind, RaceAnalysis } from '../analysis/types';
 import { codeInfo, pointsText } from '../data/official/codes';
 import type { OfficialRaceInput } from '../data/racesense/adapter';
-import { GROUP_LABEL } from './coach';
-import { cardText, cardWarnings, goodTexts, penaltyText, rankedHead, secondsChip, turnChip, wentText } from './coachCards';
+import { GROUP_LABEL, coachBoatFor } from './coach';
+import { cardText, cardWarnings, goodTexts, penaltyText, rankedHead, scoredWord, secondsChip, turnChip, wentText } from './coachCards';
 import { gateChip, groupSecondsChip, placesWord } from './coachLegs';
 import { LEG_TYPE, finishShort, penaltyRowText, regattaWentText, secs } from './coachRegatta';
 import { degLabel, duration, f0, f1, localTime, ordinal, pct, tzLabel } from './format';
@@ -58,6 +58,14 @@ export function reportHref(href: string, open: boolean, backHash: string): strin
   u.hash = open ? REPORT_HASH : backHash;
   return u.toString();
 }
+
+/**
+ * The boat the report shows: the boat selected in the app when it sailed this race (as the Coach); with the selection
+ * cleared, the boat last selected (`remembered`, the Coach's boat, kept in `boat=`), so the open report and the URL
+ * keep it. Null when neither sailed the race.
+ */
+export const reportBoatFor = (a: Pick<RaceAnalysis, 'boats'>, highlight: string | null, remembered: string | null): string | null =>
+  coachBoatFor(a, highlight) ?? (highlight == null ? coachBoatFor(a, remembered) : null);
 
 // ---- the model
 
@@ -179,7 +187,7 @@ export interface ReportModel {
 
 export interface ReportInput {
   a: RaceAnalysis;
-  /** The boat selected in the app (Coach's coachBoatFor); null: the report asks for one. */
+  /** The boat to report on (reportBoatFor); null: the report asks for one. */
   boat: string | null;
   /** The Race menu's name for the race ("Race 5"); else from the race number. */
   raceName?: string;
@@ -224,6 +232,18 @@ export function longDuration(s: number | null | undefined): string {
   return `${h}:${rest.padStart(5, '0')}`;
 }
 
+/**
+ * The header's scored place: "12th of 15"; a boat that finished with a points code (DPI, SCP, …) as the Coach's penalty
+ * card puts it, "15th (DPI, +3 places)"; a code with no scored place ("DNF", "DSQ"); — with neither.
+ */
+export function scoredText(b: Pick<BoatResult, 'finishPos' | 'finishCode' | 'scoredPoints' | 'onWaterPlace' | 'penaltyPlaces'>, of: number): string {
+  if (b.finishPos != null) return `${ordinal(b.finishPos)} of ${of}`;
+  if (!b.finishCode) return MISSING;
+  if (b.onWaterPlace == null || b.scoredPoints == null || codeInfo(b.finishCode).lost) return b.finishCode;
+  const n = b.penaltyPlaces ?? 0;
+  return `${scoredWord(b.scoredPoints)} (${b.finishCode}${n > 0 ? `, +${pointsText(n)} ${n === 1 ? 'place' : 'places'}` : ''})`;
+}
+
 function headerFields(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null, official: OfficialRaceInput | null | undefined): ReportField[] {
   const tz = a.meta.tzOffsetMs;
   const res = a.meta.results;
@@ -238,9 +258,7 @@ function headerFields(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null, 
     }),
   );
   if (isOfficial) {
-    const code = codeShort(b);
-    const pen = b.penaltyPlaces != null && b.penaltyPlaces > 0 ? ` (+${pointsText(b.penaltyPlaces)} ${b.penaltyPlaces === 1 ? 'place' : 'places'})` : '';
-    out.push(field('Scored', b.finishPos != null ? `${ordinal(b.finishPos)} of ${of}` : code ? `${code}${pen}` : MISSING, b.finishCode ? { note: codeInfo(b.finishCode).meaning, warn: true } : {}));
+    out.push(field('Scored', scoredText(b, of), b.finishCode ? { note: codeInfo(b.finishCode).meaning, warn: true } : {}));
   } else out.push(field('Scored', MISSING, { note: 'no official results linked' }));
   const ot = officialTimes(official, b);
   out.push(field('Race time', longDuration(b.raceTimeS), { note: b.raceTimeS != null ? 'gun → finish' : 'no finish' }));
