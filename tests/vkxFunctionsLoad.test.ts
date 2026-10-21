@@ -12,6 +12,9 @@ const MODULES = [
   '../functions/api/vkx/list.ts',
   '../functions/api/vkx/data.ts',
   '../functions/api/vkx/delete.ts',
+  '../functions/_askCoach.ts',
+  '../functions/api/coach/ask.ts',
+  '../functions/api/coach/status.ts',
 ] as const;
 
 describe('Pages Functions import', () => {
@@ -38,5 +41,19 @@ describe('Pages Functions import', () => {
     expect(spy).not.toHaveBeenCalled();
     expect(await lim.allow('1.2.3.4', 0)).toBe(true);
     expect(spy).toHaveBeenCalled();
+  });
+
+  it('Ask Coach: no timers, random values or clock reads at import; status makes no limiter either', async () => {
+    vi.resetModules();
+    const rand = vi.spyOn(crypto, 'getRandomValues');
+    const timer = vi.spyOn(globalThis, 'setTimeout');
+    const now = vi.spyOn(Date, 'now');
+    const { handleStatus } = await import('../functions/_askCoach');
+    expect(rand).not.toHaveBeenCalled();
+    expect(timer).not.toHaveBeenCalled();
+    expect(now).not.toHaveBeenCalled();
+    handleStatus({ request: new Request('https://x.example/api/coach/status'), env: { ANTHROPIC_API_KEY: 'sk-dummy' } });
+    expect(rand).not.toHaveBeenCalled();
+    expect(timer).not.toHaveBeenCalled();
   });
 });
