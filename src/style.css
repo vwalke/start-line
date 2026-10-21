@@ -919,3 +919,23 @@ svg .cl-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 .ys-form { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 2px; }
 .ys-form input { flex: 1 1 14em; min-width: 0; font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); }
 .ys-form button { font: inherit; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--accent); cursor: pointer; }
+
+/* ---------- boat-log (.vkx) uploads (ui/vkxUpload.ts) ---------- */
+.vkx-bar { margin: -4px 0 10px; }
+.vkx-chips { row-gap: 6px; }
+.vkx-add { font: inherit; font-size: 0.78rem; min-height: 28px; padding: 2px 10px; border: 1px solid var(--rule-strong); border-radius: 999px; background: var(--surface); color: var(--accent); cursor: pointer; }
+.vkx-add:hover:not(:disabled) { border-color: var(--accent); }
+.vkx-add:disabled { color: var(--ink-3); cursor: default; }
+.vkx-busy { color: var(--ink); }
+.vkx-remove { font-size: 0.75rem; }
+.vkx-chips .chip.muted { color: var(--ink-3); font-weight: 500; background: var(--grid); }
+.vkx-k { font-size: 0.68rem; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--ink-3); }
+.log-hz { display: inline-block; margin-left: 4px; min-width: 1.05em; padding: 0 3px; border-radius: 3px; background: var(--grid); color: var(--ink-3); font-size: 0.6rem; font-weight: 700; line-height: 1.35; vertical-align: 1px; }
+.vkx-dialog { max-width: min(440px, calc(100vw - 32px)); padding: 16px 18px; border: 1px solid var(--rule-strong); border-radius: 12px; background: var(--surface); color: var(--ink); }
+.vkx-dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+.vkx-title { margin: 0 0 10px; font-size: 1rem; }
+.vkx-public { margin: 12px 0 0; font-size: 0.85rem; }
+.vkx-pick { display: block; margin-top: 10px; font-size: 0.85rem; }
+.vkx-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.vkx-actions button { font: inherit; min-height: 36px; padding: 4px 14px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
+.vkx-actions .vkx-ok { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }

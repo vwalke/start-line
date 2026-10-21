@@ -1,4 +1,4 @@
-import type { FinishSource, RaceResults, RcStatus } from '../data/types';
+import type { BoatLog, FinishSource, RaceResults, RcStatus } from '../data/types';
 import type { Vec } from './geo';
 
 /** How much track before the start fix the start chart draws behind each boat. */
@@ -170,6 +170,8 @@ export interface BoatResult {
   headingSource: 'device' | 'cog';
   /** Median |device heading − course over ground| at speed, °; null with too few fixes. */
   headingOffDeg: number | null;
+  /** The track comes (in part) from the boat's own uploaded log. */
+  log?: BoatLog;
 }
 
 export interface WindEstimate {

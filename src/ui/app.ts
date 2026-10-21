@@ -16,6 +16,7 @@ import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchUsableRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
 import { eventFinished, linkRequest, linksOf, mergeOrphans, officialFor, orphanContexts, probeFetcher } from '../data/recovery';
+import { raceWindowsFromListed } from '../data/vkx/match';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { boatList, findingsList } from './boats';
 import {
@@ -120,6 +121,7 @@ import {
 } from './speed';
 import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
 import { carryView, clampView, clientToChart, fitView, presetActive, type Box, type View } from './view';
+import { createVkxUpload } from './vkxUpload';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -242,6 +244,12 @@ export function startApp(): void {
       pending.set(id, { resolve, reject });
       worker.postMessage({ ...req, id } as WorkerRequest);
     });
+
+  /** Boat-log uploads: new ones re-run the race on screen (loadRace keeps its view). */
+  const vkx = createVkxUpload({
+    reload: () => current && void loadRace(current.division, current.raceNumber),
+    windows: (div) => (raceList ? raceWindowsFromListed(raceList.races, div) : []),
+  });
 
   let coachReq = 0;
   const coachPending = new Map<number, (w: CoachRaw | null) => void>();
@@ -393,6 +401,7 @@ export function startApp(): void {
       <span title="No wind sensor on the boats: estimated from the fleet's steady upwind headings">${windText}${model}</span> ·
       <span class="muted">${esc(m.sourceLabel)}</span></p>`;
     renderRaceHead();
+    vkx.mount(els.raceHead, a);
   }
 
   function render(): void {
@@ -1290,9 +1299,12 @@ export function startApp(): void {
     try {
       const classLabel = events.find((e) => e.eventId === id)?.classLabel;
       const off = officialFor(outcomeOf(), listedOf(division, raceNumber));
-      const req = { type: 'live' as const, eventId: id, regatta, division, raceNumber, allCompetitors, classLabel, ...(off ? { official: off } : {}), ...(coachOn ? { coach: true } : {}) };
+      const reg = regatta;
+      const logs = vkx.buffersFor(id, division, raceNumber);
+      const req = { type: 'live' as const, eventId: id, regatta: reg, division, raceNumber, allCompetitors, classLabel, ...(off ? { official: off } : {}), ...(coachOn ? { coach: true } : {}), ...(logs.length ? { vkx: logs } : {}) };
       if (!(await show(run(req), view))) return 'superseded';
       current = { eventId: id, division, raceNumber };
+      if (analysis) vkx.raceShown({ eventId: id, division, raceNumber, regatta: reg, analysis });
       setUrl({ event: id, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
       save();
       setNotice('');

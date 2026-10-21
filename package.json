@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:vkx": "node scripts/vkx-dev.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint .",

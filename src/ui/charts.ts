@@ -786,6 +786,8 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
 
   const L = rot(a.line.left);
   const R = rot(a.line.right);
+  const labelAt: Vec[] = [];
+  const labelMin = 22 * unit;
   const marks = a.marks
     .map((m) => {
       const ps = m.xy.map(rot);
@@ -795,7 +797,10 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
       const c = ps.map((p) => `<circle class="${cls}" cx="${p[0]}" cy="${p[1]}" r="${5.5 * unit}" stroke-width="${1.5 * k}"${dash}/>`).join('');
       const top = ps.reduce((x, y) => (y[0] > x[0] ? y : x));
       const name = m.estimated ? `${m.name.replace(/ mark$/i, '')} (est.)` : m.name;
-      return `${c}<text x="${top[0] + 9 * unit}" y="${top[1] + 4 * unit}" font-size="${12 * k}" class="lbl${m.estimated ? ' est' : ''}">${esc(name)}</text>`;
+      const at: Vec = [top[0] + 9 * unit, top[1] + 4 * unit];
+      if (labelAt.some((p) => Math.hypot(p[0] - at[0], p[1] - at[1]) < labelMin)) return c;
+      labelAt.push(at);
+      return `${c}<text x="${at[0]}" y="${at[1]}" font-size="${12 * k}" class="lbl${m.estimated ? ' est' : ''}">${esc(name)}</text>`;
     })
     .join('');
   const fl = a.finishLine;
