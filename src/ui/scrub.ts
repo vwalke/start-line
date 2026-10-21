@@ -45,17 +45,28 @@ export const scrubLabel = (t: number, a: Pick<RaceAnalysis, 'meta'>): string => 
 
 // ---- trail ---------------------------------------------------------------------
 
-export type Trail = '30' | '120' | 'all';
+/**
+ * '30' / '120': the last 30 s / 2 min; 'all': from the window's start; 'win' (Map D, a Coach card's window open on
+ * the map): from the card window's start (`trailWindow`'s `from`), so the whole window shows and nothing before it.
+ */
+export type Trail = '30' | '120' | 'all' | 'win';
+/** The trail of a Coach card's window (only with one open; its button shows only then). */
+export const WINDOW_TRAIL: Trail = 'win';
+/** The trails always offered. */
 export const TRAILS: readonly [Trail, string][] = [
   ['30', '30 s'],
   ['120', '2 min'],
   ['all', 'All'],
 ];
 export const DEFAULT_TRAIL: Trail = '120';
-export const parseTrail = (raw: string | null | undefined): Trail => (raw === '30' || raw === 'all' ? raw : raw === '120' ? '120' : DEFAULT_TRAIL);
+export const parseTrail = (raw: string | null | undefined): Trail => (raw === '30' || raw === 'all' || raw === 'win' ? raw : raw === '120' ? '120' : DEFAULT_TRAIL);
 
-/** The time window a trail draws at `t`: [t − trail, t], or from the window's start for All. */
-export function trailWindow(t: number, trail: Trail, w: ScrubWindow): [number, number] {
+/**
+ * The time window a trail draws at `t`: [t − trail, t], or from the window's start for All. 'win' draws from `from`
+ * (a card window's start): [from, t]; before `from`, as the default trail; with no `from`, as All.
+ */
+export function trailWindow(t: number, trail: Trail, w: ScrubWindow, from?: number | null): [number, number] {
+  if (trail === 'win') return from == null ? trailWindow(t, 'all', w) : t < from ? trailWindow(t, DEFAULT_TRAIL, w) : [Math.max(w.t0, from), t];
   return [trail === 'all' ? w.t0 : Math.max(w.t0, t - Number(trail) * 1000), t];
 }
 
