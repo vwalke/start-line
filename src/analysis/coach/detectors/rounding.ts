@@ -30,8 +30,9 @@
  * D9_PLACES_EST_LIMIT not judged at all (the places would be the interpolation's, not the boats').
  * The boat's own places must be measured (not a hole) and the 2-minute window at least half
  * tracked; only boats measured at both reads that also rounded within D9_SHIFT_WINDOW_MS count as
- * passers. A card needs that many, the place change, and a loss of the same threshold in the
- * fixed-fleet places at the mark (so a dtg reshuffle that contradicts the leg table does not fire).
+ * passers. A card needs that many and the place change, and must not contradict the fixed-fleet
+ * places at the mark (the leg table): a gain or hold there is a dtg reshuffle, and a huge dtg
+ * loss with almost no mark loss is the same (Cascais R2: 11th→63rd by dtg, gained 2 at the mark).
  * DNS/DNC and official extras are left out of the ranking; a DNF/RET is not carried past its last known mark.
  */
 import { bearingVec, dot, len, median, sub, type Vec } from '../../geo';
@@ -434,8 +435,10 @@ export function detectRounding(ctx: CoachCtx): D9Result {
     evaluated.add(read.type);
     const fp = (base ??= progressBase(ctx.a, ctx.m)).fp.byId.get(ctx.boat);
     const markLost = fp ? fp.place[read.leg + 1] - fp.place[read.leg] : pl.lost;
-    // dtg places around a mark can reshuffle a 90-boat fleet; the fixed-fleet mark places must agree.
-    if (pl.lost < pl.threshold || pl.passers.length < pl.threshold || markLost < pl.threshold) return;
+    // dtg around a mark can reshuffle a 90-boat fleet; skip when the mark-to-mark table disagrees.
+    if (pl.lost < pl.threshold || pl.passers.length < pl.threshold) return;
+    if (markLost <= 0) return;
+    if (pl.lost >= 2 * pl.threshold && markLost * 2 < pl.threshold) return;
     const seconds = Math.max(0, pl.gapS ?? 0) * (pl.shift ? D9_SHIFT_SECONDS : 1);
     const level: Confidence = pl.shift || pl.estShare > D9_PLACES_EST_MAX ? 'low' : 'medium';
     out.opps.push({

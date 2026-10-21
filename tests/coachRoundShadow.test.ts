@@ -657,6 +657,16 @@ describe('D9 fallback: places through the rounding on sparse data', () => {
     expect(r.opps).toEqual([]);
   });
 
+  it('a huge dtg loss with almost no mark-to-mark loss does not fire', () => {
+    // Most of a long slowdown is after the rounding: start 12th → mark ~13th (lost 1)
+    // while ±60 s dtg loses 10+ (the Cascais-scale blow-up with a 1-place mark loss).
+    const ctx = fileWorld({ n: 100, slowS: 100 });
+    ctx.a.boats.find((b) => b.id === 'me')!.start = { startPlace: 12 };
+    const r = detectRounding(ctx);
+    expect(r.reads[0].places!.lost).toBeGreaterThanOrEqual(10);
+    expect(r.opps).toEqual([]);
+  });
+
   it('boats that did not round near the same time do not count as passers', () => {
     const ctx = fileWorld({ n: 100, slowS: 60 });
     for (const [id, tr] of ctx.m.tracks) {
