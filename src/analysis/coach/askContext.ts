@@ -8,7 +8,9 @@
  * sail numbers only (never owners or crew). The server never trusts the browser's copy:
  * `sanitizeAskContext` keeps only the fields below, with their types, clamps every string, array
  * and number, and `contextText` serializes it under MAX_CONTEXT_TOKENS, dropping the lowest-priority
- * sections first and saying so in the context.
+ * sections first and saying so in the context. The serialized text leads with the official penalty
+ * (labelled the top impact only when it cost places or the result) and then the findings numbered in
+ * Coach's rank order (the array order).
  */
 
 export type AskView = 'race' | 'regatta';
@@ -283,18 +285,86 @@ const TRIM_STEPS: { name: string; run: Trim }[] = [
   { name: 'recurring findings', run: (c) => dropKey(c.regatta, 'recurring') },
   { name: 'tips', run: (c) => [dropEach(c.findings, 'tip'), dropEach(c.regatta?.workOn, 'tip')].some(Boolean) },
   { name: 'race places', run: (c) => dropKey(c.regatta, 'places') },
-  { name: 'penalty chips', run: (c) => dropKey(c.penalty, 'chips') },
+  // The penalty outranks every finding: the findings go before any of it does.
   { name: 'findings beyond the first 2', run: (c) => keepFirst(c.findings, 2) },
+  { name: 'penalty chips', run: (c) => dropKey(c.penalty, 'chips') },
 ];
 
+// ---- the lead: the penalty, then the findings in Coach's order
+
+/** A penalty that cost nothing (no places lost, or redress that improved the score): not the race's top impact. */
+const noLoss = (p: AskPenalty): boolean => /^(No places lost|Score adjusted)\b/.test(p.result ?? '');
+
 /**
- * The context as compact JSON within `maxTokens` (estimated): sections dropped in TRIM_STEPS order
- * until it fits, named in `trimmed` (inside the JSON, so the model knows what it can't see).
+ * A line of the regatta's Penalties row (penaltyRowText) that cost the boat: a lost result ("16 points; result lost"),
+ * or places ("≈ 24 places", "≈ 0.5 places"). Penalty turns, "≈ 0 places" and a code with no places shown cost none
+ * here: like `noLoss`, only a row that cost something is the regatta's top impact.
+ */
+export const penaltyRowCost = (row: string): boolean =>
+  !/^Penalty turns\b/.test(row) && (/\bresults? lost\b/.test(row) || Number(/≈ (\d+(?:\.\d+)?) places?\b/.exec(row)?.[1] ?? 0) > 0);
+
+/** The penalty in one line: "Top impact of this race — official penalty: DPI (what it means): Cost 3 places — …", with its chips and the card's sentence. */
+export function penaltyLine(p: AskPenalty): string {
+  const label = noLoss(p) ? 'Official scoring code of this race (it cost no places)' : 'Top impact of this race — official penalty';
+  // The card's sentence opens with the meaning: only what follows it is new.
+  const what = p.meaning && p.what?.startsWith(p.meaning) ? p.what.slice(p.meaning.length).replace(/^\.\s*/, '') : (p.what ?? '');
+  return [`${label}: ${p.code}${p.meaning ? ` (${p.meaning})` : ''}${p.result ? `: ${p.result}` : ''}.`, p.chips?.length ? `On the track: ${p.chips.join('; ')}.` : '', what].filter(Boolean).join(' ');
+}
+
+const findingLine = (f: AskFinding, i: number): string => {
+  const s = f.secondsChip ?? (f.seconds != null ? `≈ ${f.seconds} s` : '');
+  const conf = f.confidence && f.confidence !== 'high' ? ` (${f.confidence} confidence)` : '';
+  return `${i + 1}. ${f.title}${s ? ` ${s}` : ''}${conf}`;
+};
+
+/** The lead lines: the penalty (or the regatta's Penalties row) first, then each ranked list numbered in Coach's order. */
+function leadLines(c: AskContext): string[] {
+  const out: string[] = [];
+  if (c.penalty) out.push(penaltyLine(c.penalty));
+  if (c.findings?.length) {
+    out.push(`Coach's findings, ranked by Coach, biggest first${c.penalty && !noLoss(c.penalty) ? ' (time lost on the water, all after the penalty)' : ''}:`, ...c.findings.map(findingLine));
+  }
+  const r = c.regatta;
+  const top = !!r?.penalties?.some(penaltyRowCost);
+  if (r?.penalties?.length) {
+    const official = r.penalties.some((p) => !/^Penalty turns\b/.test(p));
+    const label = top
+      ? 'Top impact across the regatta — Penalties row (official scoring codes and the places they cost):'
+      : official
+        ? 'Penalties row (official scoring codes; the row shows no places lost):'
+        : 'Penalties row (penalty turns, no official code):';
+    out.push(label, ...r.penalties.map((p) => `- ${p}`));
+  }
+  if (r?.workOn?.length) {
+    out.push(`Top things to work on, ranked by Coach, biggest first${top ? ' (after the Penalties row)' : ''}:`,...r.workOn.map((w, i) => `${i + 1}. ${w.title}${w.atStakeS != null ? ` ~${w.atStakeS} s` : ''}${w.pattern ? ' (pattern)' : ''}`));
+  }
+  if (r?.recurring?.length) out.push('Recurring findings: in Coach\'s order, most at stake first (weighted over the regatta); "rank" in the details.');
+  return out;
+}
+
+/** The context's details as JSON: the penalty is in the lead, each ranked list carries its "rank". */
+function detailsOf(c: AskContext, trimmed: string[]): Record<string, unknown> {
+  const ranked = <T extends object>(xs: T[] | undefined) => xs?.map((x, i) => ({ rank: i + 1, ...x }));
+  const r = c.regatta;
+  return {
+    ...c,
+    penalty: undefined,
+    findings: ranked(c.findings),
+    regatta: r && { ...r, penalties: undefined, workOn: ranked(r.workOn), recurring: ranked(r.recurring) },
+    trimmed: trimmed.length ? trimmed : undefined,
+  };
+}
+
+/**
+ * The context as text within `maxTokens` (estimated): the lead lines (the penalty labelled as the top
+ * impact, then the findings numbered in Coach's rank order), then the details as compact JSON.
+ * Sections are dropped in TRIM_STEPS order until it fits, named in `trimmed` (inside the JSON, so the
+ * model knows what it can't see).
  */
 export function contextText(ctx: AskContext, maxTokens = MAX_CONTEXT_TOKENS): { text: string; tokens: number; trimmed: string[] } {
   const c = JSON.parse(JSON.stringify({ ...ctx, trimmed: undefined })) as AskContext;
   const trimmed: string[] = [];
-  const render = (): string => JSON.stringify(trimmed.length ? { ...c, trimmed } : c);
+  const render = (): string => [...leadLines(c), `Details (JSON; ranked lists in the same order, "rank" as numbered above):`, JSON.stringify(detailsOf(c, trimmed))].join('\n');
   let text = render();
   for (const step of TRIM_STEPS) {
     if (estimateTokens(text) <= maxTokens) break;
@@ -303,10 +373,12 @@ export function contextText(ctx: AskContext, maxTokens = MAX_CONTEXT_TOKENS): { 
       text = render();
     }
   }
-  // Still over (absurdly long strings within their caps): cut, keeping it a valid string for the model.
+  // Still over (absurdly long strings within their caps): cut at the end, so the lead (penalty first) stays.
   if (estimateTokens(text) > maxTokens) {
     trimmed.push('the rest (cut at the size cap)');
-    text = JSON.stringify(cleanString(render(), maxTokens * CHARS_PER_TOKEN - 2));
+    const max = maxTokens * CHARS_PER_TOKEN;
+    text = render();
+    text = `${text.slice(0, max - 1).trimEnd()}…`;
   }
   return { text, tokens: estimateTokens(text), trimmed };
 }

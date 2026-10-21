@@ -15,6 +15,8 @@ import { askPenalty, raceAskContext, regattaAskContext } from '../src/ui/coachAs
 import { cardText, coachCardsHtml, penaltyText } from '../src/ui/coachCards';
 import { finishShort, penaltiesHtml, penaltyRowText, regattaHtml } from '../src/ui/coachRegatta';
 import { codeShort } from '../src/ui/resultText';
+import { legStories } from '../src/analysis/coach/legStory';
+import { SYSTEM_PROMPT, buildPrompt } from '../functions/_askCoach';
 import { ic37LinkedRace, ic37Official, ic37Race } from './helpers';
 
 // ---- codes and points
@@ -203,6 +205,24 @@ describe('IC37 R5 with the official link: USA 016, DPI in every race of the rega
     expect(sanitizeAskContext(JSON.parse(JSON.stringify(ctx)))!.penalty).toEqual(ctx.penalty);
     // Not a finding.
     expect(ctx.findings!.some((f) => /penalty/i.test(f.title))).toBe(false);
+  });
+
+  it('its Ask Coach context text (as the server sends it): the penalty first as the top impact, then the cards numbered in rank order', () => {
+    const d = debrief('USA 016');
+    const me = boat('USA 016');
+    const group = { kind: 'leaders' } as const;
+    const ctx = raceAskContext({ a, me, head: coachChips(a, me, null, d.totalS, d.raceCov), deb: d, stories: legStories(a, m, me.id, group), group });
+    const p = buildPrompt({ question: 'what was my biggest loss this race?', history: [], ids: {}, context: sanitizeAskContext(JSON.parse(JSON.stringify(ctx)))! });
+    expect(p.trimmed).toEqual([]);
+    const block = p.system[1].text;
+    const lines = block.slice(block.indexOf('<coach_context>\n') + 16).split('\n');
+    expect(lines[0]).toBe('Top impact of this race — official penalty: DPI (Discretionary penalty: the protest committee added points instead of disqualifying): Cost 3 places — 12th on the water, scored 15th.');
+    expect(lines[1]).toBe("Coach's findings, ranked by Coach, biggest first (time lost on the water, all after the penalty):");
+    expect(d.cards.length).toBeGreaterThan(1);
+    expect(lines.slice(2, 2 + d.cards.length)).toEqual(ctx.findings!.map((f, i) => `${i + 1}. ${f.title} ${f.secondsChip}${f.confidence !== 'high' ? ` (${f.confidence} confidence)` : ''}`));
+    // Coach's rank order is the cards' order (biggest first here).
+    expect(ctx.findings!.map((f) => f.title)).toEqual(d.cards.map((c) => cardText(c, a.meta.tzOffsetMs).title));
+    expect(SYSTEM_PROMPT).toMatch(/never re-rank them/);
   });
 
   it('a boat with no code has no penalty card; USA 017 and USA 019 (over early, scored AOK) keep "Over early — cleared"', () => {
