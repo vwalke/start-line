@@ -9,7 +9,8 @@
  * `sanitizeAskContext` keeps only the fields below, with their types, clamps every string, array
  * and number, and `contextText` serializes it under MAX_CONTEXT_TOKENS, dropping the lowest-priority
  * sections first and saying so in the context. The serialized text leads with the official penalty
- * (the race's top impact) and then the findings numbered in Coach's rank order (the array order).
+ * (labelled the top impact only when it cost places or the result) and then the findings numbered in
+ * Coach's rank order (the array order).
  */
 
 export type AskView = 'race' | 'regatta';
@@ -294,6 +295,14 @@ const TRIM_STEPS: { name: string; run: Trim }[] = [
 /** A penalty that cost nothing (no places lost, or redress that improved the score): not the race's top impact. */
 const noLoss = (p: AskPenalty): boolean => /^(No places lost|Score adjusted)\b/.test(p.result ?? '');
 
+/**
+ * A line of the regatta's Penalties row (penaltyRowText) that cost the boat: a lost result ("16 points; result lost"),
+ * or places ("≈ 24 places", "≈ 0.5 places"). Penalty turns, "≈ 0 places" and a code with no places shown cost none
+ * here: like `noLoss`, only a row that cost something is the regatta's top impact.
+ */
+export const penaltyRowCost = (row: string): boolean =>
+  !/^Penalty turns\b/.test(row) && (/\bresults? lost\b/.test(row) || Number(/≈ (\d+(?:\.\d+)?) places?\b/.exec(row)?.[1] ?? 0) > 0);
+
 /** The penalty in one line: "Top impact of this race — official penalty: DPI (what it means): Cost 3 places — …", with its chips and the card's sentence. */
 export function penaltyLine(p: AskPenalty): string {
   const label = noLoss(p) ? 'Official scoring code of this race (it cost no places)' : 'Top impact of this race — official penalty';
@@ -316,12 +325,18 @@ function leadLines(c: AskContext): string[] {
     out.push(`Coach's findings, ranked by Coach, biggest first${c.penalty && !noLoss(c.penalty) ? ' (time lost on the water, all after the penalty)' : ''}:`, ...c.findings.map(findingLine));
   }
   const r = c.regatta;
+  const top = !!r?.penalties?.some(penaltyRowCost);
   if (r?.penalties?.length) {
     const official = r.penalties.some((p) => !/^Penalty turns\b/.test(p));
-    out.push(official ? 'Top impact across the regatta — Penalties row (official scoring codes and the places they cost):' : 'Penalties row (penalty turns, no official code):', ...r.penalties.map((p) => `- ${p}`));
+    const label = top
+      ? 'Top impact across the regatta — Penalties row (official scoring codes and the places they cost):'
+      : official
+        ? 'Penalties row (official scoring codes; the row shows no places lost):'
+        : 'Penalties row (penalty turns, no official code):';
+    out.push(label, ...r.penalties.map((p) => `- ${p}`));
   }
   if (r?.workOn?.length) {
-    out.push(`Top things to work on, ranked by Coach, biggest first${r.penalties?.length ? ' (after the Penalties row)' : ''}:`, ...r.workOn.map((w, i) => `${i + 1}. ${w.title}${w.atStakeS != null ? ` ~${w.atStakeS} s` : ''}${w.pattern ? ' (pattern)' : ''}`));
+    out.push(`Top things to work on, ranked by Coach, biggest first${top ? ' (after the Penalties row)' : ''}:`,...r.workOn.map((w, i) => `${i + 1}. ${w.title}${w.atStakeS != null ? ` ~${w.atStakeS} s` : ''}${w.pattern ? ' (pattern)' : ''}`));
   }
   if (r?.recurring?.length) out.push('Recurring findings: in Coach\'s order, most at stake first (weighted over the regatta); "rank" in the details.');
   return out;

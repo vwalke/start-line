@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import { buildCoach, coachRaw } from '../src/analysis/coach';
-import { MAX_CONTEXT_TOKENS, cleanString, contextText, estimateTokens, penaltyLine, sanitizeAskContext, type AskContext } from '../src/analysis/coach/askContext';
+import { MAX_CONTEXT_TOKENS, cleanString, contextText, estimateTokens, penaltyLine, penaltyRowCost, sanitizeAskContext, type AskContext } from '../src/analysis/coach/askContext';
+import type { PenaltyRow } from '../src/analysis/coach/regatta';
+import { penaltyRowText } from '../src/ui/coachRegatta';
 import { coachDebrief } from '../src/analysis/coach/debrief';
 import { legStories } from '../src/analysis/coach/legStory';
 import { digestRace, type RegattaRace } from '../src/analysis/coach/regatta';
@@ -292,6 +294,54 @@ describe('contextText: the penalty is the top impact, the findings are numbered 
     // Penalty turns alone: listed first, but not called an official penalty.
     const turns = contextText({ view: 'regatta', boat: { sail: 'X' }, regatta: { penalties: ['Penalty turns in 1 of 3 races (R2) · ≈ 42 s'] } }).text;
     expect(turns.split('\n')[0]).toBe('Penalties row (penalty turns, no official code):');
+  });
+
+  it('a race penalty that cost no places, with a 122 s finding: no "Top impact", the findings first and labelled ranked', () => {
+    for (const result of ['No places lost — 13th on the water, scored 13th', 'Score adjusted — 12th on the water, scored 8th']) {
+      const text = contextText({ view: 'race', boat: { sail: 'USA 016' }, penalty: { code: 'RDG', result }, findings: [{ title: 'Footing too low upwind', seconds: 122 }] }).text;
+      expect(text).not.toContain('Top impact');
+      expect(text.split('\n').slice(0, 3)).toEqual([`Official scoring code of this race (it cost no places): RDG: ${result}.`, "Coach's findings, ranked by Coach, biggest first:", '1. Footing too low upwind ≈ 122 s']);
+    }
+  });
+
+  it('the Regatta view: a Penalties row that cost 0 places is not the top impact; one that cost places is', () => {
+    const lead = (penalties: string[]) => contextText({ view: 'regatta', boat: { sail: 'USA 016' }, regatta: { penalties, workOn: [{ title: 'Upwind speed', atStakeS: 120 }] } }).text.split('\n');
+    const zero = 'DPI in 1 of 1 races · 0 penalty points · ≈ 0 places';
+    // The review's repro: neutral label, work-on without "(after the Penalties row)".
+    expect(lead([zero]).slice(0, 4)).toEqual([
+      'Penalties row (official scoring codes; the row shows no places lost):',
+      `- ${zero}`,
+      'Top things to work on, ranked by Coach, biggest first:',
+      '1. Upwind speed ~120 s',
+    ]);
+    expect(lead([zero]).join('\n')).not.toContain('Top impact');
+    // Places cost: the top impact, work-on after it.
+    const costly = 'DPI in 8 of 8 races · 24 penalty points · ≈ 24 places';
+    for (const rows of [[costly], [zero, costly], ['ZFP in 1 of 8 races (R4) · 1 penalty point · ≈ 0.5 places'], ['UFD in 1 of 8 races (R3) · 16 points; result lost']]) {
+      const l = lead(rows);
+      expect(l[0]).toBe('Top impact across the regatta — Penalties row (official scoring codes and the places they cost):');
+      expect(l[1 + rows.length]).toBe('Top things to work on, ranked by Coach, biggest first (after the Penalties row):');
+    }
+    // Penalty turns alone: label unchanged, never the top impact.
+    const turns = lead(['Penalty turns in 1 of 3 races (R2) · ≈ 42 s']);
+    expect(turns[0]).toBe('Penalties row (penalty turns, no official code):');
+    expect(turns[2]).toBe('Top things to work on, ranked by Coach, biggest first:');
+  });
+
+  it("penaltyRowCost reads the UI's own Penalties lines", () => {
+    const row = (o: Partial<PenaltyRow>): PenaltyRow => ({ code: 'DPI', meaning: 'm', races: 1, of: 8, raceLabels: ['R3'], lost: false, penaltyPoints: null, places: null, points: null, ...o });
+    const cases: [PenaltyRow, boolean][] = [
+      [row({ penaltyPoints: 24, places: 24, races: 8, raceLabels: [] }), true],
+      [row({ penaltyPoints: 1, places: 0.5 }), true],
+      [row({ penaltyPoints: 1, places: 1 }), true],
+      [row({ penaltyPoints: 0, places: 0 }), false],
+      [row({ penaltyPoints: 2, places: 0.04 }), false], // shown "≈ 0 places"
+      [row({ code: 'RDG', points: 8 }), false],
+      [row({ code: 'UFD', lost: true, points: 16 }), true],
+      [row({ code: 'DNF', lost: true, races: 2, raceLabels: ['R1', 'R2'] }), true],
+      [row({ code: 'turns', loops: 2, seconds: 70 }), false],
+    ];
+    expect(cases.map(([p]) => [penaltyRowText(p), penaltyRowCost(penaltyRowText(p))])).toEqual(cases.map(([p, c]) => [penaltyRowText(p), c]));
   });
 
   it('the J/105 Regatta context (real summary): its work-on list numbered in the summary order', () => {
