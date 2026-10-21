@@ -8,12 +8,13 @@
  * costs nothing and a change of any of those re-runs only what it touches. Nothing here needs a
  * race to have been opened before (the cold-load case).
  */
-import { legWord, summarizeRegatta, type LegTypeSummary, type RaceFinish, type RegattaRace, type RegattaSummary } from '../analysis/coach/regatta';
+import { legWord, summarizeRegatta, type LegTypeSummary, type RaceFinish, type RegattaRace, type RegattaSummary, type WentWell, type WorkOn } from '../analysis/coach/regatta';
 import type { ListedRace } from '../data/raceList';
 import type { OfficialRaceInput } from '../data/racesense/adapter';
 import type { RegattaResponse } from '../data/racesense/types';
 import type { FinishSource } from '../data/types';
 import type { RaceRequest, WorkerRequest, WorkerResponse } from '../worker';
+import { wentWellHtml } from './coachCards';
 import { esc, ordinal } from './format';
 import { raceName, shortRaceName } from './races';
 
@@ -229,17 +230,39 @@ export function regattaPlacesHtml(s: RegattaSummary): string {
   return `<ol class="regatta-places" aria-label="Place in each race">${li.join('')}</ol>`;
 }
 
+/**
+ * One thing to work on as a card: a pattern (found in 2+ races: "Leeward roundings cost you time in 3 of 4
+ * races with good data", a chip per race with its seconds) or a one-race finding or leg type; then the tip.
+ */
+export function patternCardHtml(t: WorkOn): string {
+  const secs = t.score >= 1 ? `<li class="chip sec" title="Seconds at stake, weighted by each race's tracker coverage">~${Math.round(t.score)} s</li>` : '';
+  const chips = t.chips.map((c) => `<li class="chip">${esc(c)}</li>`).join('');
+  return `<article class="card coach-pattern${t.pattern ? ' pattern' : ''}" data-theme="${esc(t.theme)}">
+    <h5>${esc(t.title)}</h5>
+    ${secs || chips ? `<ul class="chips">${secs}${chips}</ul>` : ''}
+    <p class="opp-what">${esc(t.why)}.</p>
+    ${t.tip ? `<p class="opp-tip"><b>Tip</b> ${esc(t.tip)}</p>` : ''}
+  </article>`;
+}
+
+/** A Went well line over the regatta: "Beats: gained on the top 3 in 3 of 5 races (best R2 Beat 1, 45 s)". */
+export function regattaWentText(w: WentWell): string {
+  const best = `best ${w.best.label} ${w.best.what}, ${Math.round(w.best.seconds)} s`;
+  return `${w.title}: gained on the top 3 in ${w.races} of ${w.of} ${w.of === 1 ? 'race' : 'races'} (${best})`;
+}
+
 export function regattaHtml(s: RegattaSummary, p: RegattaProgress): string {
   const status = regattaStatusHtml(s, p);
   if (!s.total) return status;
   const places = regattaPlacesHtml(s);
   const top = s.top.length
-    ? `<ol class="regatta-top">${s.top.map((t) => `<li><b>${esc(t.title)}</b><span class="muted"> · ${esc(t.why)}</span><br>${esc(t.tip)}</li>`).join('')}</ol>`
+    ? `<div class="regatta-patterns">${s.top.map(patternCardHtml).join('')}</div>`
     : `<p class="muted">${s.withData ? 'Nothing that recurs yet.' : 'Waiting for the races to be analysed.'}</p>`;
+  const went = s.withData ? wentWellHtml(s.went.map((w) => ({ text: regattaWentText(w), seconds: w.totalS })), 'No clear gains on the top 3 yet.') : '';
   const rows = s.findings
     .map(
       (f) =>
-        `<tr><th scope="row">${esc(f.label)}</th><td>${f.races} of ${f.of}</td><td>~${Math.round(f.totalS)} s</td><td>~${Math.round(f.weightedS)} s${f.lowRaces ? ' <span class="warn" title="Includes races with low tracker coverage, counted less">⚠</span>' : ''}</td><td class="muted">${esc(f.raceLabels.join(', '))}</td></tr>`,
+        `<tr><th scope="row">${esc(f.label)}</th><td${f.gated ? ' title="Of the races with the data to measure it"' : ''}>${f.races} of ${f.of}${f.gated ? '*' : ''}</td><td>~${Math.round(f.totalS)} s</td><td>~${Math.round(f.weightedS)} s${f.lowRaces ? ' <span class="warn" title="Includes races with low tracker coverage, counted less">⚠</span>' : ''}</td><td class="muted">${esc(f.raceLabels.join(', '))}</td></tr>`,
     )
     .join('');
   const findings = rows
@@ -254,9 +277,11 @@ export function regattaHtml(s: RegattaSummary, p: RegattaProgress): string {
   const legs = legRows
     ? `<div class="regatta-scroll"><table class="regatta-table regatta-legs"><thead><tr><th scope="col">Legs</th><th scope="col">Sailed</th><th scope="col" title="Leg time vs the fleet's median for the leg (+ = slower)">vs fleet median</th><th scope="col">Best</th><th scope="col">Worst</th></tr></thead><tbody>${legRows}</tbody></table></div>`
     : '';
+  const gatedNote = s.findings.some((f) => f.gated) ? '<p class="muted regatta-note">* of the races with the tracker data to measure it (dirty air needs the boats around you; roundings 1 fix every 2 s at the mark).</p>' : '';
   return `${status}${places}
     <h4>Top 3 to work on</h4>${top}
-    <h4>Recurring findings</h4>${findings}
+    ${went}
+    <h4>Recurring findings</h4>${findings}${gatedNote}
     ${legs ? `<h4>Legs by type</h4>${legs}` : ''}`;
 }
 

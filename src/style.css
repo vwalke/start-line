@@ -849,8 +849,7 @@ html.fs-on { overflow: hidden; }
 .regatta-places .rp.pending, .regatta-places .rp.running { color: var(--ink-3); border-style: dashed; }
 .regatta-places .rp.low { border-color: var(--bad); }
 .regatta-places .warn, .regatta-table .warn { color: var(--bad); }
-.regatta-top { margin: 0; padding-left: 1.4em; font-size: 0.9rem; color: var(--ink); }
-.regatta-top li + li { margin-top: 6px; }
+.regatta-note { margin: 4px 0 0; font-size: 0.78rem; }
 .regatta-scroll { overflow-x: auto; }
 .regatta-table { border-collapse: collapse; font-size: 0.82rem; width: 100%; color: var(--ink); }
 .regatta-table th, .regatta-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--rule); vertical-align: top; }
@@ -892,6 +891,25 @@ html.fs-on { overflow: hidden; }
 .coach-ok .ok-lbl:first-child { margin-left: 0; }
 .coach-cards > .card.coach-ok { margin-top: 12px; }
 .coach-nodata p { margin: 0 0 6px; font-weight: 600; }
+/* ➕ Went well (both Coach views): at most three lines, the seconds gained in the good colour. */
+.card.coach-went { margin-top: 12px; }
+.coach-went h4 { margin: 0 0 6px; font-size: 0.95rem; }
+.coach-went p { margin: 0; font-size: 0.85rem; }
+.went-list { margin: 0; padding: 0; list-style: none; font-size: 0.88rem; line-height: 1.4; color: var(--ink); }
+.went-list li + li { margin-top: 4px; }
+.went-list .went-s { display: inline-block; min-width: 3.6em; padding: 0 6px; border-radius: 6px; background: var(--good-bg); color: var(--good); font-weight: 700; text-align: center; }
+.went-list .muted { color: var(--ink-2); }
+/* Regatta pattern cards: the opportunity card's layout without the number. */
+.regatta-patterns { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+@media (max-width: 900px) { .regatta-patterns { grid-template-columns: minmax(0, 1fr); } }
+.regatta-patterns > .card + .card { margin-top: 0; }
+.coach-pattern h5 { margin: 0 0 6px; font-size: 0.98rem; line-height: 1.25; }
+.coach-pattern .chips { font-size: 0.78rem; }
+.coach-pattern .chip.sec { background: var(--bad-bg); color: var(--bad); font-weight: 700; box-shadow: none; }
+.coach-pattern .chip.warn { background: var(--notice-bg); color: var(--ink); }
+.coach-pattern .opp-what { margin: 8px 0 0; font-size: 0.88rem; line-height: 1.4; color: var(--ink-2); }
+.coach-pattern .opp-tip { margin: 8px 0 0; padding: 6px 10px; border-radius: 8px; background: var(--grid); color: var(--ink); font-size: 0.85rem; line-height: 1.4; }
+.coach-pattern .opp-tip b { color: var(--accent); }
 /* Leg stories (ui/coachLegs.ts): one collapsed card per leg under the opportunity cards. */
 .coach-legs { margin-top: 16px; }
 .coach-legs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0 0 8px; }

@@ -3,12 +3,16 @@
  * a 3–6 word title, the red seconds chip, the window in the venue's clock, at
  * most 3 key-number chips, ⚠ chips when gated, one sentence and one tip — all
  * templates with the detector's numbers filled in, the conditional fragments
- * in code. Then the ✓ Not the problem / ➕ Went well row.
+ * in code. Then the ✓ Not the problem row and the ➕ Went well list (at most 3,
+ * with the seconds gained).
  *
  * A card's window chip is a toggle button: pressed, the gap chart shades the
  * card's window (a click anywhere on the card does the same).
  */
 import { RACE_MIN_COVERAGE, type CoachDebrief } from '../analysis/coach/debrief';
+import { D3_WINDOW_MS } from '../analysis/coach/detectors/early';
+import { D9_SLOW_S } from '../analysis/coach/detectors/rounding';
+import { D8_WINDOW_MS } from '../analysis/coach/detectors/shadow';
 import type { Fact, GoodNote } from '../analysis/coach/opportunity';
 import type { Card } from '../analysis/coach/rank';
 import type { RaceAnalysis } from '../analysis/types';
@@ -101,27 +105,31 @@ export function cardText(c: Card, tz = 0): CardText {
       const tacks = num(f.tacks);
       const tackChip = tacks >= 2 ? `${tacks} tacks by ${mss(f.lastTackS)}` : null;
       const rolled = c.chips?.find((x) => x.kind === 'D2')?.facts;
+      const shadow = c.chips?.find((x) => x.kind === 'D8')?.facts;
       if (c.variant === 'slow-start' && rolled) {
+        const shadowChip = shadow ? [dirtyChip(shadow)] : [];
         const tail = tacks > 1 ? ` and ${tacks} early tacks left you ${r0(f.gapEnd)} s off the top 3` : `; you were ${r0(f.gapEnd)} s off the top 3 by +5 min`;
         return {
           title: 'Slow off a great start',
-          chips: [`${r0(f.dtl)} m off at gun`, `${kn(rolled.sog)} vs ${kn(rolled.nbrSog)} kn ${rolled.nbrName}`, ...(tackChip ? [tackChip] : [])],
+          chips: [`${r0(f.dtl)} m off at gun`, `${kn(rolled.sog)} vs ${kn(rolled.nbrSog)} kn ${rolled.nbrName}`, ...(tackChip ? [tackChip] : []), ...shadowChip].slice(0, KEY_CHIPS_MAX),
           sentence: `Front row but ${kn(rolled.sog)} kn at the gun; ${rolled.nbrName}, bow-level ${r0(rolled.nbrM)} m to windward, rolled you at ${kn(rolled.nbrSog)} kn${tail}.`,
           tip: 'Hit the line at full speed. If pinned, foot a length before tacking.',
         };
       }
       const rolledChip = rolled ? [`${kn(rolled.sog)} vs ${kn(rolled.nbrSog)} kn ${rolled.nbrName}`] : [];
+      // Dirty air (D8 on D3) ahead of the tack count: it says why the lane cost time.
+      const dirty = shadow ? [dirtyChip(shadow)] : [];
       if (c.variant === 'tacks') {
         return {
           title: 'Early tacks off the line',
-          chips: [tackChip!, `fleet median ${r0(f.fleetTacks)}`, ...rolledChip].slice(0, KEY_CHIPS_MAX),
+          chips: [tackChip!, ...dirty, `fleet median ${r0(f.fleetTacks)}`, ...rolledChip].slice(0, KEY_CHIPS_MAX),
           sentence: `You tacked ${tacks} times by ${mss(f.lastTackS)} after the gun, the fleet ${r0(f.fleetTacks)}, and lost ${r0(f.dgap)} s to the top 3 in the first 5 minutes.`,
           tip: 'Pick one lane off the line and stay in it; tack only into a clear lane.',
         };
       }
       return {
         title: 'Lost ground after the start',
-        chips: [`${r0(f.dgap)} s to top 3 by +5 min`, `${tacks} ${s1(tacks, 'tack', 'tacks')}`, ...rolledChip].slice(0, KEY_CHIPS_MAX),
+        chips: [`${r0(f.dgap)} s to top 3 by +5 min`, ...dirty, `${tacks} ${s1(tacks, 'tack', 'tacks')}`, ...rolledChip].slice(0, KEY_CHIPS_MAX),
         sentence: `In the 5 minutes after you crossed the line you lost ${r0(f.dgap)} s to the top 3.`,
         tip: 'Sail fast in a clear lane first; foot off rather than pinch in dirty air.',
       };
@@ -204,6 +212,38 @@ export function cardText(c: Card, tz = 0): CardText {
         tip: 'Keep someone calling pressure and gybe into the puffs.',
       };
     }
+    case 'D8': {
+      const by = f.byName ? [`mostly behind ${f.byName}`] : [];
+      return {
+        title: 'Dirty air early on the beats',
+        chips: [dirtyChip(f), `${r0(f.stretches)} ${s1(num(f.stretches), 'stretch', 'stretches')}`, ...by],
+        sentence: `In the first ${D8_WINDOW_MS / 60_000} minutes of the beats you sailed ${pct(num(f.share))} of the time in another boat's wind shadow (fleet ${pct(num(f.fleetShare))}) and lost ${r0(f.dgap)} s to the top 3 in those stretches.`,
+        tip: 'Get a clear lane: tack or foot out of a boat’s shadow within a few lengths; don’t sit in its wind.',
+      };
+    }
+    case 'D9': {
+      if (f.mode === 'places') return placesText(f);
+      const where = roundingName(f);
+      const ref = d9RefPhrase(f);
+      const wide = num(f.wide) === 1;
+      const wideBy = `${r0(f.wideLoa)} ${num(f.wideLoa) >= 1.5 ? 'lengths' : 'length'}`;
+      const slow = num(f.dS) >= D9_SLOW_S;
+      const lower = String(f.mark).toLowerCase();
+      const chips = [
+        `${r0(f.zoneS)} s vs ${r0(f.refZoneS)} s in the zone`,
+        ...(f.exitM != null && f.refExitM != null ? [`exit ${r0(f.exitM)} m vs ${r0(f.refExitM)} m off`] : []),
+        ...(f.ref !== 'leaders' ? [d9RefChip(f)] : []),
+      ];
+      const sentence = slow
+        ? `${where}: ${r0(f.dS)} s slower than ${ref} through the zone${wide ? `, exited ${wideBy} wide` : ''}.`
+        : `${where}: exited ${wideBy} wider than ${ref}; ${r0(f.zoneS)} s in the zone vs ${r0(f.refZoneS)} s.`;
+      return {
+        title: slow ? `Slow ${lower} rounding` : `Wide at the ${lower}`,
+        chips,
+        sentence,
+        tip: ROUNDING_TIPS[String(f.type)] ?? ROUNDING_TIPS.windward,
+      };
+    }
     case 'D10': {
       const b = f.b != null && num(f.db) >= 1 ? ` and ${f.b} ${r0(f.db)} s` : '';
       const places = num(f.placeLo) === num(f.placeHi) ? ordinal(num(f.placeLo)) : `${ordinal(num(f.placeLo))}/${ordinal(num(f.placeHi))}`;
@@ -219,11 +259,62 @@ export function cardText(c: Card, tz = 0): CardText {
   }
 }
 
+/** D9's low-resolution fallback: places lost through the rounding (sparse data), with the shift note when the other side gained too. */
+function placesText(f: Card['facts']): CardText {
+  const where = roundingName(f);
+  const lower = String(f.mark).toLowerCase();
+  const span = `${ordinal(num(f.before))} → ${ordinal(num(f.after))} of ${r0(f.fleet)}`;
+  const shift = f.shiftSide != null;
+  const tail = shift
+    ? ` Boats coming in from the ${f.shiftSide} (looking upwind) gained ${f1(num(f.shiftGain))} places on average through it too: more likely a shift than the rounding.`
+    : '';
+  return {
+    title: `Lost places at the ${lower}`,
+    chips: [span, `passed by ${r0(f.passers)}`, shift ? `${f.shiftSide} side gained ${f1(num(f.shiftGain))}` : 'sparse data'],
+    sentence: `${where}: lost ${r0(f.lost)} places through the rounding, ${span} (sparse data, timing approximate).${tail}`,
+    tip: shift
+      ? `Look up the course before the mark: the boats from the ${f.shiftSide} brought more pressure or a shift in with them.`
+      : (ROUNDING_TIPS[String(f.type)] ?? ROUNDING_TIPS.windward),
+  };
+}
+
+/** D8 as a chip: "20% in dirty air vs fleet 2%". */
+export const dirtyChip = (f: Card['facts']): string => `${pct(num(f.share))} in dirty air vs fleet ${pct(num(f.fleetShare))}`;
+
+/** "Leeward gate, 2nd rounding" (the count only when the race rounded that kind of mark more than once). */
+export const roundingName = (f: Record<string, Fact>): string => `${f.mark}${num(f.of) > 1 ? `, ${ordinal(num(f.nth))} rounding` : ''}`;
+
+/** Who a rounding was compared with, in the sentence. */
+const d9RefPhrase = (f: Card['facts']): string =>
+  f.ref === 'leaders' ? 'the leaders' : f.ref === 'own' ? `your other ${String(f.type)} roundings` : `${r0(f.refN)} boats with data`;
+
+/** …and as a chip when it is not the leaders (the card says so: spec D9 fallback). */
+const d9RefChip = (f: Card['facts']): string => (f.ref === 'own' ? 'vs your own roundings: no leader data' : `vs ${r0(f.refN)} boats: no leader data`);
+
+const ROUNDING_TIPS: Record<string, string> = {
+  windward: 'Plan the bear-away: come in on the layline, ease the main as you turn, hoist once round.',
+  leeward: 'Wide in, tight out: drop early, swing wide on the approach and leave close to the mark.',
+  offset: 'Set up early for the offset: hoist and settle before it, then turn tight.',
+  reach: 'Turn tight at the reach marks and trim for the new angle as you go round.',
+};
+
 /** The ⚠ chips (spec §5): medium → what capped it (`data 58%`, `marks est.`…); low → `low confidence` and its reason; `wind est.`; race under 25 % → `low data`. */
 export function cardWarnings(c: Card, a: RaceAnalysis, raceCov?: number | null): string[] {
   const out: string[] = [];
   const why = (): string =>
-    c.limit === 'data' ? `data ${pct(c.coverage)}` : c.limit === 'marks' ? 'marks est.' : c.limit === 'wind' ? 'wind est.' : 'few boats to compare';
+    c.limit === 'data'
+      ? `data ${pct(c.coverage)}`
+      : c.limit === 'marks'
+        ? 'marks est.'
+        : c.limit === 'wind'
+          ? 'wind est.'
+          : c.kind === 'D9' && c.facts.mode === 'places'
+            ? c.facts.shiftSide != null
+              ? 'likely a shift'
+              : 'sparse data'
+            : c.kind === 'D9' && c.facts.ref !== 'leaders'
+              ? 'no leader data'
+            : 'few boats to compare';
   if (c.confidence === 'medium') out.push(why());
   if (c.confidence === 'low') {
     out.push('low confidence');
@@ -238,13 +329,25 @@ export function cardWarnings(c: Card, a: RaceAnalysis, raceCov?: number | null):
   return out;
 }
 
+/** A ➕ Went well line (no glyph): "Beat 2: gained 34 s on the top 3". */
+export function wentText(n: GoodNote): string {
+  const f = n.facts;
+  const s = r0(n.seconds ?? f.gainS);
+  if (n.detector === 'D9') return `${roundingName(f)}: ${s} s quicker than the top 3 through the zone`;
+  if (n.detector === 'D1') return `Start: crossed the line ${s} s ahead of the top 3`;
+  if (n.detector === 'D3') return `First ${D3_WINDOW_MS / 60_000} minutes: gained ${s} s on the top 3`;
+  return f.how === 'time' ? `${f.leg}: ${s} s faster than the top 3's leg time` : `${f.leg}: gained ${s} s on the top 3`;
+}
+
 /** "✓ Upwind pointing 40° vs fleet 42°" etc. (no glyph: the row adds it). */
 export function goodTexts(n: GoodNote): string[] {
   const f = n.facts;
-  if (n.kind === 'plus') return [`${r0(f.gainS)} s on ${f.leg} vs top 3`];
+  if (n.kind === 'plus') return [wentText(n)];
   if (n.detector === 'D1') return [`Start ${r0(f.dtl)} m off the line at the gun`];
   if (n.detector === 'D4') return ['Shifts: on the lifted side'];
   if (n.detector === 'D5') return ['Banked gains'];
+  if (n.detector === 'D8') return [`Clear air: ${pct(num(f.share))} in shadow vs fleet ${pct(num(f.fleetShare))}`];
+  if (n.detector === 'D9') return [`Mark roundings: ${r0(f.n)} timed, none slow or wide`];
   const side = n.detector === 'D6' ? 'Upwind' : 'Downwind';
   return [`${side} ${n.detector === 'D6' ? 'pointing' : 'angles'} ${r0(f.twa)}° vs fleet ${r0(f.fTwa)}°`, `${side} VMG ${kn(f.vmg)} vs fleet ${kn(f.fVmg)} kn`];
 }
@@ -277,7 +380,14 @@ export function cardHtml(c: Card, i: number, a: RaceAnalysis, on: boolean, raceC
 /** "Only 2 clear gains with this data" (fewer than 3 cards, at least one). */
 export const fewerLine = (n: number): string => `Only ${n} clear ${n === 1 ? 'gain' : 'gains'} with this data`;
 
-/** The cards, the "only N" line, and the ✓ / ➕ row; or the no-data line with its coverage chip. */
+/** The ➕ Went well list (both Coach views): one line each, the seconds gained in bold. */
+export function wentWellHtml(lines: readonly { text: string; seconds: number }[], empty = ''): string {
+  if (!lines.length) return empty ? `<section class="card coach-went"><h4>Went well</h4><p class="muted">${esc(empty)}</p></section>` : '';
+  const li = lines.map((l) => `<li><span class="went-s">+${Math.round(l.seconds)} s</span> ${esc(l.text)}</li>`).join('');
+  return `<section class="card coach-went"><h4>Went well</h4><ul class="went-list">${li}</ul></section>`;
+}
+
+/** The cards, the "only N" line, the ✓ row and the ➕ Went well list; or the no-data line with its coverage chip. */
 export function coachCardsHtml(a: RaceAnalysis, d: CoachDebrief, selected: number | null, trackerCov: number | null): string {
   if (d.noData) {
     return `<section class="card coach-nodata"><p>Not enough tracker data for a debrief</p><ul class="chips">${warnLi(`tracker ${pct(trackerCov ?? d.raceCov)}`)}</ul></section>`;
@@ -286,12 +396,9 @@ export function coachCardsHtml(a: RaceAnalysis, d: CoachDebrief, selected: numbe
   const fewer = n < 3 ? `<p class="coach-fewer muted">${n ? esc(fewerLine(n)) : 'No clear gains with this data'}</p>` : '';
   const cards = n ? `<div class="coach-opps">${d.cards.map((c, i) => cardHtml(c, i, a, selected === i, d.raceCov)).join('')}</div>` : '';
   const ok = d.ok.flatMap(goodTexts).map((x) => chip(`✓ ${x}`, 'good'));
-  const plus = d.plus.flatMap(goodTexts).map((x) => chip(`➕ ${x}`, 'good'));
-  const row =
-    ok.length || plus.length
-      ? `<section class="card coach-ok"><ul class="chips">${ok.length ? `<li class="ok-lbl">Not the problem</li>${ok.join('')}` : ''}${plus.length ? `<li class="ok-lbl">Went well</li>${plus.join('')}` : ''}</ul></section>`
-      : '';
-  return `${fewer}${cards}${row}`;
+  const row = ok.length ? `<section class="card coach-ok"><ul class="chips"><li class="ok-lbl">Not the problem</li>${ok.join('')}</ul></section>` : '';
+  const went = wentWellHtml(d.plus.map((n) => ({ text: wentText(n), seconds: n.seconds ?? num(n.facts.gainS) })));
+  return `${fewer}${cards}${went}${row}`;
 }
 
 /** The windows of card `i` (several for a card summed over legs), for the chart's band. */

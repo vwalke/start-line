@@ -8,7 +8,7 @@ import { median } from '../geo';
 import type { GapPoint } from './ladder';
 import { COACH_MAX_SPAN_S } from './tracks';
 
-export type DetectorKind = 'D1' | 'D2' | 'D3' | 'D4' | 'D5' | 'D6' | 'D7' | 'D10';
+export type DetectorKind = 'D1' | 'D2' | 'D3' | 'D4' | 'D5' | 'D6' | 'D7' | 'D8' | 'D9' | 'D10';
 export type Confidence = 'high' | 'medium' | 'low' | 'none';
 
 /** A fact for the card: a number (formatted by the template) or a name. */
@@ -26,6 +26,10 @@ export interface ConfInputs {
   rangeShare?: number;
   /** The marks were placed from the fleet's turns, not trackers. */
   marksEstimated?: boolean;
+  /** D9: the mark was placed from the fleet's turns: the rounding can't be timed against it (spec §5: suppressed). */
+  marksSuppress?: boolean;
+  /** A ceiling set by what the boat is compared with (D9 against its own other roundings: medium; against boats other than the leaders: low). */
+  refCap?: Confidence;
   /** The boat's longest hole in the window (named in a low-confidence chip). */
   hole?: { fromMs: number; toMs: number } | null;
 }
@@ -70,6 +74,8 @@ export interface GoodNote {
   facts: Record<string, Fact>;
   t0: number;
   t1: number;
+  /** What it gained, s (➕ Went well: the items are ranked by it). */
+  seconds?: number;
 }
 
 // ---- the noise model (spec §2)
@@ -160,6 +166,8 @@ export function confidenceOf(c: ConfInputs): { level: Confidence; limit: ConfLim
     parts.push([c.rangeShare <= hi ? 'high' : c.rangeShare <= med ? 'medium' : 'low', 'wind']);
   }
   if (c.marksEstimated) parts.push(['medium', 'marks']);
+  if (c.marksSuppress) parts.push(['none', 'marks']);
+  if (c.refCap) parts.push([c.refCap, 'refs']);
   const level = lowest(parts.map((p) => p[0]));
   const limit = level === 'high' ? null : parts.find((p) => p[0] === level)![1];
   return { level, limit };

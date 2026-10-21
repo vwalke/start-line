@@ -3,8 +3,9 @@
  * fleet's minute-by-minute wind (twdSeries.ts), the wind ladder and same-moment
  * gaps (ladder.ts), and the reference groups (groups.ts). Built lazily, when
  * the Coach tab first needs it: the wind from the raw fixes in the worker
- * (`coachWind`; the ~1 Hz drawn tracks blur the tack clusters), the ladder on
- * the main thread from the drawn tracks.
+ * (`coachWind`; the ~1 Hz drawn tracks blur the tack clusters), and the fixes
+ * near the marks (`zoneTracks`, an uploaded log at its full rate), the ladder
+ * on the main thread from the drawn tracks.
  */
 import { dot, len, makeProjection, median, sub, type Vec } from '../geo';
 import type { RaceAnalysis } from '../types';
@@ -36,6 +37,8 @@ export interface CoachModel {
   windExcluded: string[];
   /** When each boat's bow crossed the start line (startCrossings); null when not worked out (no raw fixes). */
   crossMs: Record<string, number | null> | null;
+  /** Each boat's raw fixes near the marks (zoneTracks; an uploaded log's at its full rate); null without raw fixes (D9 reads the drawn tracks). */
+  zones: Map<string, ZoneTrack> | null;
 }
 
 /** Start-line crossings are looked for from this long before the gun (start.py), ms… */
@@ -48,6 +51,66 @@ export interface CoachRaw {
   wind: TwdSeriesData | null;
   /** Bow crossing time per racing boat, ms; null: no crossing found (OCS and never back, or inside a hole). */
   crossMs: Record<string, number | null>;
+  /** Each racing boat's raw fixes near the marks (zoneTracks), for the mark roundings (D9). */
+  zones?: Record<string, ZoneTrack>;
+}
+
+/** A boat's fixes near the marks, projected (the analysis's frame), time-sorted. */
+export interface ZoneTrack {
+  t: Float64Array;
+  x: Float64Array;
+  y: Float64Array;
+}
+
+/** Fixes this close to a mark are kept for the roundings: the 100 m zone plus room for a mark placed a little off, m. */
+export const ZONE_KEEP_M = 130;
+/** Feed fixes are kept at most this often (an uploaded log keeps every fix: its full rate), ms. */
+export const ZONE_STEP_MS = 400;
+
+/** The marks the boats round: the turns between legs and every mark's points (both ends of a gate). */
+export function markPoints(a: Pick<RaceAnalysis, 'legPts' | 'marks'>): Vec[] {
+  const turns = a.legPts ? a.legPts.slice(1, -1) : [];
+  return [...turns, ...a.marks.flatMap((m) => m.xy)];
+}
+
+/**
+ * Every racing boat's raw fixes within ZONE_KEEP_M of a mark, from the gun to a minute after its finish
+ * (or its last fix): what D9 times the roundings from. A boat with an uploaded log (Boat.fullRate) is read
+ * from the log at its full rate (the analysis's track has it thinned to 1 Hz); the others from the feed,
+ * at most every ZONE_STEP_MS.
+ */
+export function zoneTracks(a: RaceAnalysis, data: RaceData): Record<string, ZoneTrack> {
+  const out: Record<string, ZoneTrack> = {};
+  const marks = markPoints(a);
+  if (!marks.length) return out;
+  const sl = data.startLine;
+  const proj = makeProjection({ lat: (sl.left.lat + sl.right.lat) / 2, lon: (sl.left.lon + sl.right.lon) / 2 });
+  const byId = new Map(data.boats.map((b) => [b.id, b]));
+  const r2 = ZONE_KEEP_M * ZONE_KEEP_M;
+  for (const r of a.boats) {
+    const b = byId.get(r.id);
+    if (!b) continue;
+    const src = b.fullRate ?? b.track;
+    const step = b.fullRate ? 0 : ZONE_STEP_MS;
+    const n = src.t.length;
+    const end = (r.finishMs ?? (n ? src.t[n - 1] : a.meta.gunMs)) + 60_000;
+    const t: number[] = [];
+    const x: number[] = [];
+    const y: number[] = [];
+    let last = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const ts = src.t[i];
+      if (ts < a.meta.gunMs || ts > end || ts - last < step) continue;
+      const p = proj.toXY(src.lat[i], src.lon[i]);
+      if (!marks.some((m) => (m[0] - p[0]) ** 2 + (m[1] - p[1]) ** 2 <= r2)) continue;
+      t.push(ts);
+      x.push(p[0]);
+      y.push(p[1]);
+      last = ts;
+    }
+    out[r.id] = { t: Float64Array.from(t), x: Float64Array.from(x), y: Float64Array.from(y) };
+  }
+  return out;
 }
 
 const courseOf = (a: RaceAnalysis): Course | null =>
@@ -120,14 +183,19 @@ export function startCrossings(a: RaceAnalysis, data: RaceData): Record<string, 
   return out;
 }
 
-/** The worker's half for the Coach: the wind and the start crossings, from the raw fixes. */
-export const coachRaw = (a: RaceAnalysis, data: RaceData): CoachRaw => ({ wind: coachWind(a, data), crossMs: startCrossings(a, data) });
+/** The worker's half for the Coach: the wind, the start crossings and the fixes near the marks, from the raw fixes. */
+export const coachRaw = (a: RaceAnalysis, data: RaceData): CoachRaw => ({ wind: coachWind(a, data), crossMs: startCrossings(a, data), zones: zoneTracks(a, data) });
 
 /**
  * The coach model of a race: the drawn tracks, and the wind series given (from the worker) or else
  * worked out from those tracks. Null when the analysis has no course points (one from before the Coach tab).
  */
-export function buildCoach(a: RaceAnalysis, wind?: TwdSeriesData | null, crossMs: Record<string, number | null> | null = null): CoachModel | null {
+export function buildCoach(
+  a: RaceAnalysis,
+  wind?: TwdSeriesData | null,
+  crossMs: Record<string, number | null> | null = null,
+  zones: Record<string, ZoneTrack> | null = null,
+): CoachModel | null {
   const course = courseOf(a);
   if (!course) return null;
   const tracks = coachTracks(a);
@@ -147,6 +215,7 @@ export function buildCoach(a: RaceAnalysis, wind?: TwdSeriesData | null, crossMs
     tracks: new Map(tracks.map((tr) => [tr.id, tr])),
     windExcluded: a.boats.filter((b) => !voters.has(b.id)).map((b) => b.id),
     crossMs,
+    zones: zones ? new Map(Object.entries(zones)) : null,
   };
 }
 

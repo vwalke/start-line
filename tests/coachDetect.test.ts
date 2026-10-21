@@ -540,7 +540,7 @@ describe('templates and cards (spec §6, mockup)', () => {
     expect(html).toMatch(/<button type="button" class="chip opp-when" data-opp="0" aria-pressed="true"/);
     expect(fewerLine(1)).toBe('Only 1 clear gain with this data');
     expect(fewerLine(2)).toBe('Only 2 clear gains with this data');
-    const d = { cards: [c], ok: [{ kind: 'ok' as const, detector: 'D6' as const, variant: 'upwind', facts: { twa: 39, fTwa: 43, vmg: 5, fVmg: 4.7 }, t0: 0, t1: 1 }], plus: [], totalS: 47, raceCov: 0.4, noData: false, found: [c] };
+    const d = { cards: [c], ok: [{ kind: 'ok' as const, detector: 'D6' as const, variant: 'upwind', facts: { twa: 39, fTwa: 43, vmg: 5, fVmg: 4.7 }, t0: 0, t1: 1 }], plus: [], totalS: 47, raceCov: 0.4, noData: false, found: [c], dirtyAir: { opp: null, chip: null, evaluated: false, share: null, fleetShare: null }, quality: { D8: false, D9: [] } };
     const all = coachCardsHtml(a, d, null, 0.27);
     expect(all).toContain('Only 1 clear gain with this data');
     expect(all).toContain('<li class="ok-lbl">Not the problem</li><li class="chip good">✓ Upwind pointing 39° vs fleet 43°</li>');

@@ -1,8 +1,10 @@
 /**
  * The Coach's leg stories (analysis/coach/legStory.ts): under the opportunity
  * cards, one collapsed card per leg. Closed, a card shows the leg, which side
- * paid, the coached boat's places in the group, and a ⚠ coverage chip when
- * the tracker is thin; open, one line of chips per item — movers, side,
+ * paid, the coached boat's places gained or lost in the whole fleet with its
+ * place at the leg's end (always out of the same fleet), its seconds against
+ * the group's median leg time (Top 3, Near), and a ⚠ coverage chip when the
+ * tracker is thin; open, one line of chips per item — movers, side,
  * the windward-mark exit (runs), leg times — and ⚠ caveats. The rules sit
  * behind the section's one ⓘ. No restating sentence: chips carry the facts.
  */
@@ -14,7 +16,9 @@ import { duration, esc, ordinal, pct } from './format';
 import { infoHtml } from './info';
 
 export const LEG_STORY_BULLETS: readonly string[] = [
-  'Places: re-ranked in the group (and you), labelled e.g. 1st → 4th of 4 (vs Top 3).',
+  'Places: in the whole fleet, out of every boat that started, the same all race.',
+  'A boat missing at a mark is placed from its times either side (~); none drop out.',
+  'Vs Top 3 / Near: your leg time against the median of theirs.',
   `Side: each boat's mean position across the wind over the leg, left/right looking upwind.`,
   `Left/Right paid: that third of the boats gained ${SIDE_MIN_EFFECT}+ places more than the other third (${SIDE_MIN_BOATS}+ boats).`,
   `Gybe-set: a gybe ${ROUND_LEAD_MS / 1000} s before to ${ROUND_WINDOW_MS / 1000} s after the windward mark; else a bear-away.`,
@@ -35,9 +39,12 @@ export function shortName(a: RaceAnalysis, id: string): string {
 
 const FLEET_CHIP = 'whole fleet: group too small';
 
-/** Short group label on a place chip: "vs Top 3". */
+/** Short group label on a seconds chip: "vs Top 3". */
 const vsLabel = (g: Group): string =>
   g.kind === 'leaders' ? 'Top 3' : g.kind === 'near' ? 'Near ±3' : g.kind === 'fleet' ? 'fleet' : 'your group';
+
+/** "gained 3" / "lost 5" / "even": places on a leg. */
+export const placesWord = (gain: number): string => (gain > 0 ? `gained ${gain}` : gain < 0 ? `lost ${-gain}` : 'even');
 
 export type StoryChip = { text: string; cls?: 'me' | 'warn' | 'muted' };
 
@@ -50,13 +57,19 @@ export interface LegStoryText {
   sentence: string;
 }
 
-/** The boat's group (or fleet) places: "you 1st → 4th of 4 (vs Top 3)". */
-export function placeChip(s: Pick<LegStory, 'mine' | 'placeOf' | 'moversFleet'>, g: Group): string | null {
+/** The boat's fleet places on the leg and its place at the leg's end, out of the fixed fleet: "gained 3 · 12th of 33" (~ when estimated). */
+export function placeChip(s: Pick<LegStory, 'mine' | 'placeOf'>): string | null {
   const me = s.mine;
   if (!me) return null;
-  const span = me.gain ? `${ordinal(me.from)} → ${ordinal(me.to)}` : `held ${ordinal(me.to)}`;
-  const vs = s.moversFleet || g.kind === 'fleet' ? '' : ` (vs ${vsLabel(g)})`;
-  return `you ${span} of ${s.placeOf}${vs}`;
+  return `${placesWord(me.gain)} · ${me.est ? '~' : ''}${ordinal(me.to)} of ${s.placeOf}`;
+}
+
+/** Against a group: "lost 12 s vs Top 3" / "gained 8 s vs Top 3" / "even with Top 3" (the leg time vs the group's median). */
+export function groupSecondsChip(s: Pick<LegStory, 'vsGroup'>, g: Group): string | null {
+  const v = s.vsGroup;
+  if (!v || g.kind === 'fleet') return null;
+  const d = Math.round(v.deltaS);
+  return d > 0 ? `lost ${d} s vs ${vsLabel(g)}` : d < 0 ? `gained ${-d} s vs ${vsLabel(g)}` : `even with ${vsLabel(g)}`;
 }
 
 /** The leg's chips. Explanations sit in the section ⓘ; caveats are ⚠ chips, not a paragraph. */
@@ -73,14 +86,12 @@ export function legStoryText(s: LegStory, a: RaceAnalysis, boat: string, g: Grou
     return { text: FLEET_CHIP, cls: 'muted' };
   };
 
-  // Movers.
+  // Movers: fleet places gained or lost (the closed row has the coached boat's own).
   const movers: StoryChip[] = [
     ...s.gainers.map((m) => ({ text: `▲ ${m.id === boat ? 'you' : name(m.id)} ${signedN(m.gain)}`, cls: m.id === boat ? ('me' as const) : undefined })),
     ...s.losers.map((m) => ({ text: `▼ ${m.id === boat ? 'you' : name(m.id)} ${signedN(m.gain)}`, cls: m.id === boat ? ('me' as const) : undefined })),
   ];
-  if (me && !s.gainers.concat(s.losers).some((m) => m.id === boat)) {
-    movers.push({ text: me.gain ? `${me.gain > 0 ? '▲' : '▼'} you ${signedN(me.gain)}` : `you held ${ordinal(me.to)}`, cls: 'me' });
-  }
+  if (me && me.gain && !s.gainers.concat(s.losers).some((m) => m.id === boat)) movers.push({ text: `${me.gain > 0 ? '▲' : '▼'} you ${signedN(me.gain)}`, cls: 'me' });
   if (!movers.length) movers.push({ text: 'no place changes' });
   if (s.moversFleet) {
     const fc = fleetChip();
@@ -124,16 +135,19 @@ export function legStoryText(s: LegStory, a: RaceAnalysis, boat: string, g: Grou
   // Leg times.
   const times: StoryChip[] = [];
   if (s.fastest) times.push({ text: `fastest ${name(s.fastest.id)} ${duration(s.fastest.timeS)}`, cls: s.fastest.id === boat ? 'me' : undefined });
-  if (s.myTime && s.fastest?.id !== boat) times.push({ text: `your time ${ordinal(s.myTime.rank)} of ${s.myTime.of}`, cls: 'me' });
+  if (s.myTime && s.fastest?.id !== boat) times.push({ text: `your leg time ${ordinal(s.myTime.rank)} fastest`, cls: 'me' });
   if (times.length) lines.push(times);
 
   // Caveats: coverage is on the summary (a collapsed row with 15% data must not look empty).
   const warn: StoryChip[] = [];
   if (s.marksEstimated) warn.push({ text: 'marks est.', cls: 'warn' });
+  if (me?.est) warn.push({ text: '~ place estimated: a rounding not tracked', cls: 'muted' });
   if (warn.length) lines.push(warn);
 
-  const places = placeChip(s, g);
+  const places = placeChip(s);
   if (places) summary.push({ text: places, cls: 'me' });
+  const secs = groupSecondsChip(s, g);
+  if (secs) summary.push({ text: secs, cls: 'me' });
   if (s.coverage != null && s.coverage < STORY_LOW_COVERAGE) summary.push({ text: `tracker ${pct(s.coverage)}`, cls: 'warn' });
   else if (s.coverage == null) summary.push({ text: 'no data', cls: 'warn' });
 

@@ -36,7 +36,7 @@ import { parsePickerParams } from '../src/ui/params';
 import { raceOptionText } from '../src/ui/races';
 import { TABS, initialTab, parseTab, tabForKey, tabFromHash } from '../src/ui/tabs';
 import type { WorkerRequest, WorkerResponse } from '../src/worker';
-import { j105Fixture } from './helpers';
+import { j105Fixture, j105Race } from './helpers';
 import { fixtureYs, regatta, replayProbes } from './recoveryHelpers';
 
 const read = (p: string): string => readFileSync(fileURLToPath(new URL(p, import.meta.url)), 'utf8');
@@ -324,7 +324,7 @@ describe('Regatta summary', () => {
       ['shifts', 1, 9, 40, 40],
     ]);
     expect(s.findings[0].raceLabels).toEqual(['R1', 'R2', 'R3', 'R4']);
-    expect(s.top[0]).toMatchObject({ title: 'Slow at the gun', why: 'Slow at the gun in 4 of 9 races, ~60 s total', tip: 'Hit the line at full speed. If pinned, foot a length before tacking.' });
+    expect(s.top[0]).toMatchObject({ title: 'Slow at the gun', why: 'Slow at the gun in 4 of 9 races with good data, ~60 s total', pattern: true, chips: ['R1 15 s', 'R2 15 s', 'R3 15 s', 'R4 15 s'], tip: 'Hit the line at full speed. If pinned, foot a length before tacking.' });
     // Same weighted seconds: more races first.
     const tie = summarizeRegatta([done(1, { findings: [finding('D6', 'slow', 30), finding('D7', 'deep', 15)] }), done(2, { findings: [finding('D7', 'hot', 15)] })]);
     expect(tie.findings.map((f) => [f.theme, f.races])).toEqual([
@@ -352,7 +352,7 @@ describe('Regatta summary', () => {
     ]);
     expect(s.withData).toBe(2);
     expect(s.findings[0]).toMatchObject({ theme: 'upwind', races: 2, of: 2, totalS: 150, weightedS: 100, lowRaces: 1 });
-    expect(s.top[0].why).toBe('Slow upwind in 2 of 2 races, ~150 s total (1 with low tracker data)');
+    expect(s.top[0].why).toBe('Slow upwind in 2 of 2 races with good data, ~150 s total (1 with low tracker data)');
     expect(regattaPlacesHtml(s)).toContain('class="rp done low" data-race="2"');
     expect(regattaHtml(s, { running: null, message: '', done: 3, total: 3 })).toContain('⚠ 2 with low tracker data (marked, counted less)');
   });
@@ -432,5 +432,127 @@ describe('Regatta on J/105 CBC (linked: official places), through the worker’s
     const html = regattaHtml(s, { running: null, message: '', done: 3, total: 3 });
     expect(html).toContain('3 of 3 races analysed');
     expect(html).toContain('<h4>Legs by type</h4>');
+  });
+});
+
+describe('Regatta pattern cards, data-gated denominators and Went well (phase 4)', () => {
+  const round = (s: number): FindingDigest => finding('D9', 'leeward', s);
+  it('a leeward-rounding finding in 3 races, measured in 4 of 6: "in 3 of 4 races with good data", a chip per race with its seconds', () => {
+    const races = [
+      done(1, { findings: [round(12)], evaluated: ['round-leeward'] }),
+      done(2, { findings: [round(9)], evaluated: ['round-leeward', 'dirty-air'] }),
+      done(3, { findings: [], evaluated: ['round-leeward'] }),
+      done(4, { findings: [round(15)], evaluated: ['round-leeward'] }),
+      // Sparse races: D9 couldn't measure → out of the denominator.
+      done(5, { findings: [], evaluated: [] }),
+      done(6, { findings: [] }),
+    ];
+    const s = summarizeRegatta(races);
+    const f = s.findings.find((x) => x.theme === 'round-leeward')!;
+    expect(f).toMatchObject({ races: 3, of: 4, gated: true, totalS: 36, raceLabels: ['R1', 'R2', 'R4'], raceSeconds: [12, 9, 15] });
+    const t = s.top.find((x) => x.theme === 'round-leeward')!;
+    expect(t).toMatchObject({ pattern: true, title: 'Leeward mark roundings', chips: ['R1 12 s', 'R2 9 s', 'R4 15 s'] });
+    expect(t.why).toBe('Leeward roundings cost you time in 3 of 4 races with good data, ~36 s total');
+    expect(t.tip).toMatch(/^Wide in, tight out/);
+    const html = regattaHtml(s, { running: null, message: '', done: 6, total: 6 });
+    expect(html).toContain('<article class="card coach-pattern pattern" data-theme="round-leeward">');
+    expect(html).toContain('<li class="chip">R2 9 s</li>');
+    expect(html).toContain('<td title="Of the races with the data to measure it">3 of 4*</td>');
+    expect(html).toContain('* of the races with the tracker data to measure it');
+    // An ungated theme still counts every race with data.
+    const g = summarizeRegatta([done(1, { findings: [finding('D6', 'slow', 20)] }), done(2, { findings: [finding('D6', 'slow', 20)] }), done(3)]);
+    expect(g.findings[0]).toMatchObject({ theme: 'upwind', of: 3, gated: false });
+  });
+
+  it('dirty air rides on D3 in the race view but still recurs (seconds 0: they are D3’s); denominator = races D8 could judge', () => {
+    const d8 = (): FindingDigest => ({ theme: 'dirty-air', kind: 'D8', variant: 'chip', seconds: 0, confidence: 'medium' });
+    const s = summarizeRegatta([
+      done(1, { findings: [d8(), finding('D3', 'lane', 20)], evaluated: ['dirty-air'] }),
+      done(2, { findings: [d8()], evaluated: ['dirty-air'] }),
+      done(3, { findings: [], evaluated: ['dirty-air'] }),
+      done(4, { findings: [], evaluated: [] }),
+    ]);
+    const f = s.findings.find((x) => x.theme === 'dirty-air')!;
+    expect(f).toMatchObject({ races: 2, of: 3, totalS: 0 });
+    // A pattern (2 races) even with no seconds of its own; its chips name the races only.
+    const t = s.top.find((x) => x.theme === 'dirty-air')!;
+    expect(t).toMatchObject({ pattern: true, chips: ['R1 (medium)', 'R2 (medium)'] });
+    expect(t.why).toBe('You sailed in dirty air early on the beats in 2 of 3 races with good data');
+  });
+
+  it('D9’s low-resolution (places) findings recur too, with their confidence on each race’s chip', () => {
+    const low = (sec: number, c: FindingDigest['confidence']): FindingDigest => ({ theme: 'round-leeward', kind: 'D9', variant: 'leeward', seconds: sec, confidence: c });
+    const s = summarizeRegatta([
+      done(1, { findings: [round(12)], evaluated: ['round-leeward'] }),
+      done(2, { findings: [low(25, 'medium')], evaluated: ['round-leeward'] }),
+      done(3, { findings: [low(18, 'low')], evaluated: ['round-leeward'] }),
+    ]);
+    const t = s.top.find((x) => x.theme === 'round-leeward')!;
+    expect(t.pattern).toBe(true);
+    expect(t.chips).toEqual(['R1 12 s', 'R2 25 s (medium)', 'R3 18 s (low)']);
+    expect(t.why).toBe('Leeward roundings cost you time in 3 of 3 races with good data, ~55 s total');
+  });
+
+  it('Went well: families over the races, by weighted seconds, at most 3, with the best single one', () => {
+    const races = [
+      done(1, { went: [{ family: 'leg:upwind', label: 'Beat 1', seconds: 40 }, { family: 'round:leeward', label: 'Leeward gate', seconds: 6 }] }),
+      done(2, { went: [{ family: 'leg:upwind', label: 'Beat 2', seconds: 55 }, { family: 'start', label: 'Start', seconds: 8 }] }),
+      done(3, { coverage: 0.4, went: [{ family: 'leg:downwind', label: 'Run 1', seconds: 100 }] }),
+      done(4, { went: [{ family: 'start', label: 'First minutes', seconds: 20 }] }),
+    ];
+    const s = summarizeRegatta(races);
+    expect(s.went.map((w) => [w.family, w.races, w.of, Math.round(w.totalS), Math.round(w.weightedS)])).toEqual([
+      ['leg:upwind', 2, 4, 95, 95],
+      // 100 s from a race at 40 % coverage counts half.
+      ['leg:downwind', 1, 4, 100, 50],
+      ['start', 2, 4, 28, 28],
+    ]);
+    expect(s.went).toHaveLength(3);
+    expect(s.went[0].best).toEqual({ label: 'R2', what: 'Beat 2', seconds: 55 });
+    const html = regattaHtml(s, { running: null, message: '', done: 4, total: 4 });
+    expect(html).toContain('<li><span class="went-s">+95 s</span> Beats: gained on the top 3 in 2 of 4 races (best R2 Beat 2, 55 s)</li>');
+    expect(summarizeRegatta([done(1)]).went).toEqual([]);
+    expect(regattaHtml(summarizeRegatta([done(1)]), { running: null, message: '', done: 1, total: 1 })).toContain('No clear gains on the top 3 yet.');
+  });
+});
+
+describe('the uploaded log reaches the Coach at full rate', () => {
+  it('mergeUploads keeps the log’s own fixes (fullRate); zoneTracks reads them near the marks, the feed boats at most every 0.4 s', async () => {
+    const { mergeUploads, fullRateIn } = await import('../src/data/vkx/merge');
+    const { zoneTracks, ZONE_STEP_MS } = await import('../src/analysis/coach/index');
+    const data = j105Race(1);
+    const a0 = analyzeRace(data);
+    const me = a0.boats[0];
+    const src = data.boats.find((b) => b.id === me.id)!.track;
+    // A fake 10 Hz log: the boat's feed track resampled ten times a second (positions interpolated).
+    const n = Math.floor((src.t[src.t.length - 1] - src.t[0]) / 100);
+    const t = new Float64Array(n);
+    const lat = new Float64Array(n);
+    const lon = new Float64Array(n);
+    let j = 0;
+    for (let i = 0; i < n; i++) {
+      t[i] = src.t[0] + i * 100;
+      while (j < src.t.length - 2 && src.t[j + 1] <= t[i]) j++;
+      const f = (t[i] - src.t[j]) / Math.max(1, src.t[j + 1] - src.t[j]);
+      lat[i] = src.lat[j] + Math.min(1, Math.max(0, f)) * (src.lat[j + 1] - src.lat[j]);
+      lon[i] = src.lon[j] + Math.min(1, Math.max(0, f)) * (src.lon[j + 1] - src.lon[j]);
+    }
+    const log = { header: { sail: me.sail, rateHz: 10, timers: [], pings: [] }, t, lat, lon, sog: new Float32Array(n), cog: new Float32Array(n), heading: null, heel: null, pitch: null };
+    const merged = mergeUploads(data, [{ track: log as never }]);
+    const b = merged.boats.find((x) => x.id === me.id)!;
+    expect(b.fullRate!.t.length).toBe(fullRateIn(log as never, data.gunMs).t.length);
+    expect(b.fullRate!.t.length).toBeGreaterThan(b.track.t.length * 5);
+    const a = analyzeRace(merged);
+    const z = zoneTracks(a, merged);
+    const mine = z[me.id];
+    expect(mine.t.length).toBeGreaterThan(0);
+    const gaps = Array.from(mine.t.slice(1), (x, i) => x - mine.t[i]);
+    // Full rate inside a pass (100 ms), not the analysis's 1 Hz.
+    expect(Math.min(...gaps)).toBeLessThanOrEqual(110);
+    for (const [id, other] of Object.entries(z)) {
+      if (id === me.id) continue;
+      const g = Array.from(other.t.slice(1), (x, i) => x - other.t[i]);
+      if (g.length) expect(Math.min(...g)).toBeGreaterThanOrEqual(ZONE_STEP_MS);
+    }
   });
 });
