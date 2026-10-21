@@ -165,10 +165,18 @@ export class RateLimiter {
     readonly max = RATE_MAX,
     readonly windowMs = RATE_WINDOW_MS,
   ) {}
+  private async keyOf(ip: string): Promise<string> {
+    const salt = (this.salt ??= randomToken());
+    return (await sha256Hex(new TextEncoder().encode(`${salt}|${ip}`))).slice(0, 24);
+  }
+  /** How many more the client may make now (nothing is counted). */
+  async remaining(ip: string, now: number): Promise<number> {
+    const list = (this.hits.get(await this.keyOf(ip)) ?? []).filter((t) => now - t < this.windowMs);
+    return Math.max(0, this.max - list.length);
+  }
   /** True when the client may upload now (and counts it). The IP is hashed with a per-isolate salt and only kept here. */
   async allow(ip: string, now: number): Promise<boolean> {
-    const salt = (this.salt ??= randomToken());
-    const key = (await sha256Hex(new TextEncoder().encode(`${salt}|${ip}`))).slice(0, 24);
+    const key = await this.keyOf(ip);
     const list = (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs);
     if (this.hits.size > 10_000) {
       // Bound memory without wiping the limiter (a rotating-IP flood used to clear everyone).
@@ -237,7 +245,8 @@ export async function verifyAgainstFeed(track: PayloadTrack, doFetch: typeof fet
 
 // ---- handlers
 
-async function readCapped(req: Request, max: number): Promise<Uint8Array | null> {
+/** The request body, or null once it passes `max` bytes (announced or read). */
+export async function readCapped(req: Request, max: number): Promise<Uint8Array | null> {
   const announced = Number(req.headers.get('content-length') ?? 0);
   if (announced > max) return null;
   if (!req.body) return new Uint8Array(0);

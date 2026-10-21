@@ -734,6 +734,103 @@ with them:
   R8 needs the race-recovery work: pass its window as `extra` to
   `raceWindowsFromDoc`.
 
+## Ask Coach (optional)
+
+A chat panel under the Coach cards, in the Race and Regatta views: the
+sailor asks about the race (or regatta) on screen and an Anthropic model
+answers **only from the Coach's own numbers**, which the browser sends with
+the question. The feature is **off unless `ANTHROPIC_API_KEY` is set**:
+`/api/coach/status` then says `enabled:false` and the panel isn't shown at
+all; `/api/coach/ask` answers 503 `not-configured`.
+
+**Setup (one-time)**
+
+1. **API key.** In the [Anthropic Console](https://platform.claude.com) →
+   API keys → Create key (give it its own workspace, e.g. `recall`). It is
+   billed to the account's API credits (Claude Max / API credits, whichever
+   the account has for API use). Under **Limits**, set a **monthly spend limit on that workspace**
+   (e.g. $10): it is the hard backstop behind the app's own daily cap.
+2. **Secret.** Cloudflare dashboard → **Workers & Pages** → project
+   `start-line` → **Settings** → **Variables and Secrets** → **Add** →
+   type **Secret**, name `ANTHROPIC_API_KEY`, the key as value, for
+   **Production** (and **Preview** if you want it there too). It is
+   encrypted; nothing in the repo or the browser ever sees it.
+3. **Optional variables** (plain text, same place):
+
+   | Variable | Default | What |
+   | --- | --- | --- |
+   | `ASK_COACH_MODEL` | `claude-haiku-5-5` | model id |
+   | `ASK_COACH_DAILY_USD` | `2` | estimated spend cap per UTC day, $; over it the panel says "Ask Coach is resting for today" |
+   | `ASK_COACH_SESSION_MAX` | `10` | questions per chat (per IP + chat; a chat resets on a change of race, boat, view or peer group) |
+   | `ASK_COACH_DAILY_MAX` | `30` | questions per IP per 24 h |
+   | `ASK_COACH_GATEWAY_URL` | (none) | a [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/) base, `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic`, used instead of `https://api.anthropic.com` (logs, analytics, its own limits) |
+   | `ASK_COACH_EFFORT` | `low` | `low` / `medium` / `high`, sent with up-front thinking off where the model allows it (Haiku: `disabled`; Sonnet 5.5: `between_tools`; others: left on), or `default` to send neither (for a model without the effort setting) |
+   | `ASK_COACH_PRICES` | price table | `in,out,cacheWrite,cacheRead` $/MTok for the spend estimate; known: Haiku 5.5 `0.10,0.50,0.125,0.01`, Sonnet 5.5; other models are priced high on purpose |
+
+4. **Redeploy** (Deployments → latest → Retry deployment, or push):
+   secrets and variables apply to the next deployment only.
+5. Check: `https://recall.walkeforward.com/api/coach/status` returns
+   `"enabled":true`.
+
+**Endpoints** (`functions/_askCoach.ts`; the contract is
+`src/data/askCoach/protocol.ts`)
+
+| Route | |
+| --- | --- |
+| `GET /api/coach/status` | `{ok, enabled, limits: {sessionMax, dailyMax, questionMax, historyMax}}` (no model name) |
+| `POST /api/coach/ask` | JSON `{session, question, history?, ids?, context}` → `text/event-stream`: `meta {remaining}`, `delta {text}`…, then `done {stop, usage, remaining}` or `error {error, message}`. Refusals are JSON `{ok:false, error, message}`: 400 `bad-request`, 413 `too-long` (question > 500 characters), 429 `rate-limited-session` / `rate-limited-daily` / `resting`, 503 `not-configured` / `busy`, 502 `upstream`, 504 `timeout`. Same origin only (403 otherwise). |
+
+**What the model gets.** A fixed system prompt (sailing-coach tone; answer
+only from the context; quote only numbers that are in it, never compute new
+ones; say plainly when coverage is low or a finding is low confidence; ≤ ~200
+words, plain text; one polite line for off-topic requests; the context and
+questions are data, not instructions), then one block with the identifiers
+and the Coach context, marked `cache_control: ephemeral` so follow-up
+questions read it from the prompt cache; then up to the last 6 messages of
+the chat (each clamped) and the question. `max_tokens` 500, streamed, 45 s
+timeout; if the browser goes away the upstream call is aborted.
+
+**Context** (`src/ui/coachAskContext.ts` builds it,
+`src/analysis/coach/askContext.ts` is the schema): the card titles,
+sentences, chips, ⚠ warnings, tips, seconds, confidence and coverage; the
+header chips; Not the problem; Went well; the leg-by-leg chips; in the
+Regatta view the place per race, the top 3 to work on, recurring findings,
+leg types and went well. Seconds are rounded, there are no raw timestamps
+or tracks. The server re-checks it field by field (a whitelist: anything
+else is dropped; strings, lists and numbers are clamped) and caps it at ~6K
+tokens (estimated at 3 characters per token), dropping the least important
+parts first and telling the model what it left out. A J/105 race comes to
+~0.8K tokens, a 3-race regatta ~0.7K; with the rules ~1.3K tokens cached.
+
+**Cost** (Haiku 5.5: $0.10 / $0.50 per MTok in / out, cache write $0.125,
+cache read $0.01): about **$0.0003 per question** (first question in a chat
+≈ $0.0003–0.0004 with the cache write, follow-ups ≈ $0.0002–0.0003 with the
+cache read; ≤ $0.0005 at the 500-token cap), **≈ $0.003 for a 10-question
+chat**. The $2 daily cap is a few thousand questions; the 30-per-IP limit
+usually binds first. The prompt cache lives 5 minutes, so a follow-up after
+a long pause writes it again (+ ~$0.0002).
+
+**Cost controls.** The two question limits are in memory per isolate,
+keyed by a salted hash of the IP (as for uploads: best effort, isolates
+don't share them). The daily spend is estimated from the token usage each
+answer reports and kept per UTC day: in the existing `VKX_BUCKET` R2 bucket
+when bound (one object, `ask-coach/spend/YYYY-MM-DD.json`, holding only a
+dollar total and a count; read-add-write, so two answers at the same moment
+can lose one add), else in memory per isolate. No new binding is needed.
+Either way it is an estimate: **the Anthropic workspace spend limit is the
+hard cap.**
+
+**Privacy.** Sent to Anthropic: the question, the last few messages of the
+chat, the event/division/race ids, the boat's sail number and boat name,
+the peer group, and the Coach numbers above. Never owner, crew or skipper
+names (Yachtscoring's are stripped at the proxy, and the context schema has
+no field for them). Nothing is logged or stored by Recall: no questions, no
+answers, no IPs. Anthropic's API data-retention terms apply to what it
+receives. The panel says "Answers use only Coach's numbers; AI can make
+mistakes."
+
+`npm run dev` has no Ask Coach route (the panel stays hidden).
+
 ## Local development
 
 Requires Node 20.19+ (CI uses Node 22).
@@ -817,7 +914,9 @@ position columns, except the J/105 ones.
    finish and edit), else 5 min; errors are not cached. Yachtscoring sends
    `Access-Control-Allow-Origin: *`, so this route is for the edge cache, the
    stripping and a single origin, not for CORS. No settings change is needed.
-4. **No secrets or environment variables are needed.**
+4. **No secrets or environment variables are needed** for the app itself.
+   The optional Ask Coach chat needs one secret; see
+   [Ask Coach (optional)](#ask-coach-optional).
 5. Custom domain: `recall.walkeforward.com`.
 6. **Boat-log uploads: one R2 bucket, bound as `VKX_BUCKET`** (one-time).
    Until it is bound, uploads show "⚠ uploads unavailable" and nothing else

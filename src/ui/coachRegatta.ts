@@ -191,9 +191,21 @@ const SOURCE_WORDS: Record<FinishSource, string> = { official: 'official', races
 /** `12th`, `~12th` (a tracker finish), the official code, or a dash. */
 export const finishShort = (f: RaceFinish | null): string => (f?.place != null ? `${f.source === 'tracker' ? '~' : ''}${ordinal(f.place)}` : (f?.code ?? '—'));
 
-const secs = (s: number): string => `${s > 0 ? '+' : s < 0 ? '−' : ''}${Math.abs(Math.round(s))} s`;
+export const secs = (s: number): string => `${s > 0 ? '+' : s < 0 ? '−' : ''}${Math.abs(Math.round(s))} s`;
 
-const LEG_TYPE: Record<LegTypeSummary['kind'], string> = { upwind: 'Beats', downwind: 'Runs', reach: 'Reaches' };
+export const LEG_TYPE: Record<LegTypeSummary['kind'], string> = { upwind: 'Beats', downwind: 'Runs', reach: 'Reaches' };
+
+/** A leg-type row's best or worst leg: "R2 Beat 1: −12 s, 3rd of 20" (⚠ low data). */
+export const legExtremeText = (e: LegTypeSummary['best']): string => `${e.label} ${e.leg}: ${secs(e.deltaS)}, ${ordinal(e.rank)} of ${e.of}${e.low ? ' ⚠' : ''}`;
+
+/** What a race's place chip says on hover: "3rd of 20, official", "not analysed yet", "couldn't load: …". */
+export function placeWhat(r: RegattaSummary['rows'][number]): string {
+  const f = r.digest?.finish ?? null;
+  if (r.status === 'pending' || r.status === 'running') return 'not analysed yet';
+  if (r.status === 'error') return `couldn't load: ${r.error ?? ''}`;
+  if (f) return `${f.place != null ? `${ordinal(f.place)} of ${f.of}` : `${f.code ?? 'no place'}`}, ${SOURCE_WORDS[f.source]}${r.digest?.tracked ? '' : ', no track'}`;
+  return r.digest?.tracked ? 'no finish' : 'not in this race';
+}
 
 /** The status line: progress while races are analysed, then what was found. */
 export function regattaStatusHtml(s: RegattaSummary, p: RegattaProgress): string {
@@ -214,16 +226,7 @@ export function regattaPlacesHtml(s: RegattaSummary): string {
     const f = r.digest?.finish ?? null;
     const place = r.status === 'done' ? finishShort(f) : r.status === 'error' ? '!' : '…';
     const of = r.status === 'done' && f ? `<small>of ${f.of}</small>` : '';
-    const what =
-      r.status === 'pending' || r.status === 'running'
-        ? 'not analysed yet'
-        : r.status === 'error'
-          ? `couldn't load: ${r.error ?? ''}`
-          : f
-            ? `${f.place != null ? `${ordinal(f.place)} of ${f.of}` : `${f.code ?? 'no place'}`}, ${SOURCE_WORDS[f.source]}${r.digest?.tracked ? '' : ', no track'}`
-            : r.digest?.tracked
-              ? 'no finish'
-              : 'not in this race';
+    const what = placeWhat(r);
     const warn = r.low ? ' <span class="warn" title="Low tracker coverage: counted less">⚠</span>' : '';
     return `<li class="rp ${r.status}${r.low ? ' low' : ''}" data-race="${r.raceNumber}" title="${esc(`${r.name}: ${what}`)}"><b>${esc(r.label)}</b> <span class="rp-place">${esc(place)}</span>${of}${warn}</li>`;
   });
@@ -270,7 +273,7 @@ export function regattaHtml(s: RegattaSummary, p: RegattaProgress): string {
     : '<p class="muted">No findings yet.</p>';
   const legRows = s.legs
     .map((l) => {
-      const ex = (e: LegTypeSummary['best']): string => `${esc(e.label)} ${esc(e.leg)}: ${secs(e.deltaS)}, ${ordinal(e.rank)} of ${e.of}${e.low ? ' ⚠' : ''}`;
+      const ex = (e: LegTypeSummary['best']): string => esc(legExtremeText(e));
       return `<tr><th scope="row">${LEG_TYPE[l.kind]}</th><td>${l.legs} ${legWord(l.kind, l.legs)}</td><td>${secs(l.meanS)} per leg</td><td>${ex(l.best)}</td><td>${ex(l.worst)}</td></tr>`;
     })
     .join('');

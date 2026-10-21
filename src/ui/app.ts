@@ -7,7 +7,7 @@ import { coachDebrief, type CoachDebrief } from '../analysis/coach/debrief';
 import { legStories } from '../analysis/coach/legStory';
 import type { Group } from '../analysis/coach/groups';
 import { splitFindings } from '../analysis/findings';
-import { START_TRAIL_MS, type RaceAnalysis } from '../analysis/types';
+import { START_TRAIL_MS, type BoatResult, type RaceAnalysis } from '../analysis/types';
 import { linkOfficial, type LinkOutcome } from '../data/official/link';
 import { httpYsSource, parseYsEventId } from '../data/official/yachtscoring';
 import { PROBE_BUDGET, discoverOrphans, isOrphanKey, type OrphanFound } from '../data/orphans';
@@ -44,6 +44,10 @@ import {
   type LadderLayout,
 } from './coach';
 import { createRegattaRunner, regattaJobs, regattaViewHtml, type RegattaJob, type WorkerPort } from './coachRegatta';
+import { askLogHtml, askPanelHtml, askPanelShown, createAskCoach, leftText, type AskPanelState } from './coachAsk';
+import { raceAskContext, regattaAskContext } from './coachAskContext';
+import type { AskContext } from '../analysis/coach/askContext';
+import type { AskIds } from '../data/askCoach/protocol';
 import { cardSpans, coachCardsHtml } from './coachCards';
 import { legStoriesHtml } from './coachLegs';
 import { pickerOptions, matchCountLabel, searchKeyAction } from './eventSearch';
@@ -61,7 +65,7 @@ import {
   type ViewState,
 } from './lastView';
 import { NC_ALL, YSC_PARAM, YS_PARAM } from './params';
-import { easternZone, raceHead, raceHeadHtml, raceOptionText, raceTitleHtml, type FeedCheck, type OfficialState } from './races';
+import { easternZone, raceHead, raceHeadHtml, raceName, raceOptionText, raceTitleHtml, type FeedCheck, type OfficialState } from './races';
 import {
   isNarrowStart,
   legLegend,
@@ -201,6 +205,7 @@ export function startApp(): void {
     coachLadderCap: $('coach-ladder-cap'),
     coachCards: $('coach-cards'),
     coachLegs: $('coach-legs'),
+    coachAsk: $('coach-ask'),
     fs: $('fs'),
     fsTools: $('fs-tools'),
     fsKey: $('fs-key'),
@@ -500,6 +505,98 @@ export function startApp(): void {
     return false;
   }
 
+  // ---- Ask Coach (optional): the panel shows only when /api/coach/status says it is on.
+  /** Builds the context of what is on screen, at the moment a question is sent; null with no boat. */
+  let askContextNow: (() => AskContext) | null = null;
+  let askIds: AskIds = {};
+  let askPanelView: CoachView | null = null;
+  let askOpen = false;
+  let askShownKey = '';
+  const ask = createAskCoach({ render: renderAsk });
+  const askBox = <T extends HTMLElement>(sel: string): T | null => els.coachAsk.querySelector<T>(sel);
+
+  function askCount(): void {
+    const q = askBox<HTMLTextAreaElement>('[data-ask-q]');
+    const c = askBox<HTMLElement>('[data-ask-count]');
+    if (q && c) c.textContent = `${q.value.length}/${q.maxLength}`;
+  }
+
+  function renderAsk(s: AskPanelState): void {
+    const log = askBox<HTMLElement>('[data-ask-log]');
+    if (!log) return;
+    log.innerHTML = askLogHtml(s);
+    log.setAttribute('aria-busy', String(s.busy));
+    const left = askBox<HTMLElement>('[data-ask-left]');
+    if (left) left.textContent = leftText(s.remaining);
+    const out = s.remaining === 0;
+    for (const b of els.coachAsk.querySelectorAll<HTMLButtonElement>('[data-ask-send], [data-ask-suggest]')) b.disabled = s.busy || out;
+    const stop = askBox<HTMLElement>('[data-ask-stop]');
+    if (stop) stop.hidden = !s.busy;
+    if (s.key !== askShownKey) {
+      // A new conversation: the old draft goes too.
+      askShownKey = s.key;
+      const q = askBox<HTMLTextAreaElement>('[data-ask-q]');
+      if (q) q.value = '';
+      askCount();
+    }
+  }
+
+  /** The panel for this race, boat, view and group: a change of any of them starts a new chat. */
+  function syncAsk(a: RaceAnalysis, me: BoatResult | null): void {
+    const st = ask.state();
+    if (st.avail == null) void ask.check().then(() => renderCoach());
+    const on = askPanelShown(st, !!me);
+    els.coachAsk.hidden = !on;
+    askContextNow = null;
+    if (!me) return;
+    const group = coachView === 'race' ? groupParam(coachGroup) : '';
+    askIds = { event: a.meta.eventId ?? eventId, div: a.meta.division, race: String(a.meta.raceNumber), sail: me.sail, view: coachView, ...(group ? { group } : {}) };
+    if (on && askPanelView !== coachView) {
+      els.coachAsk.innerHTML = askPanelHtml(coachView, askOpen);
+      askPanelView = coachView;
+      askShownKey = '';
+    }
+    ask.setKey([coachView, raceKeyOf(a), me.id, group].join('#'));
+    if (on) renderAsk(ask.state());
+  }
+
+  function sendAsk(text: string): void {
+    const ctx = askContextNow?.();
+    if (!ctx || !text.trim()) return;
+    void ask.ask(text, ctx, askIds);
+    const q = askBox<HTMLTextAreaElement>('[data-ask-q]');
+    if (q) q.value = '';
+    askCount();
+  }
+  els.coachAsk.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    sendAsk(askBox<HTMLTextAreaElement>('[data-ask-q]')?.value ?? '');
+  });
+  els.coachAsk.addEventListener('click', (ev) => {
+    const el = ev.target as HTMLElement;
+    const sug = el.closest('button[data-ask-suggest]')?.getAttribute('data-ask-suggest');
+    if (sug) sendAsk(sug);
+    else if (el.closest('button[data-ask-stop]')) {
+      ask.stop();
+      askBox<HTMLTextAreaElement>('[data-ask-q]')?.focus();
+    }
+  });
+  els.coachAsk.addEventListener('input', askCount);
+  els.coachAsk.addEventListener('keydown', (ev) => {
+    // Enter sends; Shift+Enter is a new line.
+    if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing && (ev.target as HTMLElement).matches('[data-ask-q]')) {
+      ev.preventDefault();
+      sendAsk((ev.target as HTMLTextAreaElement).value);
+    }
+  });
+  els.coachAsk.addEventListener(
+    'toggle',
+    (ev) => {
+      if ((ev.target as HTMLElement).matches?.('details.coach-ask-box')) askOpen = (ev.target as HTMLDetailsElement).open;
+    },
+    true,
+  );
+
   /** Coach follows the app: the race in the Race menu, the boat selected in the boat list (or a chart). */
   function renderCoach(): void {
     const a = analysis;
@@ -513,6 +610,7 @@ export function startApp(): void {
     els.coachTip.hidden = true;
     els.coachRegatta.hidden = !me || !regattaOn;
     for (const el of [els.coachLadderCard, els.coachCards, els.coachLegs]) el.hidden = !me || regattaOn;
+    syncAsk(a, me ?? null);
     if (!me) {
       els.coachHead.innerHTML = coachNoBoatHtml();
       regattaRunner.want([]);
@@ -521,9 +619,14 @@ export function startApp(): void {
     if (regattaOn) {
       els.coachHead.innerHTML = '';
       renderRegatta(a, me.sail);
+      askContextNow = () =>
+        regattaAskContext({ races: regattaRunner.races(), progress: regattaRunner.progress(), boat: me, event: a.meta.eventName, division: a.meta.division });
       return;
     }
+    const listed = raceList ? findListed(raceList, a.meta.division, a.meta.raceNumber) : undefined;
+    const raceTitle = listed ? raceName(listed) : undefined;
     if (!ensureCoach(a)) {
+      askContextNow = () => raceAskContext({ a, me, raceName: raceTitle, head: coachChips(a, me, null), deb: null, stories: [], group: coachGroup });
       renderKeepOpen(els.coachHead, (open) => coachHeadHtml(coachChips(a, me, null), open));
       els.coachGroup.innerHTML = '';
       els.coachLadder.innerHTML = '<p class="muted coach-none">Working out the wind…</p>';
@@ -553,6 +656,9 @@ export function startApp(): void {
     const openLegs = new Set([...els.coachLegs.querySelectorAll<HTMLElement>('details.coach-leg[open]')].map((d) => Number(d.dataset.leg)));
     const stories = model ? legStories(a, model, me.id, coachGroup) : [];
     renderKeepOpen(els.coachLegs, (open) => legStoriesHtml(stories, a, me.id, coachGroup, openLegs, open));
+    const head = coachChips(a, me, coachLadder, deb?.totalS ?? null, deb?.raceCov ?? null);
+    const group = coachGroup;
+    askContextNow = () => raceAskContext({ a, me, raceName: raceTitle, head, deb, stories, group });
     coachLayout = model && coachLadder ? ladderLayout(coachLadder, model.wind, a.meta.gunMs, widthPx, coachEach) : null;
     renderKeyLine(els.coachLadderCap, { chips: coachLadder ? ladderChips(a, coachLadder, coachGroup, coachEach) : [], bullets: [] });
   }

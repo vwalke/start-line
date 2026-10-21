@@ -910,6 +910,36 @@ html.fs-on { overflow: hidden; }
 .coach-pattern .opp-what { margin: 8px 0 0; font-size: 0.88rem; line-height: 1.4; color: var(--ink-2); }
 .coach-pattern .opp-tip { margin: 8px 0 0; padding: 6px 10px; border-radius: 8px; background: var(--grid); color: var(--ink); font-size: 0.85rem; line-height: 1.4; }
 .coach-pattern .opp-tip b { color: var(--accent); }
+/* Ask Coach (ui/coachAsk.ts, optional): a collapsed card under the cards in both views. */
+.card.coach-ask { margin-top: 16px; }
+.coach-ask-box > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; cursor: pointer; min-height: 28px; }
+.coach-ask-box > summary h3 { margin: 0; font-size: 1rem; }
+.coach-ask-box > summary .ask-sub { font-size: 0.85rem; }
+.coach-ask .ask-sugs { margin: 10px 0 0; font-size: 0.82rem; gap: 6px; }
+.coach-ask button.chip { border: 1px solid var(--rule); font: inherit; cursor: pointer; background: var(--surface); color: var(--ink); }
+.coach-ask button.chip:hover:not(:disabled) { border-color: var(--accent); }
+.coach-ask button:disabled { opacity: 0.55; cursor: default; }
+.coach-ask button:focus-visible, .coach-ask textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ask-log { margin: 10px 0 0; }
+.ask-log:empty { display: none; }
+.ask-turn + .ask-turn { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rule); }
+.ask-q { margin: 0 0 6px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.ask-a { font-size: 0.92rem; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
+.ask-a p { margin: 0 0 6px; }
+.ask-a ul { margin: 0 0 6px; padding-left: 1.2em; }
+.ask-a li + li { margin-top: 2px; }
+.ask-a .ask-end { font-size: 0.82rem; }
+.ask-cursor { animation: ask-blink 1s steps(2, start) infinite; }
+@keyframes ask-blink { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .ask-cursor { animation: none; } }
+.ask-err { margin: 4px 0 0; padding: 6px 10px; border-radius: 8px; background: var(--notice-bg); color: var(--ink); font-size: 0.88rem; }
+.ask-form { margin: 10px 0 0; }
+.ask-form textarea { display: block; width: 100%; box-sizing: border-box; min-height: 3.2em; padding: 6px 8px; border: 1px solid var(--rule-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; resize: vertical; }
+.ask-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 6px; font-size: 0.82rem; }
+.ask-row .ask-left { flex: 1 1 auto; }
+.ask-row button { padding: 4px 14px; border-radius: 6px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.ask-row .ask-send { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 700; }
+.ask-note { margin: 8px 0 0; font-size: 0.8rem; }
 /* Leg stories (ui/coachLegs.ts): one collapsed card per leg under the opportunity cards. */
 .coach-legs { margin-top: 16px; }
 .coach-legs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0 0 8px; }
