@@ -14,9 +14,12 @@ import type { FinishSource, RaceData } from '../../data/types';
 import type { LegKind, RaceAnalysis } from '../types';
 import type { GoodNote } from './opportunity';
 import { coachDebrief } from './debrief';
+import { fleetOf } from './fleet';
 import { buildCoach, coachRaw, type CoachModel } from './index';
 import type { Confidence, DetectorKind } from './opportunity';
 import { rankOpportunities } from './rank';
+
+export { fleetOf } from './fleet';
 
 /** A boat's result in one race: its place, or the official code (DNF, …); `of` the fleet it is out of. */
 export interface RaceFinish {
@@ -24,16 +27,6 @@ export interface RaceFinish {
   code: string | null;
   of: number;
   source: FinishSource;
-}
-
-/**
- * The fleet a place is out of, as the results count it: linked to official results, the official
- * fleet (tracked boats they don't list out, listed boats with no track in); else the tracked fleet.
- */
-export function fleetOf(a: RaceAnalysis): number {
-  const r = a.meta.results;
-  if (r?.places !== 'official') return a.boats.length;
-  return a.boats.length - (r.trackNoOfficial?.length ?? 0) + (r.officialNoTrack?.length ?? 0);
 }
 
 /** Each boat's result in an analysed race, by sail (the places the header and tables show). */

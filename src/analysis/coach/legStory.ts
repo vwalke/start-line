@@ -38,10 +38,10 @@ import { detectManoeuvres, type ManoeuvreTrack } from '../manoeuvres';
 import { placeColumns, roundingMs } from '../places';
 import type { BoatResult, LegKind, RaceAnalysis } from '../types';
 import type { CoachModel } from './index';
+import { extraTracked, fleetOf } from './fleet';
 import { groupIds, type Group } from './groups';
 import { coachCoverage } from './opportunity';
 import { posAt } from './tracks';
-import { fleetOf } from './regatta';
 
 /** A stat over the group needs this many boats with data; fewer → the fleet. */
 export const STORY_MIN_GROUP = 4;
@@ -92,7 +92,9 @@ export function fleetPlaces(a: Pick<RaceAnalysis, 'legs' | 'boats' | 'meta'>): F
   const gun = a.meta.gunMs;
   const cols = placeColumns(a.legs);
   const nc = cols.length;
-  const boats = a.boats;
+  const extra = extraTracked(a);
+  // Official fleet only: tracked boats the results don't list would inflate "of N" past the official count.
+  const boats = extra.size ? a.boats.filter((b) => !extra.has(b.sail) && !extra.has(b.id)) : a.boats;
   // Elapsed time at each column (null: unknown): the gun, each rounding, the finish.
   const known = boats.map((b) =>
     cols.map((c): number | null => {
@@ -173,7 +175,9 @@ export function fleetPlaces(a: Pick<RaceAnalysis, 'legs' | 'boats' | 'meta'>): F
   }
   const dnf = boats.map((_, i) => i).filter((i) => boats[i].finishPos == null && !unknown.includes(i));
   order(fin, (i) => [elapsed[i][fin]?.s ?? Infinity, nc > 2 ? place[i][nc - 2] : 0], () => true, last + 1, dnf);
-  const of = Math.max(fleetOf(a as RaceAnalysis), boats.length, ...place.map((r) => Math.max(0, ...r)));
+  // Official `of` (or the tracked fleet): never the assigned DNF slot after the last finisher,
+  // which can run past the official count when an extra tracker was dropped.
+  const of = Math.max(fleetOf(a as RaceAnalysis), boats.length, ...boats.map((b) => b.finishPos ?? 0));
   return { of, byId: new Map(boats.map((b, i) => [b.id, { place: place[i], est: est[i], elapsedS: elapsed[i].map((e) => e?.s ?? null) }])) };
 }
 

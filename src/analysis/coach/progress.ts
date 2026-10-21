@@ -8,9 +8,12 @@
  * - otherwise its distance to go between its rounding times (known, or fleetPlaces' estimates: the fleet's
  *   median splits, or carried on at its own pace), linearly in time (estimated);
  * - a finished boat is ahead of every boat still racing, the earlier finisher first.
+ * - DNS/DNC/DNE and tracked boats official results don't list are left out; a DNF/RET is not
+ *   carried past its last known mark (so a retired boat cannot pass anyone still racing).
  */
 import type { RaceAnalysis } from '../types';
 import type { CoachModel } from './index';
+import { extraTracked, neverRaced } from './fleet';
 import { distToGo, legLengths } from './ladder';
 import { fleetPlaces, type FleetPlaces } from './legStory';
 import { posAt, trackLegAt } from './tracks';
@@ -50,17 +53,27 @@ export function progressBase(a: Pick<RaceAnalysis, 'legs' | 'boats' | 'meta'>, m
 /** One boat's distance to go at `t`, and whether it is from a position (false) or the interpolated roundings (true); null with neither. */
 export function dtgAt(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel, base: ProgressBase, id: string, t: number): { dtg: number; est: boolean } | null {
   const b = a.boats.find((x) => x.id === id);
-  if (b?.finishMs != null && t >= b.finishMs) return { dtg: -(t - b.finishMs) / 1000, est: false };
+  if (!b || neverRaced(b.finishCode)) return null;
+  if (b.finishMs != null && t >= b.finishMs) return { dtg: -(t - b.finishMs) / 1000, est: false };
   const tr = m.tracks.get(id);
   if (tr) {
     const p = posAt(tr, t, PROG_SPAN_S, PROG_NEAR_S);
     const leg = trackLegAt(tr, t);
     if (p && leg != null) return { dtg: distToGo(m.course, leg, p, m.wind.twdAt(t), m.wind.taAt(t)), est: false };
   }
-  const el = base.fp.byId.get(id)?.elapsedS;
-  if (!el) return null;
+  const row = base.fp.byId.get(id);
+  if (!row) return null;
+  // Only as far as the last *known* column: a DNF/RET carried on at its own pace would otherwise
+  // keep sailing the course and pass boats that are still racing.
+  let lastKnown = -1;
+  for (let c = 0; c < row.elapsedS.length; c++) if (row.elapsedS[c] != null && !row.est[c]) lastKnown = c;
+  if (lastKnown < 0) return null;
   const s = (t - a.meta.gunMs) / 1000;
-  const pts = el.map((e, c) => (e != null ? { e, d: base.colDtg[c] } : null)).filter((x): x is { e: number; d: number } => !!x);
+  const pts: { e: number; d: number }[] = [];
+  for (let c = 0; c <= lastKnown; c++) {
+    const e = row.elapsedS[c];
+    if (e != null) pts.push({ e, d: base.colDtg[c] });
+  }
   if (!pts.length) return null;
   if (s <= pts[0].e) return { dtg: pts[0].d, est: true };
   for (let i = 1; i < pts.length; i++) {
@@ -69,16 +82,18 @@ export function dtgAt(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel, ba
       return { dtg: pts[i - 1].d + f * (pts[i].d - pts[i - 1].d), est: true };
     }
   }
-  // Past its last time: finished (estimated) — ahead of the boats racing, by how long ago.
-  return { dtg: -(s - pts[pts.length - 1].e), est: true };
+  return null;
 }
 
-/** Every racing boat's place at `t` by distance to go (boats with no read at all last), out of the fixed fleet. */
+/** Every racing boat's place at `t` by distance to go, out of the fixed fleet. DNS/DNC and official extras are left out. */
 export function progressAt(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel, base: ProgressBase, t: number): ProgressPlaces {
-  const reads = a.boats.map((b, i) => ({ id: b.id, i, r: dtgAt(a, m, base, b.id, t) }));
-  const key = (x: (typeof reads)[number]): number => x.r?.dtg ?? Infinity;
-  reads.sort((p, q) => (key(p) < key(q) ? -1 : key(p) > key(q) ? 1 : p.i - q.i));
+  const extra = extraTracked(a);
+  const reads = a.boats
+    .filter((b) => !extra.has(b.sail) && !extra.has(b.id) && !neverRaced(b.finishCode))
+    .map((b, i) => ({ id: b.id, i, r: dtgAt(a, m, base, b.id, t) }))
+    .filter((x): x is { id: string; i: number; r: { dtg: number; est: boolean } } => x.r != null);
+  reads.sort((p, q) => (p.r.dtg < q.r.dtg ? -1 : p.r.dtg > q.r.dtg ? 1 : p.i - q.i));
   const byId = new Map<string, ProgressRead>();
-  reads.forEach((x, k) => byId.set(x.id, { place: k + 1, dtg: x.r?.dtg ?? Infinity, est: x.r?.est ?? true }));
+  reads.forEach((x, k) => byId.set(x.id, { place: k + 1, dtg: x.r.dtg, est: x.r.est }));
   return { of: base.fp.of, byId };
 }

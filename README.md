@@ -70,11 +70,15 @@ are shared by all three.
     legs after; the leg table's fixed fleet; a sparse track's position read
     across gaps up to 60 s, otherwise interpolated between its rounding times)
     at its own fix nearest 60 s before the rounding (20 s–2 min) and the same
-    after. Losing max(3, min(5, ceil(5 % of the fleet))) places or more (3 up to
+    after.     Losing max(3, min(5, ceil(5 % of the fleet))) places or more (3 up to
     60 boats, 4 to 80, 5 beyond) is a card at medium confidence ("Windward
     mark: lost 7 places through the rounding, 10th → 17th of 100 (sparse data,
     timing approximate)"); seconds = the median change in gap (distance to go
-    ÷ the two legs' fleet VMG) to the boats that passed it. If the boats that
+    ÷ the two legs' fleet VMG) to the boats that passed it. The boat's own
+    places must be from a position (a hole at the read is not judged); only
+    boats measured at both reads count as passers. DNS/DNC and tracked boats
+    official results don't list are left out of the ranking; a DNF/RET is not
+    carried past its last known mark. If the boats that
     came in from the other side within 3 minutes gained 2+ places more on
     average than the boat's side, and two thirds of those that passed it came
     from there, the card says it looks like a shift, the seconds are halved and

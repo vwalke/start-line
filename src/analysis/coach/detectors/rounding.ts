@@ -28,6 +28,9 @@
  * there, the card says the loss looks like a shift, the seconds are halved and the confidence is low.
  * Otherwise medium; low when over half the fleet's places at the reads are interpolated, and over
  * D9_PLACES_EST_LIMIT not judged at all (the places would be the interpolation's, not the boats').
+ * The boat's own places must be measured (not a hole); only boats measured at both reads count as
+ * passers, and a card needs that many as well as the place change. DNS/DNC and official extras are
+ * left out of the ranking; a DNF/RET is not carried past its last known mark.
  */
 import { bearingVec, dot, len, median, sub, type Vec } from '../../geo';
 import type { LegKind } from '../../types';
@@ -299,8 +302,15 @@ export function placesThrough(ctx: CoachCtx, k: number, at: (t: number) => Progr
   const pa = at(tAfter);
   const me0 = pb.byId.get(ctx.boat);
   const me1 = pa.byId.get(ctx.boat);
-  if (!me0 || !me1) return null;
-  const passers = [...pb.byId.keys()].filter((id) => id !== ctx.boat && pb.byId.get(id)!.place > me0.place && pa.byId.get(id)!.place < me1.place);
+  // The boat's own places must be from a position: an interpolated hole at the read is not a rounding.
+  if (!me0 || !me1 || me0.est || me1.est) return null;
+  // Only boats whose places are measured at both reads: a tracker gap or a DNF carry-forward must not "pass" anyone.
+  const passers = [...pb.byId.keys()].filter((id) => {
+    if (id === ctx.boat) return false;
+    const b = pb.byId.get(id)!;
+    const aft = pa.byId.get(id);
+    return !!aft && !b.est && !aft.est && b.place > me0.place && aft.place < me1.place;
+  });
   // The gap to each passer, the two legs' mean fleet VMG (one speed for both reads, so a steady gap stays steady).
   const vs = [ctx.m.vmg[k], ctx.m.vmg[k + 1]].filter((v): v is number => v != null && v > 0);
   const v = vs.length ? vs.reduce((x, y) => x + y, 0) / vs.length : null;
@@ -329,10 +339,11 @@ export function placesThrough(ctx: CoachCtx, k: number, at: (t: number) => Progr
       .map((b) => ({ id: b.id, r: ctx.m.tracks.get(b.id)?.bounds[k + 1] ?? null }))
       .filter((x): x is { id: string; r: number } => x.id !== ctx.boat && x.r != null && Math.abs(x.r - r) <= D9_SHIFT_WINDOW_MS)
       .map((x) => {
-        const p0 = at(x.r - D9_PLACES_AT_MS).byId.get(x.id)!;
-        const p1 = at(x.r + D9_PLACES_AT_MS).byId.get(x.id)!;
-        return { id: x.id, side: sideAt(x.id, x.r - D9_PLACES_AT_MS), gain: p0.place - p1.place };
-      });
+        const p0 = at(x.r - D9_PLACES_AT_MS).byId.get(x.id);
+        const p1 = at(x.r + D9_PLACES_AT_MS).byId.get(x.id);
+        return p0 && p1 ? { id: x.id, side: sideAt(x.id, x.r - D9_PLACES_AT_MS), gain: p0.place - p1.place } : null;
+      })
+      .filter((x): x is { id: string; side: number | null; gain: number } => x != null);
     const other = near.filter((x) => x.side === -mySide);
     const same = near.filter((x) => x.side === mySide);
     const mean = (xs: { gain: number }[]): number => (xs.length ? xs.reduce((t, x) => t + x.gain, 0) / xs.length : 0);
@@ -408,7 +419,8 @@ export function detectRounding(ctx: CoachCtx): D9Result {
     read.places = pl;
     if (!pl || pl.estShare > D9_PLACES_EST_LIMIT) return;
     evaluated.add(read.type);
-    if (pl.lost < pl.threshold) return;
+    // Measured passers must back the place change: estimated boats jumping past do not fire a card.
+    if (pl.lost < pl.threshold || pl.passers.length < pl.threshold) return;
     const seconds = Math.max(0, pl.gapS ?? 0) * (pl.shift ? D9_SHIFT_SECONDS : 1);
     const level: Confidence = pl.shift || pl.estShare > D9_PLACES_EST_MAX ? 'low' : 'medium';
     out.opps.push({

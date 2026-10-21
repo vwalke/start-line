@@ -277,7 +277,7 @@ export function regattaHtml(s: RegattaSummary, p: RegattaProgress): string {
   const legs = legRows
     ? `<div class="regatta-scroll"><table class="regatta-table regatta-legs"><thead><tr><th scope="col">Legs</th><th scope="col">Sailed</th><th scope="col" title="Leg time vs the fleet's median for the leg (+ = slower)">vs fleet median</th><th scope="col">Best</th><th scope="col">Worst</th></tr></thead><tbody>${legRows}</tbody></table></div>`
     : '';
-  const gatedNote = s.findings.some((f) => f.gated) ? '<p class="muted regatta-note">* of the races with the tracker data to measure it (dirty air needs the boats around you; roundings 1 fix every 2 s at the mark).</p>' : '';
+  const gatedNote = s.findings.some((f) => f.gated) ? '<p class="muted regatta-note">* of the races with the tracker data to measure it (dirty air needs the boats around you; roundings the zone time or the sparse-data place read).</p>' : '';
   return `${status}${places}
     <h4>Top 3 to work on</h4>${top}
     ${went}

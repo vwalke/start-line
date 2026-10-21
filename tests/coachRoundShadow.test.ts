@@ -361,6 +361,45 @@ describe('D8 dirty air', () => {
     expect(t.chips[0]).toMatch(/^3\d% in dirty air vs fleet 0%$/);
   });
 
+  it('90-boat fleet (Cascais-scale): fleet shares in well under a second (no O(n²) per sample)', () => {
+    const n = 90;
+    const endS = 15 * 60;
+    const dir = bearingVec(320);
+    const v = 3;
+    const tracks: CoachTrack[] = [];
+    for (let i = 0; i < n; i++) {
+      const t: number[] = [];
+      const x: number[] = [];
+      const y: number[] = [];
+      const x0 = (i - n / 2) * 25;
+      for (let s = 0; s <= endS; s += 1) {
+        t.push(GUN + s * 1000);
+        x.push(x0 + dir[0] * v * s);
+        y.push(dir[1] * v * s);
+      }
+      tracks.push({
+        id: i === 0 ? 'me' : `B${i}`,
+        t: Float64Array.from(t),
+        x: Float64Array.from(x),
+        y: Float64Array.from(y),
+        bounds: [GUN, GUN + 12 * 60_000, GUN + endS * 1000],
+      });
+    }
+    const boats = tracks.map((tr, i) => boatOf(tr.id, i + 1));
+    const ctx = world({
+      boats,
+      tracks,
+      kinds: ['upwind', 'downwind'],
+      leaders: tracks.slice(0, 3).map((tr) => tr.id),
+      endMs: GUN + endS * 1000,
+    });
+    const t0 = performance.now();
+    const r = detectShadow(ctx);
+    const ms = performance.now() - t0;
+    expect(r.evaluated).toBe(true);
+    expect(ms).toBeLessThan(1500);
+  });
+
   it('the fleet too sparse to judge (fixes 8 s apart: no short-gap position): not evaluated, no finding', () => {
     const r = detectShadow(shadowWorld({ inPlumeS: 120, slope: 0.2, fleetHz: 0.125 }));
     expect(r).toMatchObject({ evaluated: false, opp: null, chip: null });
@@ -561,5 +600,50 @@ describe('D9 fallback: places through the rounding on sparse data', () => {
     expect(r.reads[0].places).toBeUndefined();
     expect(r.opps.map((o) => o.facts.mode)).toEqual(['zone']);
     expect(confidenceOf(r.opps[0].conf).level).toBe('high');
+  });
+
+  it('the boat’s own place interpolated from a tracker hole: not judged (no card, not counted)', () => {
+    // The boat a fix every 5 min: its ±60 s places are the rounding interpolation, not a position.
+    const r = detectRounding(fileWorld({ n: 40, slowS: 60, hzOf: (i) => (i === 9 ? 1 / 300 : 0.25) }));
+    expect(r.reads[0].places ?? null).toBeNull();
+    expect(r.opps).toEqual([]);
+    expect(r.evaluated).toEqual([]);
+  });
+
+  it('a DNF carried past its last mark does not pass anyone: no false places card from retired boats', () => {
+    const ctx = fileWorld({ n: 20, slowS: 0 });
+    // Rounded first, then the tracker died and they retired: without the park, fleetPlaces would
+    // carry them down the run at their own pace and they would "pass" the fleet.
+    const racer = ctx.a.boats.find((b) => b.id === 'B0')!;
+    racer.finishCode = 'DNF';
+    racer.finishPos = null;
+    racer.finishMs = null;
+    racer.legs[1] = null;
+    const tr = ctx.m.tracks.get('B0')!;
+    const cut = tr.bounds[1]!;
+    let n = 0;
+    while (n < tr.t.length && tr.t[n] <= cut) n++;
+    (tr as { t: Float64Array }).t = tr.t.subarray(0, n);
+    (tr as { x: Float64Array }).x = tr.x.subarray(0, n);
+    (tr as { y: Float64Array }).y = tr.y.subarray(0, n);
+    tr.bounds[2] = null;
+    const r = detectRounding(ctx);
+    expect(r.reads[0].places?.passers ?? []).not.toContain('B0');
+    expect(r.opps).toEqual([]);
+  });
+
+  it('DNS boats and official extras are left out of the fallback ranking; of stays the official fleet', () => {
+    const ctx = fileWorld({ n: 20, slowS: 32 });
+    ctx.a.meta.results = { places: 'official', times: 'official', trackerFinishes: 0, trackNoOfficial: ['B0'], officialNoTrack: ['USA 99'] };
+    const dns = ctx.a.boats.find((b) => b.id === 'B1')!;
+    dns.finishCode = 'DNS';
+    dns.finishPos = null;
+    dns.finishMs = null;
+    const r = detectRounding(ctx);
+    const pl = r.reads[0].places!;
+    expect(pl.of).toBe(20); // 20 tracked − 1 extra + 1 official-no-track
+    expect(pl.passers).not.toContain('B0');
+    expect(pl.passers).not.toContain('B1');
+    expect(r.opps).toHaveLength(1);
   });
 });

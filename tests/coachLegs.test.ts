@@ -313,6 +313,21 @@ describe('fleet places: a fixed fleet when a tracker drops out', () => {
     // E: carried on at its own pace from M1 → last at M2 and at the finish.
     expect(fp.byId.get('E')).toMatchObject({ place: [5, 5, 5, 5], est: [false, false, true, true] });
   });
+  it('official extras (tracked, not in the results) do not inflate "of N" past the official fleet', () => {
+    const off = {
+      ...a,
+      meta: { gunMs: 0, results: { places: 'official' as const, times: 'official' as const, trackerFinishes: 0, trackNoOfficial: ['E'], officialNoTrack: ['Z'] } },
+    } as unknown as RaceAnalysis;
+    const fp = fleetPlaces(off);
+    // 5 tracked − 1 extra + 1 official-no-track = 5; E is out of the ranking.
+    expect(fp.of).toBe(5);
+    expect(fp.byId.has('E')).toBe(false);
+    expect([...fp.byId.values()].map((r) => r.place[0]).sort((p, q) => p - q)).toEqual([1, 2, 3, 4]);
+    const st = legStories(off, m, 'A', { kind: 'fleet' });
+    expect(st.map((s) => s.placeOf)).toEqual([5, 5, 5]);
+    expect(placeChip(st[0])).toBe('even · 1st of 5');
+  });
+
   it('the leg table reads "of 5" on every leg for the boat that dropped out, never "held"', () => {
     for (const g of [{ kind: 'leaders' as const }, { kind: 'fleet' as const }]) {
       const st = legStories(a, m, 'C', g);

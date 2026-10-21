@@ -13,10 +13,12 @@
  * - Fires when the boat's share in shadow is ≥ D8_FLEET_X × the fleet's median and ≥ D8_MIN_SHARE.
  *   Seconds: the change in gap to the leaders over the shadowed stretches. Ranked alone only from
  *   D8_ALONE_S; otherwise a chip on D3 (spec §5).
+ * - Per sample: boats are bucketed by 7 lengths so a 90-boat fleet is O(n) neighbors, not O(n²);
+ *   the grid is filled only on the first 6 min of each beat, walking each track in time.
  */
 import { median, vecBearing, wrap180, type Vec } from '../../geo';
 import type { CoachModel } from '../index';
-import { posAt } from '../tracks';
+import type { CoachTrack } from '../tracks';
 import { WIND_EST_S, coachCoverage, gapNoise, rangeOf, refCoverage, untrackedS, windOkShare, type AttachedChip, type Opportunity } from '../opportunity';
 import type { CoachCtx } from './context';
 import { typicalSep } from './early';
@@ -53,10 +55,34 @@ interface Grid {
   at: (At | null)[][];
   /** live[i]: boats racing at moment i (tracked from before to after it). */
   live: number[];
+  /** Boats with a short-gap position at moment i. */
+  has: number[];
+  /** Spatial buckets per moment (cell = 7 lengths), built lazily. */
+  buckets: (Map<string, number[]> | null)[];
+  cellM: number | null;
 }
 
 const grids = new WeakMap<CoachModel, Grid>();
 const shares = new WeakMap<CoachModel, Map<string, ShadowShare | null>>();
+
+/** Position walker: O(fixes + reads) along a time-sorted track, not a binary search per sample. */
+function walkPos(tr: Pick<CoachTrack, 't' | 'x' | 'y'>, maxSpanS: number, nearS: number): (t: number) => Vec | null {
+  let i = 0;
+  const tt = tr.t;
+  const n = tt.length;
+  return (t: number): Vec | null => {
+    if (!n || t < tt[0] || t > tt[n - 1]) return null;
+    while (i + 1 < n && tt[i + 1] <= t) i++;
+    while (i > 0 && tt[i] > t) i--;
+    if (tt[i] === t) return [tr.x[i], tr.y[i]];
+    if (i + 1 >= n || tt[i] > t) return null;
+    const a = tt[i];
+    const b = tt[i + 1];
+    if (b - a > maxSpanS * 1000 || Math.min(t - a, b - t) > nearS * 1000) return null;
+    const f = (t - a) / (b - a);
+    return [tr.x[i] + f * (tr.x[i + 1] - tr.x[i]), tr.y[i] + f * (tr.y[i + 1] - tr.y[i])];
+  };
+}
 
 function gridOf(m: CoachModel): Grid {
   const hit = grids.get(m);
@@ -64,33 +90,71 @@ function gridOf(m: CoachModel): Grid {
   const ids = [...m.tracks.keys()];
   const trs = ids.map((id) => m.tracks.get(id)!);
   const n = Math.max(0, Math.floor((m.endMs - m.gunMs) / D8_STEP_MS) + 1);
+  const need = new Uint8Array(n);
+  for (const id of ids) {
+    for (const [a, b] of beatWindows(m, id)) {
+      for (let i = Math.ceil((a - m.gunMs) / D8_STEP_MS); i < n && m.gunMs + i * D8_STEP_MS <= b; i++) if (i >= 0) need[i] = 1;
+    }
+  }
   const at: (At | null)[][] = [];
   const live: number[] = [];
-  const span = (tr: (typeof trs)[number], t: number): Vec | null => posAt(tr, t, D8_SPAN_S, D8_SPAN_S);
+  const has: number[] = [];
+  const walks = trs.map((tr) => walkPos(tr, D8_SPAN_S, D8_SPAN_S));
   for (let i = 0; i < n; i++) {
+    if (!need[i]) {
+      at.push([]);
+      live.push(0);
+      has.push(0);
+      continue;
+    }
     const t = m.gunMs + i * D8_STEP_MS;
     let alive = 0;
-    at.push(
-      trs.map((tr) => {
-        const k = tr.t.length;
-        const finish = tr.bounds[tr.bounds.length - 1];
-        if (!k || t < tr.t[0] || t > tr.t[k - 1] || (finish != null && t > finish)) return null;
-        alive++;
-        const p = span(tr, t);
-        if (!p) return null;
-        const a = span(tr, t - D8_COG_MS) ?? p;
-        const b = span(tr, t + D8_COG_MS) ?? p;
-        const v: Vec = [b[0] - a[0], b[1] - a[1]];
-        const dt = a === p && b === p ? 0 : ((a === p ? 0 : D8_COG_MS) + (b === p ? 0 : D8_COG_MS)) / 1000;
-        const speed = dt > 0 ? Math.hypot(v[0], v[1]) / dt : 0;
-        return { p, cog: speed >= D8_MIN_SPEED_MS ? vecBearing(v) : null };
-      }),
-    );
+    let seen = 0;
+    const row: (At | null)[] = trs.map((tr, j) => {
+      const k = tr.t.length;
+      const finish = tr.bounds[tr.bounds.length - 1];
+      if (!k || t < tr.t[0] || t > tr.t[k - 1] || (finish != null && t > finish)) return null;
+      alive++;
+      const span = walks[j];
+      const p = span(t);
+      if (!p) return null;
+      const a = span(t - D8_COG_MS) ?? p;
+      const b = span(t + D8_COG_MS) ?? p;
+      const v: Vec = [b[0] - a[0], b[1] - a[1]];
+      const dt = a === p && b === p ? 0 : ((a === p ? 0 : D8_COG_MS) + (b === p ? 0 : D8_COG_MS)) / 1000;
+      const speed = dt > 0 ? Math.hypot(v[0], v[1]) / dt : 0;
+      seen++;
+      return { p, cog: speed >= D8_MIN_SPEED_MS ? vecBearing(v) : null };
+    });
+    at.push(row);
     live.push(alive);
+    has.push(seen);
   }
-  const g = { t0: m.gunMs, n, ids, at, live };
+  const g: Grid = { t0: m.gunMs, n, ids, at, live, has, buckets: Array.from({ length: n }, () => null), cellM: null };
   grids.set(m, g);
   return g;
+}
+
+function bucketsAt(g: Grid, i: number, loaM: number): Map<string, number[]> {
+  const cell = D8_DIST_LOA[1] * loaM;
+  if (g.cellM != null && g.cellM !== cell) {
+    g.buckets.fill(null);
+    g.cellM = cell;
+  } else g.cellM = cell;
+  const hit = g.buckets[i];
+  if (hit) return hit;
+  const buck = new Map<string, number[]>();
+  const row = g.at[i];
+  for (let k = 0; k < row.length; k++) {
+    const o = row[k];
+    if (!o) continue;
+    const key = `${Math.floor(o.p[0] / cell)},${Math.floor(o.p[1] / cell)}`;
+    const list = buck.get(key);
+    if (list) list.push(k);
+    else buck.set(key, [k]);
+  }
+  g.buckets[i] = buck;
+  return buck;
 }
 
 /** The plume's bearing behind a boat on course `cog` (null: straight downwind) in wind from `twd`, °. */
@@ -155,15 +219,26 @@ export function shadowShare(m: CoachModel, id: string, loaM: number): ShadowShar
       const row = g.at[i];
       const me = j >= 0 ? row[j] : null;
       const others = g.live[i] - (me ? 1 : 0);
-      const seen = row.filter((x, k) => x && k !== j).length;
+      const seen = g.has[i] - (me ? 1 : 0);
       if (!me || others <= 0 || seen / others < D8_MIN_DENSITY) continue;
       counted++;
       const t = g.t0 + i * D8_STEP_MS;
       const twd = m.wind.twdAt(t);
       let hit: string | null = null;
-      for (let k = 0; k < row.length; k++) {
-        const o = row[k];
-        if (k === j || !o) continue;
+      const cell = D8_DIST_LOA[1] * loaM;
+      const buck = bucketsAt(g, i, loaM);
+      const ix = Math.floor(me.p[0] / cell);
+      const iy = Math.floor(me.p[1] / cell);
+      const cand: number[] = [];
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const list = buck.get(`${ix + dx},${iy + dy}`);
+          if (list) for (const k of list) if (k !== j) cand.push(k);
+        }
+      }
+      cand.sort((a, b) => a - b);
+      for (const k of cand) {
+        const o = row[k]!;
         if (inShadow(me.p, o.p, o.cog, twd, loaM)) {
           hit = g.ids[k];
           break;
