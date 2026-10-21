@@ -130,4 +130,19 @@ describe('index.html', () => {
     expect(html.indexOf('id="summary"')).toBeLessThan(html.indexOf('id="tabs"'));
     expect(html.indexOf('id="boat-list"')).toBeLessThan(html.indexOf('id="panel-start"'));
   });
+
+  it('the masthead sub-title, written once', () => {
+    expect(html).toContain('<p class="tag">Your race, start to finish.</p>');
+    expect(html.match(/Your race, start to finish\./g)).toHaveLength(1);
+    expect(html).not.toContain('in one screen');
+    const manifest = JSON.parse(readFileSync(fileURLToPath(new URL('../public/manifest.webmanifest', import.meta.url)), 'utf8'));
+    expect(manifest.description).toMatch(/^Your race, start to finish\. /);
+  });
+
+  it('Start: the chart heading has no wind note; the lane snapshots open by default', () => {
+    const start = panel('panel-start');
+    expect(start).toContain('<h3>Start at the gun</h3>');
+    expect(start).not.toMatch(/from top|wind ↓/);
+    expect(start).toMatch(/<details id="lane-snapshots" class="lane-snapshots" open>/);
+  });
 });

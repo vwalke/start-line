@@ -27,7 +27,7 @@
         </button>
         <div class="masthead-title">
           <h1 class="wordmark">Recall</h1>
-          <p class="tag">How your start and each leg went — in one screen.</p>
+          <p class="tag">Your race, start to finish.</p>
         </div>
       </div>
     </header>
@@ -59,7 +59,7 @@
           <div id="panel-start" class="panel" role="tabpanel" aria-labelledby="tab-start" tabindex="-1">
             <section class="card has-fs">
               <button type="button" class="fs-open" id="start-full" aria-label="Full screen start chart" title="Full screen" aria-haspopup="dialog" aria-controls="fs"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
-              <h3>Start at the gun <span class="muted">(wind ↓ from top, estimated)</span></h3>
+              <h3>Start at the gun</h3>
               <div class="start-tools">
                 <div id="start-zoom" class="zoom" role="group" aria-label="Start chart zoom" aria-controls="start-chart">
                   <button type="button" data-zoom="1" aria-pressed="true">Fit</button>
@@ -75,7 +75,7 @@
               <p class="hint touch-hint" id="start-hint" hidden><span>Pinch to zoom · drag to pan · double-tap to zoom in</span><button type="button" id="start-hint-dismiss" class="hint-x" aria-label="Dismiss zoom hint" title="Dismiss">×</button></p>
               <div class="capline" id="start-cap"></div>
               <p id="start-replay" class="replay-links" hidden></p>
-              <details id="lane-snapshots" class="lane-snapshots"><summary>Lane snapshots <span class="muted">(gun +1:00, +2:00, +3:00)</span></summary><div class="lane-body"></div></details>
+              <details id="lane-snapshots" class="lane-snapshots" open><summary>Lane snapshots <span class="muted">(gun +1:00, +2:00, +3:00)</span></summary><div class="lane-body"></div></details>
               <div id="start-findings-box" class="findings-box" hidden>
                 <h4 id="start-findings-title">Start findings</h4>
                 <ul id="start-findings" class="findings" aria-labelledby="start-findings-title"></ul>
@@ -159,6 +159,8 @@
               <h3 id="coach-title"></h3>
               <div class="capline" id="coach-head"></div>
             </section>
+            <!-- Ask Coach (ui/coachAsk.ts): top of the tab, open by default; stays hidden unless /api/coach/status says it is on. -->
+            <section id="coach-ask" class="card coach-ask" aria-labelledby="coach-ask-title" hidden></section>
             <section id="coach-ladder-card" class="card">
               <h3 id="coach-ladder-title">Gap to rivals</h3>
               <div id="coach-group" class="segs coach-group" aria-controls="coach-ladder"></div>
@@ -170,7 +172,6 @@
             </section>
             <section id="coach-cards" class="coach-cards" aria-label="Biggest gains"></section>
             <section id="coach-regatta" class="card coach-regatta" aria-label="Regatta" hidden></section>
-            <section id="coach-ask" class="card coach-ask" aria-labelledby="coach-ask-title" hidden></section>
             <section id="coach-legs" class="coach-legs" aria-labelledby="coach-legs-title"></section>
           </div>
           <!-- The boat Report (ui/report.ts, reportView.ts): `#report` or `report=1`; replaces the tabs on screen, the only thing printed. -->

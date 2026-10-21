@@ -72,13 +72,16 @@ export function viewerOffsetMs(ms: number): number {
 }
 
 /**
- * Gun time for the header: venue clock first, labelled with its offset,
- * then the viewer's local clock when that differs.
+ * Gun time for the header: the venue clock first, labelled "(local)",
+ * then the viewer's own clock when that differs.
  */
 export function gunTimeLine(ms: number, venueOffsetMs: number, viewerOff = viewerOffsetMs(ms)): string {
-  const venue = `${localDate(ms, venueOffsetMs)} ${localTime(ms, venueOffsetMs)} (venue ${tzLabel(venueOffsetMs)})`;
-  if (viewerOff === venueOffsetMs) return `Gun ${venue}`;
+  const venue = `${localDate(ms, venueOffsetMs)} ${localTime(ms, venueOffsetMs)} (local)`;
+  if (viewerOff === venueOffsetMs) return venue;
   const sameDate = localDate(ms, viewerOff) === localDate(ms, venueOffsetMs);
   const viewerClock = sameDate ? localTime(ms, viewerOff) : `${localDate(ms, viewerOff)} ${localTime(ms, viewerOff)}`;
-  return `Gun ${venue} · ${viewerClock} where you are (${tzLabel(viewerOff)})`;
+  return `${venue} · ${viewerClock} where you are (${tzLabel(viewerOff)})`;
 }
+
+/** "4 legs", "1 leg". */
+export const legCount = (n: number): string => `${n} leg${n === 1 ? '' : 's'}`;
