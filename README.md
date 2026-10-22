@@ -32,8 +32,9 @@ are shared by all three.
   - **Race:** its place (official when linked) and the gap to the winner, the
     gap to a group of rivals (Top 3 / boats near me / whole fleet / custom)
     over the race with the fleet's wind under it, the biggest gains as cards
-    (at most 3, at most 2 from one detector: the next-best from another
-    takes the slot; penalty turns exempt),
+    ranked by their impact on the result (see [How the Coach ranks
+    cards](#how-the-coach-ranks-cards); at most 3, at most 2 from one detector:
+    the next-best from another takes the slot; penalty turns exempt),
     **Went well** (up to 3 lines with the seconds gained: legs, roundings
     and the start where the boat gained on the top 3), the ✓ "Not the
     problem" chips (on a stretch the tracker covered under 50 % a "Not judged"
@@ -215,6 +216,42 @@ are shared by all three.
     beyond it. Needs the boat's position at the gun (read, or estimated across
     a short hole); not for a boat over early. The Report's start section shows
     the line bias too.
+  - **D17 manoeuvre cost** (`manoeuvreCost.ts`): each tack on a beat and gybe
+    on a run (the legs table's detection) against the boat's own steady
+    sailing just before it: the VMG over the 25 s ending 8 s before the
+    head-to-wind (dead-downwind) crossing is the baseline; from there to 30 s
+    after the crossing (40 s for a gybe) the ground it would have made at that
+    VMG less what it made is the metres lost, ÷ the VMG the seconds. Only on
+    dense fixes (no gap over 10 s across the whole stretch, a fix within 5 s
+    of each end, never a turn across a telemetry gap), with no other
+    manoeuvre in the stretch, at a baseline VMG of 0.5 m/s or more, 15 s
+    clear of the roundings. A run's gybe-set is the rounding's (the leg
+    story's window: up to 30 s after first sailing downwind, past an offset
+    mark), never counted or measured as a gybe of the run, for any boat. Per
+    leg the boat's median (3+ measured) against the fleet's pooled median
+    (5+ other boats, 10+ manoeuvres), and its count against the fleet's
+    median count where both counts are trusted (80 %+ of the leg tracked,
+    none across a gap). Extra metres = count × (median − fleet median) +
+    (count − fleet count) × fleet median. A card when that is 25 m or 10 s or
+    more and the median is costly (1.3× the fleet's, 4 m more, and 2
+    standard errors more: one manoeuvre's metres swing with the puffs, so the
+    difference of the medians is judged against the fleet's spread and both
+    sample sizes) or the count is well above the fleet's (2 more and 1.5×)
+    ("Costly tacks on Beat 2: your tacks cost ~17 m each (~7 s), the fleet's
+    ~5 m; 6 tacks = ~72 m lost on the fleet"). Seconds = extra metres ÷ the
+    boat's VMG; the card's window is the manoeuvres' own stretches, so a
+    rate finding on the leg (D6, D15) gives up only those. Confidence: the
+    share of its manoeuvres measured and its leg coverage (the lower), the
+    fleet's boats with 3+ measured, the wind; medium under 5 measured. One
+    card a race per kind of manoeuvre (the leg that cost the most, the others
+    on it as "Also on …"). A median 0.7× the fleet's or better (4 m and 2
+    standard errors less) worth 10 s or more is a Went well line ("Beat 2:
+    tacks ~0 m each vs fleet ~14 m (3 measured)"). The Report's legs table
+    adds the measured cost to the tacks / gybes ("6 tacks · ~17 m each (fleet
+    ~5)"); a "Tacks and gybes" theme in the Regatta view. The public feed is
+    bursty, so it is mostly quiet there (Cascais J/70 R2, the whole feed: 110
+    of 452 Beat 2 tacks measured, one card in the fleet); an uploaded log measures every
+    manoeuvre.
   - **Regatta view, Penalties:** a row above the pattern cards, one line per code
     ("DPI in 8 of 8 races · 24 penalty points · ≈ 24 places", "UFD in 1 of 8 races
     (R3) · 16 points; result lost") and penalty turns ("Penalty turns in 2 of 8
@@ -267,7 +304,7 @@ are shared by all three.
   the estimated place at the gun when the start place is unranked, the line bias, line position, place over the line and front row, over early and when it
   cleared, the start card), leg by leg (places in → out of the fixed fleet, time
   against the Coach's group, SOG and VMG against the group's median, tacks /
-  gybes, side, gate buoy, data), roundings and gates (D9 / D13), penalties (the
+  gybes with D17's measured cost a manoeuvre, side, gate buoy, data), roundings and gates (D9 / D13), penalties (the
   code, penalty turns), and the Coach's penalty card, ranked findings (its order
   and seconds), Went well and the cards' tips as things to work on; a small track
   map. Only figures Recall already works out: what the data lacks is `—` with a
@@ -584,6 +621,50 @@ Switching races keeps the tab.
 - **Highlights:** ▲ best and ▼ worst in each column. Select a boat in the boat
   list, the start chart or a table row to highlight it in both charts, both
   tables and both findings lists.
+
+## How the Coach ranks cards
+
+`src/analysis/coach/rank.ts`, with the weights and caps in `opportunity.ts`.
+A race's cards are ordered by their **impact on the result**, so the first card
+is the thing that cost the most:
+
+```
+impact = W[confidence] × min(seconds, CAP[confidence])
+W   = high 1, medium 0.7, low 0.4                       (CONF_WEIGHT)
+CAP = high ∞, medium ∞, low 60 s                        (IMPACT_CAP_S; LOW_IMPACT_CAP_S = 2 × the low minimum)
+```
+
+- **Seconds are the one currency.** Time lost anywhere adds up at the finish;
+  places don't (5 places lost in a pack at the first mark are not 5 places at
+  the finish). Every detector reports seconds lost; the ones that measure
+  places turn them into seconds where they were lost: D14 by the fleet's
+  seconds per place at the leg's end around the boat's place, D9's
+  sparse-data card by its median gap change to the boats that passed it, D13
+  by the time against the boats rounding the other buoy at the same time.
+- **Confidence discounts, and caps.** A medium card counts 0.7 of its seconds,
+  a low one 0.4. A low-confidence estimate leans on interpolation across
+  holes, and that error grows with the hole, not with what was lost: its
+  seconds count up to 60 s only, so a low card scores at most 24 and never
+  outranks a high card of 24 s or more or a medium of 35 s or more. The card
+  still shows all its seconds. Two cards tied on impact (two low cards at the
+  cap) go by the more seconds, then the earlier window.
+- **Each race-second is claimed once.** Moments go first: penalty turns (D12)
+  and the gate choice (D13) claim their stretches before anything else, and
+  the start's window (D1, D3, D16) is taken out of the rate findings' spans
+  (D6, D7, D11, D14, D15, D17) with their seconds pro rata. Then, highest
+  impact first, each card keeps what is left of its window; a later card loses
+  the share of its window already held, and its impact is worked out again on
+  what it keeps.
+- **Minimums by confidence** (unchanged): a card shows only with 10 s or more
+  at high confidence (4 s for D1, measured off the crossings), 20 s at medium,
+  30 s at low; none is never a card.
+- **The top 3**: at most 2 from one detector (MAX_PER_KIND; penalty turns
+  exempt): a third is passed over before it claims any seconds and the next
+  card of another detector takes the slot. The side of the course (D14) is one
+  card a race, D17 one a kind of manoeuvre, before ranking. Shown in impact
+  order: a penalty turn is taken first but shows where its impact puts it. An
+  official code (OCS, DPI, …) is the penalty card, pinned above the ranked
+  ones. The Regatta view ranks the same way, uncapped.
 
 ## Data sources & caveats
 

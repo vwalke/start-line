@@ -8,7 +8,7 @@ import { median } from '../geo';
 import type { GapPoint } from './ladder';
 import { COACH_MAX_SPAN_S } from './tracks';
 
-export type DetectorKind = 'D1' | 'D2' | 'D3' | 'D4' | 'D5' | 'D6' | 'D7' | 'D8' | 'D9' | 'D10' | 'D11' | 'D12' | 'D13' | 'D14' | 'D15' | 'D16';
+export type DetectorKind = 'D1' | 'D2' | 'D3' | 'D4' | 'D5' | 'D6' | 'D7' | 'D8' | 'D9' | 'D10' | 'D11' | 'D12' | 'D13' | 'D14' | 'D15' | 'D16' | 'D17';
 export type Confidence = 'high' | 'medium' | 'low' | 'none';
 
 /** A fact for the card: a number (formatted by the template) or a name. */
@@ -192,6 +192,15 @@ export const WIND_RANGE_SHARE: [number, number] = [0.6, 1.2];
 export const CONF_WEIGHT: Record<Confidence, number> = { high: 1, medium: 0.7, low: 0.4, none: 0 };
 /** Fewest seconds a card may show per confidence. */
 export const MIN_SECONDS: Record<Confidence, number> = { high: 10, medium: 20, low: 30, none: Infinity };
+/**
+ * A low-confidence card's seconds count toward its impact up to this much, s (twice its minimum): its estimate leans on
+ * interpolation across holes, which grows with the hole, not with what was lost. The card still shows all its seconds.
+ */
+export const LOW_IMPACT_CAP_S = 2 * MIN_SECONDS.low;
+/** The seconds that count toward the impact per confidence (rank.ts impactOf). */
+export const IMPACT_CAP_S: Record<Confidence, number> = { high: Infinity, medium: Infinity, low: LOW_IMPACT_CAP_S, none: 0 };
+/** A card's impact on the result, the score it is ranked by: its seconds lost (capped at low confidence) × its confidence's weight. */
+export const impactOf = (seconds: number, level: Confidence): number => CONF_WEIGHT[level] * Math.min(seconds, IMPACT_CAP_S[level]);
 /**
  * D1 is gated by its own rules (start.ts: from 4–6 s behind the front row, or two lengths back at the gun), measured
  * off crossing times rather than modelled: at high confidence its card needs only this much, s (its smallest trigger).
