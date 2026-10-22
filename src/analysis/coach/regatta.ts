@@ -15,7 +15,7 @@
 import type { OfficialResultRow } from '../../data/official/link';
 import type { FinishSource, RaceData } from '../../data/types';
 import type { LegKind, RaceAnalysis } from '../types';
-import type { GoodNote } from './opportunity';
+import type { GoodNote, Opportunity } from './opportunity';
 import { coachDebrief } from './debrief';
 import { fleetOf } from './fleet';
 import { buildCoach, coachRaw, type CoachModel } from './index';
@@ -197,9 +197,10 @@ export function raceDigest(a: RaceAnalysis, model: CoachModel | null, sail: stri
   const d = model ? coachDebrief(a, model, me.id) : null;
   // Penalty turns (D12) are a penalty, never a theme: they go to the Penalties row (`turns`), not the findings.
   const ranked = d && !d.noData ? rankOpportunities(d.found, Infinity) : [];
+  // The side of the course (D14) is one card a race: the other legs on the side that didn't pay ride on it (`alsoS`) and count here.
   const findings: FindingDigest[] = ranked
     .filter((c) => c.kind !== 'D12')
-    .map((c) => ({ theme: themeKey(c.kind, c.variant), kind: c.kind, variant: c.variant, seconds: c.seconds, confidence: c.confidence }));
+    .map((c) => ({ theme: themeKey(c.kind, c.variant), kind: c.kind, variant: c.variant, seconds: c.seconds + alsoSeconds(c), confidence: c.confidence }));
   const loops = d && !d.noData ? (d.penalty?.turns ?? model?.turns?.get(me.id) ?? []) : [];
   const turns = loops.length ? { loops: loops.length, seconds: turnSeconds(loops) } : null;
   // D8 as a chip (on D3, or with no card to carry it) still recurs as a theme; its seconds are D3's, not counted twice.
@@ -229,6 +230,9 @@ export function raceDigest(a: RaceAnalysis, model: CoachModel | null, sail: stri
     ...(turns ? { turns } : {}),
   };
 }
+
+/** The seconds of the legs riding on a D14 card (detectors/side.ts `alsoS`); 0 for any other card. */
+export const alsoSeconds = (c: Pick<Opportunity, 'kind' | 'facts'>): number => (c.kind === 'D14' && typeof c.facts.alsoS === 'number' ? c.facts.alsoS : 0);
 
 /** The worker's path: the Coach model from the race's raw fixes (as the race view builds it), then the digest. */
 export function digestRace(a: RaceAnalysis, data: RaceData, sail: string, official: readonly OfficialResultRow[] | null = null): RaceDigest {

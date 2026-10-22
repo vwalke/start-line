@@ -21,7 +21,7 @@ import {
   windOkShare,
   type Opportunity,
 } from '../src/analysis/coach/opportunity';
-import { TOP_N, clearStart, overlapMs, rankOpportunities, type Card } from '../src/analysis/coach/rank';
+import { CAP_EXEMPT, MAX_PER_KIND, TOP_N, clearStart, overlapMs, rankOpportunities, type Card } from '../src/analysis/coach/rank';
 import { trackLegAt, type CoachTrack } from '../src/analysis/coach/tracks';
 import { MS_TO_KN, bearingVec, type Vec } from '../src/analysis/geo';
 import type { BoatResult, LegKind, RaceAnalysis, StartResult } from '../src/analysis/types';
@@ -217,10 +217,11 @@ describe('confidence and gating (spec §5)', () => {
 
 describe('rank, dedupe, top 3 (spec §5)', () => {
   it('score = seconds × 1 / 0.7 / 0.4; minimum 10 / 20 / 30 s', () => {
+    // Three kinds: at most MAX_PER_KIND of one kind in the top 3 (the cap has its own test).
     const cards = rankOpportunities([
       opp({ seconds: 40, conf: { boatCov: 0.6 }, t0: 0, t1: 10 }), // medium: 28
-      opp({ seconds: 30, t0: 20, t1: 30 }), // high: 30
-      opp({ seconds: 60, conf: { boatCov: 0.3 }, t0: 40, t1: 50 }), // low: 24
+      opp({ kind: 'D7', seconds: 30, t0: 20, t1: 30 }), // high: 30
+      opp({ kind: 'D10', seconds: 60, conf: { boatCov: 0.3 }, t0: 40, t1: 50 }), // low: 24
       opp({ seconds: 9, t0: 60, t1: 70 }), // high but under 10 s
       opp({ seconds: 19, conf: { boatCov: 0.6 }, t0: 80, t1: 90 }), // medium under 20 s
       opp({ seconds: 29, conf: { boatCov: 0.3 }, t0: 100, t1: 110 }), // low under 30 s
@@ -249,9 +250,36 @@ describe('rank, dedupe, top 3 (spec §5)', () => {
     expect(rankOpportunities([opp({ seconds: 50, t0: 0, t1: 100 }), opp({ seconds: 25, t0: 10, t1: 100 })])).toHaveLength(1);
     const tie = rankOpportunities([opp({ seconds: 30, t0: 500, t1: 600 }), opp({ seconds: 30, t0: 100, t1: 200 })]);
     expect(tie.map((c) => c.t0)).toEqual([100, 500]);
-    const many = rankOpportunities([1, 2, 3, 4, 5].map((k) => opp({ seconds: 20 + k, t0: k * 1000, t1: k * 1000 + 10 })));
+    const kinds = ['D4', 'D6', 'D7', 'D10', 'D15'] as const;
+    const many = rankOpportunities([1, 2, 3, 4, 5].map((k) => opp({ kind: kinds[k - 1], seconds: 20 + k, t0: k * 1000, t1: k * 1000 + 10 })));
     expect(many).toHaveLength(TOP_N);
     expect(many.map((c) => c.seconds)).toEqual([25, 24, 23]);
+  });
+  it('at most MAX_PER_KIND of one kind in the top 3: the next-best of another kind takes the slot; uncapped for the Regatta view', () => {
+    expect(MAX_PER_KIND).toBe(2);
+    const same = [60, 50, 40].map((s, i) => opp({ kind: 'D14', variant: 'wrong-side', seconds: s, t0: i * 1000, t1: i * 1000 + 100 }));
+    const other = opp({ kind: 'D7', variant: 'run', seconds: 20, t0: 9000, t1: 9100 });
+    expect(rankOpportunities([...same, other]).map((c) => [c.kind, c.seconds])).toEqual([
+      ['D14', 60],
+      ['D14', 50],
+      ['D7', 20],
+    ]);
+    // With nothing else to fill it, the slot stays empty.
+    expect(rankOpportunities(same)).toHaveLength(2);
+    expect(rankOpportunities([...same, other], Infinity).map((c) => c.seconds)).toEqual([60, 50, 40, 20]);
+    // The passed-over card claims no seconds: the next one is trimmed only against the cards kept.
+    const under = opp({ kind: 'D7', variant: 'run', seconds: 30, t0: 2000, t1: 2100 });
+    expect(rankOpportunities([...same, under]).find((c) => c.kind === 'D7')!.seconds).toBe(30);
+  });
+  it('penalty turns are exempt from the cap and still taken first', () => {
+    expect(CAP_EXEMPT.has('D12')).toBe(true);
+    const loops = [40, 35, 30].map((s, i) => opp({ kind: 'D12', variant: '360', seconds: s, t0: i * 1000, t1: i * 1000 + 60 }));
+    const leg = opp({ kind: 'D6', variant: 'upwind', seconds: 300, t0: 0, t1: 3000 });
+    const cards = rankOpportunities([leg, ...loops]);
+    expect(cards.filter((c) => c.kind === 'D12').map((c) => c.seconds)).toEqual([40, 35]);
+    // The loops' stretches were taken before the leg finding: 300 s over 3 s less 3 × 60 ms pro rata.
+    expect(cards.find((c) => c.kind === 'D6')!.seconds).toBeCloseTo(300 * (1 - 180 / 3000), 6);
+    expect(rankOpportunities([...loops, opp({ kind: 'D12', variant: '360', seconds: 25, t0: 5000, t1: 5060 })]).map((c) => c.kind)).toEqual(['D12', 'D12', 'D12']);
   });
 });
 

@@ -1,7 +1,7 @@
 /**
  * Recall Coach, phases 2–4: one boat's debrief for one race — every detector
  * (D1, D2 and D8 → D3, D3 → D1 when both fired, D4, D5, D6, D7, D8, D9, D10, D11 → D6 / D7 on a leg they share, D12,
- * D13 with D9's low-resolution places at the same gate as its chip, D14 side of the course, D15 fast but going nowhere,
+ * D13 with D9's low-resolution places at the same gate as its chip, D14 side of the course (one card a race: sideCard), D15 fast but going nowhere,
  * D16 line bias), ranked and gated (rank.ts), with the ✓ row (detectors that measured the boat as fine; on a stretch
  * the boat's tracker covered under OK_THIN_COVERAGE the note says "not enough data to judge …" instead, `thin`) and
  * ➕ Went well (wentWell: legs, roundings, the side that paid, the favoured end and the start where it gained, with
@@ -24,7 +24,7 @@ import { detectRounding, type MarkType } from './detectors/rounding';
 import { detectShadow, type D8Result } from './detectors/shadow';
 import { detectHeel } from './detectors/heel';
 import { detectGate } from './detectors/gate';
-import { detectSide } from './detectors/side';
+import { detectSide, withAlso } from './detectors/side';
 import { detectNowhere } from './detectors/nowhere';
 import { detectLineBias } from './detectors/lineBias';
 import { D3_GAP_S, D3_WINDOW_MS } from './detectors/early';
@@ -277,6 +277,18 @@ export function attachGatePlaces(gate: readonly Opportunity[], round: readonly O
   return { gate: out, round: rest };
 }
 
+/**
+ * D14 is one card a race: of the legs on the side that didn't pay, the one that keeps the most seconds once the race's
+ * other findings have claimed theirs (rank.ts, uncapped: a run D7 already holds keeps none), the others riding on it
+ * (side.ts withAlso) with the seconds they keep there. No leg keeps any: the most seconds.
+ */
+export function sideCard(legs: readonly Opportunity[], others: readonly Opportunity[]): Opportunity | null {
+  if (legs.length < 2) return legs[0] ?? null;
+  const kept = new Map(rankOpportunities([...others, ...legs], Infinity).filter((c) => c.kind === 'D14').map((c) => [c.facts.leg, c.seconds]));
+  const best = legs.reduce<Opportunity | undefined>((b, o) => ((kept.get(o.facts.leg) ?? 0) > (b ? (kept.get(b.facts.leg) ?? 0) : 0) ? o : b), undefined);
+  return withAlso(legs, best, (o) => kept.get(o.facts.leg) ?? 0);
+}
+
 /** A gain given back (D5) explains its stretch better than "the wrong side" (D4) of the same swing: D4 only clear of every D5. */
 export const d4Unless = (d4: Opportunity | null, d5: readonly Opportunity[]): Opportunity | null => (d4 && !d5.some((o) => overlaps(o, d4)) ? d4 : null);
 
@@ -312,7 +324,10 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
   const [d6, d7] = withHeel.angles;
   // Penalty turns: on the penalty card with a code, else a ranked card of their own.
   const turnOpp = penalty ? null : turnCard(ctx, turns);
-  const found = [merged.start, merged.early, d4, ...cons.opps, d6, d7, shadow.opp, ...gated.round, ...gated.gate, ...withHeel.heel, last, turnOpp, ...side.opps, ...nowhere.opps, bias.opp].filter((o): o is Opportunity => !!o);
+  const present = (o: Opportunity | null): o is Opportunity => !!o;
+  const head = [merged.start, merged.early, d4, ...cons.opps, d6, d7, shadow.opp, ...gated.round, ...gated.gate, ...withHeel.heel, last, turnOpp].filter(present);
+  const tail = [...nowhere.opps, bias.opp].filter(present);
+  const found = [...head, sideCard(side.legs, [...head, ...tail]), ...tail].filter(present);
   const clearAir: GoodNote | null =
     shadow.evaluated && !shadow.opp && !shadow.chip ? { kind: 'ok', detector: 'D8', variant: 'ok', facts: { share: shadow.share, fleetShare: shadow.fleetShare }, t0: ctx.gun, t1: m.endMs } : null;
   const end = ctx.me.finishMs ?? m.endMs;
@@ -328,7 +343,7 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
     cards,
     penalty,
     ok: noData ? [] : ok,
-    plus: noData ? [] : wentWell([...legGains(ctx), ...round.good, ...gate.good, ...startGains(ctx, start.fired), ...heel.plus, ...side.good, ...nowhere.good, ...(bias.good ? [bias.good] : [])]),
+    plus: noData ? [] : wentWell([...legGains(ctx), ...round.good, ...gate.good, ...startGains(ctx, start.fired), ...heel.plus, ...(side.good ? [side.good] : []), ...nowhere.good, ...(bias.good ? [bias.good] : [])]),
     totalS: cards.reduce((s, c) => s + c.seconds, 0),
     raceCov,
     noData,

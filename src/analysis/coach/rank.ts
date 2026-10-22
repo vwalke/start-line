@@ -15,10 +15,17 @@
  * The gate choice (D13) is a moment too: its passage (the last of the run to the first 300 m of the beat) is the
  * choice's, not the next beat's shift window (D4) or its rate findings (J/24 R2 USA 2607: Beat 2's D4 window took
  * three quarters of the passage and left the gate card under its minimum).
+ * In a race's top TOP_N at most MAX_PER_KIND cards come from one detector (penalty turns exempt): a further one is
+ * passed over before it claims any seconds, and the next-best card of another detector takes the slot (Melges 24 R5,
+ * 853: three "Left paid" cards before D14 was one card a race). The Regatta view (uncapped) keeps them all.
  */
 import { CONF_WEIGHT, confidenceOf, minSeconds, type ConfLimit, type Opportunity } from './opportunity';
 
 export const TOP_N = 3;
+/** At most this many of a race's top TOP_N cards from one detector kind… */
+export const MAX_PER_KIND = 2;
+/** …except these (penalty turns: taken first, never passed over). */
+export const CAP_EXEMPT: ReadonlySet<Opportunity['kind']> = new Set(['D12']);
 
 export interface Card extends Opportunity {
   /** seconds × weight, after any overlap was taken off. */
@@ -100,7 +107,10 @@ export function clearStart(o: Opportunity, start: readonly [number, number][]): 
 
 const better = (p: Card, q: Card): number => q.score - p.score || p.t0 - q.t0;
 
-/** The cards to show, best first (at most `max`: TOP_N for a race's cards; the Regatta view keeps them all), from every detector's opportunities. */
+/**
+ * The cards to show, best first (at most `max`: TOP_N for a race's cards, at most MAX_PER_KIND of a kind; the Regatta
+ * view keeps them all, uncapped), from every detector's opportunities.
+ */
 export function rankOpportunities(opps: readonly Opportunity[], max = TOP_N): Card[] {
   // The start's windows (of start findings that can make a card on their own seconds) come first; so do penalty turns'.
   const start = opps
@@ -116,12 +126,14 @@ export function rankOpportunities(opps: readonly Opportunity[], max = TOP_N): Ca
     })
     .filter((c) => c.confidence !== 'none' && c.seconds > 0);
   const taken: Card[] = [];
+  const capped = Number.isFinite(max);
+  const full = (k: Opportunity['kind']): boolean => capped && !CAP_EXEMPT.has(k) && taken.filter((c) => c.kind === k).length >= MAX_PER_KIND;
   while (queue.length) {
     const moment = (c: Card): number => (MOMENT_KINDS.has(c.kind) ? 1 : 0);
     const now = queue.map((c, i) => ({ c: trimmed(c, taken), i })).sort((p, q) => moment(q.c) - moment(p.c) || better(p.c, q.c));
     const head = now[0];
     queue.splice(head.i, 1);
-    if (head.c.seconds >= minSeconds(head.c.kind, head.c.confidence)) taken.push(head.c);
+    if (head.c.seconds >= minSeconds(head.c.kind, head.c.confidence) && !full(head.c.kind)) taken.push(head.c);
   }
   return taken.sort(better).slice(0, max);
 }

@@ -11,10 +11,13 @@
  *   rounding times D14_SPP_PLACES places either side), as D9's sparse-data card reads places as time.
  * - Confidence: the boat's coverage of the leg, the wind's, medium with under D14_HIGH_THIRD boats a third.
  * - ➕ Went well: in the paying third, and it gained places on the leg: min(gain, effect) places as seconds.
+ * - One of each a race: the card is the leg that cost the most seconds once the race's other findings have claimed
+ *   theirs (debrief.ts picks it through rank.ts), the ➕ the leg that gained the most; the other legs ride on it as
+ *   `also` ("Run 1, Beat 2", course order) and `alsoS` (their seconds, for the Regatta theme): withAlso.
  */
 import type { LegKind } from '../../types';
 import { fleetPlaces, fleetSideOf, SIDE_NEAR_S, SIDE_SPAN_S, type FleetPlaces } from '../legStory';
-import { NOISE_BASE_S, coachCoverage, rangeOf, windOkShare, type GoodNote, type Opportunity } from '../opportunity';
+import { NOISE_BASE_S, coachCoverage, rangeOf, windOkShare, type Fact, type GoodNote, type Opportunity } from '../opportunity';
 import { posAt } from '../tracks';
 import type { CoachCtx } from './context';
 
@@ -34,8 +37,10 @@ export const D14_PLUS_COVERAGE = 0.25;
 export const D14_REL_ERR = 0.4;
 
 export interface D14Result {
-  opps: Opportunity[];
-  good: GoodNote[];
+  /** Every leg the boat sailed on the side that didn't pay, course order (one card a race: withAlso). */
+  legs: Opportunity[];
+  /** The leg on the paying side that gained the most, the others riding on it; null with none. */
+  good: GoodNote | null;
 }
 
 /** The fleet's seconds per place at column `col` around place `place`: from the elapsed times D14_SPP_PLACES places either side; null with too few. */
@@ -70,8 +75,23 @@ function midLegKnown(ctx: CoachCtx, [a, b]: [number, number]): boolean {
   return false;
 }
 
+type LegItem = { seconds?: number; facts: Record<string, Fact> };
+
+/**
+ * One of `items` (legs, course order) with the others on its facts: their names (`also`, course order), how many
+ * (`alsoN`) and their seconds (`alsoS`, as `secondsOf` reads them). `best` defaults to the most seconds (the earlier leg on a tie).
+ */
+export function withAlso<T extends LegItem>(items: readonly T[], best?: T, secondsOf: (x: T) => number = (x) => x.seconds ?? 0): T | null {
+  if (!items.length) return null;
+  const pick = best ?? items.reduce((b, x) => ((x.seconds ?? 0) > (b.seconds ?? 0) ? x : b));
+  const rest = items.filter((x) => x !== pick);
+  if (!rest.length) return pick;
+  return { ...pick, facts: { ...pick.facts, also: rest.map((x) => String(x.facts.leg)).join(', '), alsoN: rest.length, alsoS: rest.reduce((s, x) => s + secondsOf(x), 0) } };
+}
+
 export function detectSide(ctx: CoachCtx): D14Result {
-  const out: D14Result = { opps: [], good: [] };
+  const opps: Opportunity[] = [];
+  const good: GoodNote[] = [];
   let fp: FleetPlaces | null = null;
   ctx.a.legs.forEach((leg, k) => {
     if (leg.kind !== 'upwind' && leg.kind !== 'downwind') return;
@@ -111,7 +131,7 @@ export function detectSide(ctx: CoachCtx): D14Result {
     };
     if (losing) {
       const seconds = effect * spp;
-      out.opps.push({
+      opps.push({
         kind: 'D14',
         variant: 'wrong-side',
         t0: span[0],
@@ -126,8 +146,8 @@ export function detectSide(ctx: CoachCtx): D14Result {
       });
     } else if (gain != null && gain > 0 && cov >= D14_PLUS_COVERAGE) {
       const seconds = Math.min(gain, effect) * spp;
-      out.good.push({ kind: 'plus', detector: 'D14', variant: 'paid', facts: { ...facts, gainS: seconds }, t0: span[0], t1: span[1], seconds });
+      good.push({ kind: 'plus', detector: 'D14', variant: 'paid', facts: { ...facts, gainS: seconds }, t0: span[0], t1: span[1], seconds });
     }
   });
-  return out;
+  return { legs: opps, good: withAlso(good) };
 }
