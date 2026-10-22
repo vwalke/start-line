@@ -86,8 +86,8 @@ describe('full-screen start frame', () => {
           const svg = startSnapshot(a, null, undefined, 'boat', { widthPx: W, frame: f });
           vb(svg).forEach((n, i) => expect(n).toBeCloseTo([f.box.x0, f.box.y0, w(f.box), h(f.box)][i], 6));
           const fs = Number(/class="lbl"[^>]*?font-size="([\d.]+)"|font-size="([\d.]+)" text-anchor="middle" class="lbl"/.exec(svg)!.slice(1).find(Boolean));
-          // Chart units → css px.
-          expect(fs * (W / w(f.box))).toBeCloseTo(10, 1);
+          // Chart units → css px, to the SVG's 2 decimals of chart units.
+          expect(Math.abs(fs * (W / w(f.box)) - 10)).toBeLessThanOrEqual(0.05 + 0.005 * (W / w(f.box)));
         }
       });
     });
@@ -118,7 +118,8 @@ describe('full-screen start frame', () => {
       const topPx = (f.core.y0 - f.box.y0) * pxPerM;
       expect(topPx).toBeGreaterThanOrEqual(52 - 0.5);
       expect(topPx).toBeLessThan(52 + 40);
-      expect((f.box.y1 - f.core.y1) * pxPerM).toBeGreaterThan(2 * topPx);
+      // The trails run down the chart, the wind at the gun at the top (M24 R4's from its first 3 min, wind.ts estimateStartTwd).
+      expect((f.box.y1 - f.core.y1) * pxPerM).toBeGreaterThan(1.5 * topPx);
     }
   });
 

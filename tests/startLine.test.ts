@@ -129,15 +129,15 @@ describe('favoured end text', () => {
   const [, j88] = fixtures[3];
 
   it('names the end, degrees, metres and lengths', () => {
-    expect(favouredText(j70, { loaM: 6.934, beamM: 2.249 })).toMatch(/^Pin favoured \d+° · 17 m \(2\.5 lengths\)$/);
-    expect(favouredText(j70, null)).toMatch(/^Pin favoured \d+° · 17 m$/);
-    expect(favouredText(j88, null)).toMatch(/^RC favoured \d+° · 7 m$/);
-    expect(startSnapshot(c31, null)).toMatch(/>Pin favoured \d+° · 40 m<\/text>/);
-    expect(startSnapshot(c31, null, { ...fitView(startFitBox(c31)), k: 2 })).toMatch(/>Pin favoured \d+° · 40 m \(4\.2 lengths\)<\/text>/);
+    expect(favouredText(j70, { loaM: 6.934, beamM: 2.249 })).toMatch(/^Pin favoured \d+° · 19 m \(2\.7 lengths\)$/);
+    expect(favouredText(j70, null)).toMatch(/^Pin favoured \d+° · 19 m$/);
+    expect(favouredText(j88, null)).toMatch(/^RC favoured \d+° · 2 m$/);
+    expect(startSnapshot(c31, null)).toMatch(/>Pin favoured \d+° · 42 m<\/text>/);
+    expect(startSnapshot(c31, null, { ...fitView(startFitBox(c31)), k: 2 })).toMatch(/>Pin favoured \d+° · 42 m \(4\.3 lengths\)<\/text>/);
     expect(favouredTexts(c31, null)).toEqual([
-      expect.stringMatching(/^Pin favoured \d+° · 40 m$/),
-      expect.stringMatching(/^Pin fav\. \d+° · 40 m$/),
-      expect.stringMatching(/^Pin \d+° · 40 m$/),
+      expect.stringMatching(/^Pin favoured \d+° · 42 m$/),
+      expect.stringMatching(/^Pin fav\. \d+° · 42 m$/),
+      expect.stringMatching(/^Pin \d+° · 42 m$/),
       expect.stringMatching(/^Pin \d+°$/),
     ]);
   });
@@ -203,17 +203,19 @@ describe('favoured end text', () => {
   it('chips the line, the favoured end in degrees and metres, and the wind with its confidence', () => {
     const [len, fav, wind] = lineChips(j70);
     expect(len.text).toMatch(/^Line \d+ m$/);
-    expect(fav.text).toMatch(/^Pin fav\. \d+° · 17 m$/);
+    expect(fav.text).toMatch(/^Pin fav\. \d+° · 19 m$/);
     expect(wind).toMatchObject({ text: 'wind est. (high)' });
     expect(wind.warn).toBeUndefined();
     // The C31's weather model is ~60° off the tacks: medium, still a plain chip; the detail is its title.
     expect(windChip(c31)).toMatchObject({ text: 'wind est. (medium)' });
     expect(windChip(c31).title).toBe(biasBasis(c31));
-    expect(biasBasis(c31)).toMatch(/821 steady upwind headings on leg 1, tack angle 70°; weather model \d+° off/);
+    expect(biasBasis(c31)).toMatch(/fleet's tacks in the first 3 min \(338 steady headings, 195 \/ 143 a tack, tack angle 69°; weather model \d+° off\)/);
   });
 
   it('puts the wind source and the sensitivity in the ⓘ bullet', () => {
-    expect(biasBullets(j70)).toEqual([expect.stringMatching(/^Favoured end vs wind \d+° from the fleet's tacks; ±5° of wind ≈ ±9 m\.$/)]);
+    // Benelux R8's wind at the gun is the start window's (wind.ts estimateStartTwd).
+    expect(biasBullets(j70)).toEqual([expect.stringMatching(/^Favoured end vs wind \d+° \(tacks, first 3 min\); ±5° of wind ≈ ±9 m\.$/)]);
+    expect(biasBasis(j70)).toMatch(/^Wind \d+° at the gun, wind estimated from the fleet's tacks in the first 3 min \([\d,]+ steady headings, [\d,]+ \/ [\d,]+ a tack, tack angle \d+°/);
   });
 
   it('promotes a low-confidence wind to a ⚠ chip', () => {
@@ -228,7 +230,7 @@ describe('favoured end text', () => {
 });
 
 describe('windSource', () => {
-  const base: WindInfo = { method: 'tacks', estimates: [{ legIndex: 0, tMs: 1, twdDeg: 10, tackAngleDeg: 72, samples: 900 }], twdAtGunDeg: 10, model: null };
+  const base: WindInfo = { method: 'tacks', estimates: [{ legIndex: 0, tMs: 1, twdDeg: 10, tackAngleDeg: 72, samples: 900 }], gunSource: 'beat', startWindow: null, twdAtGunDeg: 10, model: null };
 
   it('rates tacks with plenty of samples and an agreeing model high', () => {
     expect(windSource(base).confidence).toBe('high');
@@ -240,6 +242,14 @@ describe('windSource', () => {
   it('rates the model medium and the course assumption low', () => {
     expect(windSource({ ...base, method: 'model', estimates: [] })).toMatchObject({ text: 'weather-model wind', confidence: 'medium' });
     expect(windSource({ ...base, method: 'course', estimates: [] })).toMatchObject({ text: 'assumed: first leg dead upwind', confidence: 'low' });
+  });
+
+  it('says which tacks set the wind at the gun: the first 3 min (with each tack’s count) or the first beat', () => {
+    expect(windSource(base)).toMatchObject({ text: "wind estimated from the fleet's tacks on the first beat", span: 'first beat' });
+    expect(windSource(base).detail).toBe('900 steady upwind headings on leg 1, tack angle 72°');
+    const sw = { ...base, gunSource: 'start-window' as const, startWindow: { tMs: 0, twdDeg: 14, tackAngleDeg: 70, samples: 1_250, tackSamples: [900, 350] as [number, number] }, twdAtGunDeg: 14 };
+    expect(windSource(sw)).toMatchObject({ text: "wind estimated from the fleet's tacks in the first 3 min", from: "from the fleet's tacks in the first 3 min", span: 'first 3 min', confidence: 'high' });
+    expect(windSource(sw).detail).toBe('1,250 steady headings, 900 / 350 a tack, tack angle 70°');
   });
 });
 

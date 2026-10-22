@@ -10,7 +10,7 @@
 import { dot, len, makeProjection, median, sub, type Vec } from '../geo';
 import type { RaceAnalysis } from '../types';
 import type { RaceData } from '../../data/types';
-import { makeTwdAt } from '../wind';
+import { makeTwdAt, windPoints } from '../wind';
 import { groupIds, type Group } from './groups';
 import { fleetVmg, gapSeries, inferLegSpans, type Course, type GapPoint } from './ladder';
 import { lineCrossing } from './lineCross';
@@ -153,7 +153,7 @@ export function windSeries(a: RaceAnalysis, tracks: CoachTrack[]): TwdSeries | n
     endMs: endOf(a, tracks),
     tracks: tracks.filter((tr) => voters.has(tr.id)),
     legKinds: course.kinds,
-    prior: makeTwdAt(ests, a.wind.twdAtGunDeg),
+    prior: makeTwdAt(windPoints(a.wind), a.wind.twdAtGunDeg),
     priorTa: ests.length ? median(ests.map((e) => e.tackAngleDeg)) : 90,
   });
 }
@@ -295,7 +295,7 @@ export function buildCoach(
   const tracks = coachTracks(a);
   const ests = a.wind.estimates;
   const w = wind
-    ? twdSeriesFrom(wind, makeTwdAt(ests, a.wind.twdAtGunDeg), ests.length ? median(ests.map((e) => e.tackAngleDeg)) : 90)
+    ? twdSeriesFrom(wind, makeTwdAt(windPoints(a.wind), a.wind.twdAtGunDeg), ests.length ? median(ests.map((e) => e.tackAngleDeg)) : 90)
     : windSeries(a, tracks)!;
   const voters = windVoters(a);
   // Legs across lost roundings, for the ladder (the wind series keeps to the timed legs).

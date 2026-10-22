@@ -4,18 +4,21 @@ import { buildCoach, coachRaw, type CoachModel } from '../src/analysis/coach';
 import { coachDebrief } from '../src/analysis/coach/debrief';
 import { D14_MIN_Z } from '../src/analysis/coach/detectors/side';
 import { D15_VMG_DROP } from '../src/analysis/coach/detectors/nowhere';
-import { D16_MIN_DEG } from '../src/analysis/coach/detectors/lineBias';
+import { D16_MATERIAL_S, D16_MIN_DEG, medianStartPct } from '../src/analysis/coach/detectors/lineBias';
 import { classifyRounding, fleetPlaces, fleetSide, legStories, ROUND_DOWN_MAX_MS, ROUND_WINDOW_MS } from '../src/analysis/coach/legStory';
 import { rankOpportunities } from '../src/analysis/coach/rank';
 import { themeKey, themeOf, tipOf } from '../src/analysis/coach/regatta';
 import { sanitizeAskContext } from '../src/analysis/coach/askContext';
-import { MS_TO_KN, bearingVec, type Vec } from '../src/analysis/geo';
+import { MS_TO_KN, bearingVec, wrap180, type Vec } from '../src/analysis/geo';
+import { biasAngle, lineBias, windSource } from '../src/analysis/line';
+import { START_WIND_MIN_SAMPLES, START_WIND_MIN_TACK_N } from '../src/analysis/wind';
 import { LEG_MAX_KN, dropImpossibleLegs, legSplitOk } from '../src/analysis/legs';
 import { START_EST_NEAR_MS, START_EST_SIDE_MS, estimateDtl } from '../src/analysis/validity';
 import type { RaceAnalysis } from '../src/analysis/types';
 import type { Opportunity } from '../src/analysis/coach/opportunity';
 import { cardText, goodTexts, wentText } from '../src/ui/coachCards';
 import { placeChip } from '../src/ui/coachLegs';
+import { biasBullets } from '../src/ui/startLine';
 import { raceAskContext } from '../src/ui/coachAskContext';
 import { cascaisRace, gateRace, j105Race } from './helpers';
 
@@ -211,18 +214,72 @@ describe('Cascais: the side of the course', () => {
   }, 60_000);
 });
 
+describe('Cascais: the wind at the gun from the first 3 minutes’ tacks (wind.ts estimateStartTwd)', () => {
+  // Full cached feed (scratch check, not committed): R2 319.3°, R3 317.5°. The fixtures keep the native rate only within
+  // ±60 s of the gun (every 10 s after), and read 320.4° / 318.0°; 1.5° covers that thinning.
+  const FULL_FEED = { r2: 319.3, r3: 317.5 };
+  it('R2 and R3: the start window sets the wind at the gun, pinned at the gun; the beats keep their own estimates', () => {
+    for (const [k, r] of [['r2', r2], ['r3', r3]] as const) {
+      const w = r.a.wind;
+      expect(w.gunSource).toBe('start-window');
+      expect(w.startWindow!.tMs).toBe(r.a.meta.gunMs);
+      expect(w.twdAtGunDeg).toBeCloseTo(w.startWindow!.twdDeg, 9);
+      expect(Math.abs(wrap180(w.twdAtGunDeg - FULL_FEED[k]))).toBeLessThan(1.5);
+      expect(w.startWindow!.samples).toBeGreaterThanOrEqual(START_WIND_MIN_SAMPLES);
+      expect(Math.min(...w.startWindow!.tackSamples)).toBeGreaterThanOrEqual(START_WIND_MIN_TACK_N);
+      expect(w.estimates.map((e) => e.legIndex)).toEqual([0, 2]);
+      expect(r.a.legs.map((l) => l.kind)).toEqual(['upwind', 'downwind', 'upwind', 'downwind']);
+    }
+    // R2: right of Beat 1's 314° (the left phase 5–20 min in pulled the whole beat's average left), so the pin is
+    // favoured by about 3–5°, not 10°; R3, steadier, moves less.
+    expect(wrap180(r2.a.wind.twdAtGunDeg - r2.a.wind.estimates[0].twdDeg)).toBeGreaterThan(4);
+    expect(r2.a.line.favored).toBe('left');
+    expect(biasAngle(lineBias(r2.a.line, r2.a.wind.twdAtGunDeg))).toBeLessThan(D16_MIN_DEG);
+    expect(r2.a.line.favoredByM).toBeGreaterThan(50);
+    expect(r2.a.line.favoredByM).toBeLessThan(90);
+    expect(Math.abs(wrap180(r3.a.wind.twdAtGunDeg - r3.a.wind.estimates[0].twdDeg))).toBeLessThan(4);
+    expect(biasAngle(lineBias(r3.a.line, r3.a.wind.twdAtGunDeg))).toBeGreaterThanOrEqual(D16_MIN_DEG);
+  });
+  it('labelled where it is shown: the Report header, the line’s ⓘ and the findings', () => {
+    const src = windSource(r2.a.wind);
+    expect(src.text).toBe("wind estimated from the fleet's tacks in the first 3 min");
+    expect(biasBullets(r2.a)[0]).toMatch(/^Favoured end vs wind \d+° \(tacks, first 3 min\);/);
+    expect(r2.a.findings.find((f) => f.kind === 'wind')!.text).toMatch(/^Wind estimated from the fleet's tack headings: \d+° in the first 3 min after the gun, \d+° on Beat 1, \d+° on Beat 2\./);
+  });
+});
+
 describe('Cascais: the line bias (D16) and thin data', () => {
-  it('R3: pin favoured; USA 833 at the pin is a Went well; a boat at the committee-boat end gets the card', () => {
+  it('R3: pin favoured; USA 833 at the pin is a Went well; a boat at the committee-boat end gets the card, against the median', () => {
     const d = coachDebrief(r3.a, r3.m, r3.id('USA 833'))!;
     const p = d.plus.find((x) => x.detector === 'D16')!;
     expect(p.facts.favoured).toBe('pin');
     expect(p.facts.deg as number).toBeGreaterThanOrEqual(D16_MIN_DEG);
-    expect(wentText(p)).toMatch(/^Start: pin end favoured \d+° \(~\d+ m\) and you started 0% from the pin$/);
-    const far = r3.a.boats.find((b) => b.start && !b.start.over && b.start.linePosPct > 80 && (b.start.dtlGapS == null || b.start.estDtlM != null))!;
+    expect(wentText(p)).toMatch(/^Start: pin end favoured \d+° \(~\d+ m\) and you started \d+ m toward the pin from the fleet's median start \(≈ \d+ m upwind\)$/);
+    const far = r3.a.boats.find((b) => b.start && !b.start.over && b.start.linePosPct > 90 && (b.start.dtlGapS == null || b.start.estDtlM != null))!;
     const c = coachDebrief(r3.a, r3.m, far.id)!.found.find((o) => o.kind === 'D16')!;
     expect(c.variant).toBe('unfavoured');
-    expect(cardText(rankOpportunities([c], 3)[0] ?? { ...c, score: 0, limit: null }).sentence).toMatch(/^The pin end was favoured by \d+° \(~\d+ m upwind\); you started \d+% from the pin: about \d+ m given away/);
+    expect(cardText(rankOpportunities([c], 3)[0] ?? { ...c, score: 0, limit: null }).sentence).toMatch(
+      /^Pin favoured \d+° \(~\d+ m over the line\)\. You started \d+ m toward the committee boat from the fleet's median start: ≈ \d+ m upwind, about \d+ s at the fleet's [\d.]+ kn up the first beat\.$/,
+    );
   });
+  it('every boat: a card only D16_MATERIAL_S or more beyond the median toward the committee boat; R2 under D16_MIN_DEG has none', () => {
+    const med = medianStartPct(r3.a)!;
+    let found = 0;
+    let cards = 0;
+    for (const b of r3.a.boats) {
+      const d = coachDebrief(r3.a, r3.m, b.id)!;
+      cards += d.cards.filter((c) => c.kind === 'D16').length;
+      const o = d.found.find((x) => x.kind === 'D16');
+      if (!o) continue;
+      found++;
+      expect(o.seconds).toBeGreaterThanOrEqual(D16_MATERIAL_S);
+      expect(b.start!.linePosPct).toBeGreaterThan(med);
+    }
+    // Found on 31 boats, 30 in their top 3 (35 cards before: the unfavoured third, against Beat 1's wind).
+    expect(found).toBe(31);
+    expect(cards).toBe(30);
+    for (const b of r2.a.boats) expect(coachDebrief(r2.a, r2.m, b.id)!.found.some((x) => x.kind === 'D16')).toBe(false);
+  }, 60_000);
   it('R2: USA 833 on thin data (37% on the full feed): "not enough data to judge banked gains", never ✓', () => {
     const d = coachDebrief(r2.a, r2.m, r2.id('USA 833'))!;
     const d5 = d.ok.find((o) => o.detector === 'D5')!;

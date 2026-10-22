@@ -269,7 +269,7 @@ function headerFields(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null, 
   out.push(field('Corrected (official)', longDuration(ot?.correctedS), ot?.correctedS == null ? { note: ot ? 'not in the official results' : 'no official results' } : {}));
   out.push(field('Gun', `${localTime(a.meta.gunMs, tz)} ${tzLabel(tz)}`));
   const src = windSource(a.wind);
-  const what = src.method === 'tacks' ? 'estimated from the fleet’s tacks' : src.method === 'model' ? 'weather model' : 'assumed: first leg dead upwind';
+  const what = src.method === 'tacks' ? `estimated ${src.from}` : src.method === 'model' ? 'weather model' : 'assumed: first leg dead upwind';
   out.push(field('Wind (TWD)', `${degLabel(a.wind.twdAtGunDeg)} est.`, { note: `${what}; ${src.confidence} confidence`, warn: src.confidence === 'low' }));
   out.push(field('Wind speed (TWS)', MISSING, { note: 'no wind speed in the data' }));
   const cov = b.coverage ?? deb?.raceCov ?? null;

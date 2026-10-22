@@ -510,15 +510,21 @@ function nowhereText(c: Card): CardText {
   };
 }
 
-/** D16's card: a biased line, and the boat away from its favoured end. */
+/** "420 m toward the committee boat from the fleet's median start" (D16's `alongM`: + toward the unfavoured end). */
+function medianPhrase(f: Card['facts']): string {
+  const along = num(f.alongM);
+  if (Math.round(Math.abs(along)) === 0) return "at the fleet's median start";
+  const towardPin = (f.favoured === 'pin') === along < 0;
+  return `${r0(Math.abs(along))} m toward the ${towardPin ? 'pin' : 'committee boat'} from the fleet's median start`;
+}
+
+/** D16's card: a biased line, and the boat started materially further toward its unfavoured end than the fleet's median. */
 function biasText(c: Card): CardText {
   const f = c.facts;
-  const end = f.favoured === 'pin' ? 'pin' : 'committee boat';
-  const from = f.favoured === 'pin' ? `${r0(num(f.linePosPct))}% from the pin` : `${r0(100 - num(f.linePosPct))}% from the committee boat`;
   return {
     title: `${f.favoured === 'pin' ? 'Pin' : 'Boat'} end favoured ${r0(f.deg)}°`,
-    chips: [`${f.favoured === 'pin' ? 'pin' : 'boat'} favoured ${r0(f.deg)}° · ~${r0(f.byM)} m`, `started ${from}`, `~${r0(f.givenM)} m given away`],
-    sentence: `The ${end} end was favoured by ${r0(f.deg)}° (~${r0(f.byM)} m upwind); you started ${from}: about ${r0(f.givenM)} m given away, ~${r0(c.seconds)} s at the fleet's ${kn(f.vmg)} kn up the first beat.`,
+    chips: [`${f.favoured === 'pin' ? 'pin' : 'boat'} favoured ${r0(f.deg)}° · ~${r0(f.byM)} m`, `${r0(Math.abs(num(f.alongM)))} m from the fleet's median start`, `~${r0(f.givenM)} m upwind given away`],
+    sentence: `${f.favoured === 'pin' ? 'Pin' : 'Committee boat'} favoured ${r0(f.deg)}° (~${r0(f.byM)} m over the line). You started ${medianPhrase(f)}: ≈ ${r0(f.givenM)} m upwind, about ${r0(c.seconds)} s at the fleet's ${kn(f.vmg)} kn up the first beat.`,
     tip: 'Check the line bias before the start (sight the line, read the wind); 6° or more off square, start near the favoured end.',
   };
 }
@@ -530,8 +536,8 @@ function newWent(n: GoodNote): string | null {
   if (n.detector === 'D15') return `${f.leg}: fast and making ground, VMG ${kn(f.vmg)} vs fleet ${kn(f.fVmg)} kn at ${kn(f.sog)} vs ${kn(f.fSog)} kn`;
   if (n.detector === 'D16') {
     const end = f.favoured === 'pin' ? 'pin' : 'committee boat';
-    const from = f.favoured === 'pin' ? `${r0(num(f.linePosPct))}% from the pin` : `${r0(100 - num(f.linePosPct))}% from the committee boat`;
-    return `Start: ${end} end favoured ${r0(f.deg)}° (~${r0(f.byM)} m) and you started ${from}`;
+    const up = Math.round(-num(f.givenM));
+    return `Start: ${end} end favoured ${r0(f.deg)}° (~${r0(f.byM)} m) and you started ${medianPhrase(f)}${up > 0 ? ` (≈ ${up} m upwind)` : ''}`;
   }
   return null;
 }

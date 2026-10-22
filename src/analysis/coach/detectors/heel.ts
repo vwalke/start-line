@@ -40,7 +40,7 @@ import { heelSeries } from '../../heel';
 import { detectManoeuvres, signedTwa } from '../../manoeuvres';
 import type { LegKind, RaceAnalysis } from '../../types';
 import type { RaceData } from '../../../data/types';
-import { makeTwdAt } from '../../wind';
+import { makeTwdAt, windPoints } from '../../wind';
 import { RATE_REL_ERR, NOISE_BASE_S, coachCoverage, windOkShare, type Confidence, type Fact, type GoodNote, type Opportunity } from '../opportunity';
 import { COACH_MAX_SPAN_S, trackLegAt, type CoachTrack } from '../tracks';
 import { ANG_MIN_SAMPLES, legSamples, windBand } from './angles';
@@ -89,7 +89,7 @@ export function heelTracks(a: RaceAnalysis, data: RaceData): Record<string, Heel
   const out: Record<string, HeelTrack> = {};
   const sl = data.startLine;
   const proj = makeProjection({ lat: (sl.left.lat + sl.right.lat) / 2, lon: (sl.left.lon + sl.right.lon) / 2 });
-  const twdAt = makeTwdAt(a.wind.estimates, a.wind.twdAtGunDeg);
+  const twdAt = makeTwdAt(windPoints(a.wind), a.wind.twdAtGunDeg);
   const byId = new Map(data.boats.map((b) => [b.id, b]));
   const gun = a.meta.gunMs;
   for (const r of a.boats) {

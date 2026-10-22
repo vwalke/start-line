@@ -51,13 +51,14 @@ import {
   type RaceAnalysis,
   type RaceNote,
   type StartResult,
+  type StartWind,
   type TrackSegment,
   type WindEstimate,
   type WindInfo,
 } from './types';
 import { finishRank } from './result';
 import { assessStart, estimateDtl, rankStarts, sampleGap } from './validity';
-import { classifyLeg, estimateTwd, makeTwdAt, steadyIndices, straddles } from './wind';
+import { classifyLeg, estimateStartTwd, estimateTwd, makeTwdAt, START_WIND_MAX_DT_MS, START_WIND_WINDOW_MS, STEADY_LEAD_MS, STEADY_TAIL_MS, steadyIndices, straddles, windPoints } from './wind';
 
 const centroid = (ps: Vec[]): Vec => scale(ps.reduce((a, b) => add(a, b), [0, 0] as Vec), 1 / ps.length);
 
@@ -356,7 +357,26 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       });
     }
   }
-  const twdAt = makeTwdAt(estimates, prior);
+  // The wind at the gun: the fleet's tacks in the first START_WIND_WINDOW_MS when Beat 1 is the first leg and they
+  // read as two plausible tacks (wind.ts estimateStartTwd); else Beat 1's estimate, held back to the gun.
+  let startWindow: StartWind | null = null;
+  if (estimates[0]?.legIndex === 0) {
+    const hs: number[] = [];
+    const ws: number[] = [];
+    const tm = nLegs > 1 ? legTimes : leg1;
+    for (const b of data.boats) {
+      if (!windBoats.has(b.id)) continue;
+      const tr = tracks.get(b.id)!;
+      const end = Math.min(gun + START_WIND_WINDOW_MS + STEADY_TAIL_MS, tm.get(b.id)![1] ?? Infinity);
+      for (const i of steadyIndices(tr, gun - STEADY_LEAD_MS, end)) {
+        hs.push(tr.heading[i]);
+        ws.push(Math.min(START_WIND_MAX_DT_MS, i + 1 < tr.t.length ? tr.t[i + 1] - tr.t[i] : 0));
+      }
+    }
+    const est = estimateStartTwd(hs, ws, estimates[0].tackAngleDeg);
+    if (est && Math.abs(wrap180(est.twdDeg - c1)) <= 60) startWindow = { tMs: gun, ...est };
+  }
+  const twdAt = makeTwdAt(windPoints({ estimates, startWindow }), prior);
   const twdGun = twdAt(gun);
   const kinds = courses.map((_, li) => kindAt(li, twdAt(legSteady[li].mid ?? gun)));
   // Unnamed turns: the top of the axis is windward when it points into the wind.
@@ -710,6 +730,8 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   const wind: WindInfo = {
     method,
     estimates,
+    gunSource: method === 'tacks' ? (startWindow ? 'start-window' : 'beat') : null,
+    startWindow,
     twdAtGunDeg: twdGun,
     model: modelGun != null && data.windModel ? { label: data.windModel.label, dirAtGunDeg: modelGun } : null,
   };

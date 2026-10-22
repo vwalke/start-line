@@ -37,13 +37,14 @@ export function compassRound(deg: number): number {
   return ((Math.round(deg) % 360) + 360) % 360;
 }
 
-/** Circular mean of angles in degrees, result in [0, 360). */
-export function circMean(angles: ArrayLike<number>): number {
+/** Circular mean of angles in degrees (each `weights[i]` times, else once), result in [0, 360). */
+export function circMean(angles: ArrayLike<number>, weights?: ArrayLike<number>): number {
   let s = 0;
   let c = 0;
   for (let i = 0; i < angles.length; i++) {
-    s += Math.sin(angles[i] * RAD);
-    c += Math.cos(angles[i] * RAD);
+    const w = weights ? weights[i] : 1;
+    s += w * Math.sin(angles[i] * RAD);
+    c += w * Math.cos(angles[i] * RAD);
   }
   return norm360(Math.atan2(s, c) / RAD);
 }

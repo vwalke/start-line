@@ -200,16 +200,21 @@ are shared by all three.
     fine against the distance sailed.
   - **D16 line bias** (`lineBias.ts`): with the start line 6°+ off square to the
     wind at the gun (at 6° the favoured end is about a tenth of the line further
-    upwind), the boat's share of the line from the favoured end × the favoured-by
-    metres is the ground given away, ÷ the fleet's VMG on Beat 1 the seconds.
-    Started in the third at the unfavoured end with material ground given away
-    (10 s or more at that VMG): a start card ("Pin end favoured 9°: you started
-    70% from the pin: about 116 m given away"), confidence the wind's at the
-    gun; in the favoured third: a Went well line ("Start: pin end
-    favoured 9° (~166 m) and you started 0% from the pin", seconds against the
-    line's middle); anywhere else, nothing. Needs the boat's position at the
-    gun (read, or estimated across a short hole); not for a boat over early.
-    The Report's start section shows the line bias too.
+    upwind), each start is measured against the fleet's median start along the
+    line (5+ boats with a position at the gun; over-early boats count). The
+    distance beyond the median toward the unfavoured end × sin(bias) is the
+    ground given away on the fleet, ÷ the fleet's VMG on Beat 1 the seconds.
+    Beyond the median with 10 s or more given away: a start card ("Pin favoured
+    6° (~100 m over the line). You started 420 m toward the committee boat from
+    the fleet's median start: ≈ 40 m upwind, about 18 s"), confidence the
+    wind's at the gun; in the favoured third and at or toward the favoured end
+    of the median: a Went well line ("Start: pin end favoured 7° (~120 m) and
+    you started 300 m toward the pin from the fleet's median start (≈ 36 m
+    upwind)", seconds gained on the median); anywhere else, nothing. A fleet
+    that mostly started at the unfavoured end gives few cards: only boats well
+    beyond it. Needs the boat's position at the gun (read, or estimated across
+    a short hole); not for a boat over early. The Report's start section shows
+    the line bias too.
   - **Regatta view, Penalties:** a row above the pattern cards, one line per code
     ("DPI in 8 of 8 races · 24 penalty points · ≈ 24 places", "UFD in 1 of 8 races
     (R3) · 16 points; result lost") and penalty turns ("Penalty turns in 2 of 8
@@ -256,7 +261,8 @@ are shared by all three.
 - **Report** (`src/ui/report.ts`, `src/ui/reportView.ts`): the **Report** button
   (top right of the race header), `#report` or `report=1` opens one printable page
   for the selected boat in the race: the header (place on the water and scored,
-  with any code; race, official elapsed and corrected times; the estimated wind;
+  with any code; race, official elapsed and corrected times; the estimated wind
+  and where it came from, the first 3 min's tacks or the first beat's;
   tracker coverage), the start (distance and seconds late at the gun, start place,
   the estimated place at the gun when the start place is unranked, the line bias, line position, place over the line and front row, over early and when it
   cleared, the start card), leg by leg (places in → out of the fixed fleet, time
@@ -306,7 +312,8 @@ Switching races keeps the tab.
   zoomed in. Only if none fits does the label run along the line inward from
   that end (as `Pin 7°` at worst). `Square line` sits centred along the line.
   The wind chip (`wind est. (medium)`) and the label's tooltip give the wind
-  source (tacks, weather model, or first leg assumed upwind) and a
+  source (the fleet's tacks in the first 3 min after the gun or on the first
+  beat, the weather model, or first leg assumed upwind) and a
   confidence; low confidence is a ⚠ chip. The ⓘ says how far a 5° wind
   error moves the figure. `Names: Auto | All | Off` sets the
   boat labels: Auto places them greedily (selected boat, then by start place)
@@ -594,7 +601,15 @@ Switching races keeps the tab.
 - **Wind is estimated.** The boats carry no wind sensor. The true wind
   direction comes from the fleet's steady upwind headings: a two-cluster
   circular k-means splits them into the two tacks, and the bisector is the
-  wind. It is interpolated in time between beats. If there isn't enough
+  wind. Each beat's estimate is pinned at the beat's mid-time and the wind is
+  interpolated in time between them. The wind at the gun (the line bias, the
+  start chart's orientation) comes from the first 3 minutes after the gun
+  (`START_WIND_WINDOW_MS`), pinned at the gun, so a shift during Beat 1 doesn't
+  leak back to the start. Each steady heading there counts for its time, up to
+  2 s, not once per fix, so densely logged devices don't outvote the rest. It
+  needs 300+ steady headings, 60+ and 15 % of the time on each tack, and a tack
+  angle within 15° of Beat 1's. Otherwise Beat 1's estimate is held back to the
+  gun as before, and the labels say which was used. If there isn't enough
   upwind data, the app falls back to the weather model, or failing that,
   assumes the first leg is dead upwind, and says so. Every TWA and VMG figure
   is therefore an estimate and is labelled that way.

@@ -4,7 +4,7 @@
  * the true wind; their bisector is the TWD estimate.
  */
 import { circMean, gradientAt, median, wrap180 } from './geo';
-import type { LegKind } from './types';
+import type { LegKind, StartWind, WindInfo } from './types';
 
 export interface HeadingSeries {
   t: ArrayLike<number>;
@@ -12,13 +12,18 @@ export interface HeadingSeries {
   sog: ArrayLike<number>;
 }
 
+/** steadyIndices skips this much after a window opens (the turn onto the leg), ms… */
+export const STEADY_LEAD_MS = 20_000;
+/** …and this much before it closes (the approach to the mark), ms. */
+export const STEADY_TAIL_MS = 15_000;
+
 /**
- * Indices of samples in (a + 20 s, b − 15 s) where the boat is sailing
+ * Indices of samples in (a + STEADY_LEAD_MS, b − STEADY_TAIL_MS) where the boat is sailing
  * steadily: |turn rate| (median over ~2 s) < 4°/s and SOG above a floor.
  */
 export function steadyIndices(s: HeadingSeries, a: number, b: number, minSog = 3): number[] {
   const idx: number[] = [];
-  for (let i = 0; i < s.t.length; i++) if (s.t[i] > a + 20_000 && s.t[i] < b - 15_000) idx.push(i);
+  for (let i = 0; i < s.t.length; i++) if (s.t[i] > a + STEADY_LEAD_MS && s.t[i] < b - STEADY_TAIL_MS) idx.push(i);
   if (idx.length < 3) return [];
   const ts = idx.map((i) => s.t[i] / 1000);
   // Unwrapped heading so a 359→1 step is +2°, not −358°.
@@ -46,28 +51,36 @@ export function steadyIndices(s: HeadingSeries, a: number, b: number, minSog = 3
   return out;
 }
 
-/** Two-cluster circular k-means on headings (degrees). */
-export function tackModes(headings: number[]): { centers: [number, number]; counts: [number, number] } {
-  const m = circMean(headings);
+/** Two-cluster circular k-means on headings (degrees), each `weights[i]` times (else once); `weight` sums each cluster's. */
+export function tackModes(
+  headings: number[],
+  weights?: number[],
+): { centers: [number, number]; counts: [number, number]; weight: [number, number] } {
+  const m = circMean(headings, weights);
   let c: [number, number] = [m - 45, m + 45];
   let counts: [number, number] = [0, 0];
+  let weight: [number, number] = [0, 0];
   for (let iter = 0; iter < 50; iter++) {
     const groups: [number[], number[]] = [[], []];
-    for (const h of headings) {
+    const ws: [number[], number[]] = [[], []];
+    headings.forEach((h, i) => {
       const d0 = Math.abs(wrap180(h - c[0]));
       const d1 = Math.abs(wrap180(h - c[1]));
-      groups[d0 <= d1 ? 0 : 1].push(h);
-    }
+      const g = d0 <= d1 ? 0 : 1;
+      groups[g].push(h);
+      ws[g].push(weights ? weights[i] : 1);
+    });
     const next: [number, number] = [
-      groups[0].length ? circMean(groups[0]) : c[0],
-      groups[1].length ? circMean(groups[1]) : c[1],
+      groups[0].length ? circMean(groups[0], ws[0]) : c[0],
+      groups[1].length ? circMean(groups[1], ws[1]) : c[1],
     ];
     counts = [groups[0].length, groups[1].length];
+    weight = [ws[0].reduce((x, y) => x + y, 0), ws[1].reduce((x, y) => x + y, 0)];
     const moved = Math.abs(wrap180(next[0] - c[0])) + Math.abs(wrap180(next[1] - c[1]));
     c = next;
     if (moved < 1e-6) break;
   }
-  return { centers: c, counts };
+  return { centers: c, counts, weight };
 }
 
 /** TWD from tack headings, or null when the data doesn't look like two tacks. */
@@ -79,6 +92,48 @@ export function estimateTwd(headings: number[]): { twdDeg: number; tackAngleDeg:
   const tackAngleDeg = Math.abs(wrap180(centers[0] - centers[1]));
   if (tackAngleDeg < 45 || tackAngleDeg > 130) return null;
   return { twdDeg: circMean(centers), tackAngleDeg };
+}
+
+/**
+ * The wind at the gun: the fleet's steady headings from the gun to START_WIND_WINDOW_MS after it (analyze.ts opens
+ * steadyIndices' window STEADY_LEAD_MS before the gun and closes it STEADY_TAIL_MS after, so the samples span exactly
+ * that). A whole-beat estimate, pinned at the beat's mid-time, carries a shift during the beat back to the gun.
+ */
+export const START_WIND_WINDOW_MS = 180_000;
+/**
+ * Each steady heading counts for the time it stands for, its gap to the boat's next fix capped at this, ms (about the
+ * span steadyIndices judges the turn rate over): boat-seconds, not fixes, so a device logging every 0.3 s (three in
+ * Cascais R2) or a fixture's native-rate minute at the gun doesn't outvote boats logging every few seconds.
+ */
+export const START_WIND_MAX_DT_MS = 2_000;
+/** …needs this many steady headings in all… */
+export const START_WIND_MIN_SAMPLES = 300;
+/** …this share of their time on each tack (just after the gun most boats are still on starboard)… */
+export const START_WIND_MIN_TACK_SHARE = 0.15;
+/** …and at least this many on each tack. */
+export const START_WIND_MIN_TACK_N = 60;
+/**
+ * …and a tack angle (45–130°, as estimateTwd) within this of Beat 1's, °: the fleet tacks through about the same angle
+ * minutes apart, so a split much narrower or wider is not two tacks (boats reaching along the line, a footing lane).
+ */
+export const START_WIND_MAX_TACK_DIFF_DEG = 15;
+
+/**
+ * TWD from the first minutes' tack headings (each `weights[i]` ms), or null when there are too few, too few on a tack,
+ * or they aren't two plausible tacks against Beat 1's tack angle `beatTackAngleDeg`.
+ */
+export function estimateStartTwd(headings: number[], weights: number[], beatTackAngleDeg: number): Omit<StartWind, 'tMs'> | null {
+  if (headings.length < START_WIND_MIN_SAMPLES) return null;
+  const { centers, counts, weight } = tackModes(headings, weights);
+  if (Math.min(...counts) < START_WIND_MIN_TACK_N || Math.min(...weight) < START_WIND_MIN_TACK_SHARE * (weight[0] + weight[1])) return null;
+  const tackAngleDeg = Math.abs(wrap180(centers[0] - centers[1]));
+  if (tackAngleDeg < 45 || tackAngleDeg > 130 || Math.abs(tackAngleDeg - beatTackAngleDeg) > START_WIND_MAX_TACK_DIFF_DEG) return null;
+  return { twdDeg: circMean(centers), tackAngleDeg, samples: headings.length, tackSamples: counts };
+}
+
+/** The (time, TWD) points the wind runs through: the start window's at the gun (when it is the source), then each beat's. */
+export function windPoints(w: Pick<WindInfo, 'estimates' | 'startWindow'>): { tMs: number; twdDeg: number }[] {
+  return w.startWindow ? [w.startWindow, ...w.estimates] : w.estimates;
 }
 
 /**

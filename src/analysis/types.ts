@@ -207,9 +207,28 @@ export interface WindEstimate {
   samples: number;
 }
 
+/** The wind at the gun from the fleet's tacks in the first minutes after it (wind.ts estimateStartTwd). */
+export interface StartWind {
+  /** The gun. */
+  tMs: number;
+  twdDeg: number;
+  tackAngleDeg: number;
+  samples: number;
+  /** Steady headings on each tack. */
+  tackSamples: [number, number];
+}
+
 export interface WindInfo {
   method: 'tacks' | 'model' | 'course';
+  /** Per beat, each pinned at the beat's mid-time. */
   estimates: WindEstimate[];
+  /**
+   * Where the wind at the gun came from (method 'tacks' only, else null): the fleet's tacks in the first minutes
+   * after the gun ('start-window', `startWindow` pinned at the gun), or the first beat's estimate held back to it.
+   */
+  gunSource: 'start-window' | 'beat' | null;
+  /** Set when `gunSource` is 'start-window'. */
+  startWindow: StartWind | null;
   twdAtGunDeg: number;
   model: { label: string; dirAtGunDeg: number } | null;
 }
