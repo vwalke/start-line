@@ -51,13 +51,15 @@ import {
   type RaceAnalysis,
   type RaceNote,
   type StartResult,
+  type StartWind,
+  type StartWindFail,
   type TrackSegment,
   type WindEstimate,
   type WindInfo,
 } from './types';
 import { finishRank } from './result';
 import { assessStart, estimateDtl, rankStarts, sampleGap } from './validity';
-import { classifyLeg, estimateTwd, makeTwdAt, steadyIndices, straddles } from './wind';
+import { classifyLeg, closeHauledTackAngle, estimateTwd, makeTwdAt, readStartTwd, startWindHeadings, steadyIndices, straddles, windPoints } from './wind';
 
 const centroid = (ps: Vec[]): Vec => scale(ps.reduce((a, b) => add(a, b), [0, 0] as Vec), 1 / ps.length);
 
@@ -356,7 +358,19 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       });
     }
   }
-  const twdAt = makeTwdAt(estimates, prior);
+  // The wind at the gun: the fleet's close-hauled tacks from START_WIND_FROM_MS to START_WIND_TO_MS after it when Beat 1
+  // is the first leg and they read as two plausible tacks (wind.ts readStartTwd); else Beat 1's estimate, held back.
+  let startWindow: StartWind | null = null;
+  let startWindowFail: StartWindFail | null = null;
+  if (estimates[0]?.legIndex === 0) {
+    const hs: number[] = [];
+    const tm = nLegs > 1 ? legTimes : leg1;
+    for (const b of data.boats) if (windBoats.has(b.id)) hs.push(...startWindHeadings(tracks.get(b.id)!, gun, tm.get(b.id)![1] ?? Infinity));
+    const { est, fail } = readStartTwd(hs, closeHauledTackAngle((nLegs > 1 ? legSteady[0] : s1).hs));
+    if (est && Math.abs(wrap180(est.twdDeg - c1)) <= 60) startWindow = { tMs: gun, ...est };
+    else startWindowFail = fail ?? 'course';
+  }
+  const twdAt = makeTwdAt(windPoints({ estimates, startWindow }), prior);
   const twdGun = twdAt(gun);
   const kinds = courses.map((_, li) => kindAt(li, twdAt(legSteady[li].mid ?? gun)));
   // Unnamed turns: the top of the axis is windward when it points into the wind.
@@ -710,6 +724,9 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   const wind: WindInfo = {
     method,
     estimates,
+    gunSource: method === 'tacks' ? (startWindow ? 'start-window' : 'beat') : null,
+    startWindow,
+    startWindowFail,
     twdAtGunDeg: twdGun,
     model: modelGun != null && data.windModel ? { label: data.windModel.label, dirAtGunDeg: modelGun } : null,
   };

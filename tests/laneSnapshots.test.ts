@@ -145,7 +145,7 @@ describe('lane snapshots: orientation and the true wind', () => {
   it('wind-up: wind from the east puts east at the top; the wind arrow points straight down, labelled with the TWD, estimated', () => {
     const L = laneSnapshots(race([{ id: 'A', tr: track(0, -100) }], 90), { me: null });
     expect(L.windUp).toBe(true);
-    expect(L.note).toBe("True wind ↓ from the top, estimated from the fleet's tacks.");
+    expect(L.note).toBe("True wind ↓ from the top, estimated from the fleet's tacks on the first beat.");
     near(L.wind!.down, [0, 1]);
     expect(L.wind!.label).toBe('TWD ~90° est.');
     expect(L.wind!.assumed).toBe(false);
@@ -518,7 +518,7 @@ describe('lane snapshots: renderer', () => {
     expect(windBadgeHtml(L)).toBe(html.match(/<div class="lane-wind"[\s\S]*?<\/div>/)![0]);
     expect(windBadgeHtml({ wind: null })).toBe('');
     // The key: who is highlighted, and the wind's source; nothing else.
-    expect(html.split('<p class="lane-key muted">')[1].split('<span class="lane-legend">')[0]).toBe('B highlighted, with the top 3 (Coach group); the rest faded. True wind ↓ from the top, estimated from the fleet&#39;s tacks.');
+    expect(html.split('<p class="lane-key muted">')[1].split('<span class="lane-legend">')[0]).toBe('B highlighted, with the top 3 (Coach group); the rest faded. True wind ↓ from the top, estimated from the fleet&#39;s tacks on the first beat.');
     // A true wind is drawn solid (dashed only when assumed).
     expect(windBadgeHtml(L)).not.toContain('dasharray');
     expect(L.frames[0].label).toMatch(/True wind from 0° \(estimated\)\.$/);

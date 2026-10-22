@@ -207,9 +207,36 @@ export interface WindEstimate {
   samples: number;
 }
 
+/** The wind at the gun from the fleet's tacks in the minutes after it (wind.ts readStartTwd). */
+export interface StartWind {
+  /** The gun. */
+  tMs: number;
+  twdDeg: number;
+  tackAngleDeg: number;
+  /** Close-hauled headings (each a boat's reading, START_WIND_GRID_MS apart)… */
+  samples: number;
+  /** …of this many steady ones. */
+  steady: number;
+  /** Close-hauled headings on each tack. */
+  tackSamples: [number, number];
+}
+
+/** Why the gun window gave no wind (wind.ts readStartTwd; 'course': more than 60° off Beat 1's course). */
+export type StartWindFail = 'samples' | 'tack-samples' | 'tack-share' | 'tack-angle' | 'course';
+
 export interface WindInfo {
   method: 'tacks' | 'model' | 'course';
+  /** Per beat, each pinned at the beat's mid-time. */
   estimates: WindEstimate[];
+  /**
+   * Where the wind at the gun came from (method 'tacks' only, else null): the fleet's tacks in the first minutes
+   * after the gun ('start-window', `startWindow` pinned at the gun), or the first beat's estimate held back to it.
+   */
+  gunSource: 'start-window' | 'beat' | null;
+  /** Set when `gunSource` is 'start-window'. */
+  startWindow: StartWind | null;
+  /** Why the gun window gave none, when `gunSource` is 'beat' and Beat 1 is the first leg. */
+  startWindowFail: StartWindFail | null;
   twdAtGunDeg: number;
   model: { label: string; dirAtGunDeg: number } | null;
 }

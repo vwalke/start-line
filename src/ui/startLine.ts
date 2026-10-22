@@ -141,7 +141,7 @@ export function lineChips(a: RaceAnalysis): Chip[] {
 /** The ⓘ bullet for the favoured end: the wind it's measured against, and its sensitivity to that wind. */
 export function biasBullets(a: RaceAnalysis): string[] {
   const src = windSource(a.wind);
-  const from = src.method === 'tacks' ? "from the fleet's tacks" : src.method === 'model' ? 'from the weather model' : '(first leg assumed upwind)';
+  const from = src.method === 'tacks' ? `(tacks, ${src.span})` : src.method === 'model' ? 'from the weather model' : '(first leg assumed upwind)';
   return [`Favoured end vs wind ${degLabel(a.wind.twdAtGunDeg)} ${from}; ±5° of wind ≈ ±${f0(biasSensitivityM(a.line.lengthM))} m.`];
 }
 

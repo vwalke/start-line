@@ -111,7 +111,7 @@ describe('IC37 R5, USA 016 (DPI): the report', () => {
     expect(fieldOf(m.header, 'Corrected (official)').value).toMatch(/^\d+:\d\d$/);
     expect(fieldOf(m.header, 'Gun').value).toBe('10:05:01 UTC−4');
     expect(fieldOf(m.header, 'Wind (TWD)').value).toMatch(/^\d+° est\.$/);
-    expect(fieldOf(m.header, 'Wind (TWD)').note).toMatch(/estimated from the fleet’s tacks; (high|medium|low) confidence/);
+    expect(fieldOf(m.header, 'Wind (TWD)').note).toMatch(/^estimated from the fleet's tacks 0:30–3:30 after the gun; (high|medium|low) confidence$/);
     expect(fieldOf(m.header, 'Tracker coverage').value).toMatch(/^\d+%$/);
     // No wind speed anywhere in the data: the one header figure that is —, and it says why.
     expect(m.header.filter((f) => f.value === MISSING).map((f) => f.label)).toEqual(['Wind speed (TWS)']);

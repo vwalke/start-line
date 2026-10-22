@@ -146,7 +146,7 @@ describe('findings split between the start and the race', () => {
 
   it('puts the line and the starts under the start chart, the rest with the race, in order', () => {
     expect(start.map((f) => f.kind)).toEqual(['line', 'start']);
-    expect(start[0].text).toMatch(/^The pin \(left\) end was favoured by 10° ≈ 17 m against the estimated wind of 12°\./);
+    expect(start[0].text).toMatch(/^The pin \(left\) end was favoured by 12° ≈ 20 m against the estimated wind of 10°\./);
     expect(start[1].text).toMatch(/^Best start: #6 — .+ Worst start: #5 — /);
     expect(race.every((f) => f.kind === 'leg' || f.kind === 'result' || f.kind === 'wind')).toBe(true);
     expect(race.some((f) => /#3 lost/.test(f.text))).toBe(true);

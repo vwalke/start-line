@@ -1,6 +1,7 @@
 /** Start line bias against the wind: which end is favoured, by how many degrees and metres, and how sure we are of the wind. */
 import { wrap180 } from './geo';
 import type { LineInfo, WindInfo } from './types';
+import { START_WIND_GRID_MS, START_WIND_SPAN } from './wind';
 
 /** Ends closer than this (m upwind of each other) count as a square line. */
 export const SQUARE_LINE_M = 2;
@@ -48,14 +49,21 @@ export const biasAngle = (b: LineBias): number => Math.min(Math.abs(b.biasDeg), 
 /** Metres the favoured-by figure moves for a `deg` error in the wind (small-angle: length · sin deg). */
 export const biasSensitivityM = (lengthM: number, deg = 5): number => lengthM * Math.abs(Math.sin(deg * RAD));
 
-/** Tack-based wind with at least this many steady upwind headings (and the model, if any, within MODEL_AGREE_DEG) is high confidence. */
+/**
+ * Tack-based wind with at least this many steady upwind headings (the gun window's: seconds of close-hauled sailing, its
+ * readings × START_WIND_GRID_MS, as the beat's ~1 Hz fixes are) and the model, if any, within MODEL_AGREE_DEG is high confidence.
+ */
 export const PLENTY_SAMPLES = 300;
 export const MODEL_AGREE_DEG = 10;
 
 export interface WindSource {
   method: WindInfo['method'];
-  /** e.g. "wind estimated from the fleet's tacks". */
+  /** e.g. "wind estimated from the fleet's tacks 0:30–3:30 after the gun". */
   text: string;
+  /** Where the estimate came from, after "estimated": "from the fleet's tacks 0:30–3:30 after the gun" (method 'tacks'), else ''. */
+  from: string;
+  /** The tacks' window, short: "gun +0:30–3:30" or "first beat" (method 'tacks'), else ''. */
+  span: string;
   /** Samples / tack angle / model cross-check, when there are any. */
   detail: string;
   confidence: 'high' | 'medium' | 'low';
@@ -63,14 +71,19 @@ export interface WindSource {
 
 /** Where the wind at the gun came from, and how far to trust it. */
 export function windSource(w: WindInfo): WindSource {
-  if (w.method === 'course') return { method: w.method, text: 'assumed: first leg dead upwind', detail: '', confidence: 'low' };
-  if (w.method === 'model') return { method: w.method, text: 'weather-model wind', detail: w.model ? w.model.label : '', confidence: 'medium' };
-  // makeTwdAt holds the earliest estimate until its time, so that one sets the wind at the gun.
-  const est = [...w.estimates].sort((a, b) => a.tMs - b.tMs)[0];
+  if (w.method === 'course') return { method: w.method, text: 'assumed: first leg dead upwind', from: '', span: '', detail: '', confidence: 'low' };
+  if (w.method === 'model') return { method: w.method, text: 'weather-model wind', from: '', span: '', detail: w.model ? w.model.label : '', confidence: 'medium' };
+  // The start window's estimate, pinned at the gun; else makeTwdAt holds the earliest beat's until its time.
+  const sw = w.startWindow;
+  const est = sw ?? [...w.estimates].sort((a, b) => a.tMs - b.tMs)[0];
   const off = w.model ? Math.abs(wrap180(w.model.dirAtGunDeg - w.twdAtGunDeg)) : null;
   const parts: string[] = [];
-  if (est) parts.push(`${est.samples.toLocaleString('en')} steady upwind headings on leg ${est.legIndex + 1}, tack angle ${Math.round(est.tackAngleDeg)}°`);
+  if (sw) parts.push(`${sw.samples.toLocaleString('en')} close-hauled headings of ${sw.steady.toLocaleString('en')} steady, ${sw.tackSamples.map((n) => n.toLocaleString('en')).join(' / ')} a tack, tack angle ${Math.round(sw.tackAngleDeg)}°`);
+  else if (est) parts.push(`${est.samples.toLocaleString('en')} steady upwind headings on leg ${w.estimates[0].legIndex + 1}, tack angle ${Math.round(est.tackAngleDeg)}°`);
   if (off != null) parts.push(`weather model ${Math.round(off)}° off`);
-  const high = !!est && est.samples >= PLENTY_SAMPLES && (off == null || off <= MODEL_AGREE_DEG);
-  return { method: w.method, text: "wind estimated from the fleet's tacks", detail: parts.join('; '), confidence: high ? 'high' : 'medium' };
+  const n = sw ? (sw.samples * START_WIND_GRID_MS) / 1000 : (est?.samples ?? 0);
+  const high = n >= PLENTY_SAMPLES && (off == null || off <= MODEL_AGREE_DEG);
+  const span = sw ? `gun +${START_WIND_SPAN}` : 'first beat';
+  const from = sw ? `from the fleet's tacks ${START_WIND_SPAN} after the gun` : `from the fleet's tacks on the ${span}`;
+  return { method: w.method, text: `wind estimated ${from}`, from, span, detail: parts.join('; '), confidence: high ? 'high' : 'medium' };
 }

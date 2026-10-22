@@ -16,6 +16,7 @@
  * "cleared", with when, in every frame (each trail runs from before the gun, so each shows the excursion and the return).
  */
 import { dot, len, sub, type Vec } from '../analysis/geo';
+import { windSource } from '../analysis/line';
 import type { StartReplay } from '../analysis/startReplay';
 import type { RaceAnalysis } from '../analysis/types';
 import { degLabel } from './format';
@@ -176,7 +177,7 @@ function windWords(a: RaceAnalysis, windUp: boolean): { label: string; title: st
   }
   const deg = degLabel(a.wind.twdAtGunDeg);
   if (a.wind.method === 'tacks') {
-    return { label: `TWD ~${deg} est.`, title: `True wind from ${deg} (estimated)`, note: "True wind ↓ from the top, estimated from the fleet's tacks." };
+    return { label: `TWD ~${deg} est.`, title: `True wind from ${deg} (estimated)`, note: `True wind ↓ from the top, estimated ${windSource(a.wind).from}.` };
   }
   if (a.wind.method === 'model') {
     return { label: `TWD ${deg} (model)`, title: `True wind from ${deg} (weather model)`, note: 'True wind ↓ from the top, from the weather model.' };
