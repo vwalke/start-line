@@ -190,6 +190,9 @@ import {
 import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
 import { carryView, clampView, clientToChart, fitView, presetActive, viewBox, type Box, type View } from './view';
 import { createVkxUpload } from './vkxUpload';
+import { createPaywall, lockedRange } from './paywall';
+import { freeRacesOf, type FreeRaces } from '../data/freeRace';
+import { isPaywallError } from '../data/paywall';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -297,6 +300,19 @@ export function startApp(): void {
   let tab: Tab = startTab(location.hash, plan, saved, tabs);
   const params = plan.params;
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
+  /** Paywall (only when /api/auth/me says it is on): a lock card instead of the digest for a race the viewer can't open. */
+  const paywall = createPaywall({
+    onChange: () => paywallChanged(),
+    notice: (text) => setNotice(text),
+    eventTitle: (id) => titleOf(id),
+  });
+  const freeMemo = new WeakMap<RegattaResponse, FreeRaces>();
+  /** Race 1 of each division, from the regatta as fetched (rebuilt races are never free). */
+  const freeOf = (r: RegattaResponse): FreeRaces => {
+    let f = freeMemo.get(r);
+    if (!f) freeMemo.set(r, (f = freeRacesOf(r)));
+    return f;
+  };
   let reqId = 0;
   const pending = new Map<number, { resolve: (a: RaceAnalysis) => void; reject: (e: Error) => void }>();
   const SUPERSEDED = 'superseded';
@@ -2136,6 +2152,12 @@ export function startApp(): void {
     // successful race in both the URL and recall.lastView (and not the half-switched one).
     const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: legSel, boat: highlight, sort, startSort }, restore);
     try {
+      await paywall.ready;
+      if (baseRegatta && paywall.locked(freeOf(baseRegatta), id, division, raceNumber)) {
+        showLocked(division, raceNumber);
+        return 'ok';
+      }
+      paywall.hideLock();
       const classLabel = events.find((e) => e.eventId === id)?.classLabel;
       const off = officialFor(outcomeOf(), listedOf(division, raceNumber));
       const reg = regatta;
@@ -2152,10 +2174,39 @@ export function startApp(): void {
     } catch (e) {
       if (isSuperseded(e)) return 'superseded';
       setStatus('');
+      if (paywall.me().paywall && id === eventId && isPaywallError((e as Error).message)) {
+        // The server says no (a pass ended, signed out elsewhere): lock it, and re-read who this is.
+        showLocked(division, raceNumber);
+        void paywall.refresh();
+        return 'ok';
+      }
       // Keep the event/race picker so another race can be tried.
       setNotice(`Couldn't load that race (${(e as Error).message}).`);
       return e as Error;
     }
+  }
+
+  /** The lock card for a race of the loaded event (the URL names it, so a reload or a shared link comes back to it). */
+  function showLocked(division: string, raceNumber: number): void {
+    if (!regatta || !baseRegatta) return;
+    current = { eventId, division, raceNumber };
+    setUrl({ event: eventId, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
+    setStatus('');
+    els.digest.hidden = true;
+    paywall.showLock(els.digest, {
+      doc: currentDoc(regatta),
+      eventId,
+      division,
+      raceNumber,
+      listed: listedOf(division, raceNumber),
+      range: lockedRange(raceList?.races ?? [], freeOf(baseRegatta), division),
+    });
+  }
+
+  /** Signed in or out, or a pass arrived: reload the race on screen if its lock changed. */
+  function paywallChanged(): void {
+    if (!current || current.eventId !== eventId || !baseRegatta) return;
+    if (paywall.locked(freeOf(baseRegatta), eventId, current.division, current.raceNumber) !== paywall.lockShown()) void loadRace(current.division, current.raceNumber);
   }
 
   /** Rebuild the Event select from the search query, keeping the loaded event selected. */
@@ -2191,6 +2242,7 @@ export function startApp(): void {
     if (!regatta) return;
     raceList = buildRaceList(currentDoc(regatta), { links: linksOf(outcomeOf()), ...(found ? { orphans: found } : orphansFound ? { orphans: orphansFound } : {}) });
     renderRaceOptions();
+    if (paywall.lockShown() && current) showLocked(current.division, current.raceNumber);
     // The header names the race as the picker does: relabel it too (title, RS tag and chips), and the Coach strip.
     renderSummary();
     renderCoach();

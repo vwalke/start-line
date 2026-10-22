@@ -1207,6 +1207,64 @@ body.report-on .content > :not(#report) { display: none !important; }
   .rp-cols { grid-template-columns: 1fr; }
 }
 
+/* ---------- paywall (ui/paywall.ts; only when /api/auth/me says it is on) ---------- */
+
+.account-open {
+  margin-left: auto;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--on-carbon-line);
+  border-radius: 4px;
+  background: none;
+  color: var(--on-carbon);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.account-open:hover { border-color: var(--on-carbon); }
+.lock[hidden] { display: none; }
+#lock-summary h2 { font-size: 1.2rem; margin: 10px 0 2px; }
+#lock-summary p { margin: 0 0 10px; color: var(--ink-2); font-size: 0.9rem; }
+.lock-card { max-width: 640px; }
+.lock-card h3 { font-size: 1rem; margin: 12px 0 10px; }
+.lock-teaser-wrap { position: relative; border-radius: 6px; overflow: hidden; }
+.lock-teaser { display: block; width: 100%; height: auto; filter: blur(6px); transform: scale(1.04); }
+.lock-badge { position: absolute; inset: 0; display: grid; place-items: center; font-size: 28px; }
+.lock-buy { display: flex; flex-wrap: wrap; gap: 8px; }
+.lock-primary, .lock-secondary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+.lock-primary { border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+.lock-secondary { border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); }
+.lock-primary:hover { filter: brightness(1.08); }
+.lock-secondary:hover { border-color: var(--ink); }
+.lock-primary:disabled, .lock-secondary:disabled { opacity: 0.55; cursor: default; }
+.lock-msg { margin: 10px 0 0; font-size: 0.9rem; color: var(--ink-2); }
+.lock-small { margin: 10px 0 0; font-size: 0.8rem; color: var(--ink-3); }
+.linkish { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.lock-results { margin-top: 12px; font-size: 0.85rem; }
+.lock-results summary { cursor: pointer; font-weight: 600; }
+.lock-results table { border-collapse: collapse; margin-top: 6px; }
+.lock-results th, .lock-results td { padding: 3px 10px 3px 0; text-align: left; border-bottom: 1px solid var(--rule); }
+.lock-results .num { text-align: right; font-variant-numeric: tabular-nums; }
+.account .switcher-sheet { max-width: 520px; }
+.account-form { display: grid; gap: 8px; margin: 10px 0; }
+.account-form label { display: grid; gap: 4px; font-size: 0.85rem; color: var(--ink-2); }
+.account-form input { font: inherit; font-size: 16px; padding: 9px 10px; border-radius: 6px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); }
+.account-note { background: var(--notice-bg); border-radius: 6px; padding: 8px 12px; font-size: 0.9rem; }
+.account-sub { font-size: 0.95rem; margin: 14px 0 4px; }
+.account-passes { margin: 0; padding-left: 18px; }
+.account-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
 /* Print: the report alone, light whatever the theme, one page on A4 and Letter (190 × 259 mm inside 10 mm margins). */
 @media print {
   @page { size: auto; margin: 10mm; }

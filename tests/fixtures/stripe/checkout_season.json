@@ -1,0 +1,27 @@
+{
+  "id": "evt_test_CsSeason0001",
+  "object": "event",
+  "api_version": "2025-09-30.clover",
+  "created": 1792670400,
+  "livemode": false,
+  "type": "checkout.session.completed",
+  "data": {
+    "object": {
+      "id": "cs_test_b2SeasonPass0001",
+      "object": "checkout.session",
+      "mode": "subscription",
+      "status": "complete",
+      "payment_status": "paid",
+      "amount_total": 4900,
+      "currency": "usd",
+      "client_reference_id": null,
+      "customer": "cus_test_Season0001",
+      "customer_email": "crew@example.com",
+      "customer_details": { "email": "crew@example.com", "name": null },
+      "metadata": { "product": "season" },
+      "payment_intent": null,
+      "subscription": "sub_test_Season0001",
+      "livemode": false
+    }
+  }
+}

@@ -8,6 +8,7 @@
  * costs nothing and a change of any of those re-runs only what it touches. Nothing here needs a
  * race to have been opened before (the cold-load case).
  */
+import { isPaywallError } from '../data/paywall';
 import { legWord, summarizeRegatta, type LegTypeSummary, type PenaltyRow, type RaceFinish, type RegattaRace, type RegattaSummary, type WentWell, type WorkOn } from '../analysis/coach/regatta';
 import { codeInfo, pointsText } from '../data/official/codes';
 import type { ListedRace } from '../data/raceList';
@@ -211,7 +212,7 @@ export const legExtremeText = (e: LegTypeSummary['best']): string => `${e.label}
 export function placeWhat(r: RegattaSummary['rows'][number]): string {
   const f = r.digest?.finish ?? null;
   if (r.status === 'pending' || r.status === 'running') return 'not analysed yet';
-  if (r.status === 'error') return `couldn't load: ${r.error ?? ''}`;
+  if (r.status === 'error') return isPaywallError(r.error ?? '') ? 'locked: unlock this regatta to see it' : `couldn't load: ${r.error ?? ''}`;
   if (f) {
     const coded = f.code ? `${f.code}${f.points != null ? ` (${pointsText(f.points)} points)` : ''}${onWaterText(f) ? `, ${onWaterText(f)}` : ''}` : 'no place';
     return `${f.place != null ? `${ordinal(f.place)} of ${f.of}` : coded}, ${SOURCE_WORDS[f.source]}${r.digest?.tracked ? '' : ', no track'}`;

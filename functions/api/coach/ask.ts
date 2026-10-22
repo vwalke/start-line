@@ -1,16 +1,19 @@
 /**
  * POST /api/coach/ask: one Ask Coach question, answered as an event stream (see functions/_askCoach.ts).
  * A static route: it wins over the catch-all proxy functions/api/[[path]].ts, as functions/api/vkx/* do.
+ * Paywall (PAYWALL_ENABLED): questions about races 2+ (or the Regatta view) need an entitlement.
  */
 import { handleAsk, type AskEnv } from '../../_askCoach';
-import { methodNotAllowed } from '../../_vkx';
+import { methodNotAllowed, edgeCache } from '../../_vkx';
+import { askGate, paywallOn, type PaywallEnv } from '../../_paywall';
 
 interface PagesCtx {
   request: Request;
-  env: AskEnv;
+  env: AskEnv & PaywallEnv;
   waitUntil(p: Promise<unknown>): void;
 }
 
-export const onRequestPost = (ctx: PagesCtx): Promise<Response> => handleAsk(ctx);
+export const onRequestPost = (ctx: PagesCtx): Promise<Response> =>
+  handleAsk(ctx, paywallOn(ctx.env) ? { gate: (ids) => askGate(ctx.request, ctx.env, ids, { cache: edgeCache() }) } : {});
 
 export const onRequest = (): Response => methodNotAllowed('POST');

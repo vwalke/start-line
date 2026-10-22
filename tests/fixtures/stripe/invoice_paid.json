@@ -1,0 +1,29 @@
+{
+  "id": "evt_test_InvoicePaid0001",
+  "object": "event",
+  "api_version": "2025-09-30.clover",
+  "created": 1824206500,
+  "livemode": false,
+  "type": "invoice.paid",
+  "data": {
+    "object": {
+      "id": "in_test_Renewal0001",
+      "object": "invoice",
+      "billing_reason": "subscription_cycle",
+      "status": "paid",
+      "customer": "cus_test_Season0001",
+      "customer_email": "crew@example.com",
+      "amount_paid": 4900,
+      "currency": "usd",
+      "parent": {
+        "type": "subscription_details",
+        "subscription_details": { "subscription": "sub_test_Season0001", "metadata": { "product": "season" } }
+      },
+      "lines": {
+        "object": "list",
+        "data": [{ "id": "il_test_Renewal0001", "object": "line_item", "amount": 4900, "period": { "start": 1824206400, "end": 1855742400 } }],
+        "has_more": false
+      }
+    }
+  }
+}

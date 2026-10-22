@@ -1,0 +1,28 @@
+{
+  "id": "evt_test_CsRegatta0001",
+  "object": "event",
+  "api_version": "2025-09-30.clover",
+  "created": 1792670300,
+  "livemode": false,
+  "type": "checkout.session.completed",
+  "data": {
+    "object": {
+      "id": "cs_test_a1RegattaPass0001",
+      "object": "checkout.session",
+      "mode": "payment",
+      "status": "complete",
+      "payment_status": "paid",
+      "amount_total": 1200,
+      "currency": "usd",
+      "client_reference_id": null,
+      "customer": "cus_test_Regatta0001",
+      "customer_email": null,
+      "customer_details": { "email": "Sailor@Example.com", "name": null },
+      "metadata": { "product": "regatta", "event_id": "fDHdPcEOM6mcMRkdXNnj" },
+      "payment_intent": "pi_test_Regatta0001",
+      "subscription": null,
+      "livemode": false,
+      "success_url": "https://recall.walkeforward.com/?event=fDHdPcEOM6mcMRkdXNnj&checkout=success"
+    }
+  }
+}

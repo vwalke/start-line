@@ -17,6 +17,7 @@ import { eventFinished } from './data/recovery';
 import { fetchTelemetry, fetchWind } from './data/racesense/api';
 import type { RegattaResponse } from './data/racesense/types';
 import { mergeUploadBytes } from './data/vkx/merge';
+import { isPaywallError } from './data/paywall';
 
 export interface RaceRequest {
   id: number;
@@ -92,7 +93,11 @@ async function analyse(req: RaceRequest): Promise<{ analysis: RaceAnalysis; data
   // Marks shared across divisions may not carry this division's tag: top up from a 1-minute unfiltered window.
   if (data.course.length === 0 && (findRace(doc, ref).div.courses?.[0]?.achievements?.length ?? 0) > 2) {
     progress('Fetching mark positions…');
-    const extra = await fetchTelemetry(req.eventId, null, gun, gun + 60_000, { finished });
+    // Paywall: an unfiltered window can carry another division's later race, so it may be refused (401 / 402): race on without marks.
+    const extra = await fetchTelemetry(req.eventId, null, gun, gun + 60_000, { finished }).catch((e: unknown) => {
+      if (e instanceof Error && isPaywallError(e.message)) return [];
+      throw e;
+    });
     const markOnly = extra.map((p) => {
       if (!p.Fields || !p.Rows) return p;
       const role = p.Fields.indexOf('role');

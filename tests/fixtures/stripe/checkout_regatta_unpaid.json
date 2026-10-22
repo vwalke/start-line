@@ -1,0 +1,27 @@
+{
+  "id": "evt_test_CsRegattaUnpaid1",
+  "object": "event",
+  "api_version": "2025-09-30.clover",
+  "created": 1792670200,
+  "livemode": false,
+  "type": "checkout.session.completed",
+  "data": {
+    "object": {
+      "id": "cs_test_a1RegattaPass0002",
+      "object": "checkout.session",
+      "mode": "payment",
+      "status": "complete",
+      "payment_status": "unpaid",
+      "amount_total": 1200,
+      "currency": "usd",
+      "client_reference_id": null,
+      "customer": null,
+      "customer_email": "slow@example.com",
+      "customer_details": { "email": "slow@example.com", "name": null },
+      "metadata": { "product": "regatta", "event_id": "fDHdPcEOM6mcMRkdXNnj" },
+      "payment_intent": "pi_test_Regatta0002",
+      "subscription": null,
+      "livemode": false
+    }
+  }
+}

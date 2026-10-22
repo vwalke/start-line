@@ -13,6 +13,9 @@
  * *.pages.dev (credentials:* + ACAO * is a brittle combo). Both go through
  * this same-origin proxy. Yachtscoring does allow CORS; it comes through here
  * for the edge cache and so personal fields never reach the browser.
+ *
+ * Paywall (PAYWALL_ENABLED, off by default; functions/_paywall.ts): telemetry beyond race 1's
+ * window needs a session and an entitlement (401 / 402). With the flag off nothing here changes.
  */
 import {
   MAX_UPSTREAM_BYTES,
@@ -33,10 +36,12 @@ import {
   ysTtl,
   type YsResource,
 } from '../_lib';
+import { paywallOn, privately, telemetryGate, type PaywallEnv } from '../_paywall';
 
 interface Ctx {
   request: Request;
   params: { path?: string | string[] };
+  env?: PaywallEnv;
   waitUntil(p: Promise<unknown>): void;
 }
 
@@ -158,13 +163,20 @@ export const onRequestGet = async (ctx: Ctx): Promise<Response> => {
     const q = buildTelemetryQuery(url.searchParams);
     if (!q.ok) return jsonError(q.status, q.error);
     const suffix = `?${q.qs}`;
-    return cachedUpstream(
-      ctx,
-      new Request(`${url.origin}/api/${path}${suffix}`),
-      `${TELE_UPSTREAM}${route.eventId}${suffix}`,
-      telemetryTtl(q.qs),
-      { buffer: false },
-    );
+    const serve = (): Promise<Response> =>
+      cachedUpstream(
+        ctx,
+        new Request(`${url.origin}/api/${path}${suffix}`),
+        `${TELE_UPSTREAM}${route.eventId}${suffix}`,
+        telemetryTtl(q.qs),
+        { buffer: false },
+      );
+    if (!paywallOn(ctx.env)) return serve();
+    // Paywall: decided before the shared edge cache is read; entitled copies go out private.
+    const g = await telemetryGate(ctx.request, ctx.env!, route.eventId, q.qs, { cache: edgeCache() });
+    if (g.kind === 'deny') return g.response;
+    const res = await serve();
+    return g.kind === 'entitled' && res.ok ? privately(res) : res;
   }
 
   const q = buildQuery(route.path, url.searchParams);
