@@ -4,34 +4,53 @@ import { buildCoach, coachRaw, type CoachModel } from '../src/analysis/coach';
 import { coachDebrief } from '../src/analysis/coach/debrief';
 import {
   D17_GYBE_RECOVER_MS,
+  D17_HIGH_MEASURED,
   D17_LEAD_MS,
   D17_MAX_GAP_MS,
   D17_MIN_MEASURED,
+  D17_MIN_MEASURED_STRONG,
+  D17_MIN_PAIRS,
+  D17_MIN_PRE_MS,
+  D17_MIN_REF_BOATS,
   D17_MIN_Z,
   D17_PRE_MS,
+  D17_SETTLE_MS,
+  D17_START_CLEAR_MS,
+  D17_STRONG_REF_BOATS,
   D17_TACK_RECOVER_MS,
+  IQR_SIGMA,
+  MEDIAN_SE,
+  PAIR_SIGMA,
   costly,
   denseAround,
+  detectManoeuvreCost,
   fleetManoeuvres,
   legCost,
+  lossSpan,
   manoeuvreLoss,
   material,
+  quantile,
   smooth,
   tooMany,
+  withinSigma,
+  type ManoeuvreLoss,
 } from '../src/analysis/coach/detectors/manoeuvreCost';
 import { classifyRounding } from '../src/analysis/coach/legStory';
 import { CAP_EXEMPT, MAX_PER_KIND, rankOpportunities } from '../src/analysis/coach/rank';
-import { CONF_WEIGHT, LOW_IMPACT_CAP_S, MIN_SECONDS, impactOf, type Opportunity } from '../src/analysis/coach/opportunity';
+import { CONF_WEIGHT, D17_MEDIUM_MIN_S, LOW_IMPACT_CAP_S, MIN_SECONDS, impactOf, minSeconds, type Opportunity } from '../src/analysis/coach/opportunity';
 import { alsoSeconds, themeKey, themeOf, tipOf, wentOf } from '../src/analysis/coach/regatta';
-import { detectManoeuvres } from '../src/analysis/manoeuvres';
+import { coachCtx } from '../src/analysis/coach/detectors/context';
+import type { Group } from '../src/analysis/coach/groups';
+import { longestHoleIn } from '../src/analysis/coach/tracks';
+import { median } from '../src/analysis/geo';
+import { MAN_GAP_MS, detectManoeuvres } from '../src/analysis/manoeuvres';
 import { roundingMs } from '../src/analysis/places';
 import type { RaceAnalysis } from '../src/analysis/types';
 import { defaultLadderGroup } from '../src/ui/coach';
 import { askFinding } from '../src/ui/coachAskContext';
 import { cardText, cardWarnings, wentText } from '../src/ui/coachCards';
 import { buildReport } from '../src/ui/report';
-import type { Card } from '../src/analysis/coach/rank';
-import { cascaisRace, gateRace } from './helpers';
+import { cascaisRace, debriefOf, gateRace, j105Race } from './helpers';
 
 // ---- the cost of one manoeuvre (synthetic tracks; wind from the north, 1 Hz fixes)
 
@@ -96,6 +115,23 @@ describe('D17: the cost of one manoeuvre (manoeuvreCost.ts manoeuvreLoss)', () =
     // The track starts inside the steady window: no baseline.
     expect(manoeuvreLoss(track(tackVel(6)), 20_000, 'tack', 'upwind', north)).toBeNull();
   });
+  it('across the turn itself: a gap over MAN_GAP_MS (flagged by detectManoeuvres) and up to D17_MAX_GAP_MS is measured', () => {
+    // 9 s without a fix through the crossing (fixes at T − 4 s and T + 5 s).
+    const gappy = track(tackVel(6), 200_000, [T - 3000, T + 5000]);
+    expect(MAN_GAP_MS).toBe(5000);
+    expect(detectManoeuvres(gappy, north, 40_000, 160_000)).toEqual([expect.objectContaining({ kind: 'tack', gap: true })]);
+    const l = manoeuvreLoss(gappy, T, 'tack', 'upwind', north)!;
+    expect(l.lossM).toBeCloseTo(12, 6);
+    expect(l.cov).toBe(1);
+  });
+  it('a shorter steady window (after a close manoeuvre or the leg start): D17_MIN_PRE_MS at least, the same cost', () => {
+    expect(D17_MIN_PRE_MS).toBe(15_000);
+    const l = manoeuvreLoss(track(tackVel(6)), T, 'tack', 'upwind', north, D17_MIN_PRE_MS)!;
+    expect(l.preMs).toBe(D17_MIN_PRE_MS);
+    expect(l.vmg).toBeCloseTo(2, 6);
+    expect(l.lossM).toBeCloseTo(12, 6);
+    expect(manoeuvreLoss(track(tackVel(6)), T, 'tack', 'upwind', north, D17_MIN_PRE_MS - 1)).toBeNull();
+  });
   it('no steady baseline (stopped before the turn): skipped', () => {
     const still = (ms: number): [number, number] => (ms < T + 5000 ? [0, 0] : [-2, 2]);
     expect(manoeuvreLoss(track(still), T, 'tack', 'upwind', north)).toBeNull();
@@ -112,6 +148,24 @@ describe('D17: the calls (costly, tooMany, material, smooth)', () => {
     expect(costly({ medM: 3, fMedM: 1, seM: 0.5 })).toBe(false);
     // Over 4 m more but under 1.3×.
     expect(costly({ medM: 24, fMedM: 20, seM: 1 })).toBe(false);
+  });
+  it('two measured: each must be costly (smooth), so one bad turn is never the finding', () => {
+    // [111, −55] m (Cascais R2 feed, DEN 1398 Run 2): a median of 28 m, but one gybe of the two cost nothing.
+    expect(costly({ medM: 28, loM: -55, fMedM: -20, seM: 18 })).toBe(false);
+    expect(costly({ medM: 28, loM: 24, fMedM: -20, seM: 18 })).toBe(true);
+    expect(smooth({ medM: -10, hiM: 12, fMedM: 9, seM: 3 })).toBe(false);
+    expect(smooth({ medM: -10, hiM: -1, fMedM: 9, seM: 3 })).toBe(true);
+    expect([D17_MIN_MEASURED, D17_MIN_MEASURED_STRONG, D17_STRONG_REF_BOATS]).toEqual([3, 2, 10]);
+  });
+  it('the boat’s noise from its turn-to-turn spread (pairs within a boat), not the pooled metres’ (the boats’ differences)', () => {
+    const leg = (xs: number[]) => ({ measured: xs.map((lossM) => ({ lossM })) as ManoeuvreLoss[] });
+    // Boats 20 m apart, each steady to ±1 m: within-boat σ = median |difference| ÷ PAIR_SIGMA.
+    const legs = [leg([0, 1, 2]), leg([20, 21, 22]), leg([40, 41, 42]), leg([60, 61])];
+    const pooled = legs.flatMap((l) => l.measured.map((x) => x.lossM));
+    expect(withinSigma(legs, pooled)).toBeCloseTo(1 / PAIR_SIGMA, 9);
+    // Fewer than D17_MIN_PAIRS pairs: the pooled spread (wider).
+    expect(D17_MIN_PAIRS).toBe(10);
+    expect(withinSigma(legs.slice(0, 2), pooled)).toBeCloseTo((quantile(pooled, 0.75) - quantile(pooled, 0.25)) / IQR_SIGMA, 9);
   });
   it('tooMany: trusted counts only, 2 more and 1.5× the fleet median', () => {
     expect(tooMany(6, 3, true)).toBe(true);
@@ -145,58 +199,148 @@ const build = (data: ReturnType<typeof cascaisRace>): Race => {
 };
 const idOf = (r: Race, sail: string): string => r.a.boats.find((b) => b.sail === sail)!.id;
 
-describe('D17 on J/24 Nationals R2 (dense on Beat 2: 40 tacks measured from 27 boats)', () => {
+describe('D17 on J/24 Nationals R2 (dense on Beat 2: 38 tacks measured from 26 boats)', () => {
   let r: Race;
   beforeAll(() => {
     r = build(gateRace('j24r2'));
   });
-  it('fires on USA 3359: three tacks to the fleet’s one at about the fleet’s cost (a count finding, under the medium minimum)', () => {
-    const d = coachDebrief(r.a, r.m, idOf(r, 'USA 3359'))!;
+  const beat2 = (): ManoeuvreLoss[] => [...fleetManoeuvres(r).values()].flatMap((legs) => legs[2]?.measured ?? []);
+  it('fires on USA 3359: three tacks to the fleet’s one, each about the fleet’s cost (a count finding, at medium: a card of its own)', () => {
+    const d = debriefOf(r.a, r.m, idOf(r, 'USA 3359'))!;
     const o = d.found.find((x) => x.kind === 'D17')!;
     expect(o.variant).toBe('tack');
-    expect(o.facts).toMatchObject({ leg: 'Beat 2', man: 'tack', n: 3, fN: 1, many: 1 });
-    // The extra is the count's: its own tacks were no costlier than the fleet's.
-    expect(o.facts.handlingM as number).toBeLessThan(0);
-    expect(o.facts.countM as number).toBeGreaterThan(20);
-    expect(o.seconds).toBeGreaterThanOrEqual(10);
-    // Three measured: medium at best; ~11 s is under the medium minimum, so not a card.
+    expect(o.facts).toMatchObject({ leg: 'Beat 2', man: 'tack', n: 3, measured: 3, fN: 1, many: 1, extraN: 2 });
+    // The extra is the count's (2 extra × the fleet's median a tack), less its measured tacks' saving on the fleet's.
+    const c = legCost({ a: r.a, m: r.m, boat: idOf(r, 'USA 3359') }, 2)!;
+    expect(c.countM).toBeCloseTo(2 * c.fMedM, 9);
+    expect(c.handlingM).toBeCloseTo(c.mine.measured.reduce((s, x) => s + x.lossM - c.fMedM, 0), 9);
+    expect(c.handlingM).toBeLessThan(0);
+    expect(o.seconds).toBeCloseTo((c.countM + c.handlingM) / c.vmg, 9);
+    // Three measured: medium; ~11 s clears D17_MEDIUM_MIN_S, so it is a card on its own, outranked in this boat's top 3.
     const [card] = rankOpportunities([o], Infinity);
-    expect(card?.confidence ?? 'medium').toBe('medium');
-    expect(d.cards.some((c) => c.kind === 'D17')).toBe(false);
-    const t = cardText({ ...o, score: 0, limit: null } as Card);
+    expect(card.confidence).toBe('medium');
+    expect(o.seconds).toBeGreaterThanOrEqual(D17_MEDIUM_MIN_S);
+    expect(o.seconds).toBeLessThan(MIN_SECONDS.medium);
+    expect(d.cards.some((x) => x.kind === 'D17')).toBe(false);
+    const t = cardText(card);
     expect(t.title).toBe('Too many tacks on Beat 2');
-    expect(t.sentence).toMatch(/^Beat 2: your tacks cost ~\d+ m each \(~\d+ s\), the fleet's ~\d+ m; you tacked 3 times, the fleet 1 time; 3 tacks = ~\d+ m lost on the fleet\.$/);
-    expect(cardWarnings({ ...o, confidence: 'medium', limit: 'refs', score: 0 } as Card, r.a)).toContain('few manoeuvres measured');
+    expect(t.sentence).toBe(
+      "Beat 2: your 3 measured tacks cost ~11 m each, the fleet's ~14 m (~7 m less over them). You tacked 3 times, the fleet 1 time: 2 extra × the fleet's ~14 m a tack = ~28 m. ~21 m lost on the fleet in all.",
+    );
+    expect(cardWarnings(card, r.a)).toEqual(['few manoeuvres measured']);
+    // Its window: the measured tacks' own stretches only.
+    expect(card.spans).toEqual(c.mine.measured.map((x) => lossSpan(x.tMs, 'tack')));
   });
-  it('a Went well line for USA 1938: tacks far cheaper than the fleet’s', () => {
-    const d = coachDebrief(r.a, r.m, idOf(r, 'USA 1938'))!;
+  it('a Went well line for USA 1938: tacks far cheaper than the fleet’s, charged on the measured only', () => {
+    const d = debriefOf(r.a, r.m, idOf(r, 'USA 1938'))!;
     const n = d.plus.find((x) => x.detector === 'D17')!;
+    const c = legCost({ a: r.a, m: r.m, boat: idOf(r, 'USA 1938') }, 2)!;
     expect(n.variant).toBe('tack');
-    expect(n.seconds!).toBeGreaterThanOrEqual(30);
-    expect(wentText(n)).toMatch(/^Beat 2: tacks ~0 m each vs fleet ~1[34] m \(3 measured\)$/);
+    expect(c.mine.times.length).toBe(4);
+    expect(c.mine.measured.length).toBe(3);
+    expect(n.seconds!).toBeCloseTo(-c.handlingM / c.vmg, 9);
+    expect(n.seconds!).toBeGreaterThan(20);
+    expect(wentText(n)).toBe('Beat 2: tacks ~0 m each vs fleet ~14 m (3 measured)');
     expect(wentOf(r.a, n)).toMatchObject({ family: 'manoeuvres', label: 'Beat 2' });
   });
-  it('the Report’s legs table adds the measured cost to the tacks', () => {
+  it('the Report’s legs table: the measured cost against the selected group’s, like the SOG / VMG medians', () => {
     const boat = idOf(r, 'USA 1938');
-    const rep = buildReport({ a: r.a, boat, raceName: 'Race 2', model: r.m, deb: coachDebrief(r.a, r.m, boat), group: defaultLadderGroup(), official: null });
-    expect(rep.legs[2].manoeuvres).toMatch(/^~?\d+ tacks? · ~0 m each \(fleet ~1[34]\)$/);
-    // Legs without D17_MIN_MEASURED measured stay as they were.
-    expect(rep.legs[0].manoeuvres).toMatch(/^~?\d+ tacks?$/);
+    const rep = (group: Group) => buildReport({ a: r.a, boat, raceName: 'Race 2', model: r.m, deb: debriefOf(r.a, r.m, boat), group, official: null });
+    expect(rep({ kind: 'fleet' }).legs[2].manoeuvres).toBe('4 tacks · ~0 m each (fleet ~14)');
+    // Legs without enough measured stay as they were.
+    expect(rep({ kind: 'fleet' }).legs[0].manoeuvres).toMatch(/^~?\d+ tacks?$/);
+    // The top 3 (the default group) is under D17_MIN_REF_BOATS: no cost.
+    expect(defaultLadderGroup().kind).toBe('leaders');
+    expect(rep(defaultLadderGroup()).legs[2].manoeuvres).toBe('4 tacks');
+    // A custom group: the median of its boats' medians.
+    const fm = fleetManoeuvres(r);
+    const ids = [...fm.entries()].filter(([id, legs]) => id !== boat && (legs[2]?.measured.length ?? 0) >= 2).map(([id]) => id).slice(0, 6);
+    const meds = ids.map((id) => median(fm.get(id)![2]!.measured.map((x) => x.lossM)));
+    expect(ids.length).toBeGreaterThanOrEqual(D17_MIN_REF_BOATS);
+    const custom = rep({ kind: 'custom', ids } as Group).legs[2].manoeuvres;
+    expect(custom).toBe(`4 tacks · ~0 m each (group ~${Math.round(Math.max(0, median(meds)))})`);
+    expect(legCost({ a: r.a, m: r.m, boat }, 2, new Set(ids))!.fMedM).toBeCloseTo(median(meds), 9);
   });
   it('one D17 card a race per kind of manoeuvre, one D14 card a race, for every boat', () => {
     for (const b of r.a.boats) {
-      const d = coachDebrief(r.a, r.m, b.id);
+      const d = debriefOf(r.a, r.m, b.id);
       if (!d) continue;
       expect(d.found.filter((o) => o.kind === 'D14').length).toBeLessThanOrEqual(1);
       for (const v of ['tack', 'gybe']) expect(d.found.filter((o) => o.kind === 'D17' && o.variant === v).length).toBeLessThanOrEqual(1);
       expect(d.cards.filter((c) => c.kind === 'D14').length).toBeLessThanOrEqual(1);
     }
   }, 60_000);
-  it('the fleet reference leaves the boat out, and needs D17_MIN_MEASURED of its own', () => {
-    const c = legCost({ a: r.a, m: r.m, boat: idOf(r, 'USA 1938') }, 2)!;
-    expect(c.mine.measured.length).toBeGreaterThanOrEqual(D17_MIN_MEASURED);
-    expect(c.refMans).toBe(40 - c.mine.measured.length);
-    expect(c.seM).toBeGreaterThan(0);
+  it('the fleet reference: one median per other boat (clustered), its error from the spread of those medians', () => {
+    const me = idOf(r, 'USA 1938');
+    const c = legCost({ a: r.a, m: r.m, boat: me }, 2)!;
+    expect(c.refMans).toBe(beat2().length - c.mine.measured.length);
+    const others = [...fleetManoeuvres(r).entries()].filter(([id, legs]) => id !== me && legs[2]?.measured.length).map(([, legs]) => legs[2]!);
+    const meds = others.map((l) => median(l.measured.map((x) => x.lossM)));
+    expect(c.refBoats).toBe(others.length);
+    expect(c.fMedM).toBeCloseTo(median(meds), 9);
+    expect(c.seFleetM).toBeCloseTo((MEDIAN_SE * (quantile(meds, 0.75) - quantile(meds, 0.25))) / IQR_SIGMA / Math.sqrt(meds.length), 9);
+    // Over the boats, not the pooled turns: wider than the pooled turns would make it.
+    const pooled = others.flatMap((l) => l.measured.map((x) => x.lossM));
+    const pooledSe = (MEDIAN_SE * (quantile(pooled, 0.75) - quantile(pooled, 0.25))) / IQR_SIGMA / Math.sqrt(pooled.length);
+    expect(c.seFleetM).toBeGreaterThan(pooledSe);
+    expect(c.seM).toBeCloseTo(Math.hypot((MEDIAN_SE * withinSigma([c.mine, ...others], pooled)) / Math.sqrt(c.mine.measured.length), c.seFleetM), 9);
+  });
+  it('two measured are judged against a strong reference (D17_STRONG_REF_BOATS), not a thin one', () => {
+    const fm = fleetManoeuvres(r);
+    const two = [...fm.entries()].find(([, legs]) => legs[2]?.measured.length === D17_MIN_MEASURED_STRONG)![0];
+    expect(legCost({ a: r.a, m: r.m, boat: two }, 2)!.refBoats).toBeGreaterThanOrEqual(D17_STRONG_REF_BOATS);
+    // The same boat against 9 others (enough for 3 measured, not for 2).
+    const three = [...fm.entries()].find(([, legs]) => (legs[2]?.measured.length ?? 0) >= D17_MIN_MEASURED)![0];
+    const nine = new Set(
+      [...fm.entries()]
+        .filter(([id, legs]) => id !== two && id !== three && legs[2]?.measured.length)
+        .sort((p, q) => q[1][2]!.measured.length - p[1][2]!.measured.length)
+        .map(([id]) => id)
+        .slice(0, D17_STRONG_REF_BOATS - 1),
+    );
+    expect(nine.size).toBe(D17_STRONG_REF_BOATS - 1);
+    expect([...nine].reduce((s, id) => s + fm.get(id)![2]!.measured.length, 0)).toBeGreaterThanOrEqual(10);
+    expect(legCost({ a: r.a, m: r.m, boat: two }, 2, nine)).toBeNull();
+    expect(legCost({ a: r.a, m: r.m, boat: three }, 2, nine)).not.toBeNull();
+  });
+  it('every measured turn: settled D17_SETTLE_MS after the previous manoeuvre, D17_START_CLEAR_MS into the leg, dense to D17_MAX_GAP_MS', () => {
+    expect([D17_SETTLE_MS, D17_START_CLEAR_MS]).toEqual([20_000, 30_000]);
+    for (const b of r.a.boats) {
+      const tr = r.m.tracks.get(b.id)!;
+      for (const l of fleetManoeuvres(r).get(b.id) ?? []) {
+        for (const x of l?.measured ?? []) {
+          const from = x.tMs - D17_LEAD_MS - x.preMs;
+          expect(x.preMs).toBeGreaterThanOrEqual(D17_MIN_PRE_MS);
+          expect(from).toBeGreaterThanOrEqual(l!.t0 + D17_START_CLEAR_MS);
+          const prev = detectManoeuvres(tr, r.m.wind.twdAt, l!.t0 - 120_000, x.tMs - 1).at(-1);
+          if (prev) expect(from).toBeGreaterThanOrEqual(prev.tMs + D17_SETTLE_MS - 1);
+          expect(denseAround(tr.t, from, lossSpan(x.tMs, l!.kind)[1])).toBe(true);
+        }
+      }
+    }
+  });
+});
+
+describe('D17 across telemetry gaps: J/105 R3 (fixes 5–10 s apart in places)', () => {
+  it('a turn across a gap of up to D17_MAX_GAP_MS is measured; its leg’s count is no longer trusted', () => {
+    const r = build(j105Race(3));
+    let flagged = 0;
+    let measured = 0;
+    for (const b of r.a.boats) {
+      const tr = r.m.tracks.get(b.id)!;
+      for (const l of fleetManoeuvres(r).get(b.id) ?? []) {
+        if (!l) continue;
+        const flags = detectManoeuvres(tr, r.m.wind.twdAt, l.t0, l.t1 - 1);
+        measured += l.measured.length;
+        for (const x of l.measured) {
+          if (!flags.find((y) => y.tMs === x.tMs)?.gap) continue;
+          flagged++;
+          expect(l.trusted).toBe(false);
+        }
+      }
+    }
+    // A third of the turns measured there are across such a gap (none before: the gap flag skipped them).
+    expect([flagged, measured]).toEqual([33, 84]);
   });
 });
 
@@ -205,7 +349,7 @@ describe('D17 thin data: Cascais J/70 R3 (the fixture is 10 s apart away from th
   beforeAll(() => {
     r = build(cascaisRace('r3'));
   });
-  it('counts the tacks but measures none mid-leg, so no card and no ➕ for any boat', () => {
+  it('counts the tacks but measures too few for a fleet reference, so no card and no ➕ for any boat', () => {
     const fm = fleetManoeuvres(r);
     const counted = [...fm.values()].reduce((s, legs) => s + legs.reduce((t, l) => t + (l?.times.length ?? 0), 0), 0);
     expect(counted).toBeGreaterThan(100);
@@ -255,23 +399,73 @@ const d17 = (o: Partial<Opportunity> = {}): Opportunity => ({
   confidence: 'high',
   coverage: 1,
   conf: { boatCov: 1 },
-  facts: { leg: 'Beat 1', legKind: 'upwind', man: 'tack', n: 6, measured: 5, medM: 14, medS: 6, fMedM: 8, fMedS: 3.4, fN: null, extraM: 36, handlingM: 36, countM: 0, many: 0, vmg: 4.6, refN: 30 },
+  facts: { leg: 'Beat 1', legKind: 'upwind', man: 'tack', n: 6, measured: 5, medM: 14, medS: 6, fMedM: 8, fMedS: 3.4, fN: null, extraN: 0, extraM: 30, handlingM: 30, countM: 0, many: 0, vmg: 4.6, refN: 30 },
   refBoats: [],
   ...o,
 });
 
 describe('D17 card text, theme and Ask Coach context', () => {
-  it('plain and specific: the cost a tack against the fleet’s, and what the leg’s tacks cost', () => {
+  it('plain and specific: the cost a tack against the fleet’s, charged on the measured tacks only', () => {
     const [c] = rankOpportunities([d17()]);
     const t = cardText(c);
     expect(t.title).toBe('Costly tacks on Beat 1');
-    expect(t.sentence).toBe("Beat 1: your tacks cost ~14 m each (~6 s), the fleet's ~8 m; 6 tacks = ~36 m lost on the fleet.");
+    expect(t.sentence).toBe("Beat 1: your tacks cost ~14 m each (~6 s), the fleet's ~8 m: ~30 m lost on the fleet over the 5 of 6 measured.");
     expect(t.chips).toEqual(['~14 m a tack vs fleet ~8 m', '6 tacks', '5 of 6 measured']);
     expect(t.tip).toMatch(/^Smooth tacks/);
-    const g = cardText(rankOpportunities([d17({ variant: 'gybe', facts: { ...d17().facts, leg: 'Run 2', legKind: 'downwind', man: 'gybe', n: 4, fN: 2, countM: 16, also: 'Run 1' } })])[0]);
-    expect(g.title).toBe('Costly gybes on Run 2');
-    expect(g.sentence).toBe("Run 2: your gybes cost ~14 m each (~6 s), the fleet's ~8 m; you gybed 4 times, the fleet 2 times; 4 gybes = ~36 m lost on the fleet. Also on Run 1.");
-    expect(g.chips[1]).toBe('4 gybes vs fleet 2');
+  });
+  it('a count finding says it is the fleet’s cost a turn × the extra count, and adds the measured part', () => {
+    const facts = { ...d17().facts, leg: 'Run 2', legKind: 'downwind', man: 'gybe', n: 5, measured: 3, fN: 2, extraN: 3, handlingM: 18, countM: 24, extraM: 42, many: 1, also: 'Run 1' };
+    const g = cardText(rankOpportunities([d17({ variant: 'gybe', facts })])[0]);
+    expect(g.title).toBe('Too many gybes on Run 2');
+    expect(g.sentence).toBe(
+      "Run 2: your gybes cost ~14 m each (~6 s), the fleet's ~8 m: ~18 m lost on the fleet over the 3 of 5 measured. You gybed 5 times, the fleet 2 times: 3 extra × the fleet's ~8 m a gybe = ~24 m. ~42 m lost on the fleet in all. Also on Run 1.",
+    );
+    expect(g.chips).toEqual(['~14 m a gybe vs fleet ~8 m', '5 gybes vs fleet 2', '3 of 5 measured']);
+    // All measured, at about the fleet's cost: the count alone.
+    const only = cardText(rankOpportunities([d17({ facts: { ...d17().facts, n: 5, measured: 5, medM: 8, fN: 2, extraN: 3, handlingM: 0, countM: 24, extraM: 24, many: 1 } })])[0]);
+    expect(only.title).toBe('Too many tacks on Beat 1');
+    expect(only.sentence).toBe("Beat 1: your 5 measured tacks cost ~8 m each, the fleet's ~8 m. You tacked 5 times, the fleet 2 times: 3 extra × the fleet's ~8 m a tack = ~24 m.");
+  });
+  it('its own ⚠ chip at medium: few manoeuvres measured, or few boats measured (never another detector’s)', () => {
+    const a = { meta: { tzOffsetMs: 0, gunMs: 0 } } as unknown as RaceAnalysis;
+    const few = rankOpportunities([d17({ facts: { ...d17().facts, measured: D17_HIGH_MEASURED - 1 }, conf: { boatCov: 1, refCap: 'medium' } })])[0];
+    expect(few.confidence).toBe('medium');
+    expect(cardWarnings(few, a)).toEqual(['few manoeuvres measured']);
+    // Five measured, but fewer than 3 fleet boats with D17_MIN_MEASURED: the references cap it.
+    const refs = rankOpportunities([d17({ conf: { boatCov: 1, refs: { good: 2, fair: 20, need: 3 } } })])[0];
+    expect([refs.confidence, refs.limit]).toEqual(['medium', 'refs']);
+    expect(cardWarnings(refs, a)).toEqual(['few boats measured']);
+  });
+  it('a medium D17 card needs D17_MEDIUM_MIN_S (measured turn by turn), other medium cards MIN_SECONDS.medium', () => {
+    expect(D17_MEDIUM_MIN_S).toBe(MIN_SECONDS.high);
+    expect(minSeconds('D17', 'medium')).toBe(10);
+    expect(minSeconds('D17', 'high')).toBe(MIN_SECONDS.high);
+    expect(minSeconds('D17', 'low')).toBe(MIN_SECONDS.low);
+    expect(minSeconds('D6', 'medium')).toBe(MIN_SECONDS.medium);
+    const medium = { boatCov: 1, refCap: 'medium' as const };
+    expect(rankOpportunities([d17({ seconds: 12, conf: medium })])).toHaveLength(1);
+    expect(rankOpportunities([d17({ seconds: 9, conf: medium })])).toEqual([]);
+    expect(rankOpportunities([opp({ seconds: 12, conf: { boatCov: 0.6 } })])).toEqual([]);
+  });
+  it('its ⚠ hole is read within its measured stretches, not across the gaps between the tacks', () => {
+    const t = [0, 1000, 38_000, 300_000, 301_000, 338_000].map((x) => x);
+    // 37 s and 299 s without a fix: only the first is inside a stretch.
+    expect(longestHoleIn(t, [[0, 38_000], [300_000, 338_000]])).toEqual({ fromMs: 1000, toMs: 38_000 });
+    expect(longestHoleIn([0, 5000, 10_000, 300_000, 305_000], [[0, 10_000], [300_000, 305_000]])).toBeNull();
+  });
+  it('a race’s D17 cards hold only measured turns, at most one a kind', () => {
+    const r = build(gateRace('j24r2'));
+    for (const b of r.a.boats) {
+      const ctx = coachCtx(r.a, r.m, b.id);
+      if (!ctx) continue;
+      const res = detectManoeuvreCost(ctx);
+      expect(res.opps.filter((o) => o.variant === 'tack').length).toBeLessThanOrEqual(1);
+      for (const o of res.opps) {
+        const l = fleetManoeuvres(r).get(b.id)!.find((x) => x?.kind === o.variant && r.a.legs[x.leg].name === o.facts.leg)!;
+        expect(o.spans).toEqual(l.measured.map((x) => lossSpan(x.tMs, l.kind)));
+        expect([o.t0, o.t1]).toEqual([o.spans![0][0], o.spans!.at(-1)![1]]);
+      }
+    }
   });
   it('a Regatta theme with its own label, phrase and tips; the riding legs count', () => {
     expect(themeKey('D17', 'tack')).toBe('manoeuvres');
@@ -284,7 +478,7 @@ describe('D17 card text, theme and Ask Coach context', () => {
   it('Ask Coach carries the card as the page shows it', () => {
     const [c] = rankOpportunities([d17()]);
     const a = { meta: { tzOffsetMs: 0, gunMs: 0 } } as unknown as RaceAnalysis;
-    expect(askFinding(c, a, 1)).toMatchObject({ title: 'Costly tacks on Beat 1', seconds: 15, what: "Beat 1: your tacks cost ~14 m each (~6 s), the fleet's ~8 m; 6 tacks = ~36 m lost on the fleet." });
+    expect(askFinding(c, a, 1)).toMatchObject({ title: 'Costly tacks on Beat 1', seconds: 15, what: "Beat 1: your tacks cost ~14 m each (~6 s), the fleet's ~8 m: ~30 m lost on the fleet over the 5 of 6 measured." });
   });
 });
 

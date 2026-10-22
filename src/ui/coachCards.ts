@@ -542,19 +542,29 @@ const manM = (m: Fact): string => r0(Math.max(0, num(m)));
 /** "tack" / "tacks". */
 const manWord = (man: Fact, n = 2): string => `${man === 'gybe' ? 'gybe' : 'tack'}${n === 1 ? '' : 's'}`;
 
-/** D17's card: each tack (gybe) cost more than the fleet's on the leg, or there were many more of them; the race's other such legs as "also …". */
+/**
+ * D17's card: each tack (gybe) cost more than the fleet's on the leg, or there were many more of them; the race's other
+ * such legs as "also …". Only the measured turns are charged; a count at the fleet's cost a turn, and the card says so.
+ */
 function manoeuvreText(c: Card): CardText {
   const f = c.facts;
   const n = num(f.n);
-  const counted = f.fN != null && num(f.countM) > 0;
+  const k = num(f.measured);
+  const extra = num(f.extraN);
   const verb = f.man === 'gybe' ? 'gybed' : 'tacked';
-  const each = `your ${manWord(f.man)} cost ~${manM(f.medM)} m each (~${r0(f.medS)} s), the fleet's ~${manM(f.fMedM)} m`;
-  const count = counted ? `; you ${verb} ${n} ${s1(n, 'time', 'times')}, the fleet ${timesPhrase(f.fN)}` : '';
+  const of = k < n ? ` of ${n}` : '';
+  const h = num(f.handlingM);
+  const handling =
+    h > 0
+      ? `your ${manWord(f.man)} cost ~${manM(f.medM)} m each (~${r0(f.medS)} s), the fleet's ~${manM(f.fMedM)} m: ~${r0(h)} m lost on the fleet over the ${k}${of} measured`
+      : `your ${k}${of} measured ${manWord(f.man, k)} cost ~${manM(f.medM)} m each, the fleet's ~${manM(f.fMedM)} m${Math.round(-h) > 0 ? ` (~${r0(-h)} m less over them)` : ''}`;
+  const count = extra > 0 ? ` You ${verb} ${n} ${s1(n, 'time', 'times')}, the fleet ${timesPhrase(f.fN)}: ${f1(extra).replace(/\.0$/, '')} extra × the fleet's ~${manM(f.fMedM)} m a ${manWord(f.man, 1)} = ~${r0(f.countM)} m.` : '';
+  const total = extra > 0 && Math.round(h) !== 0 ? ` ~${r0(f.extraM)} m lost on the fleet in all.` : '';
   const also = f.also ? ` Also on ${f.also}.` : '';
   return {
     title: num(f.many) && num(f.countM) >= num(f.handlingM) ? `Too many ${manWord(f.man)} on ${f.leg}` : `Costly ${manWord(f.man)} on ${f.leg}`,
-    chips: [`~${manM(f.medM)} m a ${manWord(f.man, 1)} vs fleet ~${manM(f.fMedM)} m`, f.fN != null ? `${n} ${manWord(f.man, n)} vs fleet ${f1(num(f.fN)).replace(/\.0$/, '')}` : `${n} ${manWord(f.man, n)}`, `${r0(f.measured)} of ${n} measured`],
-    sentence: `${f.leg}: ${each}${count}; ${n} ${manWord(f.man, n)} = ~${r0(f.extraM)} m lost on the fleet.${also}`,
+    chips: [`~${manM(f.medM)} m a ${manWord(f.man, 1)} vs fleet ~${manM(f.fMedM)} m`, f.fN != null ? `${n} ${manWord(f.man, n)} vs fleet ${f1(num(f.fN)).replace(/\.0$/, '')}` : `${n} ${manWord(f.man, n)}`, `${r0(k)} of ${n} measured`],
+    sentence: `${f.leg}: ${handling}.${count}${total}${also}`,
     tip: MANOEUVRE_TIPS[String(f.man)] ?? MANOEUVRE_TIPS.tack,
   };
 }
@@ -620,8 +630,10 @@ export function cardWarnings(c: Card, a: RaceAnalysis, raceCov?: number | null):
             ? 'from the tracker feed'
             : c.kind === 'D16'
             ? 'wind at the gun est.'
-            : c.kind === 'D17' && num(c.facts.measured) < D17_HIGH_MEASURED
-            ? 'few manoeuvres measured'
+            : c.kind === 'D17'
+            ? num(c.facts.measured) < D17_HIGH_MEASURED
+              ? 'few manoeuvres measured'
+              : 'few boats measured'
             : c.kind === 'D14'
             ? 'few boats a third'
             : c.kind === 'D13'

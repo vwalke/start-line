@@ -29,7 +29,7 @@ import { detectNowhere } from './detectors/nowhere';
 import { detectLineBias } from './detectors/lineBias';
 import { detectManoeuvreCost } from './detectors/manoeuvreCost';
 import { D3_GAP_S, D3_WINDOW_MS } from './detectors/early';
-import { longestHole, trackLegAt } from './tracks';
+import { longestHole, longestHoleIn, trackLegAt } from './tracks';
 import { coachCoverage, gapChange, rangeOf, type GoodNote, type Opportunity } from './opportunity';
 import { median } from '../geo';
 import { rankOpportunities, type Card } from './rank';
@@ -339,8 +339,9 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
     .map((o) => thinNote(ctx, o, raceCov));
   const dense = found.some((o) => o.coverage >= OK_WINDOW) || ok.some((o) => !o.thin);
   const noData = raceCov < RACE_MIN_COVERAGE && !dense;
-  // Each card's longest hole, for a low-confidence card's ⚠ chip.
-  const cards = (noData ? [] : rankOpportunities(found)).map((c) => ({ ...c, conf: { ...c.conf, hole: longestHole(ctx.tr.t, c.t0, c.t1) } }));
+  // Each card's longest hole, for a low-confidence card's ⚠ chip (D17's within its measured stretches, not between them).
+  const holeOf = (c: Opportunity): ReturnType<typeof longestHole> => (c.kind === 'D17' && c.spans ? longestHoleIn(ctx.tr.t, c.spans) : longestHole(ctx.tr.t, c.t0, c.t1));
+  const cards = (noData ? [] : rankOpportunities(found)).map((c) => ({ ...c, conf: { ...c.conf, hole: holeOf(c) } }));
   return {
     cards,
     penalty,

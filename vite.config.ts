@@ -33,5 +33,8 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',
+    // Child processes (the default, pinned): tests/setup.ts yields so a long synchronous file never starves their IPC.
+    pool: 'forks',
+    setupFiles: ['tests/setup.ts'],
   },
 });

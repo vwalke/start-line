@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import { buildCoach, coachRaw, type CoachModel } from '../src/analysis/coach';
-import { coachDebrief, sideCard } from '../src/analysis/coach/debrief';
+import { sideCard } from '../src/analysis/coach/debrief';
 import { withAlso } from '../src/analysis/coach/detectors/side';
 import { D16_GOOD_SHARE, D16_MATERIAL_S, D16_MIN_BOATS, biasCall, medianStartPct } from '../src/analysis/coach/detectors/lineBias';
 import { CAP_EXEMPT, MAX_PER_KIND } from '../src/analysis/coach/rank';
@@ -12,7 +12,7 @@ import { windSource } from '../src/analysis/line';
 import type { RaceAnalysis } from '../src/analysis/types';
 import { cardText, wentText } from '../src/ui/coachCards';
 import { raceAskContext } from '../src/ui/coachAskContext';
-import { gateRace } from './helpers';
+import { debriefOf, gateRace } from './helpers';
 
 const opp = (o: Partial<Opportunity>): Opportunity => ({
   kind: 'D14',
@@ -122,7 +122,7 @@ describe('Melges 24 R5 and J/24 R2: one side-of-course card a race, material lin
 
   it('853 (three "Left paid" cards before): one D14 card, the other legs as "also …", on the card and in Ask Coach', () => {
     const me = m24.a.boats.find((b) => b.sail === '853')!;
-    const d = coachDebrief(m24.a, m24.m, me.id)!;
+    const d = debriefOf(m24.a, m24.m, me.id)!;
     const side = d.cards.filter((c) => c.kind === 'D14');
     expect(side).toHaveLength(1);
     const c = side[0];
@@ -142,7 +142,7 @@ describe('Melges 24 R5 and J/24 R2: one side-of-course card a race, material lin
   it('every boat: at most one D14 card and one D14 Went well line; no detector over MAX_PER_KIND in the top 3', () => {
     let cards = 0;
     for (const b of m24.a.boats) {
-      const d = coachDebrief(m24.a, m24.m, b.id)!;
+      const d = debriefOf(m24.a, m24.m, b.id)!;
       const n = d.cards.filter((c) => c.kind === 'D14').length;
       expect(n).toBeLessThanOrEqual(1);
       cards += n;
@@ -165,7 +165,7 @@ describe('Melges 24 R5 and J/24 R2: one side-of-course card a race, material lin
       let card = 0;
       let good = 0;
       for (const b of r.a.boats) {
-        const d = coachDebrief(r.a, r.m, b.id)!;
+        const d = debriefOf(r.a, r.m, b.id)!;
         card += d.cards.filter((c) => c.kind === 'D16').length;
         const o = d.found.find((x) => x.kind === 'D16');
         if (o) {
@@ -191,6 +191,6 @@ describe('Melges 24 R5 and J/24 R2: one side-of-course card a race, material lin
     expect(tally(m24)).toEqual({ found: 8, card: 5, good: 14 });
     // J/24 R2: none in PR #46's start-window wind (pin 1.5°); Beat 1's, RC 6.7°: found on 4, 2 in their top 3.
     expect(tally(j24)).toEqual({ found: 4, card: 2, good: 13 });
-    for (const r of [m24, j24]) for (const b of r.a.boats) for (const c of coachDebrief(r.a, r.m, b.id)!.cards) if (c.kind === 'D16') expect(c.seconds).toBeGreaterThanOrEqual(MIN_SECONDS[c.confidence]);
+    for (const r of [m24, j24]) for (const b of r.a.boats) for (const c of debriefOf(r.a, r.m, b.id)!.cards) if (c.kind === 'D16') expect(c.seconds).toBeGreaterThanOrEqual(MIN_SECONDS[c.confidence]);
   }, 60_000);
 });

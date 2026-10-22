@@ -206,8 +206,15 @@ export const impactOf = (seconds: number, level: Confidence): number => CONF_WEI
  * off crossing times rather than modelled: at high confidence its card needs only this much, s (its smallest trigger).
  */
 export const D1_MIN_S = 4;
+/**
+ * D17 at medium needs only this much, s (the high minimum): its seconds are measured turn by turn on dense fixes, not
+ * modelled across holes, its medium is the sample size's (detectors/manoeuvreCost.ts D17_HIGH_MEASURED), and its own
+ * test (2 standard errors from the fleet) already stands for the noise the medium minimum guards against.
+ */
+export const D17_MEDIUM_MIN_S = MIN_SECONDS.high;
 /** Fewest seconds a card of `kind` may show at `level`. */
-export const minSeconds = (kind: DetectorKind, level: Confidence): number => (kind === 'D1' && level === 'high' ? D1_MIN_S : MIN_SECONDS[level]);
+export const minSeconds = (kind: DetectorKind, level: Confidence): number =>
+  kind === 'D1' && level === 'high' ? D1_MIN_S : kind === 'D17' && level === 'medium' ? D17_MEDIUM_MIN_S : MIN_SECONDS[level];
 
 // ---- gap reads
 

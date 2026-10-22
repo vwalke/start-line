@@ -141,3 +141,13 @@ export function longestHole(t: ArrayLike<number>, from: number, to: number): { f
   consider(t[t.length - 1], to);
   return best;
 }
+
+/** The longest hole (longestHole) within any of `spans`; null when there is none. */
+export function longestHoleIn(t: ArrayLike<number>, spans: readonly [number, number][]): { fromMs: number; toMs: number } | null {
+  let best: { fromMs: number; toMs: number } | null = null;
+  for (const [a, b] of spans) {
+    const h = longestHole(t, a, b);
+    if (h && (!best || h.toMs - h.fromMs > best.toMs - best.fromMs)) best = h;
+  }
+  return best;
+}
