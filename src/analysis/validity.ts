@@ -51,6 +51,32 @@ export function sampleGap(t: ArrayLike<number>, ts: number): { gapS: number; not
   return { gapS, note: `interpolated across a ${Math.round(gapS)} s data gap` };
 }
 
+/** An unranked start (our DTL across a hole) is still placed at the gun, estimated, by dead reckoning from a fix this close to the sample… */
+export const START_EST_NEAR_MS = 10_000;
+/** …or, without one, by our interpolated DTL when fixes this close bracket the sample on both sides. Further out: unknown. */
+export const START_EST_SIDE_MS = 30_000;
+
+/**
+ * Our DTL at sample `ts` estimated across a hole (StartResult.estDtlM): from the nearest fix within START_EST_NEAR_MS,
+ * its DTL carried on at its speed toward the line (`dtlAt(i)`, `vToLine(i)` m/s); else the interpolated `dtlM` when
+ * fixes within START_EST_SIDE_MS bracket the sample; else null.
+ */
+export function estimateDtl(t: ArrayLike<number>, ts: number, dtlM: number, dtlAt: (i: number) => number, vToLine: (i: number) => number): number | null {
+  const n = t.length;
+  let lo = 0;
+  let hi = n;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (t[mid] < ts) lo = mid + 1;
+    else hi = mid;
+  }
+  const before = lo > 0 ? ts - t[lo - 1] : Infinity;
+  const after = lo < n ? t[lo] - ts : Infinity;
+  const i = before <= after ? lo - 1 : lo;
+  if (Math.min(before, after) <= START_EST_NEAR_MS) return dtlAt(i) - (vToLine(i) * (ts - t[i])) / 1000;
+  return before <= START_EST_SIDE_MS && after <= START_EST_SIDE_MS ? dtlM : null;
+}
+
 /** Explanation when both figures are valid and more than DISAGREE_M apart. */
 export function disagreement(rcM: number | null, oursM: number | null): string | null {
   if (rcM == null || oursM == null) return null;
@@ -90,6 +116,11 @@ export function rankStarts(boats: BoatResult[]): void {
   const clean = boats.filter((b) => b.start && !b.start.over && !b.start.awayFromLine && b.start.rank).sort((x, y) => x.start!.rank!.m - y.start!.rank!.m);
   for (const b of boats) if (b.start) b.start.startPlace = null;
   clean.forEach((b, i) => (b.start!.startPlace = i + 1));
+  // estPlace: the ranked boats in their order, with the gap-interpolated ones placed between them by their estimated DTL.
+  const key = (s: StartResult): number | null => s.rank?.m ?? s.estDtlM ?? null;
+  const line = boats.filter((b) => b.start && !b.start.over && !b.start.awayFromLine && key(b.start) != null).sort((x, y) => key(x.start!)! - key(y.start!)!);
+  for (const b of boats) if (b.start) b.start.estPlace = null;
+  line.forEach((b, i) => (b.start!.estPlace = i + 1));
 }
 
 /** Every caveat on a boat's start figures, in display order. */

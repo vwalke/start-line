@@ -135,6 +135,13 @@ export interface StartResult {
   over: boolean;
   /** Place among clean starters (1 = closest to the line); null when over, unranked or away from the line. */
   startPlace: number | null;
+  /** Our DTL at the sample estimated across the hole it sits in (validity.ts estimateDtl), m; null when not interpolated or the hole is too long. */
+  estDtlM?: number | null;
+  /**
+   * Place at the gun among every boat on the line (validity.ts rankStarts): the ranked ones in `startPlace` order, the
+   * gap-interpolated ones placed between them by `estDtlM`; null when over, away or unknown. An estimate: never shown as the start place.
+   */
+  estPlace?: number | null;
   /** Bow is far from the line at the gun: listed as away, left out of Fit and start places. */
   awayFromLine: boolean;
   /** Vakaros and ours are both valid but clearly disagree. */

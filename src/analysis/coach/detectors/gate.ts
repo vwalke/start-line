@@ -43,7 +43,7 @@
  */
 import { bisectRight, bearingVec, dot, len, median, norm360, sub, vecBearing, wrap180, type Vec } from '../../geo';
 import type { CoachModel } from '../index';
-import { fleetSide } from '../legStory';
+import { fleetSideOf } from '../legStory';
 import { coachCoverage, type Confidence, type GoodNote, type Opportunity, windOkShare } from '../opportunity';
 import { gateGeoms, gateSideReads, type GateGeom, type GateSide, type GateSideRead } from '../gateSides';
 import { COACH_MAX_SPAN_S, posAt, type CoachTrack } from '../tracks';
@@ -307,14 +307,6 @@ export interface D13Result {
   notes: GoodNote[];
   /** At least one of the boat's gate roundings was judged (the Regatta view's denominator). */
   evaluated: boolean;
-}
-
-const fleetSideMemo = new WeakMap<CoachModel, Map<number, ReturnType<typeof fleetSide>>>();
-function fleetSideOf(a: RaceAnalysis, m: CoachModel, li: number): ReturnType<typeof fleetSide> {
-  let s = fleetSideMemo.get(m);
-  if (!s) fleetSideMemo.set(m, (s = new Map()));
-  if (!s.has(li)) s.set(li, fleetSide(a, m, li));
-  return s.get(li)!;
 }
 
 /**

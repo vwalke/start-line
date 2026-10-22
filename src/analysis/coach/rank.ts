@@ -3,6 +3,8 @@
  * (opportunity.ts confidenceOf); score = seconds × weight. Each race-second is
  * claimed once: the higher score keeps an overlapped stretch, the other's
  * seconds shrink by the share of its window overlapped, and it is re-scored.
+ * The line bias (D16) is a start finding too (its window the approach, before D1's). The side of the course (D14) and
+ * speed without progress (D15) are whole-leg findings like D6 / D7.
  * Then the per-confidence minimum (D1's lower at high confidence: minSeconds), and the top 3 (ties → the earlier window).
  * The start comes first: a start finding (D1, the merged start card, or D3) keeps its window
  * (gun − 10 s → crossing + 5 min); the whole-leg rate findings (D6, D7, D11) lose that stretch
@@ -65,11 +67,11 @@ function trimmed(o: Card, taken: readonly Opportunity[]): Card {
 }
 
 /** Start findings: their window is never trimmed by a rate finding. */
-export const START_KINDS: ReadonlySet<Opportunity['kind']> = new Set(['D1', 'D3']);
+export const START_KINDS: ReadonlySet<Opportunity['kind']> = new Set(['D1', 'D3', 'D16']);
 /** Moments other than the start whose window a rate finding gives up too: penalty turns, and the gate choice. */
 export const MOMENT_KINDS: ReadonlySet<Opportunity['kind']> = new Set(['D12', 'D13']);
-/** Rate × time findings over whole legs: trimmed for the start's window instead. */
-export const RATE_KINDS: ReadonlySet<Opportunity['kind']> = new Set(['D6', 'D7', 'D11']);
+/** Rate × time findings over whole legs (angles, heel, the side of the course, speed without progress): trimmed for the start's window instead. */
+export const RATE_KINDS: ReadonlySet<Opportunity['kind']> = new Set(['D6', 'D7', 'D11', 'D14', 'D15']);
 
 /** [a, b] less the `cut` spans. */
 function without(a: number, b: number, cut: readonly [number, number][]): [number, number][] {

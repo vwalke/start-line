@@ -34,7 +34,9 @@ are shared by all three.
     over the race with the fleet's wind under it, the biggest gains as cards,
     **Went well** (up to 3 lines with the seconds gained: legs, roundings
     and the start where the boat gained on the top 3), the ✓ "Not the
-    problem" chips, and a story per leg. Works on every race the menu offers,
+    problem" chips (on a stretch the tracker covered under 50 % a "Not judged"
+    chip instead: "Not enough data to judge banked gains (tracker 37%)", never a
+    ✓), and a story per leg. Works on every race the menu offers,
     rebuilt and tracker-only ones included.
   - **Regatta:** the same boat over every race the Race menu lists (its
     numbering; practice left out; rebuilt and tracker-only races in). A row of
@@ -167,6 +169,40 @@ are shared by all three.
     places at the same rounding ride on the card. "Gate L/R" on the legs table and
     the leg story; a gate-choice subtheme of the leeward roundings in the Regatta
     view. J/24 Nationals R2/R5 fire; J/111, IC37 and Melges 24 gates don't.
+  - **D14 side of the course** (`side.ts`, the leg story's side as a card): on each
+    beat and run the whole fleet is cut in thirds by its mean position across the
+    wind; the paying third's mean places gained over the other's is the effect. A
+    card when it is 3+ places and 2+ standard errors (the thirds' spread), over 5+
+    boats a third, and the boat was in the losing third with its own position in
+    the leg's middle third ("Right paid on Run 2: the right third of the fleet
+    gained ~9 places on the left third; you were 455 m left of the fleet's
+    middle"). Seconds = the effect × the fleet's seconds per place at the leg's
+    end around the boat's place (as D9's sparse-data card reads places as time);
+    medium under 10 boats a third. Without its own position: no card, only the
+    leg story's side. In the paying third and gaining places: a Went well line.
+    A "Side of the course" theme in the Regatta view.
+  - **D15 fast but going nowhere** (`nowhere.ts`): every boat's path on the leg
+    read the same way (positions every 10 s, never across a hole over 15 s), so
+    dense and sparse tracks compare like for like: SOG = distance ÷ time read, VMG =
+    progress along the wind ÷ time read. A card when the boat was at least as fast
+    as the fleet's median but 5 %+ lower in VMG, sailing 5 %+ more distance per
+    metre made good, with half its leg read and 8+ boats to compare ("Fast but not
+    climbing on Beat 2: 5.9 vs 5.7 kn, VMG 4.1 vs 4.4 kn, 44° vs fleet 40°");
+    seconds = the VMG deficit × the leg time, like D6. As fast and 8 %+ better VMG
+    on no longer a path is a Went well line. D6 / D7's ✓ leaves out a leg where
+    the VMG and the path say the boat went nowhere, so "pointing" is never called
+    fine against the distance sailed.
+  - **D16 line bias** (`lineBias.ts`): with the start line 6°+ off square to the
+    wind at the gun (at 6° the favoured end is about a tenth of the line further
+    upwind), the boat's share of the line from the favoured end × the favoured-by
+    metres is the ground given away, ÷ the fleet's VMG on Beat 1 the seconds.
+    Started in the third at the unfavoured end: a start card ("Pin end favoured
+    9°: you started 70% from the pin: about 116 m given away"), confidence the
+    wind's at the gun; in the favoured third: a Went well line ("Start: pin end
+    favoured 9° (~166 m) and you started 0% from the pin", seconds against the
+    line's middle). Needs the boat's position at the gun (read, or estimated
+    across a short hole); not for a boat over early. The Report's start section
+    shows the line bias too.
   - **Regatta view, Penalties:** a row above the pattern cards, one line per code
     ("DPI in 8 of 8 races · 24 penalty points · ≈ 24 places", "UFD in 1 of 8 races
     (R3) · 16 points; result lost") and penalty turns ("Penalty turns in 2 of 8
@@ -189,15 +225,33 @@ are shared by all three.
     fleet's median splits, or carried on at its own pace; such places show `~`.
     A finish lost in a hole is placed among the finishers by its estimated
     time; a boat that finished with a code (DPI…) at its on-water place; coded
-    boats that didn't (DNF…) after the last finisher. Against Top 3 / Near /
+    boats that didn't (DNF…) after the last finisher. The start: every boat on
+    the line by its place at the gun, the start place's order kept and a boat
+    whose DTL falls in a hole placed between from its nearest fix (dead reckoning
+    when one is within 10 s, else interpolation when fixes within 30 s bracket
+    the gun; `~`); over early or away from the line after them; with neither,
+    its start place is unknown ("— · 20th of 100") and it is left out of Beat 1's
+    places gained and movers. Against Top 3 / Near /
     custom the closed row adds the leg's seconds against the group's median leg
     time ("lost 12 s vs Top 3") instead of a place within a handful of boats.
+    Side: positions every 30 s, read across holes up to 60 s with a fix within
+    30 s, a third of the reads needed (the bursty public feed left runs with no
+    verdict at 15 s / half). Gybe-set: a gybe from 5 s before the windward mark
+    to 30 s after the boat first sails downwind (|TWA| ≥ 120°, looked for up to
+    60 s): past an offset mark's reach the set is at the offset (Cascais R2 Run 1:
+    17 gybe-setters, +14 places vs −4 for the bear-aways; 1 with the old 30 s
+    from the mark), on a plain windward mark the same 30 s as before.
+- **Impossible leg splits** (`analysis/legs.ts` `legSplitOk`): a leg faster than
+  max(25 kn, 3× the fleet's median SOG or VMG for it), or sailed in under 0.3 of the
+  fleet's median time, is unknown (—) everywhere: the legs table, the fastest
+  leg, the movers, the Coach (a rounding timed off a position glitch or a second
+  device on the sail: Cascais R3 FRA 1089 Beat 2 in 19 s at a VMG of 380 kn).
 - **Report** (`src/ui/report.ts`, `src/ui/reportView.ts`): the **Report** button
   (top right of the race header), `#report` or `report=1` opens one printable page
   for the selected boat in the race: the header (place on the water and scored,
   with any code; race, official elapsed and corrected times; the estimated wind;
   tracker coverage), the start (distance and seconds late at the gun, start place,
-  line position, place over the line and front row, over early and when it
+  the estimated place at the gun when the start place is unranked, the line bias, line position, place over the line and front row, over early and when it
   cleared, the start card), leg by leg (places in → out of the fixed fleet, time
   against the Coach's group, SOG and VMG against the group's median, tacks /
   gybes, side, gate buoy, data), roundings and gates (D9 / D13), penalties (the
@@ -766,8 +820,8 @@ functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing
 functions/api/vkx/*.ts       boat-log upload routes (upload, list, data, delete)
 functions/_lib.ts            allowlist, query validation and cache TTL (not a route)
 functions/_vkx.ts            boat-log handlers, validation, feed check, R2 layout (not a route)
-tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1, j105_r2, vkx/)
-scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88|j105|j105r1)
+tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1–r3, ic37_r5, gate_*, cascais_r2, cascais_r3, vkx/)
+scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88|j105|j105r1|j105r3|ic37|gate-*|cascais-r2|cascais-r3)
 scripts/make-recovery-fixtures.ts  records tests/fixtures/recovery (Yachtscoring, probes, finishing bands; network once)
 scripts/make-vkx-fixture.mjs builds tests/fixtures/vkx from a boat log + regatta doc
 scripts/vkx-dev.mjs          `npm run dev:vkx`: Vite + the upload routes over an in-memory R2

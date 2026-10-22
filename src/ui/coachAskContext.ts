@@ -13,7 +13,7 @@ import type { Card } from '../analysis/coach/rank';
 import { summarizeRegatta, legWord, type RegattaRace } from '../analysis/coach/regatta';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { GROUP_LABEL } from './coach';
-import { cardText, cardWarnings, chipsMax, d5RefChip, fewerLine, goodTexts, penaltyText, secondsChip, wentText, windowChip } from './coachCards';
+import { cardText, cardWarnings, chipsMax, d5RefChip, fewerLine, goodTexts, penaltyText, secondsChip, thinText, wentText, windowChip } from './coachCards';
 import { legStoryText, type StoryChip } from './coachLegs';
 import { LEG_TYPE, finishShort, legExtremeText, penaltyRowText, placeWhat, regattaWentText, secs, type RegattaProgress } from './coachRegatta';
 import type { Chip } from './info';
@@ -93,7 +93,8 @@ export function raceAskContext(o: RaceAskInput): AskContext {
     race: compact({ name: o.raceName ?? `Race ${a.meta.raceNumber}`, header: o.head.map(warnText), notes }),
     penalty: deb?.penalty ? askPenalty(deb.penalty, a) : undefined,
     findings: deb?.cards.map((c) => askFinding(c, a, deb.raceCov)),
-    notTheProblem: deb?.ok.flatMap(goodTexts),
+    notTheProblem: deb?.ok.filter((n) => !n.thin).flatMap(goodTexts),
+    notJudged: deb?.ok.filter((n) => n.thin).map(thinText),
     wentWell: deb?.plus.map((n) => ({ text: wentText(n), seconds: Math.round(n.seconds ?? (typeof n.facts.gainS === 'number' ? n.facts.gainS : 0)) })),
     legs: o.stories.map((s) => askLeg(s, a, me.id, o.group)),
   });

@@ -972,6 +972,8 @@ html.fs-on { overflow: hidden; }
 .regatta-penalties { margin: 10px 0 0; padding: 8px 12px; list-style: none; border-left: 4px solid var(--bad); font-size: 0.88rem; line-height: 1.5; }
 .regatta-penalties b { color: var(--bad); }
 .coach-ok .chips { font-size: 0.8rem; gap: 6px; }
+.coach-ok .chips + .chips { margin-top: 6px; }
+.coach-cards .chip.thin { background: transparent; color: var(--ink-3); border: 1px dashed var(--grid); box-shadow: none; }
 .coach-ok .ok-lbl { font-weight: 700; color: var(--ink); margin: 0 2px 0 4px; }
 .coach-ok .ok-lbl:first-child { margin-left: 0; }
 .coach-cards > .card.coach-ok { margin-top: 12px; }

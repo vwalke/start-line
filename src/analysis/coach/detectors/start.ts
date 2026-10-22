@@ -119,7 +119,8 @@ export function detectStart(ctx: CoachCtx): StartResultD1 {
     // ✓ only for a genuine front-row start: early over the line, on time and close to it at the gun.
     // A boat over early at the gun is not one: the front row itself leaves those out.
     const frontRow = !st.over && rank <= Math.ceil(OK_RANK_SHARE * so.order.length) && lateS <= OK_LATE_S && dtl <= OK_BACK_LOA * ctx.loaM;
-    const ok: GoodNote | null = frontRow && cov >= OK_MIN_COVERAGE ? { kind: 'ok', detector: 'D1', variant: 'front-row', facts, t0, t1 } : null;
+    // Under OK_MIN_COVERAGE the ✓ is debrief.ts's thin note ("not enough data to judge the start"), never "front row".
+    const ok: GoodNote | null = frontRow ? { kind: 'ok', detector: 'D1', variant: 'front-row', facts, t0, t1, coverage: cov, ...(cov < OK_MIN_COVERAGE ? { thin: true } : {}) } : null;
     return { opp: null, ok, crossMs, fired: false };
   }
   // No crossing (no raw fixes, or it crossed inside a hole): DTL alone, with Recall's seconds late. Not for a

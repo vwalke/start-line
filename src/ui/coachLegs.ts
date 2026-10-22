@@ -19,10 +19,11 @@ import { infoHtml } from './info';
 export const LEG_STORY_BULLETS: readonly string[] = [
   'Places: in the whole fleet, out of every boat that started, the same all race.',
   'A boat missing at a mark is placed from its times either side (~); none drop out.',
+  'Start: a gap at the gun is placed from the nearest fix (~); with none close enough, —.',
   'Vs Top 3 / Near: your leg time against the median of theirs.',
   `Side: each boat's mean position across the wind over the leg, left/right looking upwind.`,
   `Left/Right paid: that third of the boats gained ${SIDE_MIN_EFFECT}+ places more than the other third (${SIDE_MIN_BOATS}+ boats).`,
-  `Gybe-set: a gybe ${ROUND_LEAD_MS / 1000} s before to ${ROUND_WINDOW_MS / 1000} s after the windward mark; else a bear-away.`,
+  `Gybe-set: a gybe ${ROUND_LEAD_MS / 1000} s before the mark to ${ROUND_WINDOW_MS / 1000} s after first sailing downwind; else bear-away.`,
   `Under ${STORY_MIN_GROUP} boats with data in the group: worked out on the whole fleet (chip says so).`,
   `Heel: yours vs the top 3's in the same ${HEEL_WINDOW_MS / 60_000}-min windows; shown when ${HEEL_DIFF_DEG}°+ apart in most.`,
   'Gate L/R: the leeward-gate buoy rounded, looking upwind (both buoys tracked; the nearer one at the closest approach).',
@@ -61,9 +62,10 @@ export interface LegStoryText {
 }
 
 /** The boat's fleet places on the leg and its place at the leg's end, out of the fixed fleet: "gained 3 · 12th of 33" (~ when estimated). */
-export function placeChip(s: Pick<LegStory, 'mine' | 'placeOf'>): string | null {
+export function placeChip(s: Pick<LegStory, 'mine' | 'placeOf' | 'endPlace'>): string | null {
   const me = s.mine;
-  if (!me) return null;
+  // The start place unknown (no position at the gun): no change, only where it ended up.
+  if (!me) return s.endPlace ? `— · ${s.endPlace.est ? '~' : ''}${ordinal(s.endPlace.to)} of ${s.placeOf}` : null;
   return `${placesWord(me.gain)} · ${me.est ? '~' : ''}${ordinal(me.to)} of ${s.placeOf}`;
 }
 

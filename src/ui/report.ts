@@ -24,13 +24,14 @@ import type { GoodNote } from '../analysis/coach/opportunity';
 import type { Card } from '../analysis/coach/rank';
 import type { RegattaSummary } from '../analysis/coach/regatta';
 import { median } from '../analysis/geo';
-import { windSource } from '../analysis/line';
+import { biasAngle, lineBias, windSource } from '../analysis/line';
+import { D16_MIN_DEG } from '../analysis/coach/detectors/lineBias';
 import { finishRank } from '../analysis/result';
 import type { BoatResult, LegKind, RaceAnalysis } from '../analysis/types';
 import { codeInfo, pointsText } from '../data/official/codes';
 import type { OfficialRaceInput } from '../data/racesense/adapter';
 import { GROUP_LABEL, coachBoatFor } from './coach';
-import { cardText, cardWarnings, goodTexts, penaltyText, rankedHead, scoredWord, secondsChip, turnChip, wentText } from './coachCards';
+import { cardText, cardWarnings, goodTexts, penaltyText, rankedHead, scoredWord, secondsChip, thinText, turnChip, wentText } from './coachCards';
 import { gateChip, groupSecondsChip, placesWord } from './coachLegs';
 import { LEG_TYPE, finishShort, penaltyRowText, regattaWentText, secs } from './coachRegatta';
 import { degLabel, duration, f0, f1, localTime, ordinal, pct, tzLabel } from './format';
@@ -129,6 +130,8 @@ export interface ReportCoach {
   totalS: number | null;
   went: { text: string; seconds: string }[];
   ok: string[];
+  /** ✓ notes on thin tracker data ("Not enough data to judge …"). */
+  notJudged: string[];
   /** Up to 3: the ranked cards' tips (the race view has no list of its own). */
   workOn: string[];
   /** Why there is nothing to show (no data, no course, still working). */
@@ -294,6 +297,14 @@ function startFields(a: RaceAnalysis, m: CoachModel | null | undefined, b: BoatR
   );
   out.push(field('Seconds late', st.lateS != null && !over ? `${f1(st.lateS)} s` : MISSING, st.lateS == null ? { note: st.dtlNote ?? 'across a gap in the track' } : over ? { note: 'over at the gun' } : {}));
   out.push(field('Start place', st.startPlace != null ? ordinal(st.startPlace) : MISSING, { note: st.startPlace != null ? 'by distance to the line, clean starters' : over ? 'over at the gun' : st.awayFromLine ? 'away from the line' : 'not ranked' }));
+  const bias = biasAngle(lineBias(a.line, a.wind.twdAtGunDeg));
+  out.push(
+    field('Line bias', a.line.favored === 'square' ? 'square' : `${a.line.favored === 'left' ? 'pin' : 'boat'} end ${f0(bias)}° · ~${f0(a.line.favoredByM)} m`, {
+      note: 'against the estimated wind at the gun',
+      warn: bias >= D16_MIN_DEG,
+    }),
+  );
+  if (st.startPlace == null && st.estPlace != null) out.push(field('Place at the gun (est.)', `~${ordinal(st.estPlace)}`, { note: 'from its nearest fix: a gap in the track at the gun' }));
   out.push(field('Line position', Number.isFinite(st.linePosPct) ? `${f0(st.linePosPct)}% · ${lineThird(st.linePosPct)}` : MISSING, { note: '0% pin … 100% RC' }));
   out.push(field('Speed at gun', `${f1(st.speedKn)} kn`));
   // The crossing order: the Coach's (the bow's crossing; an over-early boat's when it cleared).
@@ -333,9 +344,12 @@ function startVerdict(a: RaceAnalysis, deb: CoachDebrief | null, model: CoachMod
   if (i >= 0) return cardLine(deb.cards[i], i, a);
   const j = deb.cards.findIndex((c) => c.kind === 'D3');
   if (j >= 0) return cardLine(deb.cards[j], j, a);
+  // The line bias (D16): started away from the favoured end of a biased line.
+  const k = deb.cards.findIndex((c) => c.kind === 'D16');
+  if (k >= 0) return cardLine(deb.cards[k], k, a);
   const ok = deb.ok.find((n) => n.detector === 'D1');
-  if (ok) return { text: `✓ Front row: ${goodTexts(ok)[0]}`, kind: 'ok' };
-  const plus = deb.plus.find((n) => n.detector === 'D1');
+  if (ok) return ok.thin ? { text: thinText(ok), kind: 'note' } : { text: `✓ Front row: ${goodTexts(ok)[0]}`, kind: 'ok' };
+  const plus = deb.plus.find((n) => n.detector === 'D1' || n.detector === 'D16');
   if (plus) return plusLine(plus);
   return { text: 'No start finding', kind: 'note' };
 }
@@ -368,7 +382,7 @@ function legRows(a: RaceAnalysis, b: BoatResult, stories: LegStory[], g: Group):
       leg: k,
       name: leg.name,
       type: LEG_KIND[leg.kind],
-      places: me ? `${me.est ? '~' : ''}${ordinal(me.from)} → ${me.est ? '~' : ''}${ordinal(me.to)}` : MISSING,
+      places: me ? `${me.est ? '~' : ''}${ordinal(me.from)} → ${me.est ? '~' : ''}${ordinal(me.to)}` : s?.endPlace ? `${MISSING} → ${s.endPlace.est ? '~' : ''}${ordinal(s.endPlace.to)}` : MISSING,
       change: me ? `${placesWord(me.gain)} · of ${s!.placeOf}` : MISSING,
       time: l ? `${l.timeGapS != null ? '~' : ''}${duration(l.timeS)}` : MISSING,
       vsGroup: s?.vsGroup && vs ? signedS(s.vsGroup.deltaS) : MISSING,
@@ -430,7 +444,7 @@ function penaltyLines(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null, 
 }
 
 function coachSection(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null, model: CoachModel | null | undefined): ReportCoach {
-  const none: ReportCoach = { penalty: null, rankedHead: null, findings: [], totalS: null, went: [], ok: [], workOn: [], empty: null };
+  const none: ReportCoach = { penalty: null, rankedHead: null, findings: [], totalS: null, went: [], ok: [], notJudged: [], workOn: [], empty: null };
   if (model === undefined) return { ...none, empty: 'Working out the wind and the Coach findings…' };
   if (!model || !deb) return { ...none, empty: 'No course to measure against in this race: no Coach findings.' };
   const pen = deb.penalty ? penaltyText(deb.penalty, a) : null;
@@ -452,7 +466,8 @@ function coachSection(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null, 
     findings,
     totalS: deb.totalS,
     went: deb.plus.map((n) => ({ text: wentText(n), seconds: `+${Math.round(n.seconds ?? 0)} s` })),
-    ok: deb.ok.flatMap(goodTexts),
+    ok: deb.ok.filter((n) => !n.thin).flatMap(goodTexts),
+    notJudged: deb.ok.filter((n) => n.thin).map(thinText),
     workOn: tips.slice(0, 3),
     empty: findings.length ? null : 'No clear gains with this data.',
   };
@@ -510,7 +525,7 @@ function regattaSection(s: RegattaSummary): ReportRegatta {
   };
 }
 
-const emptyCoach: ReportCoach = { penalty: null, rankedHead: null, findings: [], totalS: null, went: [], ok: [], workOn: [], empty: null };
+const emptyCoach: ReportCoach = { penalty: null, rankedHead: null, findings: [], totalS: null, went: [], ok: [], notJudged: [], workOn: [], empty: null };
 
 /** The report's model for the selected boat in the race (lazy: built only when the report is open). */
 export function buildReport(inp: ReportInput): ReportModel {
