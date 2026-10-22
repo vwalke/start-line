@@ -118,7 +118,7 @@ describe('full-screen start frame', () => {
       const topPx = (f.core.y0 - f.box.y0) * pxPerM;
       expect(topPx).toBeGreaterThanOrEqual(52 - 0.5);
       expect(topPx).toBeLessThan(52 + 40);
-      // The trails run down the chart, the wind at the gun at the top (M24 R4's from its first 3 min, wind.ts estimateStartTwd).
+      // The trails run down the chart, the wind at the gun at the top (M24 R4's from its tacks 0:30–3:30 after the gun, wind.ts readStartTwd).
       expect((f.box.y1 - f.core.y1) * pxPerM).toBeGreaterThan(1.5 * topPx);
     }
   });

@@ -103,7 +103,8 @@ describe('Coach golden: Good Trade race 2 (gun 12:25 EDT)', () => {
     expect(c.facts.n).toBe(18);
     expect(Math.round(c.facts.crossS as number)).toBe(56);
     expect([Math.round(c.facts.frontLo as number), Math.round(c.facts.frontHi as number)]).toEqual([6, 9]);
-    expect(c.facts.favoured).toBe('pin');
+    // Square at the gun: the fleet's tacks 0:30–3:30 after it read 28° (Beat 1's 26° made the pin favoured by 15 m).
+    expect(c.facts.favoured).toBeNull();
     // The early-lane D3 after it (19 s) merges into the start card; D4 (the same minutes of Beat 1) claims most of
     // that part, never the crossing's 47 s.
     expect(c.facts.d1S as number).toBeCloseTo(47, 0);

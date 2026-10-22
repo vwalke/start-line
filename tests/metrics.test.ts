@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import { M_PER_NM } from '../src/analysis/distance';
+import { lineBias } from '../src/analysis/line';
 import { fixtureRace, loadExpected } from './helpers';
 
 // Reproduces the Python prototype's benelux_act3_race8_metrics.csv from the
@@ -30,10 +31,13 @@ describe('Benelux Act III race 8 vs prototype CSV', () => {
     expect(Math.abs(b1.tackAngleDeg - 72.6)).toBeLessThan(5);
   });
 
-  it('finds the pin favoured by ~17 m on a 98 m line', () => {
+  it('finds the pin favoured by ~17 m on a 98 m line against Beat 1’s wind, as the prototype; ~20 m against the gun’s', () => {
     expect(analysis.line.favored).toBe('left');
     expect(analysis.line.lengthM).toBeCloseTo(97.8, 0);
-    expect(Math.abs(analysis.line.favoredByM - 17)).toBeLessThan(3);
+    expect(Math.abs(lineBias(analysis.line, analysis.wind.estimates[0].twdDeg).byM - 17)).toBeLessThan(3);
+    // The wind at the gun is the fleet's tacks 0:30–3:30 after it (wind.ts readStartTwd), 2° left of Beat 1's.
+    expect(analysis.wind.gunSource).toBe('start-window');
+    expect(Math.abs(analysis.line.favoredByM - 20)).toBeLessThan(1);
   });
 
   it('ends each start trail on the bow and points the arrow along COG', () => {

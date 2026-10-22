@@ -6,8 +6,9 @@ import { withAlso } from '../src/analysis/coach/detectors/side';
 import { D16_GOOD_SHARE, D16_MATERIAL_S, D16_MIN_BOATS, biasCall, medianStartPct } from '../src/analysis/coach/detectors/lineBias';
 import { CAP_EXEMPT, MAX_PER_KIND } from '../src/analysis/coach/rank';
 import { alsoSeconds, raceDigest } from '../src/analysis/coach/regatta';
-import type { Opportunity } from '../src/analysis/coach/opportunity';
+import { MIN_SECONDS, confidenceOf, type Opportunity } from '../src/analysis/coach/opportunity';
 import { MS_TO_KN } from '../src/analysis/geo';
+import { windSource } from '../src/analysis/line';
 import type { RaceAnalysis } from '../src/analysis/types';
 import { cardText, wentText } from '../src/ui/coachCards';
 import { raceAskContext } from '../src/ui/coachAskContext';
@@ -72,12 +73,13 @@ describe('D16 against the fleet’s median start (lineBias.ts biasCall, medianSt
     expect(biasCall(0.3, 0.1, 20, 2)).toBeNull();
   });
 
-  it('the median over boats whose position at the gun was read (over-early boats count; away or across an unread hole do not)', () => {
+  it('the median over boats whose position at the gun was read, not over early (nor away, nor across an unread hole)', () => {
     const st = (linePosPct: number, o: Partial<NonNullable<RaceAnalysis['boats'][number]['start']>> = {}) =>
       ({ start: { linePosPct, over: false, awayFromLine: false, dtlGapS: null, estDtlM: null, ...o } }) as unknown as RaceAnalysis['boats'][number];
     const boats = [st(10), st(20), st(30, { over: true }), st(80), st(140), st(5, { awayFromLine: true }), st(0, { dtlGapS: 12 }), st(90, { dtlGapS: 8, estDtlM: 3 })];
-    // 10, 20, 30, 80, 100 (clamped), 90 → median 55.
-    expect(medianStartPct({ boats })).toBe(55);
+    // 10, 20, 80, 100 (clamped), 90 → median 80; the over-early boat at 30 would have made it 55.
+    expect(medianStartPct({ boats })).toBe(80);
+    expect(medianStartPct({ boats: boats.map((b) => ({ ...b, start: { ...b.start!, over: false } })) })).toBe(55);
     expect(D16_MIN_BOATS).toBe(5);
     expect(medianStartPct({ boats: boats.slice(0, 4) })).toBeNull();
   });
@@ -156,8 +158,8 @@ describe('Melges 24 R5 and J/24 R2: one side-of-course card a race, material lin
   }, 60_000);
 
   it('D16 against the median start: every card D16_MATERIAL_S or more, its boat beyond the median toward the unfavoured end', () => {
-    // M24 R5: the gun window has too few port-tack minutes (wind.ts START_WIND_MIN_TACK_SHARE), so Beat 1's wind, 6.8°.
-    // J/24 R2: the first 3 min put the line within 2° of square: no D16 at all (5 cards before, against Beat 1's wind).
+    // M24 R5: the gun window has too few port-tack readings (19%, wind.ts START_WIND_MIN_TACK_SHARE), so Beat 1's wind,
+    // 6.8°. J/24 R2: its window's tacks are 12° narrower than Beat 1's (START_WIND_MAX_TACK_DIFF_DEG), so Beat 1's too.
     const tally = (r: Race): { found: number; card: number; good: number } => {
       let found = 0;
       let card = 0;
@@ -168,6 +170,9 @@ describe('Melges 24 R5 and J/24 R2: one side-of-course card a race, material lin
         const o = d.found.find((x) => x.kind === 'D16');
         if (o) {
           found++;
+          // The wind's confidence, on the card and as its cap (line.ts windSource).
+          expect(o.confidence).toBe(windSource(r.a.wind).confidence);
+          expect(confidenceOf(o.conf).level).toBe(o.confidence);
           expect(o.seconds).toBeGreaterThanOrEqual(D16_MATERIAL_S);
           expect(o.facts.share as number).toBeGreaterThan(o.facts.medianShare as number);
           expect(o.facts.alongM as number).toBeGreaterThan(0);
@@ -184,6 +189,8 @@ describe('Melges 24 R5 and J/24 R2: one side-of-course card a race, material lin
     };
     // M24 R5: 10 top-3 cards before (the unfavoured third); now found on 8 boats, 5 in their top 3; the Went well lines as before.
     expect(tally(m24)).toEqual({ found: 8, card: 5, good: 14 });
-    expect(tally(j24)).toEqual({ found: 0, card: 0, good: 0 });
+    // J/24 R2: none in PR #46's start-window wind (pin 1.5°); Beat 1's, RC 6.7°: found on 4, 2 in their top 3.
+    expect(tally(j24)).toEqual({ found: 4, card: 2, good: 13 });
+    for (const r of [m24, j24]) for (const b of r.a.boats) for (const c of coachDebrief(r.a, r.m, b.id)!.cards) if (c.kind === 'D16') expect(c.seconds).toBeGreaterThanOrEqual(MIN_SECONDS[c.confidence]);
   }, 60_000);
 });

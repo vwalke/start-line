@@ -13,8 +13,9 @@
  * - Anywhere else (beyond the median by less than D16_MATERIAL_S, or toward the favoured end of it outside the favoured
  *   third): nothing (no card, no ➕).
  * - Needs the boat's position at the gun read (no hole, or estimated across one: StartResult.estDtlM) and
- *   D16_MIN_BOATS such positions for the median (over-early boats count: they started there); no card for a boat over
- *   early (D1 says that). Confidence: the wind's at the gun (line.ts windSource).
+ *   D16_MIN_BOATS such positions of boats not over early for the median (an OCS boat's spot, over the line at the gun,
+ *   is not where the fleet started); no card for a boat over early (D1 says that). Confidence: the wind's at the gun
+ *   (line.ts windSource), as the card's and its cap.
  */
 import { median, MS_TO_KN } from '../../geo';
 import { biasAngle, lineBias, windSource } from '../../line';
@@ -50,9 +51,13 @@ const clampPct = (p: number): number => Math.min(100, Math.max(0, p));
 const placed = (st: StartResult | null | undefined): st is StartResult =>
   !!st && !st.awayFromLine && Number.isFinite(st.linePosPct) && !(st.dtlGapS != null && st.estDtlM == null);
 
-/** The fleet's median start along the line, % (0 pin … 100 RC), or null under D16_MIN_BOATS placed boats. */
+/** The fleet's median start along the line, % (0 pin … 100 RC), or null under D16_MIN_BOATS placed boats not over early. */
 export function medianStartPct(a: Pick<RaceAnalysis, 'boats'>): number | null {
-  const pos = a.boats.map((b) => b.start).filter(placed).map((st) => clampPct(st.linePosPct));
+  const pos = a.boats
+    .map((b) => b.start)
+    .filter(placed)
+    .filter((st) => !st.over)
+    .map((st) => clampPct(st.linePosPct));
   return pos.length >= D16_MIN_BOATS ? median(pos) : null;
 }
 
@@ -109,7 +114,7 @@ export function detectLineBias(ctx: CoachCtx): D16Result {
         t1: ctx.gun - D1_PRE_MS,
         seconds,
         ...rangeOf(seconds, NOISE_BASE_S + D16_REL_ERR * seconds),
-        confidence: 'high',
+        confidence: w,
         coverage: 1,
         conf: { boatCov: 1, ...(cap ? { refCap: cap } : {}) },
         facts,

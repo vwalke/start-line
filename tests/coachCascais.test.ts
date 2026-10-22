@@ -15,7 +15,7 @@ import { START_WIND_MIN_SAMPLES, START_WIND_MIN_TACK_N } from '../src/analysis/w
 import { LEG_MAX_KN, dropImpossibleLegs, legSplitOk } from '../src/analysis/legs';
 import { START_EST_NEAR_MS, START_EST_SIDE_MS, estimateDtl } from '../src/analysis/validity';
 import type { RaceAnalysis } from '../src/analysis/types';
-import type { Opportunity } from '../src/analysis/coach/opportunity';
+import { MIN_SECONDS, type Opportunity } from '../src/analysis/coach/opportunity';
 import { cardText, goodTexts, wentText } from '../src/ui/coachCards';
 import { placeChip } from '../src/ui/coachLegs';
 import { biasBullets } from '../src/ui/startLine';
@@ -214,17 +214,18 @@ describe('Cascais: the side of the course', () => {
   }, 60_000);
 });
 
-describe('Cascais: the wind at the gun from the first 3 minutes’ tacks (wind.ts estimateStartTwd)', () => {
-  // Full cached feed (scratch check, not committed): R2 319.3°, R3 317.5°. The fixtures keep the native rate only within
-  // ±60 s of the gun (every 10 s after), and read 320.4° / 318.0°; 1.5° covers that thinning.
-  const FULL_FEED = { r2: 319.3, r3: 317.5 };
+describe('Cascais: the wind at the gun from the fleet’s tacks 0:30–3:30 after it (wind.ts readStartTwd)', () => {
+  // Full cached feed (scratch check, not committed): R2 319.8°, R3 317.6°. The fixtures keep the native rate only within
+  // ±60 s of the gun (every 10 s after) and read 319.9° / 317.9°: each boat counts once per START_WIND_GRID_MS either way.
+  // 0.5° is the most the fixture and the feed parted by over a ±10–12° band and a 1–5 s grid tolerance.
+  const FULL_FEED = { r2: 319.8, r3: 317.6 };
   it('R2 and R3: the start window sets the wind at the gun, pinned at the gun; the beats keep their own estimates', () => {
     for (const [k, r] of [['r2', r2], ['r3', r3]] as const) {
       const w = r.a.wind;
       expect(w.gunSource).toBe('start-window');
       expect(w.startWindow!.tMs).toBe(r.a.meta.gunMs);
       expect(w.twdAtGunDeg).toBeCloseTo(w.startWindow!.twdDeg, 9);
-      expect(Math.abs(wrap180(w.twdAtGunDeg - FULL_FEED[k]))).toBeLessThan(1.5);
+      expect(Math.abs(wrap180(w.twdAtGunDeg - FULL_FEED[k]))).toBeLessThan(0.5);
       expect(w.startWindow!.samples).toBeGreaterThanOrEqual(START_WIND_MIN_SAMPLES);
       expect(Math.min(...w.startWindow!.tackSamples)).toBeGreaterThanOrEqual(START_WIND_MIN_TACK_N);
       expect(w.estimates.map((e) => e.legIndex)).toEqual([0, 2]);
@@ -242,9 +243,9 @@ describe('Cascais: the wind at the gun from the first 3 minutes’ tacks (wind.t
   });
   it('labelled where it is shown: the Report header, the line’s ⓘ and the findings', () => {
     const src = windSource(r2.a.wind);
-    expect(src.text).toBe("wind estimated from the fleet's tacks in the first 3 min");
-    expect(biasBullets(r2.a)[0]).toMatch(/^Favoured end vs wind \d+° \(tacks, first 3 min\);/);
-    expect(r2.a.findings.find((f) => f.kind === 'wind')!.text).toMatch(/^Wind estimated from the fleet's tack headings: \d+° in the first 3 min after the gun, \d+° on Beat 1, \d+° on Beat 2\./);
+    expect(src.text).toBe("wind estimated from the fleet's tacks 0:30–3:30 after the gun");
+    expect(biasBullets(r2.a)[0]).toMatch(/^Favoured end vs wind \d+° \(tacks, gun \+0:30–3:30\);/);
+    expect(r2.a.findings.find((f) => f.kind === 'wind')!.text).toMatch(/^Wind estimated from the fleet's tack headings: \d+° 0:30–3:30 after the gun, \d+° on Beat 1, \d+° on Beat 2\./);
   });
 });
 
@@ -273,13 +274,18 @@ describe('Cascais: the line bias (D16) and thin data', () => {
       if (!o) continue;
       found++;
       expect(o.seconds).toBeGreaterThanOrEqual(D16_MATERIAL_S);
+      expect(o.confidence).toBe('medium');
       expect(b.start!.linePosPct).toBeGreaterThan(med);
+      for (const c of d.cards) if (c.kind === 'D16') expect(c.seconds).toBeGreaterThanOrEqual(MIN_SECONDS.medium);
     }
-    // Found on 31 boats, 30 in their top 3 (35 cards before: the unfavoured third, against Beat 1's wind).
+    // Found on 31 boats. The wind is medium confidence (the weather model 10.1° off, over MODEL_AGREE_DEG), and so are the
+    // cards, which then need MIN_SECONDS.medium: 17 in their top 3 (16 on the full feed, also medium; 30 in PR #46's 318.0°,
+    // the model 9.9° off). 35 before that, the unfavoured third against Beat 1's wind.
+    expect(windSource(r3.a.wind).confidence).toBe('medium');
     expect(found).toBe(31);
-    expect(cards).toBe(30);
+    expect(cards).toBe(17);
     for (const b of r2.a.boats) expect(coachDebrief(r2.a, r2.m, b.id)!.found.some((x) => x.kind === 'D16')).toBe(false);
-  }, 60_000);
+  }, 120_000);
   it('R2: USA 833 on thin data (37% on the full feed): "not enough data to judge banked gains", never ✓', () => {
     const d = coachDebrief(r2.a, r2.m, r2.id('USA 833'))!;
     const d5 = d.ok.find((o) => o.detector === 'D5')!;

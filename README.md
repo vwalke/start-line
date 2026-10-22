@@ -201,13 +201,13 @@ are shared by all three.
   - **D16 line bias** (`lineBias.ts`): with the start line 6°+ off square to the
     wind at the gun (at 6° the favoured end is about a tenth of the line further
     upwind), each start is measured against the fleet's median start along the
-    line (5+ boats with a position at the gun; over-early boats count). The
+    line (5+ boats with a position at the gun, not over early). The
     distance beyond the median toward the unfavoured end × sin(bias) is the
     ground given away on the fleet, ÷ the fleet's VMG on Beat 1 the seconds.
     Beyond the median with 10 s or more given away: a start card ("Pin favoured
     6° (~100 m over the line). You started 420 m toward the committee boat from
-    the fleet's median start: ≈ 40 m upwind, about 18 s"), confidence the
-    wind's at the gun; in the favoured third and at or toward the favoured end
+    the fleet's median start: ≈ 40 m upwind, about 18 s"), its confidence the
+    wind's at the gun (so a medium-confidence wind needs 20 s); in the favoured third and at or toward the favoured end
     of the median: a Went well line ("Start: pin end favoured 7° (~120 m) and
     you started 300 m toward the pin from the fleet's median start (≈ 36 m
     upwind)", seconds gained on the median); anywhere else, nothing. A fleet
@@ -262,7 +262,7 @@ are shared by all three.
   (top right of the race header), `#report` or `report=1` opens one printable page
   for the selected boat in the race: the header (place on the water and scored,
   with any code; race, official elapsed and corrected times; the estimated wind
-  and where it came from, the first 3 min's tacks or the first beat's;
+  and where it came from, the tacks 0:30–3:30 after the gun or the first beat's;
   tracker coverage), the start (distance and seconds late at the gun, start place,
   the estimated place at the gun when the start place is unranked, the line bias, line position, place over the line and front row, over early and when it
   cleared, the start card), leg by leg (places in → out of the fixed fleet, time
@@ -312,7 +312,7 @@ Switching races keeps the tab.
   zoomed in. Only if none fits does the label run along the line inward from
   that end (as `Pin 7°` at worst). `Square line` sits centred along the line.
   The wind chip (`wind est. (medium)`) and the label's tooltip give the wind
-  source (the fleet's tacks in the first 3 min after the gun or on the first
+  source (the fleet's tacks 0:30–3:30 after the gun or on the first
   beat, the weather model, or first leg assumed upwind) and a
   confidence; low confidence is a ⚠ chip. The ⓘ says how far a 5° wind
   error moves the figure. `Names: Auto | All | Off` sets the
@@ -603,13 +603,18 @@ Switching races keeps the tab.
   circular k-means splits them into the two tacks, and the bisector is the
   wind. Each beat's estimate is pinned at the beat's mid-time and the wind is
   interpolated in time between them. The wind at the gun (the line bias, the
-  start chart's orientation) comes from the first 3 minutes after the gun
-  (`START_WIND_WINDOW_MS`), pinned at the gun, so a shift during Beat 1 doesn't
-  leak back to the start. Each steady heading there counts for its time, up to
-  2 s, not once per fix, so densely logged devices don't outvote the rest. It
-  needs 300+ steady headings, 60+ and 15 % of the time on each tack, and a tack
-  angle within 15° of Beat 1's. Otherwise Beat 1's estimate is held back to the
-  gun as before, and the labels say which was used. If there isn't enough
+  start chart's orientation) comes from the fleet's tacks from 30 s to 3:30
+  after the gun (`START_WIND_FROM_MS`, `START_WIND_TO_MS`: the first seconds
+  are still the start), pinned at the gun, so a shift during Beat 1 doesn't
+  leak back to the start. Each boat is read every 2 s at its nearest steady
+  fix within 5 s (none that near is a hole), so a device logging every 0.3 s
+  counts no more than one logging every 10 s. Only close-hauled headings count:
+  those within 10° of their tack's mode, so boats footing to clear a transom,
+  reaching or luffing don't pull the bisector. It needs 150+ such readings
+  (5 boat-minutes), 30+ and 20 % of them on each tack, and a tack angle within
+  8° of Beat 1's, read the same way. Otherwise Beat 1's estimate is held back
+  to the gun as before (`WindInfo.startWindowFail` says why), and the labels
+  say which was used. If there isn't enough
   upwind data, the app falls back to the weather model, or failing that,
   assumes the first leg is dead upwind, and says so. Every TWA and VMG figure
   is therefore an estimate and is labelled that way.

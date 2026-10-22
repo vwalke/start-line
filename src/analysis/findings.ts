@@ -2,7 +2,7 @@
 import { compassRound, median, wrap180 } from './geo';
 import { biasAngle, lineBias } from './line';
 import type { BoatResult, Finding, RaceAnalysis, StartCompare, StartCompareSide, StartResult } from './types';
-import { START_WIND_WINDOW_MS } from './wind';
+import { START_WIND_SPAN } from './wind';
 
 /** Findings about the start (the line and the starts), shown under the start chart, and the rest (legs, results, wind), shown with the race. */
 export function splitFindings(findings: Finding[]): { start: Finding[]; race: Finding[] } {
@@ -188,7 +188,7 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
   if (wind.method === 'tacks') {
     const sw = wind.startWindow;
     const ests = [
-      ...(sw ? [`${rDeg(sw.twdDeg)}° in the first ${START_WIND_WINDOW_MS / 60_000} min after the gun`] : []),
+      ...(sw ? [`${rDeg(sw.twdDeg)}° ${START_WIND_SPAN} after the gun`] : []),
       ...wind.estimates.map((e) => `${rDeg(e.twdDeg)}° on ${a.legs[e.legIndex].name}`),
     ].join(', ');
     let text = `Wind estimated from the fleet's tack headings: ${ests}.`;
