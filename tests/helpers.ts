@@ -110,6 +110,16 @@ export const GATE_RACES = {
 } as const;
 export const gateRace = (key: keyof typeof GATE_RACES): RaceData => trimmedRace(`./fixtures/gate_${key}.json`, GATE_RACES[key].division, GATE_RACES[key].raceNumber);
 
+/**
+ * J/70 Worlds 2026 (Cascais), Open, races 2 and 3: the whole 100-boat fleet, native rate around the gun and each windward
+ * rounding, every 10 s elsewhere, holes kept (scripts/make-fixture.mjs --preset cascais-r2 / cascais-r3).
+ */
+export const CASCAIS_RACES = {
+  r2: { division: 'Open', raceNumber: 2 },
+  r3: { division: 'Open', raceNumber: 3 },
+} as const;
+export const cascaisRace = (key: keyof typeof CASCAIS_RACES): RaceData => trimmedRace(`./fixtures/cascais_${key}.json`, CASCAIS_RACES[key].division, CASCAIS_RACES[key].raceNumber);
+
 export type CsvRow = Record<string, string>;
 export function loadExpected(): CsvRow[] {
   const [head, ...lines] = readFileSync(here('./fixtures/benelux_act3_race8_metrics.csv'), 'utf8').trim().split('\n');

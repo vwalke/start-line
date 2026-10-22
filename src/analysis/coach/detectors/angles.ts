@@ -184,8 +184,11 @@ export interface AnglesResult {
 /** Evaluated legs (windows over at least this share of the leg) feed the ✓ chip. */
 export const ANG_OK_COVERAGE = 0.5;
 
-/** D6 (`kind` 'upwind') or D7 ('downwind') over the race's legs of that kind. */
-export function detectAngles(ctx: CoachCtx, kind: 'upwind' | 'downwind'): AnglesResult {
+/**
+ * D6 (`kind` 'upwind') or D7 ('downwind') over the race's legs of that kind. `worse`: legs where the boat's progress
+ * contradicts a "fine" (nowhere.ts progressWorse): no ✓ while one of them is evaluated.
+ */
+export function detectAngles(ctx: CoachCtx, kind: 'upwind' | 'downwind', worse: ReadonlySet<number> = new Set()): AnglesResult {
   const legs = ctx.a.legs
     .map((l, k) => (l.kind === kind ? legAngles(ctx, k) : null))
     .filter((x): x is LegAngles => !!x);
@@ -209,10 +212,14 @@ export function detectAngles(ctx: CoachCtx, kind: 'upwind' | 'downwind'): Angles
     };
   };
   if (!fired.length) {
-    const good = legs.filter((l) => l.windowCov >= ANG_OK_COVERAGE && l.deficit < drop);
+    const good = legs.filter((l) => l.windowCov >= ANG_OK_COVERAGE && l.deficit < drop && !worse.has(l.leg));
+    // The boat's coverage of the legs judged (time-weighted): the ✓ says "not enough data" under debrief.ts OK_THIN_COVERAGE.
+    const ms = good.reduce((s, l) => s + Math.max(0, l.t1 - l.t0), 0);
+    const coverage = ms > 0 ? good.reduce((s, l) => s + coachCoverage(ctx.tr.t, l.t0, l.t1) * Math.max(0, l.t1 - l.t0), 0) / ms : 0;
+    const ofKind = ctx.a.legs.filter((l) => l.kind === kind).length;
     const ok: GoodNote | null =
       good.length && good.length === legs.filter((l) => l.windowCov >= ANG_OK_COVERAGE).length
-        ? { kind: 'ok', detector: det, variant: kind, facts: facts(good), t0: good[0].t0, t1: good[good.length - 1].t1 }
+        ? { kind: 'ok', detector: det, variant: kind, facts: { ...facts(good), all: good.length === ofKind ? 1 : 0 }, t0: good[0].t0, t1: good[good.length - 1].t1, coverage }
         : null;
     return { opp: null, ok, legs };
   }

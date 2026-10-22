@@ -1,9 +1,11 @@
 /**
  * Recall Coach, phases 2–4: one boat's debrief for one race — every detector
  * (D1, D2 and D8 → D3, D3 → D1 when both fired, D4, D5, D6, D7, D8, D9, D10, D11 → D6 / D7 on a leg they share, D12,
- * D13 with D9's low-resolution places at the same gate as its chip), ranked and gated (rank.ts), with the ✓ row
- * (detectors that measured the boat as fine with good data) and ➕ Went well (wentWell: legs,
- * roundings and the start where it gained on the leaders, with seconds; at most WENT_WELL_MAX).
+ * D13 with D9's low-resolution places at the same gate as its chip, D14 side of the course, D15 fast but going nowhere,
+ * D16 line bias), ranked and gated (rank.ts), with the ✓ row (detectors that measured the boat as fine; on a stretch
+ * the boat's tracker covered under OK_THIN_COVERAGE the note says "not enough data to judge …" instead, `thin`) and
+ * ➕ Went well (wentWell: legs, roundings, the side that paid, the favoured end and the start where it gained, with
+ * seconds; at most WENT_WELL_MAX). D6 / D7's ✓ leaves out a leg D15 found the boat going nowhere on.
  * An official code is the penalty card (penalty.ts), pinned outside the ranking: a scored OCS / UFD / BFD's over-the-line
  * figures move onto it from D1's 'ocs' card (which then isn't shown: D3 after it stays a card of its own), and so do
  * penalty turns (D12); with no code, penalty turns are a ranked card. Pure: the UI fills the templates.
@@ -22,6 +24,9 @@ import { detectRounding, type MarkType } from './detectors/rounding';
 import { detectShadow, type D8Result } from './detectors/shadow';
 import { detectHeel } from './detectors/heel';
 import { detectGate } from './detectors/gate';
+import { detectSide } from './detectors/side';
+import { detectNowhere } from './detectors/nowhere';
+import { detectLineBias } from './detectors/lineBias';
 import { D3_GAP_S, D3_WINDOW_MS } from './detectors/early';
 import { longestHole, trackLegAt } from './tracks';
 import { coachCoverage, gapChange, rangeOf, type GoodNote, type Opportunity } from './opportunity';
@@ -42,6 +47,8 @@ export const PLUS_MIN_READ = 0.5;
 export const PLUS_START_S = 5;
 /** The first minutes after the crossing (D3's window) where the gap to the leaders shrank this much are ➕ (D3's mirror), s. */
 export const PLUS_LANE_S = D3_GAP_S;
+/** A ✓ on a stretch the boat's tracker covered under this (coachCoverage) says "not enough data to judge …" (thinNote). */
+export const OK_THIN_COVERAGE = 0.5;
 /** Went well: at most this many, the most seconds first. */
 export const WENT_WELL_MAX = 3;
 /** A ➕ mostly inside a bigger one's window (over this share of its own) is the same gain: dropped. */
@@ -52,7 +59,7 @@ export interface CoachDebrief {
   cards: Card[];
   /** The official code's card (penalty.ts), pinned above `cards`: never ranked, never in `totalS`; null with no code. */
   penalty?: PenaltyFinding | null;
-  /** ✓ Not the problem. */
+  /** ✓ Not the problem; `thin` ones: not enough data to judge (thinNote). */
   ok: GoodNote[];
   /** ➕ Went well (wentWell), the most seconds first. */
   plus: GoodNote[];
@@ -129,7 +136,7 @@ export function startGains(ctx: CoachCtx, d1Fired = false): GoodNote[] {
  * one mostly inside a bigger one's window is the same gain (a rounding's zone and the line crossing are moments of
  * their own: never; nor heel, D11, which says how a leg's gain was sailed); at most WENT_WELL_MAX.
  */
-const MOMENTS = new Set<GoodNote['detector']>(['D1', 'D9', 'D11', 'D13']);
+const MOMENTS = new Set<GoodNote['detector']>(['D1', 'D9', 'D11', 'D13', 'D16']);
 
 export function wentWell(notes: readonly GoodNote[], max = WENT_WELL_MAX): GoodNote[] {
   const sorted = [...notes].sort((p, q) => (q.seconds ?? 0) - (p.seconds ?? 0) || p.t0 - q.t0);
@@ -141,6 +148,31 @@ export function wentWell(notes: readonly GoodNote[], max = WENT_WELL_MAX): GoodN
     if (kept.length >= max) break;
   }
   return kept;
+}
+
+/**
+ * A ✓ with the boat's coverage of what it judged (its own `coverage`, else the legs it names, else its window when it
+ * has one, else the race): under OK_THIN_COVERAGE it is `thin` ("not enough data to judge …"). D13's gate notes are
+ * moments with their own data gate (both buoys, fixes around the closest approach): left as they are.
+ */
+export function thinNote(ctx: CoachCtx, n: GoodNote, raceCov: number): GoodNote {
+  if (n.detector === 'D13') return n;
+  let cov = n.coverage;
+  if (cov == null && typeof n.facts.legs === 'string' && n.facts.legs) {
+    const names = n.facts.legs.split(' + ');
+    let ms = 0;
+    let got = 0;
+    ctx.a.legs.forEach((l, k) => {
+      const a = ctx.tr.bounds[k];
+      const b = ctx.tr.bounds[k + 1];
+      if (!names.includes(l.name) || a == null || b == null || !(b > a)) return;
+      ms += b - a;
+      got += coachCoverage(ctx.tr.t, a, b) * (b - a);
+    });
+    if (ms > 0) cov = got / ms;
+  }
+  if (cov == null) cov = n.t1 - n.t0 >= 60_000 ? coachCoverage(ctx.tr.t, n.t0, n.t1) : raceCov;
+  return cov < OK_THIN_COVERAGE ? { ...n, coverage: cov, thin: true } : { ...n, coverage: cov };
 }
 
 /** D8 short of D8_ALONE_S rides on the early-lane card as a chip (spec §5); with no D3 card it has nowhere to show. */
@@ -254,8 +286,13 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
   const start = detectStart(ctx);
   const rolled = detectRolled(ctx);
   const early = detectEarly(ctx, { crossMs: start.crossMs, d1Fired: start.fired }, rolled);
-  const up = detectAngles(ctx, 'upwind');
-  const down = detectAngles(ctx, 'downwind');
+  const nowhere = detectNowhere(ctx);
+  // A leg where the boat sailed extra distance for its progress (D15) is never "fine" on D6 / D7's ✓.
+  const worse = new Set(nowhere.worse);
+  const up = detectAngles(ctx, 'upwind', worse);
+  const down = detectAngles(ctx, 'downwind', worse);
+  const side = detectSide(ctx);
+  const bias = detectLineBias(ctx);
   const last = detectLastLeg(ctx);
   const cons = detectConsolidate(ctx);
   const shift = detectShift(ctx);
@@ -275,13 +312,15 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
   const [d6, d7] = withHeel.angles;
   // Penalty turns: on the penalty card with a code, else a ranked card of their own.
   const turnOpp = penalty ? null : turnCard(ctx, turns);
-  const found = [merged.start, merged.early, d4, ...cons.opps, d6, d7, shadow.opp, ...gated.round, ...gated.gate, ...withHeel.heel, last, turnOpp].filter((o): o is Opportunity => !!o);
+  const found = [merged.start, merged.early, d4, ...cons.opps, d6, d7, shadow.opp, ...gated.round, ...gated.gate, ...withHeel.heel, last, turnOpp, ...side.opps, ...nowhere.opps, bias.opp].filter((o): o is Opportunity => !!o);
   const clearAir: GoodNote | null =
     shadow.evaluated && !shadow.opp && !shadow.chip ? { kind: 'ok', detector: 'D8', variant: 'ok', facts: { share: shadow.share, fleetShare: shadow.fleetShare }, t0: ctx.gun, t1: m.endMs } : null;
-  const ok = [start.ok, shift.opp ? null : shift.ok, cons.opps.length ? null : cons.ok, up.ok, down.ok, clearAir, round.ok, heel.ok, ...gate.notes].filter((o): o is GoodNote => !!o);
   const end = ctx.me.finishMs ?? m.endMs;
   const raceCov = coachCoverage(ctx.tr.t, ctx.gun, end);
-  const dense = found.some((o) => o.coverage >= OK_WINDOW) || ok.length > 0;
+  const ok = [start.ok, shift.opp ? null : shift.ok, cons.opps.length ? null : cons.ok, up.ok, down.ok, clearAir, round.ok, heel.ok, ...gate.notes]
+    .filter((o): o is GoodNote => !!o)
+    .map((o) => thinNote(ctx, o, raceCov));
+  const dense = found.some((o) => o.coverage >= OK_WINDOW) || ok.some((o) => !o.thin);
   const noData = raceCov < RACE_MIN_COVERAGE && !dense;
   // Each card's longest hole, for a low-confidence card's ⚠ chip.
   const cards = (noData ? [] : rankOpportunities(found)).map((c) => ({ ...c, conf: { ...c.conf, hole: longestHole(ctx.tr.t, c.t0, c.t1) } }));
@@ -289,7 +328,7 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
     cards,
     penalty,
     ok: noData ? [] : ok,
-    plus: noData ? [] : wentWell([...legGains(ctx), ...round.good, ...gate.good, ...startGains(ctx, start.fired), ...heel.plus]),
+    plus: noData ? [] : wentWell([...legGains(ctx), ...round.good, ...gate.good, ...startGains(ctx, start.fired), ...heel.plus, ...side.good, ...nowhere.good, ...(bias.good ? [bias.good] : [])]),
     totalS: cards.reduce((s, c) => s + c.seconds, 0),
     raceCov,
     noData,

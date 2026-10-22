@@ -194,6 +194,42 @@ export function checkBounds(
   return { tt: out, gapS };
 }
 
+/** An impossible leg split (a rounding timed off a position glitch, a second device on the sail): faster than this, kn… */
+export const LEG_MAX_KN = 25;
+/** …or this many times the fleet's median SOG or VMG for the leg (whichever ceiling is higher)… */
+export const LEG_MAX_X = 3;
+/** …or sailed in under this share of the fleet's median leg time: the leg is unknown (null) everywhere. */
+export const LEG_MIN_TIME_X = 0.3;
+
+type Split = { timeS: number; sogKn: number; vmgKn: number };
+
+/** Whether one leg split is possible against the fleet's medians for that leg (LEG_MAX_KN, LEG_MAX_X, LEG_MIN_TIME_X). */
+export function legSplitOk(l: Split, med: Split): boolean {
+  const cap = (m: number): number => Math.max(LEG_MAX_KN, Number.isFinite(m) ? LEG_MAX_X * m : 0);
+  if (!(l.timeS > 0)) return false;
+  if (Number.isFinite(med.timeS) && l.timeS < LEG_MIN_TIME_X * med.timeS) return false;
+  return l.sogKn <= cap(med.sogKn) && l.vmgKn <= cap(med.vmgKn);
+}
+
+/** Every boat's impossible leg splits (legSplitOk against the fleet's medians, leg by leg) set to null in place; the count dropped. */
+export function dropImpossibleLegs(boats: (Split | null)[][]): number {
+  const n = Math.max(0, ...boats.map((ls) => ls.length));
+  let dropped = 0;
+  for (let li = 0; li < n; li++) {
+    const ls = boats.map((b) => b[li]).filter((l): l is Split => l != null);
+    if (!ls.length) continue;
+    const med: Split = { timeS: median(ls.map((l) => l.timeS)), sogKn: median(ls.map((l) => l.sogKn)), vmgKn: median(ls.map((l) => l.vmgKn)) };
+    for (const b of boats) {
+      const l = b[li];
+      if (l && !legSplitOk(l, med)) {
+        b[li] = null;
+        dropped++;
+      }
+    }
+  }
+  return dropped;
+}
+
 /** The fleet's median time per leg over the boats that sailed it (`times` as splitLegs), ms; NaN for a leg nobody did. */
 export function legMedians(times: Iterable<(number | null)[]>): number[] {
   const per: number[][] = [];

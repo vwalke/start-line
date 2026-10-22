@@ -8,7 +8,7 @@ import { median } from '../geo';
 import type { GapPoint } from './ladder';
 import { COACH_MAX_SPAN_S } from './tracks';
 
-export type DetectorKind = 'D1' | 'D2' | 'D3' | 'D4' | 'D5' | 'D6' | 'D7' | 'D8' | 'D9' | 'D10' | 'D11' | 'D12' | 'D13';
+export type DetectorKind = 'D1' | 'D2' | 'D3' | 'D4' | 'D5' | 'D6' | 'D7' | 'D8' | 'D9' | 'D10' | 'D11' | 'D12' | 'D13' | 'D14' | 'D15' | 'D16';
 export type Confidence = 'high' | 'medium' | 'low' | 'none';
 
 /** A fact for the card: a number (formatted by the template) or a name. */
@@ -81,6 +81,10 @@ export interface GoodNote {
   t1: number;
   /** What it gained, s (➕ Went well: the items are ranked by it). */
   seconds?: number;
+  /** ✓: the boat's coverage of the stretch judged (coachCoverage), 0–1. */
+  coverage?: number;
+  /** ✓ on thin data (coverage under OK_THIN_COVERAGE): the row says "not enough data to judge …", never "fine". */
+  thin?: boolean;
 }
 
 // ---- the noise model (spec §2)

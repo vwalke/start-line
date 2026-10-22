@@ -73,7 +73,9 @@ function coachHtml(m: ReportModel): string {
   }
   const went = c.went.length ? `<ul class="rp-lines">${c.went.map((w) => `<li class="rp-line plus"><b class="rp-sec good">${esc(w.seconds)}</b> ${esc(w.text)}</li>`).join('')}</ul>` : '<p class="rp-muted">No clear gains on the top 3 in this race.</p>';
   const work = c.workOn.length ? `<ol class="rp-work">${c.workOn.map((t) => `<li>${esc(t)}</li>`).join('')}</ol>` : '<p class="rp-muted">Nothing ranked to work on with this data.</p>';
-  const ok = c.ok.length ? `<p class="rp-ok"><b>Not the problem:</b> ${c.ok.map((t) => `✓ ${esc(t)}`).join(' · ')}</p>` : '';
+  const ok =
+    (c.ok.length ? `<p class="rp-ok"><b>Not the problem:</b> ${c.ok.map((t) => `✓ ${esc(t)}`).join(' · ')}</p>` : '') +
+    ((c.notJudged ?? []).length ? `<p class="rp-ok"><b>Not judged:</b> ${c.notJudged.map(esc).join(' · ')}</p>` : '');
   const done = m.state === 'ready';
   return `${parts.join('')}
     <div class="rp-cols">

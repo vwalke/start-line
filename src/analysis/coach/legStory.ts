@@ -1,5 +1,5 @@
 /**
- * Leg stories (Chris's per-leg fleet narrative, analysis.md §5 item 2): for
+ * Leg stories (the per-leg fleet narrative, analysis.md §5 item 2): for
  * each leg of the race, the coached boat's places gained or lost in the whole
  * fleet (and its seconds against the reference group the Coach's picker set),
  * who in the group gained and lost places, which side of the course paid, how
@@ -12,22 +12,24 @@
  *   there (a tracker hole, a dropped tracker) is placed from a time interpolated
  *   between its roundings either side (or its finish) by the fleet's median
  *   split, or carried on at its own pace from its last one; such places are
- *   marked estimated. The start: the start place (boats without one after,
- *   in their first mark's order); the finish: the official or recovered place;
+ *   marked estimated. The start: every boat on the line by its place at the gun (StartResult.estPlace: the start
+ *   place's order, a boat whose DTL falls in a hole placed between from its nearest fix, estimated); boats over
+ *   early or away from the line after them, in their first mark's order; a boat with no position near the gun has
+ *   none (null: "—", out of Beat 1's places gained and movers). The finish: the official or recovered place;
  *   a finish lost in a hole (no place, no code) among the finishers by its
  *   estimated time; coded boats (DNF, …) after the last finisher. The fleet
- *   never shrinks.
+ *   never shrinks at the marks and the finish.
  * - Against a group (Top 3, Near, custom), a place within a handful of boats
  *   says little: the leg's seconds against the group's median leg time instead.
  * - Side: each boat's mean across-wind position over the leg (every
- *   SIDE_STEP_MS, against the wind at the leg's middle, + = right looking
- *   upwind on every leg), relative to the set's median. The set sorted by it
+ *   SIDE_STEP_MS, across holes up to SIDE_SPAN_S, SIDE_MIN_READS of the reads; against the wind at the leg's
+ *   middle, + = right looking upwind on every leg), relative to the set's median. The set sorted by it
  *   is cut in thirds; the right third's mean places gained minus the left
  *   third's is the effect. |effect| ≥ SIDE_MIN_EFFECT places with at least
  *   SIDE_MIN_BOATS boats: that side paid; else no side paid.
  * - Rounding (classifyRounding): the first tack or gybe from ROUND_LEAD_MS
- *   before the boat's windward-mark rounding to ROUND_WINDOW_MS after it; a
- *   gybe is a gybe-set, anything else (no manoeuvre, a tack) a bear-away.
+ *   before the boat's windward-mark rounding to ROUND_WINDOW_MS after it first sails downwind (past an offset
+ *   mark's reach; firstDownwindMs); a gybe is a gybe-set, anything else (no manoeuvre, a tack) a bear-away.
  *   Needs ROUND_MIN_COVERAGE of that stretch tracked, else unknown.
  * - Each stat needs STORY_MIN_GROUP boats with data in the group (the side
  *   SIDE_MIN_BOATS, the rounding ROUND_MIN_BOATS); with fewer it is worked
@@ -41,7 +43,7 @@
  *   rounded each; whether it was the favoured one is D13's card.
  */
 import { bearingVec, dot, median, type Vec } from '../geo';
-import { detectManoeuvres, type ManoeuvreTrack } from '../manoeuvres';
+import { detectManoeuvres, signedTwa, type ManoeuvreTrack } from '../manoeuvres';
 import { placeColumns, roundingMs } from '../places';
 import { finishRank } from '../result';
 import type { BoatResult, LegKind, RaceAnalysis } from '../types';
@@ -56,16 +58,25 @@ import { gateSides, type GateSide } from './gateSides';
 
 /** A stat over the group needs this many boats with data; fewer → the fleet. */
 export const STORY_MIN_GROUP = 4;
-/** The rounding classifier: the first manoeuvre up to this long after the rounding… */
+/** The rounding classifier: the first manoeuvre up to this long after the boat first sails downwind… */
 export const ROUND_WINDOW_MS = 30_000;
-/** …from this long before it (the timed rounding is good to a few seconds), ms. */
+/** …from this long before the rounding (the timed rounding is good to a few seconds), ms. */
 export const ROUND_LEAD_MS = 5_000;
-/** …with this share of [rounding − 30 s, rounding + ROUND_WINDOW_MS] tracked. */
+/** "Sails downwind": |TWA| at least this, ° (an offset mark's reach is sailed at ~90–110°)… */
+export const ROUND_DOWN_TWA = 120;
+/** …looked for up to this long after the rounding (the offset leg); none in that time: the window runs from its end, ms. */
+export const ROUND_DOWN_MAX_MS = 60_000;
+/** …with this share of [rounding − 30 s, the window's end] tracked. */
 export const ROUND_MIN_COVERAGE = 0.8;
 /** The rounding stat needs this many classified boats. */
 export const ROUND_MIN_BOATS = 3;
-/** Side: positions read this often over the leg, ms. */
+/** Side: positions read this often over the leg, ms… */
 export const SIDE_STEP_MS = 30_000;
+/** …across holes up to this long, with a fix this close (the feed's bursts and holes: progress.ts PROG_SPAN_S / PROG_NEAR_S), s… */
+export const SIDE_SPAN_S = 60;
+export const SIDE_NEAR_S = 30;
+/** …and a boat's side needs this share of the reads. */
+export const SIDE_MIN_READS = 1 / 3;
 /** Side paid: the outer thirds' mean places gained differ by this much… */
 export const SIDE_MIN_EFFECT = 1;
 /** …over at least this many boats (two a third). */
@@ -77,22 +88,52 @@ export const STORY_LOW_COVERAGE = 0.5;
 
 export type RoundingKind = 'gybe-set' | 'bear-away';
 
+/** The fixes of `tr` in [a, b] (a copy). */
+function slice(tr: ManoeuvreTrack, a: number, b: number): ManoeuvreTrack {
+  const t: number[] = [];
+  const x: number[] = [];
+  const y: number[] = [];
+  for (let i = 0; i < tr.t.length; i++) {
+    if (tr.t[i] < a || tr.t[i] > b) continue;
+    t.push(tr.t[i]);
+    x.push(tr.x[i]);
+    y.push(tr.y[i]);
+  }
+  return { t, x, y };
+}
+
 /**
- * How a boat left the windward mark: the first manoeuvre from ROUND_LEAD_MS before `roundMs` to
- * ROUND_WINDOW_MS after it is a gybe → 'gybe-set', otherwise 'bear-away'; null when that stretch
- * (from 30 s before, to see the side held) is under ROUND_MIN_COVERAGE tracked.
+ * When the boat first sailed downwind after its windward-mark rounding at `roundMs` (|TWA| ≥ ROUND_DOWN_TWA by the course
+ * over ground): the rounding itself on a plain windward mark, past the reach on a course with an offset mark; up to
+ * ROUND_DOWN_MAX_MS after it (none by then: that time).
+ */
+export function firstDownwindMs(tr: ManoeuvreTrack, twdAt: (t: number) => number, roundMs: number): number {
+  const s = slice(tr, roundMs - ROUND_LEAD_MS, roundMs + ROUND_DOWN_MAX_MS + ROUND_WINDOW_MS);
+  const { twa } = signedTwa(s, twdAt);
+  for (let i = 0; i < s.t.length; i++) if (s.t[i] >= roundMs && s.t[i] <= roundMs + ROUND_DOWN_MAX_MS && Math.abs(twa[i]) >= ROUND_DOWN_TWA) return s.t[i];
+  return roundMs + ROUND_DOWN_MAX_MS;
+}
+
+/**
+ * How a boat left the windward mark: the first manoeuvre from ROUND_LEAD_MS before `roundMs` to ROUND_WINDOW_MS after it
+ * first sailed downwind (firstDownwindMs: past an offset mark, the set is at the offset) is a gybe → 'gybe-set', otherwise
+ * 'bear-away'; null when that stretch (from 30 s before, to see the side held) is under ROUND_MIN_COVERAGE tracked.
  */
 export function classifyRounding(tr: ManoeuvreTrack, twdAt: (t: number) => number, roundMs: number): RoundingKind | null {
-  if (coachCoverage(tr.t as ArrayLike<number> & { length: number }, roundMs - 30_000, roundMs + ROUND_WINDOW_MS) < ROUND_MIN_COVERAGE) return null;
-  const first = detectManoeuvres(tr, twdAt, roundMs - ROUND_LEAD_MS, roundMs + ROUND_WINDOW_MS)[0];
+  const end = firstDownwindMs(tr, twdAt, roundMs) + ROUND_WINDOW_MS;
+  if (coachCoverage(tr.t as ArrayLike<number> & { length: number }, roundMs - 30_000, end) < ROUND_MIN_COVERAGE) return null;
+  const first = detectManoeuvres(tr, twdAt, roundMs - ROUND_LEAD_MS, end)[0];
   return first?.kind === 'gybe' ? 'gybe-set' : 'bear-away';
 }
 
 /** Every racing boat's place at each column (start, each mark, finish), out of `of` (the fixed fleet). */
 export interface FleetPlaces {
   of: number;
-  /** Per boat: place and estimated flag per column, and the (known or estimated) elapsed time there, s after the gun. */
-  byId: Map<string, { place: number[]; est: boolean[]; elapsedS: (number | null)[] }>;
+  /**
+   * Per boat: place and estimated flag per column, and the (known or estimated) elapsed time there, s after the gun.
+   * Every mark and the finish have a place; the start's is null when the boat's position at the gun is unknown.
+   */
+  byId: Map<string, { place: (number | null)[]; est: boolean[]; elapsedS: (number | null)[] }>;
 }
 
 /** The middle of the values, or null with none. */
@@ -136,7 +177,7 @@ export function fleetPlaces(a: Pick<RaceAnalysis, 'legs' | 'boats' | 'meta'>): F
       return { s: tp + (m - mp) * pace, est: true };
     }),
   );
-  const place = boats.map(() => Array.from({ length: nc }, () => 0));
+  const place = boats.map((): (number | null)[] => Array.from({ length: nc }, () => 0));
   const est = boats.map(() => Array.from({ length: nc }, () => false));
   /** Places from..: `ids` sorted by `keys` (compared in turn, smallest first; Infinity last). */
   const order = (k: number, keys: (i: number) => number[], isEst: (i: number) => boolean, from = 1, ids = boats.map((_, i) => i)): void => {
@@ -156,16 +197,29 @@ export function fleetPlaces(a: Pick<RaceAnalysis, 'legs' | 'boats' | 'meta'>): F
     const li = cols[k].legIndex!;
     order(
       k,
-      (i) => [elapsed[i][k]?.s ?? Infinity, boats[i].legs[li]?.rankAtEnd ?? Infinity, k > 1 ? place[i][k - 1] : 0],
+      (i) => [elapsed[i][k]?.s ?? Infinity, boats[i].legs[li]?.rankAtEnd ?? Infinity, k > 1 ? (place[i][k - 1] ?? Infinity) : 0],
       (i) => elapsed[i][k]?.est ?? true,
     );
   }
-  // The start: the start place, then the boats with none in their first mark's (else finish) order.
-  const firstKey = (i: number): number[] => [nc > 2 ? place[i][1] : (finishRank(boats[i]) ?? Infinity)];
-  const started = boats.map((_, i) => i).filter((i) => boats[i].start?.startPlace != null);
-  const rest = boats.map((_, i) => i).filter((i) => boats[i].start?.startPlace == null);
-  order(0, (i) => [boats[i].start!.startPlace!], () => false, 1, started);
-  order(0, firstKey, () => true, started.length + 1, rest);
+  // The start: every boat on the line by its place there (StartResult.estPlace: the start place's order, a boat interpolated
+  // across a short hole placed between, estimated); over early or away from the line after them, in their first mark's
+  // (else finish) order, estimated; a boat whose position at the gun is unknown has none (null).
+  const firstKey = (i: number): number[] => [nc > 2 ? (place[i][1] ?? Infinity) : (finishRank(boats[i]) ?? Infinity)];
+  // (An analysis from before estPlace: the start place.)
+  const lineRank = (i: number): number | null => {
+    const s = boats[i].start;
+    return s ? (s.estPlace !== undefined ? s.estPlace : s.startPlace) : null;
+  };
+  const onLine = boats.map((_, i) => i).filter((i) => lineRank(i) != null);
+  const back = boats.map((_, i) => i).filter((i) => boats[i].start && lineRank(i) == null && (boats[i].start!.over || boats[i].start!.awayFromLine));
+  order(0, (i) => [lineRank(i)!], (i) => boats[i].start!.startPlace == null, 1, onLine);
+  order(0, firstKey, () => true, onLine.length + 1, back);
+  const placed = new Set([...onLine, ...back]);
+  boats.forEach((_, i) => {
+    if (placed.has(i)) return;
+    place[i][0] = null;
+    est[i][0] = true;
+  });
   // The finish: the official or recovered place (a boat that finished with a code, DPI …, at its on-water place);
   // non-finishers after the last finisher, by how far on they were.
   const fin = nc - 1;
@@ -174,7 +228,7 @@ export function fleetPlaces(a: Pick<RaceAnalysis, 'legs' | 'boats' | 'meta'>): F
     place[i][fin] = finishRank(boats[i])!;
     est[i][fin] = false;
   }
-  const last = Math.max(0, ...finished.map((i) => place[i][fin]));
+  const last = Math.max(0, ...finished.map((i) => place[i][fin] ?? 0));
   // No place and no code (a finish lost in a tracker hole): placed among the finishers by its estimated time
   // (the others keep their official places; it is marked estimated). A coded boat (DNF, …) or one with no
   // estimate goes after the last finisher, by how far on it was.
@@ -186,7 +240,7 @@ export function fleetPlaces(a: Pick<RaceAnalysis, 'legs' | 'boats' | 'meta'>): F
     est[i][fin] = true;
   }
   const dnf = boats.map((_, i) => i).filter((i) => finishRank(boats[i]) == null && !unknown.includes(i));
-  order(fin, (i) => [elapsed[i][fin]?.s ?? Infinity, nc > 2 ? place[i][nc - 2] : 0], () => true, last + 1, dnf);
+  order(fin, (i) => [elapsed[i][fin]?.s ?? Infinity, nc > 2 ? (place[i][nc - 2] ?? Infinity) : 0], () => true, last + 1, dnf);
   // Official `of` (or the tracked fleet): never the assigned DNF slot after the last finisher,
   // which can run past the official count when an extra tracker was dropped.
   const of = Math.max(fleetOf(a as RaceAnalysis), boats.length, ...boats.map((b) => finishRank(b) ?? 0));
@@ -241,8 +295,10 @@ export interface LegStory {
   losers: Mover[];
   /** Always false now (every boat has a fleet place); kept for older callers. */
   moversFleet: boolean;
-  /** The coached boat's fleet places at the leg's ends; null when it isn't in the race. */
+  /** The coached boat's fleet places at the leg's ends; null when it isn't in the race, or its place at the leg's start is unknown (no position at the gun). */
   mine: Mover | null;
+  /** Its place at the leg's end (estimated: ~), also when `mine` is null for want of the start; null when it isn't in the race. */
+  endPlace?: { to: number; est: boolean } | null;
   /** The fixed fleet every place is out of. */
   placeOf: number;
   /** Against a group (not the whole fleet): the boat's leg time minus the group's median leg time, s (+ = lost); null without times. */
@@ -307,7 +363,11 @@ function legSpan(b: BoatResult, li: number, gun: number): [number, number] | nul
   return a != null && e != null && e > a ? [a, e] : null;
 }
 
-/** The boat's mean across-wind position over [a, b] (+ = right looking upwind, across `twdDeg`), m; null with under half the reads. */
+/**
+ * The boat's mean across-wind position over [a, b] (+ = right looking upwind, across `twdDeg`), m: read every
+ * SIDE_STEP_MS, across holes up to SIDE_SPAN_S with a fix within SIDE_NEAR_S (a side is hundreds of metres: a straight
+ * line across a short hole moves it little); null with under SIDE_MIN_READS of the reads.
+ */
 function meanAcross(m: CoachModel, id: string, a: number, b: number, twdDeg: number): number | null {
   const tr = m.tracks.get(id);
   if (!tr) return null;
@@ -316,10 +376,10 @@ function meanAcross(m: CoachModel, id: string, a: number, b: number, twdDeg: num
   const v: number[] = [];
   for (let t = a; t <= b; t += SIDE_STEP_MS) {
     n++;
-    const p: Vec | null = posAt(tr, t);
+    const p: Vec | null = posAt(tr, t, SIDE_SPAN_S, SIDE_NEAR_S);
     if (p) v.push(dot(p, across));
   }
-  return v.length && v.length >= n / 2 ? v.reduce((s, x) => s + x, 0) / v.length : null;
+  return v.length && v.length >= n * SIDE_MIN_READS ? v.reduce((s, x) => s + x, 0) / v.length : null;
 }
 
 /** Which side paid, from each boat's across-wind position and places gained (both over the same boats). */
@@ -349,17 +409,56 @@ function acrossOnLeg(a: RaceAnalysis, m: CoachModel, li: number): { spans: Map<s
   return { spans, xs };
 }
 
+/** The whole fleet's side of leg `li` (fleetSide): the stat, each boat's place there and its side of the fleet's median. */
+export interface FleetSide extends Pick<SideStat, 'verdict' | 'n' | 'left' | 'right' | 'effect' | 'of'> {
+  /** Each boat's across-wind position from the fleet's median (+ = right looking upwind), m. */
+  x: Map<string, number>;
+  /** The outer thirds' inner edges: at or left of `leftCut` is the left third, at or right of `rightCut` the right one, m. */
+  leftCut: number;
+  rightCut: number;
+  /** The effect over its standard error (the two thirds' spread of places gained): how clearly it is more than chance. */
+  z: number;
+}
+
 /**
- * Which side of leg `li` paid over the whole fleet (sidePaid, as the leg story's side with the fleet as the set), and
- * each boat's side of the fleet's median across the wind (+ = right looking upwind), m. Null when too few boats.
+ * Which side of leg `li` paid over the whole fleet (sidePaid, as the leg story's side with the fleet as the set): over the
+ * boats with an across-wind position and both places (a start place unknown leaves Beat 1 out). Null when too few boats.
  */
-export function fleetSide(a: RaceAnalysis, m: CoachModel, li: number, fp: FleetPlaces = fleetPlaces(a)): { verdict: SideVerdict; x: Map<string, number> } | null {
+export function fleetSide(a: RaceAnalysis, m: CoachModel, li: number, fp: FleetPlaces = fleetPlaces(a)): FleetSide | null {
   const { xs } = acrossOnLeg(a, m, li);
-  const ids = a.boats.map((b) => b.id).filter((id) => xs.has(id) && fp.byId.has(id));
+  const gainOf = (id: string): number | null => {
+    const p = fp.byId.get(id)?.place;
+    return p && p[li] != null && p[li + 1] != null ? p[li]! - p[li + 1]! : null;
+  };
+  const ids = a.boats.map((b) => b.id).filter((id) => xs.has(id) && gainOf(id) != null);
   if (!ids.length) return null;
   const mid = median(ids.map((id) => xs.get(id)!));
-  const r = sidePaid(ids.map((id) => ({ x: xs.get(id)! - mid, gain: fp.byId.get(id)!.place[li] - fp.byId.get(id)!.place[li + 1] })));
-  return r ? { verdict: r.verdict, x: new Map(ids.map((id) => [id, xs.get(id)! - mid])) } : null;
+  const rows = ids.map((id) => ({ x: xs.get(id)! - mid, gain: gainOf(id)! }));
+  const r = sidePaid(rows);
+  if (!r) return null;
+  const s = [...rows].sort((p, q) => p.x - q.x);
+  const thirdVar = (t: typeof s): number => {
+    const m = t.reduce((a, x) => a + x.gain, 0) / t.length;
+    return t.length > 1 ? t.reduce((a, x) => a + (x.gain - m) ** 2, 0) / (t.length - 1) : 0;
+  };
+  const se = Math.sqrt((thirdVar(s.slice(0, r.n)) + thirdVar(s.slice(s.length - r.n))) / r.n);
+  return {
+    ...r,
+    of: ids.length,
+    x: new Map(ids.map((id) => [id, xs.get(id)! - mid])),
+    leftCut: s[r.n - 1].x,
+    rightCut: s[s.length - r.n].x,
+    z: se > 0 ? Math.abs(r.effect) / se : Math.abs(r.effect) > 0 ? Infinity : 0,
+  };
+}
+
+const fleetSideMemo = new WeakMap<CoachModel, Map<number, FleetSide | null>>();
+/** fleetSide, worked out once per model and leg (every boat's debrief reads the same fleet). */
+export function fleetSideOf(a: RaceAnalysis, m: CoachModel, li: number): FleetSide | null {
+  let s = fleetSideMemo.get(m);
+  if (!s) fleetSideMemo.set(m, (s = new Map()));
+  if (!s.has(li)) s.set(li, fleetSide(a, m, li));
+  return s.get(li)!;
 }
 
 /** One story per leg of the race for `boat`, the stats over its group `g` (and itself). */
@@ -373,12 +472,12 @@ export function legStories(a: RaceAnalysis, m: CoachModel, boat: string, g: Grou
   const ctx = m.heel?.has(boat) ? coachCtx(a, m, boat) : null;
   const gates = gateSides(a);
   return a.legs.map((leg, li) => {
-    // Fleet places at the leg's ends: column li (the start, or the mark before) and li + 1; every boat has both.
+    // Fleet places at the leg's ends: column li (the start, or the mark before) and li + 1; every boat has both, but a start place may be unknown.
     const placeAt = (id: string, col: number): number | null => fp.byId.get(id)?.place[col] ?? null;
     const hasPlaces = (id: string): boolean => placeAt(id, li) != null && placeAt(id, li + 1) != null;
     const moverOf = (id: string): Mover => {
       const r = fp.byId.get(id)!;
-      return { id, from: r.place[li], to: r.place[li + 1], gain: r.place[li] - r.place[li + 1], est: r.est[li] || r.est[li + 1] };
+      return { id, from: r.place[li]!, to: r.place[li + 1]!, gain: r.place[li]! - r.place[li + 1]!, est: r.est[li] || r.est[li + 1] };
     };
     const movers: Mover[] = (g.kind === 'fleet' ? fleet : set).filter(hasPlaces).map(moverOf);
     const gainers = movers.filter((x) => x.gain > 0).sort((p, q) => q.gain - p.gain || p.to - q.to).slice(0, MOVERS_N);
@@ -442,6 +541,7 @@ export function legStories(a: RaceAnalysis, m: CoachModel, boat: string, g: Grou
       losers,
       moversFleet: false,
       mine: hasPlaces(boat) ? moverOf(boat) : null,
+      endPlace: placeAt(boat, li + 1) != null ? { to: placeAt(boat, li + 1)!, est: fp.byId.get(boat)!.est[li + 1] } : null,
       placeOf: fp.of,
       vsGroup,
       side,

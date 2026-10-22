@@ -32,7 +32,9 @@
  * tracked; only boats measured at both reads that also rounded within D9_SHIFT_WINDOW_MS count as
  * passers. A card needs that many and the place change, and must not contradict the fixed-fleet
  * places at the mark (the leg table): a gain or hold there is a dtg reshuffle, and a huge dtg
- * loss with almost no mark loss is the same (Cascais R2: 11th→63rd by dtg, gained 2 at the mark).
+ * loss with almost no mark loss is the same (Cascais R2: 11th→63rd by dtg, gained 2 at the mark), and so is a dtg loss
+ * over D9_PLACES_TABLE_X times the table's (Cascais R3, first windward mark: 11th→63rd by dtg, 10 lost over the whole
+ * beat from an estimated start place).
  * DNS/DNC and official extras are left out of the ranking; a DNF/RET is not carried past its last known mark.
  */
 import { bearingVec, dot, len, median, sub, type Vec } from '../../geo';
@@ -88,6 +90,8 @@ export const placesThreshold = (fleet: number): number => Math.max(D9_PLACES_MIN
 export const D9_PLACES_EST_MAX = 0.5;
 /** …over this, the places say nothing about the rounding: not judged (no card, not counted as data). */
 export const D9_PLACES_EST_LIMIT = 0.75;
+/** A dtg loss through the rounding over this many times the leg table's places lost (mark to mark, or the start) is a reshuffle. */
+export const D9_PLACES_TABLE_X = 2;
 /** The shift check: boats rounding this close in time to the boat… */
 export const D9_SHIFT_WINDOW_MS = 3 * 60_000;
 /** …at least this many from the other side… */
@@ -439,11 +443,12 @@ export function detectRounding(ctx: CoachCtx): D9Result {
     if (!pl || pl.estShare > D9_PLACES_EST_LIMIT) return;
     evaluated.add(read.type);
     const fp = (base ??= progressBase(ctx.a, ctx.m)).fp.byId.get(ctx.boat);
-    const markLost = fp ? fp.place[read.leg + 1] - fp.place[read.leg] : pl.lost;
+    const markLost = fp && fp.place[read.leg] != null && fp.place[read.leg + 1] != null ? fp.place[read.leg + 1]! - fp.place[read.leg]! : pl.lost;
     // dtg around a mark can reshuffle a 90-boat fleet; skip when the mark-to-mark table disagrees.
     if (pl.lost < pl.threshold || pl.passers.length < pl.threshold) return;
     if (markLost <= 0) return;
     if (pl.lost >= 2 * pl.threshold && markLost * 2 < pl.threshold) return;
+    if (pl.lost > D9_PLACES_TABLE_X * Math.max(markLost, pl.threshold)) return;
     const seconds = Math.max(0, pl.gapS ?? 0) * (pl.shift ? D9_SHIFT_SECONDS : 1);
     const level: Confidence = pl.shift || pl.estShare > D9_PLACES_EST_MAX ? 'low' : 'medium';
     out.opps.push({

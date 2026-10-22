@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { D16_PRE_MS } from '../src/analysis/coach/detectors/lineBias';
 import { analyzeRace } from '../src/analysis/analyze';
 import { CROSS_TO_MS, buildCoach, coachRaw, rivalLadder } from '../src/analysis/coach';
 import { coachDebrief, type CoachDebrief } from '../src/analysis/coach/debrief';
@@ -231,7 +232,8 @@ describe('Coach sanity across the other fixtures', () => {
           expect(c.coverage).toBeGreaterThanOrEqual(0.25);
           expect(c.confidence).not.toBe('none');
           expect(c.t1).toBeGreaterThanOrEqual(c.t0);
-          expect(c.t0).toBeGreaterThanOrEqual(a.meta.gunMs - 10_000);
+          // The line bias (D16): its window is the approach, from D16_PRE_MS before the gun.
+          expect(c.t0).toBeGreaterThanOrEqual(a.meta.gunMs - (c.kind === 'D16' ? D16_PRE_MS : 10_000));
           const t = cardText(c);
           expect(t.title.length).toBeGreaterThan(0);
           // Three key chips; four on a merged start card (D1 + D3).

@@ -145,8 +145,8 @@ describe('IC37 R5, USA 016 (DPI): the report', () => {
     expect(b1.vmg).toMatch(/^\d+\.\d \/ \d+\.\d$/);
     expect(b1.manoeuvres).toMatch(/^~?\d+ tacks?$/);
     expect(b1.coverage).toMatch(/^\d+%$/);
-    // The fixture's track is too sparse for a side (no across-wind positions) and the leg ends at no gate.
-    expect(b1.side).toBe(MISSING);
+    // The side reads positions across the fixture's short holes (legStory.ts SIDE_SPAN_S); the leg ends at no gate.
+    expect(b1.side).toMatch(/^\d+ m (left|right) · (Left paid|Right paid|no side paid)$/);
     expect(b1.gate).toBe(MISSING);
     expect(b1.lowData).toBe(true);
   });

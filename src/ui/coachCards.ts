@@ -3,8 +3,8 @@
  * a 3–6 word title, the red seconds chip, the window in the venue's clock, at
  * most 3 key-number chips, ⚠ chips when gated, one sentence and one tip — all
  * templates with the detector's numbers filled in, the conditional fragments
- * in code. Then the ✓ Not the problem row and the ➕ Went well list (at most 3,
- * with the seconds gained).
+ * in code. Then the ✓ Not the problem row (a ✓ on thin data under "Not judged": "Not enough data to judge …") and the
+ * ➕ Went well list (at most 3, with the seconds gained).
  *
  * An official code is the penalty card (analysis/coach/penalty.ts), pinned above the ranked cards and never
  * numbered: the code, what it means, what it cost in places ("Cost 3 places — 12th on the water, scored 15th"), the
@@ -295,6 +295,12 @@ export function cardText(c: Card, tz = 0): CardText {
     }
     case 'D13':
       return gateText(c);
+    case 'D14':
+      return sideText(c);
+    case 'D15':
+      return nowhereText(c);
+    case 'D16':
+      return biasText(c);
     default:
       return { title: 'Time lost', chips: [], sentence: `About ${sec} s.`, tip: '' };
   }
@@ -467,6 +473,81 @@ function gateWent(n: GoodNote): string {
   return `${where}: took the favoured ${f.side} mark (${r0(f.deltaM)} m further upwind) and ${placesPhrase(f.gained)}`;
 }
 
+const capital = (s: Fact): string => String(s).charAt(0).toUpperCase() + String(s).slice(1);
+/** "lost 3 places" / "gained 2 places" / "held its place" on a leg. */
+const legPlaces = (g: Fact): string => {
+  const n = Math.round(num(g));
+  return n < 0 ? `lost ${-n} ${s1(-n, 'place', 'places')}` : n > 0 ? `gained ${n} ${s1(n, 'place', 'places')}` : 'held your place';
+};
+const SIDE_TIPS: Record<string, string> = {
+  upwind: 'Before the beat, look up the course for the side with more pressure or the coming shift, and sail toward it with the fleet on your hip.',
+  downwind: 'On the runs, look back up the course for the pressure and gybe toward it; don’t sail away from the side bringing it.',
+};
+
+/** D14's card: the side that paid on a leg, and the boat on the other one. */
+function sideText(c: Card): CardText {
+  const f = c.facts;
+  const placed = f.gain != null ? ` and ${legPlaces(f.gain)}` : '';
+  return {
+    title: `${capital(f.paid)} paid on ${f.leg}`,
+    chips: [`${f.paid} third +${f1(num(f.effect))} places vs ${f.other}`, `you ${r0(f.mineM)} m ${f.mySide}`, f.gain != null ? legPlaces(f.gain) : `${r0(f.n)} boats a third`],
+    sentence: `${f.leg}: the ${f.paid} third of the fleet gained ~${r0(f.effect)} places on the ${f.other} third; you were ${r0(f.mineM)} m ${f.mySide} of the fleet's middle${placed}.`,
+    tip: SIDE_TIPS[String(f.legKind)] ?? SIDE_TIPS.upwind,
+  };
+}
+
+/** D15's card: as fast as the fleet, less ground made: wide angles or a longer route. */
+function nowhereText(c: Card): CardText {
+  const f = c.facts;
+  const up = f.legKind === 'upwind';
+  const angle = f.twa != null && f.fTwa != null ? `${r0(f.twa)}° vs fleet ${r0(f.fTwa)}°` : null;
+  return {
+    title: up ? `Fast but not climbing on ${f.leg}` : `Fast but not going deep on ${f.leg}`,
+    chips: [`${kn(f.sog)} vs ${kn(f.fSog)} kn`, `VMG ${kn(f.vmg)} vs ${kn(f.fVmg)} kn`, angle ?? `+${pct(num(f.extraPct))} distance`].slice(0, KEY_CHIPS_MAX),
+    sentence: `${f.leg}: you sailed ${kn(f.sog)} kn, the fleet ${kn(f.fSog)} kn, but made ${kn(f.vmg)} kn ${up ? 'to windward' : 'downwind'} vs ${kn(f.fVmg)} kn: about ${pct(num(f.extraPct))} more distance for the ground made (~${r0(f.extraM)} m over the leg)${angle ? `, at ${angle}` : ''}.`,
+    tip: up ? 'Speed only pays in the right direction: sail the angle of the boats making the most ground, and tack on the headers.' : 'Speed only pays in the right direction: soak with the boats going deepest in the puffs, and gybe on the angle.',
+  };
+}
+
+/** D16's card: a biased line, and the boat away from its favoured end. */
+function biasText(c: Card): CardText {
+  const f = c.facts;
+  const end = f.favoured === 'pin' ? 'pin' : 'committee boat';
+  const from = f.favoured === 'pin' ? `${r0(num(f.linePosPct))}% from the pin` : `${r0(100 - num(f.linePosPct))}% from the committee boat`;
+  return {
+    title: `${f.favoured === 'pin' ? 'Pin' : 'Boat'} end favoured ${r0(f.deg)}°`,
+    chips: [`${f.favoured === 'pin' ? 'pin' : 'boat'} favoured ${r0(f.deg)}° · ~${r0(f.byM)} m`, `started ${from}`, `~${r0(f.givenM)} m given away`],
+    sentence: `The ${end} end was favoured by ${r0(f.deg)}° (~${r0(f.byM)} m upwind); you started ${from}: about ${r0(f.givenM)} m given away, ~${r0(c.seconds)} s at the fleet's ${kn(f.vmg)} kn up the first beat.`,
+    tip: 'Check the line bias before the start (sight the line, read the wind); 6° or more off square, start near the favoured end.',
+  };
+}
+
+/** The ➕ lines of D14 / D15 / D16 (no glyph). */
+function newWent(n: GoodNote): string | null {
+  const f = n.facts;
+  if (n.detector === 'D14') return `${f.leg}: on the ${f.paid} side, which paid (~${r0(f.effect)} places on the ${f.other} third); you ${legPlaces(f.gain)}`;
+  if (n.detector === 'D15') return `${f.leg}: fast and making ground, VMG ${kn(f.vmg)} vs fleet ${kn(f.fVmg)} kn at ${kn(f.sog)} vs ${kn(f.fSog)} kn`;
+  if (n.detector === 'D16') {
+    const end = f.favoured === 'pin' ? 'pin' : 'committee boat';
+    const from = f.favoured === 'pin' ? `${r0(num(f.linePosPct))}% from the pin` : `${r0(100 - num(f.linePosPct))}% from the committee boat`;
+    return `Start: ${end} end favoured ${r0(f.deg)}° (~${r0(f.byM)} m) and you started ${from}`;
+  }
+  return null;
+}
+
+/** What a thin ✓ could not judge: "Not enough data to judge banked gains (tracker 37%)". */
+const THIN_WHAT: Partial<Record<GoodNote['detector'], string>> = {
+  D1: 'the start',
+  D4: 'the shifts',
+  D5: 'banked gains',
+  D6: 'upwind pointing and speed',
+  D7: 'downwind angles and speed',
+  D8: 'clear air',
+  D9: 'the mark roundings',
+  D11: 'heel upwind',
+};
+export const thinText = (n: GoodNote): string => `Not enough data to judge ${THIN_WHAT[n.detector] ?? 'this'} (tracker ${pct(n.coverage ?? 0)})`;
+
 /** D8 as a chip: "20% in dirty air vs fleet 2%". */
 export const dirtyChip = (f: Card['facts']): string => `${pct(num(f.share))} in dirty air vs fleet ${pct(num(f.fleetShare))}`;
 
@@ -499,6 +580,10 @@ export function cardWarnings(c: Card, a: RaceAnalysis, raceCov?: number | null):
           ? 'wind est.'
           : c.kind === 'D12'
             ? 'from the tracker feed'
+            : c.kind === 'D16'
+            ? 'wind at the gun est.'
+            : c.kind === 'D14'
+            ? 'few boats a third'
             : c.kind === 'D13'
             ? num(c.facts.shift) === 1
               ? 'wind shifting'
@@ -534,6 +619,8 @@ export function wentText(n: GoodNote): string {
   const s = r0(n.seconds ?? f.gainS);
   if (n.detector === 'D9') return `${roundingName(f)}: ${s} s quicker than the top 3 through the zone`;
   if (n.detector === 'D13') return gateWent(n);
+  const extra = newWent(n);
+  if (extra) return extra;
   if (n.detector === 'D1') return `Start: crossed the line ${s} s ahead of the top 3`;
   if (n.detector === 'D3') return `First ${D3_WINDOW_MS / 60_000} minutes: gained ${s} s on the top 3`;
   if (n.detector === 'D11') return `${f.leg}: ${heelClause(f)} and ${vmgWord(f.dVmg)} in VMG`;
@@ -544,6 +631,7 @@ export function wentText(n: GoodNote): string {
 export function goodTexts(n: GoodNote): string[] {
   const f = n.facts;
   if (n.kind === 'plus') return [wentText(n)];
+  if (n.thin) return [thinText(n)];
   if (n.detector === 'D1') return [`Start ${r0(f.dtl)} m off the line at the gun`];
   if (n.detector === 'D4') return ['Shifts: on the lifted side'];
   if (n.detector === 'D5') return ['Banked gains'];
@@ -552,7 +640,9 @@ export function goodTexts(n: GoodNote): string[] {
   if (n.detector === 'D13') return [gateWent(n)];
   if (n.detector === 'D11') return [`Heel upwind ${r0(f.heel)}° vs ${heelRefShort(f)} ${r0(f.refHeel)}°`];
   const side = n.detector === 'D6' ? 'Upwind' : 'Downwind';
-  return [`${side} ${n.detector === 'D6' ? 'pointing' : 'angles'} ${r0(f.twa)}° vs fleet ${r0(f.fTwa)}°`, `${side} VMG ${kn(f.vmg)} vs fleet ${kn(f.fVmg)} kn`];
+  // Only some legs of the kind judged: name them.
+  const on = f.all === 0 && f.legs ? ` (${f.legs})` : '';
+  return [`${side} ${n.detector === 'D6' ? 'pointing' : 'angles'} ${r0(f.twa)}° vs fleet ${r0(f.fTwa)}°${on}`, `${side} VMG ${kn(f.vmg)} vs fleet ${kn(f.fVmg)} kn${on}`];
 }
 
 const chip = (text: string, cls = ''): string => `<li class="chip${cls ? ` ${cls}` : ''}">${esc(text)}</li>`;
@@ -660,8 +750,12 @@ export function coachCardsHtml(a: RaceAnalysis, d: CoachDebrief, selected: numbe
   const pen = d.penalty ? `${penaltyHtml(d.penalty, a)}<h4 class="coach-ranked-head">${esc(rankedHead(d.penalty))}</h4>` : '';
   const fewer = n < 3 ? `<p class="coach-fewer muted">${n ? esc(fewerLine(n)) : 'No clear gains with this data'}</p>` : '';
   const cards = n ? `<div class="coach-opps">${d.cards.map((c, i) => cardHtml(c, i, a, selected === i, d.raceCov)).join('')}</div>` : '';
-  const ok = d.ok.flatMap(goodTexts).map((x) => chip(`✓ ${x}`, 'good'));
-  const row = ok.length ? `<section class="card coach-ok"><ul class="chips"><li class="ok-lbl">Not the problem</li>${ok.join('')}</ul></section>` : '';
+  const ok = d.ok.filter((n) => !n.thin).flatMap(goodTexts).map((x) => chip(`✓ ${x}`, 'good'));
+  // Thin data: said as such, never as a ✓.
+  const thin = d.ok.filter((n) => n.thin).map((n) => chip(thinText(n), 'thin'));
+  const okRow = ok.length ? `<ul class="chips"><li class="ok-lbl">Not the problem</li>${ok.join('')}</ul>` : '';
+  const thinRow = thin.length ? `<ul class="chips"><li class="ok-lbl">Not judged</li>${thin.join('')}</ul>` : '';
+  const row = okRow || thinRow ? `<section class="card coach-ok">${okRow}${thinRow}</section>` : '';
   const went = wentWellHtml(d.plus.map((n) => ({ text: wentText(n), seconds: n.seconds ?? num(n.facts.gainS) })));
   return `${pen}${fewer}${cards}${went}${row}`;
 }

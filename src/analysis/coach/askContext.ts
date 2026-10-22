@@ -122,6 +122,8 @@ export interface AskContext {
   penalty?: AskPenalty;
   findings?: AskFinding[];
   notTheProblem?: string[];
+  /** ✓ notes on thin tracker data: "Not enough data to judge banked gains (tracker 37%)" (never "not the problem"). */
+  notJudged?: string[];
   wentWell?: { text: string; seconds?: number }[];
   legs?: AskLeg[];
   regatta?: AskRegatta;
@@ -193,6 +195,7 @@ export const ASK_CONTEXT_SPEC: Spec = obj(
     penalty: obj({ code: str(8), meaning: str(S), result: str(S), chips: strs(6), what: str(L) }, ['code']),
     findings: arr(FINDING, 6),
     notTheProblem: strs(12),
+    notJudged: strs(12),
     wentWell: arr(obj({ text: str(S), seconds: num(0, 100_000) }, ['text']), 6),
     legs: arr(obj({ leg: str(40), summary: strs(6), details: strs(16) }, ['leg']), 16),
     regatta: REGATTA,
@@ -278,6 +281,7 @@ const TRIM_STEPS: { name: string; run: Trim }[] = [
   { name: 'leg types', run: (c) => dropKey(c.regatta, 'legTypes') },
   { name: 'race-by-race notes', run: (c) => dropEach(c.regatta?.places, 'note') },
   { name: 'not-the-problem row', run: (c) => dropKey(c, 'notTheProblem') },
+  { name: 'not-judged row', run: (c) => dropKey(c, 'notJudged') },
   { name: 'recurring findings beyond the first 5', run: (c) => keepFirst(c.regatta?.recurring, 5) },
   { name: 'leg by leg', run: (c) => dropKey(c, 'legs') },
   { name: 'finding chips', run: (c) => dropEach(c.findings, 'chips') },

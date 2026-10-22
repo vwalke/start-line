@@ -23,6 +23,8 @@
 //        50 min (Beat 2's swing) → tests/fixtures/j105_r3.json (~1.5 MB).
 //   gate-j24r2, gate-j24r5, gate-j111r5, gate-ic37r2, gate-m24r5, gate-viperr2: the gate-choice (D13) goldens, whole
 //        fleets from the coach-testraces cache (see `gate` below) → tests/fixtures/gate_<key>.json.
+//   cascais-r2, cascais-r3: J/70 Worlds 2026 (Cascais), Open, races 2 and 3, the whole 100-boat fleet for the Coach's
+//        start places, gybe sets and sides (see `cascais` below) → tests/fixtures/cascais_r2.json, cascais_r3.json.
 // m24 and j88 read the survey downloads (regatta_<event>.json, tele_<event>_<div>_<race>.json
 // as an array of telemetry pages, wind_<event>_<YYYY-MM-DD>.json), e.g. from /workspace/legsplit-data.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -199,6 +201,37 @@ PRESETS['gate-viperr2'] = {
   gateDense: undefined,
 };
 
+// Cascais races 2 and 3 (the Coach's start places, gybe sets and side of the course): the whole fleet from the
+// coach-eval cache (regatta_<event>.json, the race's tele_<event>_Open_<after>_<before>.json pages, wind_<event>_<race>.json),
+// e.g. /workspace/coach-eval/cache. Every boat at its native rate within ±60 s of the gun and from 75 s before to 165 s
+// after each windward rounding (`windwardDense`: its farthest fix from the leeward gate on each lap, the windward and
+// offset marks having no tracker; the rounding as the legs time it is within ~15 s of that), every 10 s elsewhere; holes
+// kept as they are. Course marks every 20 s; heading to 1°, SOG to 0.1 kn; boat names dropped (the coach boats carry
+// people's names); the race only.
+const cascais = (race, pages) => ({
+  event: 'oRkxbTpSZPbSkrmKrbj2',
+  division: 'Open',
+  race,
+  tele: pages,
+  wind: `wind_oRkxbTpSZPbSkrmKrbj2_${race}.json`,
+  out: `tests/fixtures/cascais_r${race}.json`,
+  note: `Trimmed from public RaceSense data: 2026 J/70 World Championship (Cascais), Open, race ${race} (whole fleet: native rate within ±60 s of the gun and from 75 s before to 165 s after each windward rounding, every 10 s elsewhere, holes kept; course marks only; no boat names). See scripts/make-fixture.mjs --preset cascais-r${race}.`,
+  event_: (doc) => ({ classLabel: 'J/70', venue: 'Cascais, PT', startMs: doc.startDate, endMs: doc.endDate }),
+  races: [race],
+  // 10 s keeps course-over-ground pairs (≤ 12 s apart) for the fleet's wind away from the roundings.
+  step: 10_000,
+  nearStep: 0,
+  windwardDense: { beforeMs: 75_000, afterMs: 165_000, nearM: 60, armM: 400 },
+  courseMarksOnly: true,
+  // race_stage only times a finish from the tracks (every Cascais finisher has RaceSense's own).
+  drop: ['division', 'race_number', 'start_number', 'race_stage', 'status'],
+  round: true,
+  dp: { heading: 0, sog: 1 },
+  noNames: true,
+});
+PRESETS['cascais-r2'] = cascais(2, ['tele_oRkxbTpSZPbSkrmKrbj2_Open_1788868971000_1788874882671.json', 'tele_oRkxbTpSZPbSkrmKrbj2_Open_1788872452599_1788874882671.json', 'tele_oRkxbTpSZPbSkrmKrbj2_Open_1788874799899_1788874882671.json']);
+PRESETS['cascais-r3'] = cascais(3, ['tele_oRkxbTpSZPbSkrmKrbj2_Open_1788875571000_1788881614727.json', 'tele_oRkxbTpSZPbSkrmKrbj2_Open_1788878734099_1788881614727.json', 'tele_oRkxbTpSZPbSkrmKrbj2_Open_1788881257899_1788881614727.json']);
+
 const args = process.argv.slice(2);
 const pi = args.indexOf('--preset');
 const preset = PRESETS[pi >= 0 ? args[pi + 1] : 'benelux'];
@@ -311,6 +344,51 @@ if (preset.gateDense) {
   }
   if (args.includes('--debug')) console.log('gate buoys', gateSns, buoys.length, [...gateWin].map(([s, [a]]) => `${s} +${((a + g.padMs - gun) / 60_000).toFixed(1)} min`).join(', '));
 }
+// `windwardDense`: each competitor's windward roundings, as its farthest fix from the leeward gate (either buoy, at its
+// position at the time) on each lap; a lap ends at a pass within nearM of the gate after being armM away.
+const windWin = new Map();
+if (preset.windwardDense) {
+  const g = preset.windwardDense;
+  const gateSns = (div.courses ?? []).flatMap((c) => c.achievements.filter((a) => a.type === 'gate').flatMap((a) => a.deviceRoles.map((d) => parseInt(d.sn.slice(-4), 16))));
+  const buoys = [...new Set(gateSns)]
+    .map((sn) => rows.filter((r) => r[idx.role] === 'mark' && r[idx.sn] === sn && r[idx.ts] >= t0 && r[idx.ts] <= t1))
+    .filter((rs) => rs.length);
+  const nearest = (rs, t) => {
+    let lo = 0;
+    let hi = rs.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (rs[mid][idx.ts] <= t) lo = mid;
+      else hi = mid;
+    }
+    return Math.abs(rs[lo][idx.ts] - t) <= Math.abs(rs[hi][idx.ts] - t) ? rs[lo] : rs[hi];
+  };
+  const kx = 111_195 * Math.cos((buoys[0]?.[0][idx.latitude] ?? 0) * (Math.PI / 180));
+  const dist = (r) =>
+    Math.min(
+      ...buoys.map((rs) => {
+        const b = nearest(rs, r[idx.ts]);
+        return Math.hypot((r[idx.longitude] - b[idx.longitude]) * kx, (r[idx.latitude] - b[idx.latitude]) * 111_195);
+      }),
+    );
+  const lap = new Map();
+  const close = (sail) => {
+    const l = lap.get(sail);
+    if (l && l.maxD >= g.armM) windWin.set(sail, [...(windWin.get(sail) ?? []), [l.maxT - g.beforeMs, l.maxT + g.afterMs]]);
+    lap.set(sail, { maxD: -1, maxT: 0, armed: false });
+  };
+  for (const r of rows) {
+    const sail = r[idx.sail_number];
+    if (r[idx.role] !== 'competitor' || !buoys.length || r[idx.ts] < gun || r[idx.ts] > t1) continue;
+    if (!lap.has(sail)) lap.set(sail, { maxD: -1, maxT: 0, armed: false });
+    const l = lap.get(sail);
+    const d = dist(r);
+    if (d > l.maxD) Object.assign(l, { maxD: d, maxT: r[idx.ts] });
+    if (d > g.armM) l.armed = true;
+    else if (l.armed && d <= g.nearM) close(sail);
+  }
+  if (args.includes('--debug')) console.log('windward windows', [...windWin].slice(0, 5).map(([s, ws]) => `${s} ${ws.map(([a]) => `+${((a + g.beforeMs - gun) / 60_000).toFixed(1)}`).join(' ')} min`).join(', '));
+}
 const lastKept = new Map();
 const outRows = [];
 for (const r of rows) {
@@ -324,13 +402,16 @@ for (const r of rows) {
   // `dense`: stretches of race (ms from the gun) kept at a finer step for every boat (the first that holds `ts`).
   const dense = (preset.dense ?? []).find((d) => ts >= gun + d.from && ts <= gun + d.to);
   const gw = gateWin.get(sail);
+  const ww = windWin.get(sail)?.some(([a, b]) => ts >= a && ts <= b);
   const step = isMark
     ? 20_000
     : full.has(sail)
       ? 0
       : near
         ? (preset.nearStep ?? 0)
-        : gw && ts >= gw[0] && ts <= gw[1]
+        : ww
+          ? 0
+          : gw && ts >= gw[0] && ts <= gw[1]
           ? preset.gateDense.step
           : dense
           ? dense.step
@@ -356,4 +437,4 @@ const fixture = {
   telemetry: { Fields: keep, Rows: outRows },
 };
 writeFileSync(out, JSON.stringify(fixture));
-console.log(`wrote ${out}: ${outRows.length} rows, ${(JSON.stringify(fixture).length / 1e6).toFixed(2)} MB${preset.gateDense ? `, ${gateWin.size} boats with a gate window` : ''}`);
+console.log(`wrote ${out}: ${outRows.length} rows, ${(JSON.stringify(fixture).length / 1e6).toFixed(2)} MB${preset.gateDense ? `, ${gateWin.size} boats with a gate window` : ''}${preset.windwardDense ? `, ${windWin.size} boats with windward windows` : ''}`);

@@ -322,7 +322,7 @@ describe('fleet places: a fixed fleet when a tracker drops out', () => {
     // 5 tracked − 1 extra + 1 official-no-track = 5; E is out of the ranking.
     expect(fp.of).toBe(5);
     expect(fp.byId.has('E')).toBe(false);
-    expect([...fp.byId.values()].map((r) => r.place[0]).sort((p, q) => p - q)).toEqual([1, 2, 3, 4]);
+    expect([...fp.byId.values()].map((r) => r.place[0]).sort((p, q) => p! - q!)).toEqual([1, 2, 3, 4]);
     const st = legStories(off, m, 'A', { kind: 'fleet' });
     expect(st.map((s) => s.placeOf)).toEqual([5, 5, 5]);
     expect(placeChip(st[0])).toBe('even · 1st of 5');

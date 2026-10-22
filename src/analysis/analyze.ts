@@ -27,7 +27,7 @@ import {
   type Vec,
 } from './geo';
 import { fleetTurns, isOffset, legCourse, legsAgree, snapTurns } from './course';
-import { checkBounds, inferRoundings, legMedians, splitLegs, targetsOf, type Targets, type Waypoint } from './legs';
+import { checkBounds, dropImpossibleLegs, inferRoundings, legMedians, splitLegs, targetsOf, type Targets, type Waypoint } from './legs';
 import { SQUARE_LINE_M, awayFromLineThresholdM } from './line';
 import { heelAt, heelSeries, heelStats } from './heel';
 import { cogHeading, detectManoeuvres, headingCheck, manoeuvresByLeg, signedTwa, type HeadingCheck } from './manoeuvres';
@@ -56,7 +56,7 @@ import {
   type WindInfo,
 } from './types';
 import { finishRank } from './result';
-import { assessStart, rankStarts, sampleGap } from './validity';
+import { assessStart, estimateDtl, rankStarts, sampleGap } from './validity';
 import { classifyLeg, estimateTwd, makeTwdAt, steadyIndices, straddles } from './wind';
 
 const centroid = (ps: Vec[]): Vec => scale(ps.reduce((a, b) => add(a, b), [0, 0] as Vec), 1 / ps.length);
@@ -442,7 +442,13 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       // The public track is lossy near the gun: judge the sample by the nearest real point
       // and by the hole it sits in (a neighbour within 2 s still interpolates across > 5 s).
       const gap = sampleGap(tr.t, ts);
+      // Across a hole: the DTL estimated from the nearest fix (its bow, carried on at its SOG along its heading), for estPlace.
+      const dtlAtFix = (k: number): number => -dot(sub(add([tr.x[k], tr.y[k]], scale(bearingVec(tr.heading[k]), b.bowOffsetM)), L), nrm);
+      const vAtFix = (k: number): number => (Number.isFinite(tr.sog[k]) && Number.isFinite(tr.heading[k]) ? (tr.sog[k] / MS_TO_KN) * dot(bearingVec(tr.heading[k]), nrm) : 0);
+      const estDtlM = gap ? estimateDtl(tr.t, ts, dtl, dtlAtFix, vAtFix) : null;
       start = {
+        estDtlM,
+        estPlace: null,
         dtlM: dtl,
         secsLate: dtl / Math.max(vperp, 0.3),
         vToLineMs: vperp,
@@ -643,6 +649,13 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     results.push(m.result);
     drawings.push(m.drawing);
   }
+  // Impossible splits (legs.ts legSplitOk: a glitch-timed rounding, a second device on the sail) are unknown everywhere.
+  if (dropImpossibleLegs(results.map((r) => r.legs))) {
+    for (const r of results) {
+      r.upwind = kindSummary(r.legs, legs, 'upwind');
+      r.downwind = kindSummary(r.legs, legs, 'downwind');
+    }
+  }
 
   // Boats set aside: drawn over the fleet's median leg times (their own turns
   // aren't legs), up to the last competitor's finish or the end of the track.
@@ -678,7 +691,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   for (const { result: r } of excluded) {
     if (!r.start) continue;
     r.start.secsLate = r.start.dtlM / Math.max(r.start.vToLineMs, vFloor);
-    Object.assign(r.start, assessStart(r.start), { ocs: false, over: false, ocsBlind: false, warn: null, startPlace: null });
+    Object.assign(r.start, assessStart(r.start), { ocs: false, over: false, ocsBlind: false, warn: null, startPlace: null, estPlace: null });
   }
 
   // Rank at each mark: among every boat with a known time there (its leg may be unknown when only its start was lost).
