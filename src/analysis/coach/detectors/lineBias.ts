@@ -4,9 +4,11 @@
  * boat's distance from the favoured end, as a share of the line (StartResult.linePosPct), times the favoured-by metres
  * is the ground it gave away; ÷ the fleet's VMG on the first leg is the seconds.
  *
- * - Fires when it gave away D16_CARD_SHARE or more of the bias (the unfavoured third); a start card, its window the
- *   approach (gun − D16_PRE_MS to gun − D1_PRE_MS: the D1 card's own window is the line crossing).
+ * - Fires when it gave away D16_CARD_SHARE or more of the bias (the unfavoured third) and that ground is material
+ *   (D16_MATERIAL_S or more at the fleet's Beat-1 VMG); a start card, its window the approach (gun − D16_PRE_MS to
+ *   gun − D1_PRE_MS: the D1 card's own window is the line crossing).
  * - ➕ Went well: in the favoured third (D16_GOOD_SHARE), the seconds against the line's middle.
+ * - Anywhere else, or unfavoured but not material: nothing (no card, no ➕).
  * - Needs the boat's position at the gun read (no hole, or estimated across one: StartResult.estDtlM); not for a boat
  *   over early (D1 says that). Confidence: the wind's at the gun (line.ts windSource).
  */
@@ -22,6 +24,8 @@ export const D16_MIN_DEG = 6;
 export const D16_CARD_SHARE = 2 / 3;
 /** …➕: started in this share of the line nearest the favoured end. */
 export const D16_GOOD_SHARE = 1 / 3;
+/** …and only when the ground given away is worth this much at the fleet's Beat-1 VMG, s (the seconds the card would show). */
+export const D16_MATERIAL_S = 10;
 /** The card's window opens this long before the gun (the approach), ms. */
 export const D16_PRE_MS = 60_000;
 /** The range: ± this share of the seconds (the wind at the gun is good to a few degrees). */
@@ -30,6 +34,15 @@ export const D16_REL_ERR = 0.3;
 export interface D16Result {
   opp: Opportunity | null;
   good: GoodNote | null;
+}
+
+/**
+ * Where the boat started on a biased line, as the detector reads it: 'card' in the unfavoured third with material ground
+ * given away (`share` × `byM` m ÷ `vmg` m/s ≥ D16_MATERIAL_S), 'good' in the favoured third, else null.
+ */
+export function biasCall(share: number, byM: number, vmg: number): 'card' | 'good' | null {
+  if (share >= D16_CARD_SHARE) return (share * byM) / vmg >= D16_MATERIAL_S ? 'card' : null;
+  return share <= D16_GOOD_SHARE ? 'good' : null;
 }
 
 export function detectLineBias(ctx: CoachCtx): D16Result {
@@ -56,7 +69,8 @@ export function detectLineBias(ctx: CoachCtx): D16Result {
   };
   const w = windSource(ctx.a.wind).confidence;
   const cap: Confidence | null = w === 'high' ? null : w;
-  if (share >= D16_CARD_SHARE) {
+  const call = biasCall(share, byM, vmg);
+  if (call === 'card') {
     const seconds = (share * byM) / vmg;
     return {
       opp: {
@@ -75,7 +89,7 @@ export function detectLineBias(ctx: CoachCtx): D16Result {
       good: null,
     };
   }
-  if (share <= D16_GOOD_SHARE) {
+  if (call === 'good') {
     const seconds = ((0.5 - share) * byM) / vmg;
     return { opp: null, good: { kind: 'plus', detector: 'D16', variant: 'favoured', facts: { ...facts, gainS: seconds }, t0: ctx.gun - D16_PRE_MS, t1: ctx.gun - D1_PRE_MS, seconds } };
   }

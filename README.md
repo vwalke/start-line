@@ -31,7 +31,9 @@ are shared by all three.
   one. Two views:
   - **Race:** its place (official when linked) and the gap to the winner, the
     gap to a group of rivals (Top 3 / boats near me / whole fleet / custom)
-    over the race with the fleet's wind under it, the biggest gains as cards,
+    over the race with the fleet's wind under it, the biggest gains as cards
+    (at most 3, at most 2 from one detector: the next-best from another
+    takes the slot; penalty turns exempt),
     **Went well** (up to 3 lines with the seconds gained: legs, roundings
     and the start where the boat gained on the top 3), the ✓ "Not the
     problem" chips (on a stretch the tracker covered under 50 % a "Not judged"
@@ -180,7 +182,11 @@ are shared by all three.
     end around the boat's place (as D9's sparse-data card reads places as time);
     medium under 10 boats a third. Without its own position: no card, only the
     leg story's side. In the paying third and gaining places: a Went well line.
-    A "Side of the course" theme in the Regatta view.
+    One card a race: the leg that cost the most seconds once the race's other
+    findings have claimed theirs (a run D7 already holds keeps none), the other
+    such legs on it ("Also on the side that didn't pay: Run 1, Beat 2"); one
+    Went well line likewise ("(also Run 2)"). A "Side of the course" theme in
+    the Regatta view, its seconds per race those of every leg on the card.
   - **D15 fast but going nowhere** (`nowhere.ts`): every boat's path on the leg
     read the same way (positions every 10 s, never across a hole over 15 s), so
     dense and sparse tracks compare like for like: SOG = distance ÷ time read, VMG =
@@ -196,13 +202,14 @@ are shared by all three.
     wind at the gun (at 6° the favoured end is about a tenth of the line further
     upwind), the boat's share of the line from the favoured end × the favoured-by
     metres is the ground given away, ÷ the fleet's VMG on Beat 1 the seconds.
-    Started in the third at the unfavoured end: a start card ("Pin end favoured
-    9°: you started 70% from the pin: about 116 m given away"), confidence the
-    wind's at the gun; in the favoured third: a Went well line ("Start: pin end
+    Started in the third at the unfavoured end with material ground given away
+    (10 s or more at that VMG): a start card ("Pin end favoured 9°: you started
+    70% from the pin: about 116 m given away"), confidence the wind's at the
+    gun; in the favoured third: a Went well line ("Start: pin end
     favoured 9° (~166 m) and you started 0% from the pin", seconds against the
-    line's middle). Needs the boat's position at the gun (read, or estimated
-    across a short hole); not for a boat over early. The Report's start section
-    shows the line bias too.
+    line's middle); anywhere else, nothing. Needs the boat's position at the
+    gun (read, or estimated across a short hole); not for a boat over early.
+    The Report's start section shows the line bias too.
   - **Regatta view, Penalties:** a row above the pattern cards, one line per code
     ("DPI in 8 of 8 races · 24 penalty points · ≈ 24 places", "UFD in 1 of 8 races
     (R3) · 16 points; result lost") and penalty turns ("Penalty turns in 2 of 8

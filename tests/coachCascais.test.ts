@@ -191,10 +191,13 @@ describe('Cascais: the side of the course', () => {
       expect(s.z).toBeGreaterThan(D14_MIN_Z);
     }
   });
-  it('D14 cards: the boats in the losing third with their own position mid-leg; the text names the side and the metres', () => {
+  it('D14 cards: the boats in the losing third with their own position mid-leg, one card a race; the text names the side and the metres', () => {
     let cards = 0;
     for (const b of r2.a.boats) {
       const d = coachDebrief(r2.a, r2.m, b.id)!;
+      // One a race: the other legs on the side that didn't pay ride on it ("also …").
+      expect(d.cards.filter((x) => x.kind === 'D14').length).toBeLessThanOrEqual(1);
+      expect(d.plus.filter((x) => x.detector === 'D14').length).toBeLessThanOrEqual(1);
       for (const c of d.cards.filter((x) => x.kind === 'D14')) {
         cards++;
         const t = cardText(c);

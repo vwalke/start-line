@@ -484,14 +484,15 @@ const SIDE_TIPS: Record<string, string> = {
   downwind: 'On the runs, look back up the course for the pressure and gybe toward it; don’t sail away from the side bringing it.',
 };
 
-/** D14's card: the side that paid on a leg, and the boat on the other one. */
+/** D14's card: the side that paid on the leg it cost the most, and the boat on the other one; the race's other such legs as "also …". */
 function sideText(c: Card): CardText {
   const f = c.facts;
   const placed = f.gain != null ? ` and ${legPlaces(f.gain)}` : '';
+  const also = f.also ? ` Also on the side that didn't pay: ${f.also}.` : '';
   return {
     title: `${capital(f.paid)} paid on ${f.leg}`,
     chips: [`${f.paid} third +${f1(num(f.effect))} places vs ${f.other}`, `you ${r0(f.mineM)} m ${f.mySide}`, f.gain != null ? legPlaces(f.gain) : `${r0(f.n)} boats a third`],
-    sentence: `${f.leg}: the ${f.paid} third of the fleet gained ~${r0(f.effect)} places on the ${f.other} third; you were ${r0(f.mineM)} m ${f.mySide} of the fleet's middle${placed}.`,
+    sentence: `${f.leg}: the ${f.paid} third of the fleet gained ~${r0(f.effect)} places on the ${f.other} third; you were ${r0(f.mineM)} m ${f.mySide} of the fleet's middle${placed}.${also}`,
     tip: SIDE_TIPS[String(f.legKind)] ?? SIDE_TIPS.upwind,
   };
 }
@@ -525,7 +526,7 @@ function biasText(c: Card): CardText {
 /** The ➕ lines of D14 / D15 / D16 (no glyph). */
 function newWent(n: GoodNote): string | null {
   const f = n.facts;
-  if (n.detector === 'D14') return `${f.leg}: on the ${f.paid} side, which paid (~${r0(f.effect)} places on the ${f.other} third); you ${legPlaces(f.gain)}`;
+  if (n.detector === 'D14') return `${f.leg}: on the ${f.paid} side, which paid (~${r0(f.effect)} places on the ${f.other} third); you ${legPlaces(f.gain)}${f.also ? ` (also ${f.also})` : ''}`;
   if (n.detector === 'D15') return `${f.leg}: fast and making ground, VMG ${kn(f.vmg)} vs fleet ${kn(f.fVmg)} kn at ${kn(f.sog)} vs ${kn(f.fSog)} kn`;
   if (n.detector === 'D16') {
     const end = f.favoured === 'pin' ? 'pin' : 'committee boat';
