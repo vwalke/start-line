@@ -1416,11 +1416,12 @@ the server checks with Cloudflare's siteverify (secret, token, the client's
 missing or failed check is a 400 ("Please complete the check and try
 again."); siteverify unreachable is a 503: it fails closed. Email sign-in is
 offered (`signIn.email`) only with an email provider **and** Turnstile set
-up, except on localhost, where the `log` provider works without Turnstile;
-anywhere else the email routes answer 503 without it. *Rate limits:* at most
+up, except on localhost, where the `log` provider works without Turnstile
+(and only there: `log` on any other host is not set up, a 503, and nothing is
+logged); anywhere else the email routes answer 503 without it. *Rate limits:* at most
 5 links per address and 20 per IP per fixed hour, counted in D1
-(`auth_rate_limits`, one atomic upsert per key) so every isolate shares the
-counts; keys are `email:<SHA-256 of the address>` and `ip:<SHA-256 of the
+(`auth_rate_limits`, one atomic upsert per key; no count back is a 429) so
+every isolate shares the counts; keys are `email:<SHA-256 of the address>` and `ip:<SHA-256 of the
 IP>` (never the raw values), and about one request in 100 deletes counters
 older than 2 hours. The emailed link (`GET /api/auth/verify?token=`) opens a
 small confirm page ("Sign in to Recall", "Tap the button to finish signing
@@ -1447,7 +1448,10 @@ once an hour per session, so a normal request adds no write). An account
 stays signed in on **up to 3 devices**, whatever the sign-in method (the
 admin can set another cap for one user, 1 to 20: [below](#admin-signed-in-devices)).
 Signing in on a 4th revokes the least recently used one rather than deleting
-it (`revoked_reason 'device_limit'`, `revoked_by` the new session), so that
+it (`revoked_reason 'device_limit'`, `revoked_by` the new session; insert and
+revoke are one D1 batch, so racing sign-ins never leave more than the cap; a
+session's hourly last-use write trims an account already over its cap the
+same way, keeping that session, `revoked_by` NULL), so that
 device is told why: its next `/api/auth/me` answers signed out with
 `signedOutReason` (`device_limit`, `remote` or `admin`) and clears the
 cookie, and the page opens the sign-in sheet once with a note ("You were
@@ -1669,15 +1673,16 @@ node scripts/grant-gift.mjs grant regatta --event fDHdPcEOM6mcMRkdXNnj --email s
 node scripts/grant-gift.mjs revoke all --email sailor@example.com
 node scripts/grant-gift.mjs revoke regatta --event fDHdPcEOM6mcMRkdXNnj --email sailor@example.com
 node scripts/grant-gift.mjs revoke --id gift_0123456789abcdef01234567
-# Every gift (or one address's): id, email, scope, event, starts, expires, revoked, signed_in
+# Every gift (or one address's): id, email, scope, event, starts, expires, revoked, signed_in (a session not revoked)
 node scripts/grant-gift.mjs list
 node scripts/grant-gift.mjs list --email sailor@example.com
 # Show the SQL only:
 node scripts/grant-gift.mjs grant all --email sailor@example.com --print
 ```
 
-How it works (no migration: the tables of `migrations/0001_paywall.sql`
-only): a gift is a `purchases` row (`provider 'gift'`, `provider_ref
+How it works (no migration of its own: grant and revoke use the tables of
+`migrations/0001_paywall.sql` only; list also reads `sessions.revoked_at`
+from `0002_signin_phase1.sql`): a gift is a `purchases` row (`provider 'gift'`, `provider_ref
 'gift:<key>'`, amount 0, status `gift`) and its entitlement, both with the id
 `gift_<key>`, where the key comes from the email (lower-cased, trimmed), the
 scope and the event id (`all` and `season` are the same gift). They belong to the user with that email, created if

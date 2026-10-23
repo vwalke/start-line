@@ -18,8 +18,9 @@
  * the same gift again changes nothing but its expiry (and lifts a revocation); revoking twice is a
  * no-op. They belong to the user with that email, created if new (as a Stripe webhook does), so they
  * unlock nothing until someone signs in as that address: a magic link proves it, Google only with a
- * verified email. Migration-free: only the tables of migrations/0001_paywall.sql. The note is shown
- * here only (no column for it).
+ * verified email. grant and revoke need only the tables of migrations/0001_paywall.sql; list also
+ * reads sessions.revoked_at, so it needs migrations/0002_signin_phase1.sql. The note is shown here
+ * only (no column for it).
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -109,12 +110,12 @@ export function revokeSql({ id, now }) {
   return `UPDATE entitlements SET revoked_at = ${sqlInt(now)} WHERE id = ${sqlString(id)} AND revoked_at IS NULL;`;
 }
 
-/** Every gift (or one address's), oldest first; `signed_in`: the address has a session now. */
+/** Every gift (or one address's), oldest first; `signed_in`: the address has a session that wasn't revoked. */
 export function listSql({ email = null } = {}) {
   const where = email == null ? '' : ` AND p.email = ${sqlString(checkEmail(email))}`;
   return (
     "SELECT e.id, p.email, e.scope, e.event_id, datetime(e.starts_at / 1000, 'unixepoch') AS starts, datetime(e.expires_at / 1000, 'unixepoch') AS expires, " +
-    "datetime(e.revoked_at / 1000, 'unixepoch') AS revoked, EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = e.user_id) AS signed_in " +
+    "datetime(e.revoked_at / 1000, 'unixepoch') AS revoked, EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = e.user_id AND s.revoked_at IS NULL) AS signed_in " +
     `FROM entitlements e JOIN purchases p ON p.id = e.purchase_id WHERE p.provider = 'gift'${where} ORDER BY p.created_at;`
   );
 }

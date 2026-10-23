@@ -6,7 +6,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createSession, ensureUser, grant, type BumpedDevice, type UserRow } from '../functions/_authDb';
-import { clearFreeCache, randomToken, tokenHash, type PaywallEnv } from '../functions/_paywall';
+import type { AuthDeps } from '../functions/_auth';
+import { clearFreeCache, randomToken, tokenHash, type EmailBindingLike, type PaywallEnv } from '../functions/_paywall';
 import { stripeHmac } from '../functions/_stripe';
 import type { RegattaResponse } from '../src/data/racesense/types';
 import { MemD1 } from './d1mem';
@@ -31,12 +32,18 @@ export class FakeCache {
   }
 }
 
+/** Every email the default env's EMAIL binding was handed (one line each, as the log provider writes it). */
+export const outbox: string[] = [];
+const outboxBinding: EmailBindingLike = { send: async (m) => void outbox.push(`[recall auth] email to ${m.to}: ${m.subject}\n${m.text}`) };
+
 export function paywallEnv(db: MemD1 | undefined, over: Partial<PaywallEnv> = {}): PaywallEnv {
   return {
     PAYWALL_ENABLED: 'true',
     AUTH_DB: db,
-    EMAIL_PROVIDER: 'log',
+    // The Workers binding (the `log` provider works on localhost only).
+    EMAIL_PROVIDER: 'cloudflare',
     EMAIL_FROM: 'recall@walkeforward.example',
+    EMAIL: outboxBinding,
     AUTH_SECRET: 'auth_secret_test_fake',
     GOOGLE_CLIENT_ID: 'google-client-id-test-fake.apps.example',
     GOOGLE_CLIENT_SECRET: 'google_secret_test_fake',
@@ -72,9 +79,30 @@ export function withTurnstile(next?: typeof fetch, hostname = new URL(ORIGIN).ho
   return f;
 }
 
-/** The module-level cache (race 1 windows) starts empty in every test. */
+/**
+ * Deps with Cloudflare's siteverify faked (withTurnstile) and a mailbox: `sent` is every email sent
+ * from here on, through the default env's binding or (on localhost) the log provider.
+ */
+export function mailbox(now = NOW, f: typeof fetch = withTurnstile()): AuthDeps & { readonly sent: string[]; links: () => string[] } {
+  const start = outbox.length;
+  const logged: string[] = [];
+  const sent = (): string[] => [...logged, ...outbox.slice(start)];
+  return {
+    now: () => now,
+    cache: null,
+    fetch: f,
+    log: (line) => logged.push(line),
+    get sent() {
+      return sent();
+    },
+    links: () => sent().flatMap((s) => s.match(/https?:\/\/\S+\/api\/auth\/verify\?token=[A-Za-z0-9_-]+/g) ?? []),
+  };
+}
+
+/** The module-level cache (race 1 windows) and the outbox start empty in every test. */
 export function resetPaywallCaches(): void {
   clearFreeCache();
+  outbox.length = 0;
 }
 
 /** A signed-in user: their row, the Cookie header value, the session's public id and the devices its sign-in bumped. */

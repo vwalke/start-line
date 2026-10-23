@@ -11,7 +11,6 @@ import {
   trustedOrigin,
   verifyPageHtml,
   type AuthCtx,
-  type AuthDeps,
 } from '../functions/_auth';
 import { DEFAULT_MAX_SESSIONS, LOGIN_TOKEN_TTL_MS, recordPurchase, ensureUser, userByEmail } from '../functions/_authDb';
 import { cookieDomain, flagOn, sessionCookie, tokenHash, viewerOf, type PaywallEnv } from '../functions/_paywall';
@@ -19,7 +18,7 @@ import { jsonError } from '../functions/_lib';
 import { onRequest as authRoute } from '../functions/api/auth/[[path]]';
 import { onRequestGet as proxyGet } from '../functions/api/[[path]]';
 import { MemD1 } from './d1mem';
-import { EVENT, NOW, ORIGIN, TURNSTILE_TOKEN, giveRegatta, paywallEnv, resetPaywallCaches, signIn, withTurnstile } from './paywallHelpers';
+import { EVENT, NOW, ORIGIN, TURNSTILE_TOKEN, giveRegatta, mailbox, paywallEnv, resetPaywallCaches, signIn, withTurnstile } from './paywallHelpers';
 
 const ctx = (request: Request, env: PaywallEnv, path: string): AuthCtx => ({ request, env, params: { path: path.split('/') } });
 const json = async (r: Response): Promise<Record<string, unknown>> => (await r.json()) as Record<string, unknown>;
@@ -34,19 +33,6 @@ const confirmPost = (link: string, headers: Record<string, string> = { origin: O
     body: new URLSearchParams({ token: new URL(link).searchParams.get('token') ?? '' }).toString(),
     headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'TestBrowser/1', ...headers },
   });
-
-/** Deps with a captured `log` mailbox and Cloudflare's siteverify faked (withTurnstile). */
-function mailbox(now = NOW): AuthDeps & { sent: string[]; links: () => string[] } {
-  const sent: string[] = [];
-  return {
-    now: () => now,
-    cache: null,
-    fetch: withTurnstile(),
-    log: (line) => sent.push(line),
-    sent,
-    links: () => sent.flatMap((s) => s.match(/https?:\/\/\S+\/api\/auth\/verify\?token=[A-Za-z0-9_-]+/g) ?? []),
-  };
-}
 
 beforeEach(resetPaywallCaches);
 
@@ -290,7 +276,7 @@ describe('magic link', () => {
     expect(msg).toMatchObject({ from: { email: 'signin@walkeforward.com', name: 'Recall' }, to: 'a@example.com', subject: 'Your Recall sign-in link' });
     expect(String(msg.text)).toMatch(/\/api\/auth\/verify\?token=/);
     expect(String(msg.html)).toContain('Sign in to Recall');
-    const missing = paywallEnv(new MemD1(), { EMAIL_PROVIDER: 'cloudflare' });
+    const missing = paywallEnv(new MemD1(), { EMAIL_PROVIDER: 'cloudflare', EMAIL: undefined });
     const res = await handleAuth(ctx(postJson('email', { email: 'a@example.com' }), missing, 'email'), mailbox());
     expect(res.status).toBe(503);
     expect((await json(res)).message).toContain('(EMAIL binding)');

@@ -3,10 +3,12 @@
  * 0002_signin_phase1.sql).
  *
  * The SQL keeps to a small subset on purpose (single-table SELECT / INSERT [OR IGNORE] / UPDATE /
- * DELETE; WHERE of ANDed comparisons, IS [NOT] NULL and IN; ORDER BY one column; LIMIT; and the
- * one rate-limit upsert), so the tests run these same statements on an in-memory engine that
- * enforces the migrations' keys (tests/d1mem.ts). Idempotency comes from the schema's UNIQUE keys
- * plus INSERT OR IGNORE. Sorting by more than one column (a session's last use) is done here.
+ * DELETE; WHERE of ANDed comparisons, IS [NOT] NULL and IN; ORDER BY one column; LIMIT; the one
+ * rate-limit upsert; and the device cap's UPDATE … NOT IN (SELECT … ORDER BY … LIMIT ?)), so the
+ * tests run these same statements on an in-memory engine that enforces the migrations' keys
+ * (tests/d1mem.ts). Idempotency comes from the schema's UNIQUE keys plus INSERT OR IGNORE; a batch
+ * (one D1 transaction) makes a write and its device cap atomic. Listing sessions by last use is
+ * sorted here.
  */
 import type { Entitlement, Scope } from './_entitlements';
 import { deviceLabel } from './_deviceLabel';
@@ -21,6 +23,8 @@ export interface D1StatementLike {
 }
 export interface D1Like {
   prepare(sql: string): D1StatementLike;
+  /** The statements in order, as one transaction (all or none). */
+  batch(statements: D1StatementLike[]): Promise<unknown[]>;
 }
 
 // ---- limits
@@ -131,30 +135,38 @@ export async function liveSessions(db: D1Like, userId: string, now: number): Pro
 }
 
 /**
- * Store a new session, then keep the user's `cap` most recently used live sessions (the new one
- * always among them) and revoke the rest (reason device_limit, revoked_by the new session's public
- * id) rather than deleting them, so the bumped device can be told why. Expired rows and rows revoked
- * over 30 days ago are deleted. Answers the new public id and the devices it bumped.
+ * The device cap as one statement: revoke (reason device_limit, revoked_by `revokedBy`) every live
+ * session of the user but `keepTokenHash` and the `cap - 1` others most recently used (last use, then
+ * creation, then token hash, so ties always fall the same way).
+ */
+const capSessions = (db: D1Like, o: { userId: string; keepTokenHash: string; now: number; cap: number; revokedBy: string | null }): D1StatementLike =>
+  db
+    .prepare(
+      'UPDATE sessions SET revoked_at = ?, revoked_reason = ?, revoked_by = ? WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ? AND token_hash != ? AND token_hash NOT IN ' +
+        '(SELECT token_hash FROM sessions WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ? AND token_hash != ? ORDER BY COALESCE(last_seen_at, created_at) DESC, created_at DESC, token_hash ASC LIMIT ?)',
+    )
+    .bind(o.now, 'device_limit', o.revokedBy, o.userId, o.now, o.keepTokenHash, o.userId, o.now, o.keepTokenHash, o.cap - 1);
+
+/**
+ * Store a new session and, in the same transaction, keep the user's `cap` most recently used live
+ * sessions (the new one always among them) and revoke the rest (reason device_limit, revoked_by the
+ * new session's public id) rather than deleting them, so the bumped device can be told why: racing
+ * sign-ins never leave more than `cap` live. Expired rows and rows revoked over 30 days ago are
+ * deleted. Answers the new public id and the devices it bumped (read back by revoked_by).
  */
 export async function createSession(
   db: D1Like,
   s: { tokenHash: string; userId: string; now: number; userAgent?: string | null; method?: SignInMethod | null },
 ): Promise<{ publicId: string; bumped: BumpedDevice[] }> {
   const publicId = newPublicId();
-  await db
-    .prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at, user_agent, public_id, last_seen_at, method) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(s.tokenHash, s.userId, s.now, s.now + SESSION_TTL_MS, (s.userAgent ?? '').slice(0, 200) || null, publicId, s.now, s.method ?? null)
-    .run();
   const cap = sessionCap((await userById(db, s.userId))?.max_sessions);
-  const others = (await liveSessions(db, s.userId, s.now)).filter((r) => r.token_hash !== s.tokenHash);
-  const bumped: BumpedDevice[] = [];
-  for (const r of others.slice(cap - 1)) {
-    const done = await db
-      .prepare('UPDATE sessions SET revoked_at = ?, revoked_reason = ?, revoked_by = ? WHERE token_hash = ? AND revoked_at IS NULL')
-      .bind(s.now, 'device_limit', publicId, r.token_hash)
-      .run();
-    if ((done.meta?.changes ?? 0) > 0) bumped.push({ label: deviceLabel(r.user_agent), lastSeenAt: lastUsed(r) });
-  }
+  await db.batch([
+    db
+      .prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at, user_agent, public_id, last_seen_at, method) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(s.tokenHash, s.userId, s.now, s.now + SESSION_TTL_MS, (s.userAgent ?? '').slice(0, 200) || null, publicId, s.now, s.method ?? null),
+    capSessions(db, { userId: s.userId, keepTokenHash: s.tokenHash, now: s.now, cap, revokedBy: publicId }),
+  ]);
+  const bumped = await bumpedBy(db, publicId, s.now);
   await db.prepare('DELETE FROM sessions WHERE user_id = ? AND expires_at <= ?').bind(s.userId, s.now).run();
   await db.prepare('DELETE FROM sessions WHERE user_id = ? AND revoked_at < ?').bind(s.userId, s.now - REVOKED_KEEP_MS).run();
   return { publicId, bumped };
@@ -170,14 +182,22 @@ export const isLive = (s: SessionRow, now: number): boolean => s.expires_at > no
 export const revokedReason = (s: SessionRow): RevokedReason | null =>
   s.revoked_at == null ? null : REVOKED_REASONS.includes(s.revoked_reason as RevokedReason) ? (s.revoked_reason as RevokedReason) : 'admin';
 
-/** Note the session's use, at most once an hour (best effort: a failed write never fails the request). */
+/**
+ * Note the session's use, at most once an hour, and with that write trim the user to their device
+ * cap (this session kept, the least recently used others revoked: device_limit, revoked_by NULL),
+ * so sessions over a lowered cap end within the hour. Best effort: a failed write never fails the request.
+ */
 export async function touchSession(db: D1Like, s: SessionRow, now: number): Promise<void> {
   if (lastUsed(s) > now - LAST_SEEN_EVERY_MS) return;
-  await db
-    .prepare('UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?')
-    .bind(now, s.token_hash)
-    .run()
-    .catch(() => undefined);
+  try {
+    const cap = sessionCap((await userById(db, s.user_id))?.max_sessions);
+    await db.batch([
+      db.prepare('UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?').bind(now, s.token_hash),
+      capSessions(db, { userId: s.user_id, keepTokenHash: s.token_hash, now, cap, revokedBy: null }),
+    ]);
+  } catch {
+    // best effort
+  }
   s.last_seen_at = now;
 }
 
@@ -238,7 +258,8 @@ export const rateWindow = (now: number): number => Math.floor(now / RATE_WINDOW_
 
 /**
  * Count one sign-in email against `key` (email:<sha256 hex> or ip:<sha256 hex>) in the current
- * window, atomically (one upsert): the count in this window so far, this one included.
+ * window, atomically (one upsert): the count in this window so far, this one included. No count
+ * back (no row, or not a number) fails closed: Infinity, over any limit.
  */
 export async function countRateHit(db: D1Like, key: string, now: number): Promise<number> {
   const row = await db
@@ -247,7 +268,8 @@ export async function countRateHit(db: D1Like, key: string, now: number): Promis
     )
     .bind(key, rateWindow(now))
     .first<{ count: number }>();
-  return row?.count ?? 1;
+  const n = row?.count;
+  return typeof n === 'number' && Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
 }
 
 /** Drop counters whose window began over 2 hours ago (best effort, now and then). */

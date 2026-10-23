@@ -4,12 +4,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { EMAIL_RE as SCRIPT_EMAIL_RE, EVENT_ID_RE as SCRIPT_EVENT_ID_RE, checkEmail, expiryMs, giftId, grantSql, listSql, parseArgs, revokeSql, sqlFor, sqlString, wranglerArgs } from '../scripts/grant-gift.mjs';
 import { EMAIL_RE, entitlementsOf, userByEmail } from '../functions/_authDb';
 import { allowed, passViews, type PassView } from '../functions/_entitlements';
-import { handleAuth, type AuthCtx, type AuthDeps } from '../functions/_auth';
+import { handleAuth, type AuthCtx } from '../functions/_auth';
 import type { PaywallEnv } from '../functions/_paywall';
 import { EVENT_ID_RE } from '../src/data/vkx/validate';
 import { passLine, sheetHtml } from '../src/ui/paywall';
 import { MemD1 } from './d1mem';
-import { EVENT, NOW, ORIGIN, TURNSTILE_TOKEN, paywallEnv, resetPaywallCaches, signIn, withTurnstile } from './paywallHelpers';
+import { EVENT, NOW, ORIGIN, TURNSTILE_TOKEN, mailbox, paywallEnv, resetPaywallCaches, signIn } from './paywallHelpers';
 
 const DAY = 86_400_000;
 const OTHER_EVENT = 'someOtherEvent1';
@@ -31,17 +31,6 @@ const grantCmd = (db: MemD1, argv: string[], at = NOW): Promise<void> => {
   if (p.cmd === 'help') throw new Error('help');
   return run(db, sqlFor(p, at));
 };
-
-function mailbox(now = NOW): AuthDeps & { links: () => string[] } {
-  const sent: string[] = [];
-  return {
-    now: () => now,
-    cache: null,
-    fetch: withTurnstile(),
-    log: (line) => sent.push(line),
-    links: () => sent.flatMap((s) => s.match(/https?:\/\/\S+\/api\/auth\/verify\?token=[A-Za-z0-9_-]+/g) ?? []),
-  };
-}
 
 /** A magic-link sign-in, end to end (the link proves the address): the session cookie. */
 async function magicLink(db: MemD1, typed: string, at = NOW): Promise<string> {

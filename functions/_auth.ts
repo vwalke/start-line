@@ -22,8 +22,8 @@
  * scripts/sessions.mjs): a sign-in beyond it revokes the least recently used, which is then told
  * why. Magic links: 32 random bytes, SHA-256 stored, 15 minutes, single use; asking for one passes
  * Turnstile (when set up) and shared D1 rate limits. Email goes out through EMAIL_PROVIDER:
- * cloudflare-api | resend | cloudflare | log (log is the default on localhost only; elsewhere an
- * unset provider is a 503, never a silently logged link).
+ * cloudflare-api | resend | cloudflare | log (log is the default on localhost and works there only;
+ * elsewhere an unset provider, or log, is a 503, never a silently logged link).
  */
 import { passViews, unlocks, type Entitlement } from './_entitlements';
 import { EVENT_ID_RE } from '../src/data/vkx/validate';
@@ -220,11 +220,11 @@ export type SendResult = { ok: true } | { ok: false; status: number; error: stri
 
 export type EmailProvider = 'cloudflare-api' | 'resend' | 'cloudflare' | 'log';
 
-/** The provider to use: EMAIL_PROVIDER, else `log` on localhost only (null: none, fail closed). */
+/** The provider to use: EMAIL_PROVIDER, else `log` on localhost; `log` (set or not) works on localhost only (null: none, fail closed). */
 export function emailProvider(env: PaywallEnv, host: string): EmailProvider | null {
   const p = (env.EMAIL_PROVIDER ?? '').trim().toLowerCase();
-  if (p === 'cloudflare-api' || p === 'resend' || p === 'cloudflare' || p === 'log') return p;
-  return !p && isLocalHost(host) ? 'log' : null;
+  if (p === 'cloudflare-api' || p === 'resend' || p === 'cloudflare') return p;
+  return (!p || p === 'log') && isLocalHost(host) ? 'log' : null;
 }
 
 /** A sender: the address, and the display name when EMAIL_FROM gives one. */
@@ -252,6 +252,8 @@ export async function sendEmail(env: PaywallEnv, host: string, m: Mail, deps: Au
   const provider = emailProvider(env, host);
   if (!provider) return notSetUp('EMAIL_PROVIDER');
   if (provider === 'log') {
+    // A second guard: a link (or its token) is never logged off localhost.
+    if (!isLocalHost(host)) return notSetUp('EMAIL_PROVIDER');
     (deps.log ?? console.log)(`[recall auth] email to ${m.to}: ${m.subject}\n${m.text}`);
     return { ok: true };
   }

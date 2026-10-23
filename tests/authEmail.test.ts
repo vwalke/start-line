@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { emailReady, handleAuth, parseFrom, sendEmail, signInMail, turnstileReady, type AuthCtx, type AuthDeps } from '../functions/_auth';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { emailProvider, emailReady, handleAuth, parseFrom, sendEmail, signInMail, turnstileReady, type AuthCtx, type AuthDeps } from '../functions/_auth';
 import type { PaywallEnv } from '../functions/_paywall';
 import { MemD1 } from './d1mem';
-import { NOW, ORIGIN, TURNSTILE_TOKEN, TURNSTILE_VERIFY, paywallEnv, resetPaywallCaches, withTurnstile } from './paywallHelpers';
+import { NOW, ORIGIN, TURNSTILE_TOKEN, TURNSTILE_VERIFY, mailbox, paywallEnv, resetPaywallCaches, withTurnstile } from './paywallHelpers';
 
 const ctx = (request: Request, env: PaywallEnv, path: string): AuthCtx => ({ request, env, params: { path: path.split('/') } });
 const json = async (r: Response): Promise<Record<string, unknown>> => (await r.json()) as Record<string, unknown>;
@@ -10,10 +10,7 @@ const post = (path: string, body: Record<string, unknown>, origin = ORIGIN, head
   new Request(`${origin}/api/auth/${path}`, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', origin, 'cf-connecting-ip': '203.0.113.9', ...headers } });
 const CF_URL = 'https://api.cloudflare.com/client/v4/accounts/acct_test_fake/email/sending/send';
 
-function deps(f: typeof fetch = withTurnstile()): AuthDeps & { sent: string[] } {
-  const sent: string[] = [];
-  return { now: () => NOW, cache: null, fetch: f, log: (l) => sent.push(l), sent };
-}
+const deps = (f: typeof fetch = withTurnstile()): AuthDeps & { readonly sent: string[] } => mailbox(NOW, f);
 
 /** Cloudflare's Email Sending API, faked: answers `reply` and keeps each request. */
 function cloudflareApi(reply: () => Response | Promise<Response>): typeof fetch & { calls: { url: string; init: RequestInit }[] } {
@@ -126,6 +123,40 @@ describe('cloudflare-api provider', () => {
     const bad = await handleAuth(ctx(post('email', { email: 'b@example.com', turnstileToken: TURNSTILE_TOKEN }), env, 'email'), deps(withTurnstile(failing)));
     expect(bad.status).toBe(502);
     expect((await json(bad)).message).toBe("Couldn't send the email just now. Try again in a minute.");
+  });
+});
+
+describe('the log provider', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const logEnv = (): PaywallEnv => paywallEnv(new MemD1(), { EMAIL_PROVIDER: 'log' });
+  const mail = signInMail('a@example.com', `${ORIGIN}/api/auth/verify?token=${'a'.repeat(43)}`);
+
+  it('an explicit EMAIL_PROVIDER=log off localhost is not set up: 503, signIn.email false, nothing logged', async () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    for (const origin of [ORIGIN, 'https://start-line.pages.dev', 'https://abc123.start-line.pages.dev']) {
+      const host = new URL(origin).host;
+      const env = logEnv();
+      expect(emailProvider(env, host), host).toBeNull();
+      expect(await sendEmail(env, host, mail, { now: () => NOW, cache: null }), host).toMatchObject({ ok: false, status: 503 });
+      const d: AuthDeps = { now: () => NOW, cache: null, fetch: withTurnstile(undefined, new URL(origin).hostname) };
+      for (const route of ['email', 'restore']) {
+        const res = await handleAuth(ctx(post(route, { email: 'a@example.com', turnstileToken: TURNSTILE_TOKEN }, origin), env, route), d);
+        expect(res.status, `${host} ${route}`).toBe(503);
+      }
+      const me = await json(await handleAuth(ctx(new Request(`${origin}/api/auth/me`), env, 'me'), d));
+      expect((me.signIn as Record<string, unknown>).email, host).toBe(false);
+    }
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('still logs the link on localhost (without Turnstile)', async () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const env = paywallEnv(new MemD1(), { EMAIL_PROVIDER: 'log', TURNSTILE_SITE_KEY: undefined, TURNSTILE_SECRET_KEY: undefined });
+    expect(emailProvider(env, 'localhost:8788')).toBe('log');
+    const res = await handleAuth(ctx(post('email', { email: 'a@example.com' }, 'http://localhost:8788'), env, 'email'), { now: () => NOW, cache: null, fetch: withTurnstile() });
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(String(spy.mock.calls[0][0])).toContain('http://localhost:8788/api/auth/verify?token=');
   });
 });
 

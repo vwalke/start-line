@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { EMAIL_RATE_MAX, IP_RATE_MAX, RATE_WINDOW_MS, handleAuth, rateKeys, type AuthCtx, type AuthDeps } from '../functions/_auth';
-import { countRateHit, pruneRateLimits } from '../functions/_authDb';
+import { countRateHit, pruneRateLimits, type D1Like } from '../functions/_authDb';
 import type { PaywallEnv } from '../functions/_paywall';
 import { MemD1 } from './d1mem';
-import { NOW, ORIGIN, TURNSTILE_TOKEN, paywallEnv, resetPaywallCaches, withTurnstile } from './paywallHelpers';
+import { NOW, ORIGIN, TURNSTILE_TOKEN, outbox, paywallEnv, resetPaywallCaches, withTurnstile } from './paywallHelpers';
 
 const ctx = (request: Request, env: PaywallEnv): AuthCtx => ({ request, env, params: { path: ['email'] } });
 const HOUR = RATE_WINDOW_MS;
@@ -92,5 +92,21 @@ describe('sign-in rate limits in D1 (shared by every isolate)', () => {
     const db = new MemD1();
     for (let i = 0; i < EMAIL_RATE_MAX + 2; i++) expect((await send(paywallEnv(db), 'free@example.com', '192.0.2.9', NOW, { limits: null })).status).toBe(200);
     expect(db.rows('auth_rate_limits')).toEqual([]);
+  });
+
+  it('fails closed: an upsert that answers no count (no row, or not a number) is over the limit, never a first hit', async () => {
+    for (const answer of [null, {}, { count: null }, { count: '1' }, { count: Number.NaN }]) {
+      const mem = new MemD1();
+      // The rate-limit upsert answers `answer`; everything else is the in-memory D1.
+      const db: D1Like = {
+        batch: (s) => mem.batch(s),
+        prepare: (sql) => (sql.includes('auth_rate_limits') && sql.startsWith('INSERT') ? { bind: () => db.prepare(sql), first: async <T>() => answer as T | null, all: async () => ({ results: [] }), run: async () => ({}) } : mem.prepare(sql)),
+      };
+      expect(await countRateHit(db, 'email:x', NOW), JSON.stringify(answer)).toBe(Number.POSITIVE_INFINITY);
+      const res = await send(paywallEnv(mem, { AUTH_DB: db as PaywallEnv['AUTH_DB'] }), 'a@example.com', '192.0.2.10');
+      expect(res.status, JSON.stringify(answer)).toBe(429);
+      expect(mem.rows('login_tokens')).toEqual([]);
+    }
+    expect(outbox).toEqual([]);
   });
 });
