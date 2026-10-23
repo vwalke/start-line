@@ -63,7 +63,8 @@ describe('Ask Coach context: the Race view', () => {
     });
     // The header as shown, ⚠ caveats marked (this boat's tracker covered 27%: no tracked finish).
     expect(ctx.race?.header).toEqual(expect.arrayContaining(['gun 11:05', '⚠ no tracked finish', '⚠ tracker 27%']));
-    expect(ctx.race?.notes).toEqual(['Only 2 clear gains with this data']);
+    // One card in race 1 on the chart's gap (D5's caught-leader card no longer fires: coachShiftGolden).
+    expect(ctx.race?.notes).toEqual(['Only 1 clear gain with this data']);
     expect(ctx.legs?.length).toBe(a.legs.length);
     expect(ctx.legs![0].summary?.length).toBeGreaterThan(0);
   });

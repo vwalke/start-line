@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
-import { buildCoach, coachRaw } from '../src/analysis/coach';
+import { buildCoach, coachRaw, rivalLadder } from '../src/analysis/coach';
 import { coachDebrief } from '../src/analysis/coach/debrief';
 import { coachCtx } from '../src/analysis/coach/detectors/context';
 import { startOrder } from '../src/analysis/coach/detectors/start';
@@ -114,18 +114,23 @@ describe('IC37 R5: over early (OCS) — USA 017 and USA 019', () => {
 });
 
 describe('IC37 R5: start cards', () => {
-  it('USA 027: one merged start card ≈ 24 s — 25 m back, 11th of 15, +11 s, then 3 early tacks', () => {
+  it('USA 027: one merged start card ≈ 19 s — 25 m back, 11th of 15, +11 s, then 3 early tacks (8 s more on the chart)', () => {
     const d = debrief('USA 027');
     const c = startCard('USA 027')!;
     expect(c.variant).toBe('second-row');
     expect(c.confidence).toBe('high');
-    // 10.5 s after the front row + 13.5 s lost to the top 3 from the crossing to +5 min (the full race: 10.5 + 13.5).
-    expect(c.seconds).toBeGreaterThanOrEqual(18);
-    expect(c.seconds).toBeLessThanOrEqual(30);
+    // 10.8 s after the front row + 7.9 s lost to the top 3 from the crossing to +5 min: the chart's points (Top 3) at
+    // either end of D3's window. On the wind ladder (one-minute medians) the second part was 14.0 s (24.9 s in all).
+    expect(c.seconds).toBeGreaterThanOrEqual(16);
+    expect(c.seconds).toBeLessThanOrEqual(22);
     expect(c.facts.d1S as number).toBeGreaterThan(9);
     expect(c.facts.d1S as number).toBeLessThan(12);
-    expect(c.facts.d3S as number).toBeGreaterThan(10);
-    expect(c.facts.d3S as number).toBeLessThan(18);
+    expect(c.facts.d3S as number).toBeGreaterThan(6);
+    expect(c.facts.d3S as number).toBeLessThan(10);
+    const [g] = c.gaps!;
+    const l = rivalLadder(m, a, idOf('USA 027'), { kind: 'leaders' })!;
+    const at = (t: number) => l.points.find((p) => p.tMs === t)!.behindS!;
+    expect(c.facts.d3S as number).toBeCloseTo(at(g.t1) - at(g.t0), 9);
     expect(c.t0).toBe(gun - 10_000);
     expect(c.t1).toBe(m.crossMs![idOf('USA 027')]! + 5 * 60_000);
     expect(windowChip(c, a)).toBe('10:04–10:10');
@@ -135,7 +140,7 @@ describe('IC37 R5: start cards', () => {
     expect(t.title).toBe('Second-row start');
     expect(t.chips).toEqual(['25 m back at gun', '11th of 15 over line', 'crossed +11 s', '3 early tacks']);
     expect(t.sentence).toMatch(
-      /^You were 25 m back at the gun and 11th of 15 over the line; the front row crossed within 1 s of the gun\. Then 3 tacks in the first 9\d s looking for clear air \(the fleet tacked 0–1 times\) cost about 1\d s more on the top 3\.$/,
+      /^You were 25 m back at the gun and 11th of 15 over the line; the front row crossed within 1 s of the gun\. Then 3 tacks in the first 9\d s looking for clear air \(the fleet tacked 0–1 times\) cost about 8 s more on the top 3\.$/,
     );
     expect(t.tip).toBe('Set up closer and time the final approach so you hit the line at the gun. From the second row, foot for clear air before tacking.');
     // The seconds chip: the D3 half leans on the wind across ~400 m, so the range shows (⚠ wind est.).

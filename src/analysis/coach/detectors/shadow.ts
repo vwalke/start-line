@@ -11,7 +11,8 @@
  *   shadow can't be judged from a few boats); the boat needs D8_MIN_EVAL of its moments counted, and
  *   the fleet median needs D8_MIN_FLEET boats measured that well, else D8 isn't evaluated.
  * - Fires when the boat's share in shadow is ≥ D8_FLEET_X × the fleet's median and ≥ D8_MIN_SHARE.
- *   Seconds: the change in gap to the leaders over the shadowed stretches. Ranked alone only from
+ *   Seconds: the change in gap to the leaders over the shadowed stretches (the chart's Top 3 points nearest each
+ *   stretch's ends, within D8_JOIN_MS). Ranked alone only from
  *   D8_ALONE_S; otherwise a chip on D3 (spec §5).
  * - Per sample: boats are bucketed by 7 lengths so a 90-boat fleet is O(n) neighbors, not O(n²);
  *   the grid is filled only on the first 6 min of each beat, walking each track in time.
@@ -19,7 +20,7 @@
 import { median, vecBearing, wrap180, type Vec } from '../../geo';
 import type { CoachModel } from '../index';
 import type { CoachTrack } from '../tracks';
-import { WIND_EST_S, coachCoverage, gapNoise, rangeOf, refCoverage, untrackedS, windOkShare, type AttachedChip, type Opportunity } from '../opportunity';
+import { WIND_EST_S, coachCoverage, gapNear, gapNoise, rangeOf, reading, refCoverage, untrackedS, windOkShare, type AttachedChip, type GapReading, type Opportunity } from '../opportunity';
 import type { CoachCtx } from './context';
 import { typicalSep } from './early';
 
@@ -280,17 +281,6 @@ export interface D8Result {
   fleetShare: number | null;
 }
 
-/** The gap read nearest `t` (within D8_JOIN_MS), s. */
-function gapNear(points: { tMs: number; behindS: number | null }[], t: number): number | null {
-  let best: { d: number; g: number } | null = null;
-  for (const p of points) {
-    if (p.behindS == null) continue;
-    const d = Math.abs(p.tMs - t);
-    if (d <= D8_JOIN_MS && (!best || d < best.d)) best = { d, g: p.behindS };
-  }
-  return best?.g ?? null;
-}
-
 export function detectShadow(ctx: CoachCtx): D8Result {
   const none: D8Result = { opp: null, chip: null, evaluated: false, share: null, fleetShare: null };
   const mine = shadowShare(ctx.m, ctx.boat, ctx.loaM);
@@ -306,15 +296,18 @@ export function detectShadow(ctx: CoachCtx): D8Result {
   if (!(mine.share >= D8_MIN_SHARE && mine.share >= D8_FLEET_X * fleetShare)) return base;
 
   const spans = stretches(mine.hits);
+  // Each stretch: the chart's (Top 3) points nearest its ends (within D8_JOIN_MS).
   let dgap = 0;
   let read = 0;
+  const gaps: GapReading[] = [];
   for (const [a, b] of spans) {
     const pts = ctx.leaders.length ? ctx.gaps(ctx.leaders, a - D8_JOIN_MS, b + D8_JOIN_MS) : [];
-    const g0 = gapNear(pts, a);
-    const g1 = gapNear(pts, b);
-    if (g0 == null || g1 == null) continue;
-    dgap += g1 - g0;
+    const g0 = gapNear(pts, a, D8_JOIN_MS);
+    const g1 = gapNear(pts, b, D8_JOIN_MS);
+    if (g0 == null || g1 == null || g1.tMs <= g0.tMs) continue;
+    dgap += g1.g - g0.g;
     read++;
+    gaps.push(reading(ctx.leaders, { t0: g0.tMs, g0: g0.g, t1: g1.tMs, g1: g1.g }));
   }
   const facts = {
     share: mine.share,
@@ -351,6 +344,7 @@ export function detectShadow(ctx: CoachCtx): D8Result {
       facts,
       refBoats: ctx.leaders,
       windEst: windS >= WIND_EST_S,
+      gaps,
     },
   };
 }

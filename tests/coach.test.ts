@@ -7,6 +7,9 @@ import { TWD_MIN_PER_TACK, TWD_MIN_SAMPLES, cogPairs, fleetTwdSeries, twdSeriesF
 import { MS_TO_KN, bearingVec, makeProjection, type Vec } from '../src/analysis/geo';
 import { projectTrack } from '../src/analysis/prepare';
 import { j105Race } from './helpers';
+import { GROUP_BRIDGE_S, GROUP_DRAW_HOLE_S } from '../src/analysis/coach/timeGap';
+import { COACH_BULLETS, NO_DATA_MIN_MS, ladderBreaks, ladderChips } from '../src/ui/coach';
+import type { RaceAnalysis } from '../src/analysis/types';
 import type { BoatResult, LegResult } from '../src/analysis/types';
 import { coachHighlight, coachLegendName, groupParam, ladderBoatColor, ladderLegSpans, mergeLadderLegLabels, nullSpans, gapWords, parseBoatParam, parseGroupParam } from '../src/ui/coach';
 
@@ -339,14 +342,46 @@ describe('lineCrossing', () => {
 });
 
 describe('Coach UI helpers', () => {
-  it('nullSpans: holes in the median of 20 s or more, from the last value before', () => {
+  it('nullSpans: holes in the median longer than COACH_MAX_SPAN_S (the thin lines\' break), from the last value before', () => {
     const p = (s: number, v: number | null) => ({ tMs: s * 1000, behindS: v });
+    expect(NO_DATA_MIN_MS).toBe(COACH_MAX_SPAN_S * 1000);
+    expect(nullSpans([p(0, 1), p(10, null), p(20, 2)])).toEqual([[0, 20_000]]);
+    expect(nullSpans([p(0, 1), p(5, null), p(15, 2)])).toEqual([]);
     expect(nullSpans([p(0, 1), p(10, null), p(20, null), p(30, 2), p(40, null), p(50, 3)])).toEqual([
       [0, 30_000],
       [30_000, 50_000],
     ]);
     expect(nullSpans([p(0, 1), p(5, null), p(10, 2)])).toEqual([]);
     expect(nullSpans([p(0, null), p(10, null), p(20, null), p(30, 1)])).toEqual([[0, 30_000]]);
+  });
+
+  it('the "no data" chip shows exactly when the chart breaks (a band, or a thin line that stops and starts again), and says the rules', () => {
+    const pt = (s: number, v: number | null, each: (number | null)[]) => ({ tMs: s * 1000, behindS: v, n: 2, each, leg: 0 });
+    const a = { boats: [{ id: 'me', sail: '1', name: '#1' }, { id: 'r', sail: '2', name: '#2' }, { id: 'q', sail: '3', name: '#3' }] } as unknown as RaceAnalysis;
+    const lad = (points: ReturnType<typeof pt>[]) => ({ boat: 'me', group: ['r', 'q'], points, roundings: [], hole: null });
+    const chip = (points: ReturnType<typeof pt>[], each = true) => ladderChips(a, lad(points), { kind: 'leaders' }, each).find((c) => c.text === 'no data');
+    // Every line drawn throughout: no chip.
+    const clean = [pt(0, 3, [2, 4]), pt(10, 3, [2, 4]), pt(20, 3, [2, 4])];
+    expect(ladderBreaks(lad(clean), true)).toBe(false);
+    expect(chip(clean)).toBeUndefined();
+    // A thin line breaking (that boat's fixes over COACH_MAX_SPAN_S apart): the chip, with the lines on (v1 showed it
+    // only for a gap in the bold line, and named only its 30 s rule).
+    const thin = [pt(0, 3, [2, 4]), pt(10, 3, [null, 4]), pt(20, 3, [2, 4])];
+    expect(chip(thin)!.title).toContain(`over ${COACH_MAX_SPAN_S} s apart`);
+    expect(chip(thin)!.title).toContain(`over ${GROUP_DRAW_HOLE_S} s apart`);
+    expect(chip(thin, false)).toBeUndefined();
+    // The bold line breaking (a band): the chip either way.
+    const bold = [pt(0, 3, [2, 4]), pt(10, null, [2, 4]), pt(20, 3, [2, 4])];
+    expect(chip(bold, false)).toBeDefined();
+  });
+
+  it('the ⓘ says what is filled in: the group line bridges gaps of up to GROUP_BRIDGE_S in a straight line, the thin lines are not', () => {
+    const text = COACH_BULLETS.join(' ');
+    expect(GROUP_BRIDGE_S / 60).toBe(10);
+    expect(text).toContain(`a gap of up to ${GROUP_BRIDGE_S / 60} min, the bold line bridges it in a straight line`);
+    expect(text).toContain('its line is not filled in across gaps');
+    expect(text).toContain(`over ${COACH_MAX_SPAN_S} s apart`);
+    expect(text).not.toMatch(/short tracker hole|never joined/);
   });
 
   it('gapWords: the debrief’s wording', () => {

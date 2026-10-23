@@ -175,7 +175,9 @@ export function cardText(c: Card, tz = 0): CardText {
       const peers = peersPhrase(f);
       const side = f.side ?? 'far';
       const chips = [`${r0(f.sepM)} m ${f.side ?? 'away'}`, ...(f.layFromM != null ? [`layline from ${r0(f.layFromM)} m`] : []), `${upDown(f.gPeak)} → ${upDown(f.gTrough)}`];
-      const sentence = `The ${side} paid first, ${upDown(f.gPeak)} on ${peers}; then the wind swung back ${r0(f.shift)}° and you were ${upDown(f.gTrough)}.`;
+      // The peak is the chart's best point: a lead, or (still behind) the closest the boat got.
+      const peak = Math.round(num(f.gPeak)) > 0 ? `: you closed to ${r0(f.gPeak)} s behind ${peers}` : `, ${upDown(f.gPeak)} on ${peers}`;
+      const sentence = `The ${side} paid first${peak}; then the wind swung back ${r0(f.shift)}° and you were ${upDown(f.gTrough)}.`;
       if (c.variant === 'overstand') {
         return {
           title: `Overstood the ${side} corner`,
@@ -272,7 +274,11 @@ export function cardText(c: Card, tz = 0): CardText {
       const places = num(f.placeLo) === num(f.placeHi) ? ordinal(num(f.placeLo)) : `${ordinal(num(f.placeLo))}/${ordinal(num(f.placeHi))}`;
       const ahead = r0(f.aheadLo) === r0(f.aheadHi) ? `${r0(f.aheadLo)} s` : `${r0(f.aheadLo)}–${r0(f.aheadHi)} s`;
       const chips = [...(f.sog != null && f.ldrSog != null ? [`${kn(f.sog)} vs ${kn(f.ldrSog)} kn`] : []), `${places} ${ahead} ahead`];
-      const sentence = `${f.a} pulled ${r0(f.da)} s${b} further ahead over the last ${r0(f.mins)} tracked minutes.`;
+      // A boat that was behind at the start caught up and passed: it gained on you, not "further ahead".
+      const sentence =
+        num(f.fromBehind) > 0
+          ? `${f.a} gained ${r0(f.da)} s${b} on you over the last ${r0(f.mins)} tracked minutes, and finished ahead.`
+          : `${f.a} pulled ${r0(f.da)} s${b} further ahead over the last ${r0(f.mins)} tracked minutes.`;
       return c.variant === 'beat'
         ? { title: 'Last beat, lost to the boats ahead', chips, sentence, tip: 'Sail the lifted tack and stay between the boats just ahead and the finish.' }
         : { title: 'Last run, short of pressure', chips, sentence, tip: 'Keep someone calling pressure and gybe into the puffs.' };

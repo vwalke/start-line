@@ -16,6 +16,7 @@ import {
   confidenceOf,
   covLevel,
   gapChange,
+  gapNear,
   gapNoise,
   minSeconds,
   windOkShare,
@@ -173,19 +174,31 @@ const opp = (o: Partial<Opportunity>): Opportunity => ({
 });
 
 describe('gap reads (spec §2)', () => {
-  it('gapChange: a one-minute median at each end of the readable stretch', () => {
+  it('gapChange: the chart\'s value at the first and the last point of the window that has one (no smoothing)', () => {
     const pts = ramp(0, 300_000, (s) => s / 10);
     const g = gapChange(pts, 0, 300_000)!;
-    expect(g.g0).toBeCloseTo(3, 6); // median of 0…6 s
-    expect(g.g1).toBeCloseTo(27, 6);
+    expect(g.g0).toBe(0);
+    expect(g.g1).toBe(30);
     expect(g.t0).toBe(0);
     expect(g.t1).toBe(300_000);
+    // Inside a longer series: the points at the window's ends, exactly as the chart has them.
+    const w = gapChange(pts, 62_000, 241_000)!;
+    expect([w.t0, w.g0, w.t1, w.g1]).toEqual([65_000, 6.5, 240_000, 24]);
   });
-  it('a noisy fix at the start does not move it; holes are skipped; under a minute of data is null', () => {
-    const pts = ramp(0, 300_000, (s) => (s === 0 ? -40 : s > 100 && s < 200 ? null : 10));
-    expect(gapChange(pts, 0, 300_000)!.g0).toBe(10);
-    expect(gapChange(ramp(0, 50_000, () => 1), 0, 50_000)).toBeNull();
+  it('holes are skipped (the first and last points with a value); the two reads under a minute apart, or none, is null', () => {
+    const pts = ramp(0, 300_000, (s) => (s < 20 ? null : s > 100 && s < 200 ? null : s === 300 ? null : 10 + s / 100));
+    const g = gapChange(pts, 0, 300_000)!;
+    expect([g.t0, g.g0, g.t1, g.g1]).toEqual([20_000, 10.2, 295_000, 12.95]);
+    expect(gapChange(ramp(0, 55_000, () => 1), 0, 55_000)).toBeNull();
     expect(gapChange(ramp(0, 300_000, () => null), 0, 300_000)).toBeNull();
+  });
+  it('gapNear: the nearest point with a value within reach (the earlier on a tie)', () => {
+    const pts = ramp(0, 60_000, (s) => (s === 30 ? null : s));
+    expect(gapNear(pts, 31_000, 5_000)).toEqual({ tMs: 35_000, g: 35 });
+    expect(gapNear(pts, 32_500, 5_000)).toEqual({ tMs: 35_000, g: 35 });
+    expect(gapNear(pts, 27_500, 5_000)).toEqual({ tMs: 25_000, g: 25 });
+    expect(gapNear(pts, 30_000, 4_000)).toBeNull();
+    expect(gapNear(pts, 30_000, 5_000)).toEqual({ tMs: 25_000, g: 25 });
   });
   it('the noise model: ±5 s, + separation × 3° ÷ VMG, + 20 % of the untracked time', () => {
     expect(gapNoise(0, 2, 0).noise).toBe(NOISE_BASE_S);
@@ -562,7 +575,8 @@ describe('D3 early lane / tacks', () => {
     expect(o.variant).toBe('lane');
     expect(o.t0).toBe(crossMs.me);
     expect(o.t1).toBe(crossMs.me + 300_000);
-    expect(o.seconds).toBeCloseTo(24, 6); // 27 − 3 (one-minute reads)
+    expect(o.seconds).toBeCloseTo(30, 6); // 30 − 0: the first and last points of the window
+    expect(o.gaps).toEqual([{ ids: ['a', 'b', 'c'], t0: crossMs.me, g0: 0, t1: crossMs.me + 300_000, g1: 30 }]);
     expect(o.refBoats).toEqual(['a', 'b', 'c']);
     // Boats start together: the ±3° term does not inflate a start/early-lane window.
     expect(o.secondsHi - o.seconds).toBeCloseTo(NOISE_BASE_S, 5);

@@ -30,7 +30,7 @@ import { detectLineBias } from './detectors/lineBias';
 import { detectManoeuvreCost } from './detectors/manoeuvreCost';
 import { D3_GAP_S, D3_WINDOW_MS } from './detectors/early';
 import { longestHole, longestHoleIn, trackLegAt } from './tracks';
-import { coachCoverage, gapChange, rangeOf, type GoodNote, type Opportunity } from './opportunity';
+import { coachCoverage, gapChange, rangeOf, reading, type GoodNote, type Opportunity } from './opportunity';
 import { median } from '../geo';
 import { rankOpportunities, type Card } from './rank';
 import { codeInfo } from '../../data/official/codes';
@@ -79,8 +79,8 @@ export interface CoachDebrief {
 }
 
 /**
- * Legs where the boat gained PLUS_GAIN_S or more on the leaders: the gap to them read off the ladder over
- * most of the leg; where the ladder can't read it (a sparse track), the leg's time against the leaders'
+ * Legs where the boat gained PLUS_GAIN_S or more on the leaders: the gap to them read off the chart (Top 3) over
+ * most of the leg; where the chart can't read it (a sparse track), the leg's time against the leaders'
  * median time for it, when the leg is timed cleanly (no rounding in a hole).
  */
 export function legGains(ctx: CoachCtx): GoodNote[] {
@@ -97,7 +97,7 @@ export function legGains(ctx: CoachCtx): GoodNote[] {
       const legMs = mine ? mine.timeS * 1000 : b - a;
       if (g && (g.t1 - g.t0) / Math.max(1, legMs) >= PLUS_MIN_READ) {
         const gain = g.g0 - g.g1;
-        if (gain >= PLUS_GAIN_S) out.push({ kind: 'plus', detector: 'gap', variant: 'leg', facts: { leg: leg.name, gainS: gain, how: 'gap' }, t0: g.t0, t1: g.t1, seconds: gain });
+        if (gain >= PLUS_GAIN_S) out.push({ kind: 'plus', detector: 'gap', variant: 'leg', facts: { leg: leg.name, gainS: gain, how: 'gap' }, t0: g.t0, t1: g.t1, seconds: gain, gaps: [reading(ctx.leaders, g)] });
         return;
       }
     }
@@ -127,7 +127,7 @@ export function startGains(ctx: CoachCtx, d1Fired = false): GoodNote[] {
   const t1 = t0 + D3_WINDOW_MS;
   if (ctx.leaders.length) {
     const g = gapChange(ctx.gaps(ctx.leaders, t0, t1), t0, t1);
-    if (g && g.g0 - g.g1 >= PLUS_LANE_S) out.push({ kind: 'plus', detector: 'D3', variant: 'lane', facts: { gainS: g.g0 - g.g1 }, t0: g.t0, t1: g.t1, seconds: g.g0 - g.g1 });
+    if (g && g.g0 - g.g1 >= PLUS_LANE_S) out.push({ kind: 'plus', detector: 'D3', variant: 'lane', facts: { gainS: g.g0 - g.g1 }, t0: g.t0, t1: g.t1, seconds: g.g0 - g.g1, gaps: [reading(ctx.leaders, g)] });
   }
   return out;
 }
@@ -219,6 +219,7 @@ export function mergeStart(d1: Opportunity | null, d3: Opportunity | null): { st
     refBoats: [...new Set([...d1.refBoats, ...d3.refBoats])],
     chips: d3.chips,
     windEst: d3.windEst,
+    gaps: d3.gaps,
   };
   return { start, early: null };
 }

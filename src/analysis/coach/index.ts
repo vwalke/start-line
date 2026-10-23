@@ -1,8 +1,9 @@
 /**
  * Recall Coach, phase 1: the engine core on top of a RaceAnalysis — the
- * fleet's minute-by-minute wind (twdSeries.ts), the wind ladder and same-moment
- * gaps (ladder.ts) the detectors read, the rival ladder's gaps at equal course
- * progress (timeGap.ts), and the reference groups (groups.ts). Built lazily, when
+ * fleet's minute-by-minute wind (twdSeries.ts), the wind ladder (ladder.ts: the
+ * course progress is measured up it, the places by distance to go along it), the
+ * gaps at equal course progress (timeGap.ts groupGap) the rival ladder chart and
+ * the cards both read, and the reference groups (groups.ts). Built lazily, when
  * the Coach tab first needs it: the wind from the raw fixes in the worker
  * (`coachWind`; the ~1 Hz drawn tracks blur the tack clusters), and the fixes
  * near the marks (`zoneTracks`, an uploaded log at its full rate), the ladder
@@ -14,7 +15,7 @@ import type { RaceData } from '../../data/types';
 import { makeTwdAt, windPoints } from '../wind';
 import { groupIds, type Group } from './groups';
 import { fleetVmg, inferLegSpans, type Course, type GapPoint } from './ladder';
-import { legWinds, timeGapSeries } from './timeGap';
+import { GAP_STEP_MS, gapCourse, groupGap, timeGapSeries } from './timeGap';
 import { lineCrossing } from './lineCross';
 import { startCross } from '../startCross';
 import { boundsOf, coachTracks, longestHole, projectCoachTrack, type CoachTrack } from './tracks';
@@ -28,8 +29,8 @@ import { codeInfo } from '../../data/official/codes';
 export const coachRaceKey = (eventId: string, division: string, raceNumber: number, allCompetitors = false): string =>
   `${eventId}|${division}|${raceNumber}|${allCompetitors ? 'all' : ''}`;
 
-/** The rival ladder's time step, ms. */
-export const LADDER_STEP_MS = 10_000;
+/** The rival ladder's time step, ms: the cards read the same points (timeGap.ts groupGap). */
+export const LADDER_STEP_MS = GAP_STEP_MS;
 
 export interface CoachModel {
   gunMs: number;
@@ -329,7 +330,10 @@ export interface RivalLadder {
   hole: { fromMs: number; toMs: number } | null;
 }
 
-/** The chosen boat's gap to `group` over the race at equal course progress (timeGap.ts), every LADDER_STEP_MS from the gun to its finish (or last fix). */
+/**
+ * The chosen boat's gap to `group` over the race at equal course progress (timeGap.ts), every LADDER_STEP_MS from the gun to
+ * its finish (or last fix): timeGap.ts groupGap, the series the cards read (another `stepMs` works it out on its own).
+ */
 export function rivalLadder(m: CoachModel, a: RaceAnalysis, boat: string, g: Group, stepMs = LADDER_STEP_MS): RivalLadder | null {
   const tr = m.tracks.get(boat);
   if (!tr) return null;
@@ -341,10 +345,11 @@ export function rivalLadder(m: CoachModel, a: RaceAnalysis, boat: string, g: Gro
   const roundings = tr.bounds
     .map((t, k) => ({ tMs: t, leg: k }))
     .filter((r): r is { tMs: number; leg: number } => r.tMs != null && r.leg > 0 && r.leg < tr.bounds.length - 1);
+  const { course, lw } = gapCourse(m);
   return {
     boat,
     group: group.map((x) => x.id),
-    points: timeGapSeries(m.course, legWinds(m.course, m.wind, m.tracks.values(), m.gunMs, m.endMs), tr, group, m.gunMs, toMs, stepMs),
+    points: stepMs === GAP_STEP_MS ? groupGap(m, boat, ids, m.gunMs, toMs) : timeGapSeries(course, lw, tr, group, m.gunMs, toMs, stepMs),
     roundings,
     hole: longestHole(tr.t, m.gunMs, toMs),
   };

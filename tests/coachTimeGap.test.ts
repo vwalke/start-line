@@ -3,10 +3,12 @@ import { rivalLadder } from '../src/analysis/coach';
 import { groupIds } from '../src/analysis/coach/groups';
 import { gapSeries, GROUP_MIN_SHARE, type Course, type GapPoint } from '../src/analysis/coach/ladder';
 import {
+  FINISH_IN_M,
   GROUP_BRIDGE_S,
   GROUP_DRAW_HOLE_S,
   ROUNDING_IN_M,
   ROUNDING_OUT_M,
+  finishLine,
   legAlong,
   legOfProgress,
   legProgress,
@@ -17,7 +19,8 @@ import {
   timeGapSeries,
   type LegWind,
 } from '../src/analysis/coach/timeGap';
-import { COACH_NEAR_FIX_S, type CoachTrack } from '../src/analysis/coach/tracks';
+import { COACH_NEAR_FIX_S, posAt, type CoachTrack } from '../src/analysis/coach/tracks';
+import { boatsCount, ladderTipHtml } from '../src/ui/coach';
 import { median } from '../src/analysis/geo';
 import { cascaisRace, coachRace, j105Race } from './helpers';
 
@@ -144,6 +147,10 @@ describe('the bold group line does not step when boats round or drop out of the 
     const hole = l.points.filter((p) => p.tMs >= edt('12:52:00') && p.tMs <= edt('12:55:30'));
     expect(hole.every((p) => p.each[k] == null && p.n === ids.length)).toBe(true);
     expect(7 * 60).toBeLessThan(GROUP_BRIDGE_S);
+    // The readout says so: USA 313 counts as estimated there ("6 boats, 1 estimated", or more where others are bridged too).
+    expect(hole.every((p) => (p.est ?? 0) >= 1)).toBe(true);
+    const i = l.points.indexOf(hole.find((p) => p.behindS != null)!);
+    expect(ladderTipHtml(a, m, l, { kind: 'near' }, i)).toMatch(/\(6 boats, \d estimated\)/);
   });
 
   it('Cascais R2, USA 833 vs Boats near me at the Run 1 start (13:37:34 venue): level, no climb to +70 s', () => {
@@ -420,5 +427,155 @@ describe('review fixes (v1 timeGap.ts)', () => {
     expect(at(495).leg).toBe(0);
     expect(at(505).leg).toBe(0);
     expect(at(512).leg).toBe(1);
+  });
+});
+
+describe('review fixes (#52: thin lines at the zone edges, holes, estimated boats)', () => {
+  const course: Course = { pts: [[0, 0], [0, 1000], [0, 0]], kinds: ['upwind', 'downwind'] };
+  /** Straight up the rhumb line at 2 m/s from `y0`, round at 1000 m, straight down at 3 m/s; a fix every `dt` s from `t0`. */
+  const sparse = (id: string, o: { y0?: number; dt: number; t0?: number }): CoachTrack => {
+    const { y0 = 0, dt, t0 = 0 } = o;
+    const up = (1000 - y0) / 2;
+    const pts: [number, number, number][] = [];
+    for (let s = t0; s <= up + 300; s += dt) pts.push([s, 0, s <= up ? y0 + 2 * s : 1000 - 3 * (s - up)]);
+    return track(id, pts, [0, up * 1000, null]);
+  };
+
+  it('4. a ~10 s track (a fix every 11 s) keeps every thin-line point through the rounding zone and at its edges', () => {
+    const me = sparse('me', { dt: 11, t0: 0.5 });
+    const r = sparse('r', { y0: 40, dt: 11, t0: 3 }); // 20 s ahead
+    const s = timeGapSeries(course, NORTH, me, [r], 0, 700_000, 5_000);
+    const pm = progressTrack(course, NORTH, me);
+    const pr = progressTrack(course, NORTH, r);
+    // Our points from the approach to the zone (one fix short of its edge) to one fix past the way out of it.
+    const zone = s.filter((p) => {
+      const q = progressAt(pm, p.tMs, GROUP_DRAW_HOLE_S)!;
+      return q >= 1000 - ROUNDING_IN_M - 22 && q <= 1000 + ROUNDING_OUT_M + 33;
+    });
+    expect(zone.length).toBeGreaterThanOrEqual(8);
+    for (const p of zone) expect(p.each[0]).toBeCloseTo(20, 0);
+    // Read as positions are (tracks.ts posAt: within COACH_NEAR_FIX_S of a fix), some of those points have no position,
+    // ours or the rival's where it got that far: v1 dropped them. The stretches there are linear in time by construction.
+    const posOld = zone.filter((p) => {
+      const t = timeAtProgress(pr, progressAt(pm, p.tMs, GROUP_DRAW_HOLE_S)!, GROUP_DRAW_HOLE_S)!;
+      return !posAt(me, p.tMs) || !posAt(r, t);
+    });
+    expect(posOld.length).toBeGreaterThan(0);
+    // Away from the zone, between two fixes, the position rule still holds: a point 5.5 s from both fixes has none.
+    const mid = s.find((p) => p.tMs === 105_000)!; // me's fixes at 99.5 and 110.5 s
+    expect(posAt(me, mid.tMs)).toBeNull();
+    expect(mid.each[0]).toBeNull();
+  });
+
+  it('5. a gap between fixes that made no progress (a tack back) is not a hole in the records', () => {
+    // Up at 2 m/s to 400 m (200 s), back down for 10 s, then a 20 s gap (both ends short of 400 m), then up again.
+    const pts: [number, number, number][] = [];
+    for (let s = 0; s <= 200; s += 2) pts.push([s, 0, 2 * s]);
+    for (let s = 202; s <= 210; s += 2) pts.push([s, 0, 400 - 2 * (s - 200)]);
+    for (let s = 230; s <= 300; s += 2) pts.push([s, 0, 380 + 2 * (s - 230)]);
+    const pt = progressTrack(course, NORTH, track('tack', pts, [0, null, null]));
+    // The record after the dip (404 m at 242 s): the longest gap that counts is 2 s, not the 20 s at the tack back.
+    const k = pt.p.findIndex((p) => p > 400);
+    expect(pt.t[k]).toBe(242_000);
+    expect(pt.p[k]).toBeCloseTo(404, 6);
+    expect(pt.holeS[k]).toBe(2);
+    // So the dense stretch either side reads as positions are (v1: none from 200 s to 242 s).
+    expect(progressAt(pt, 206_000)).not.toBeNull();
+    expect(progressAt(pt, 240_000)).not.toBeNull();
+    // Inside the 20 s gap itself, the near-fix rule still has no position.
+    expect(progressAt(pt, 220_000)).toBeNull();
+  });
+
+  it('5. an overstand past the zone, then a gap: the zone edge is crossed at the fix before it, the gap after it is not before it', () => {
+    // A reach to (0, 1000), 40 m past the mark at 520 s (a fix every 2 s), a 20 s gap, then 60 m down the next reach.
+    const reach: Course = { pts: [[0, 0], [0, 1000], [1000, 1000]], kinds: ['reach', 'reach'] };
+    const pts: [number, number, number][] = [];
+    for (let s = 0; s <= 520; s += 2) pts.push([s, 0, 2 * s]);
+    for (let s = 540; s <= 700; s += 2) pts.push([s, 60 + 2 * (s - 540), 1000]);
+    const pt = progressTrack(reach, NORTH, track('over', pts, [0, 540_000, null]));
+    const k = pt.p.findIndex((p) => Math.abs(p - (1000 + ROUNDING_OUT_M)) < 1e-6);
+    expect(pt.t[k]).toBe(520_000);
+    expect(pt.holeS[k]).toBe(2);
+    // The zone, crossed from 485 s (970 m) to 520 s on fixes 2 s apart, reads; the 20 s gap after it doesn't.
+    expect(progressAt(pt, 500_000)).not.toBeNull();
+    expect(progressAt(pt, 530_000)).toBeNull();
+    expect(progressAt(pt, 530_000, GROUP_DRAW_HOLE_S)).not.toBeNull();
+  });
+
+  it('2. the bold line counts the boats read across a hole as estimated (the readout: "6 boats, 1 estimated")', () => {
+    const me = sparse('me', { dt: 1 });
+    const lags = [30, 35, 40, -30, -35, -40];
+    const group = lags.map((lag, k) => {
+      const pts: [number, number, number][] = [];
+      for (let s = 0; s <= 800; s++) if (k !== 2 || s < 150 || s > 450) pts.push([s + lag, 0, s <= 500 ? 2 * s : 1000 - 3 * (s - 500)]);
+      return track(`r${k}`, pts, [lag * 1000, (500 + lag) * 1000, null]);
+    });
+    const s = timeGapSeries(course, NORTH, me, group, 0, 700_000, 10_000);
+    // r2 (40 s behind) is out of the tracker from 190 s to 490 s: me got where it was then from 150 s to 450 s.
+    const inHole = s.filter((p) => p.tMs >= 160_000 && p.tMs <= 440_000);
+    expect(inHole.every((p) => p.n === 6 && p.est === 1 && p.each[2] == null && p.behindS != null)).toBe(true);
+    expect(boatsCount(inHole[0])).toBe('6 boats, 1 estimated');
+    const clear = s.filter((p) => p.tMs >= 600_000 && p.tMs <= 650_000);
+    expect(clear.every((p) => p.est === 0)).toBe(true);
+    expect(boatsCount(clear[0])).toBe('6 boats');
+    expect(boatsCount({ n: 1 })).toBe('1 boat');
+  });
+});
+
+describe('the finish: anchored to the finish times, measured to the line the finishers crossed', () => {
+  // A 1000 m beat north from (0, 0), a run back. The feed's finish line is 100–200 m east of the run's rhumb line at
+  // y = 0; the boats finish 60 m further down, at y = −60, each in its own lane (x = −40 … 40). Up at 2 m/s, down at
+  // 3 m/s; `me` 20 s behind at the top and slower (2 m/s) over its last 90 m. The trackers stop 3 s before the finish.
+  const course: Course = { pts: [[0, 0], [0, 1000], [150, 0]], kinds: ['upwind', 'downwind'], finish: { left: [100, 0], right: [200, 0] } };
+  const L = Math.hypot(150, 1000);
+  const total = 1000 + L;
+  const boat = (id: string, x: number, lag: number, slowLast = false): { tr: CoachTrack; fin: number } => {
+    const pts: [number, number, number][] = [];
+    const down = (s: number): number => (slowLast && s > 970 / 3 ? 1000 - 970 - 2 * (s - 970 / 3) : 1000 - 3 * s);
+    const runS = slowLast ? 970 / 3 + 90 / 2 : 1060 / 3;
+    for (let s = 0; s <= 500 + runS - 3; s++) pts.push([s + lag, x, s <= 500 ? 2 * s : down(s - 500)]);
+    const fin = (lag + 500 + runS) * 1000;
+    return { tr: track(id, pts, [lag * 1000, (500 + lag) * 1000, fin]), fin };
+  };
+  const me = boat('me', 0, 20, true);
+  const rivals = [boat('a', -40, 0), boat('b', -20, 5), boat('c', 20, 10), boat('d', 40, 30)];
+  const all = [me, ...rivals];
+
+  it('finishLine: through where the finishers were at their finish times, not the feed\'s line', () => {
+    const f = finishLine(course, all.map((b) => b.tr))!;
+    for (const p of [f.left, f.right]) expect(p[1]).toBeCloseTo(-60, 6);
+    expect(Math.abs(f.right[0] - f.left[0])).toBeCloseTo(80, 6);
+    // Under FINISH_FIT_MIN finishers: the feed's.
+    expect(finishLine(course, all.slice(0, 4).map((b) => b.tr))).toBe(course.finish);
+  });
+
+  it('at the chosen boat\'s finish, its gap to each finisher is the difference of their finish times', () => {
+    const c = { ...course, finish: finishLine(course, all.map((b) => b.tr)) };
+    const [p] = timeGapSeries(c, NORTH, me.tr, rivals.map((r) => r.tr), me.fin, me.fin);
+    rivals.forEach((r, k) => expect(p.each[k]).toBeCloseTo((me.fin - r.fin) / 1000, 6));
+    // The last FINISH_IN_M are crossed linearly in time, from FINISH_IN_M short of the line the boats crossed to the
+    // finish (the run's 1060 m down the wind scaled to its rhumb length L: 30 m of progress is 30 · 1060 / L m of water).
+    const pt = progressTrack(c, NORTH, rivals[0].tr);
+    expect(pt.p.at(-1)).toBe(total);
+    expect(pt.t.at(-1)).toBe(rivals[0].fin);
+    expect(timeAtProgress(pt, total - FINISH_IN_M)! / 1000).toBeCloseTo(500 + (1060 - (FINISH_IN_M * 1060) / L) / 3, 6);
+  });
+
+  it('the last leg is measured to the finish line extended: a boat level with it is there', () => {
+    // Level with the feed's line, 100 m past its west end: the leg's end (to the nearest end, on the run's layline,
+    // 87 m short of it).
+    expect(legAlong(course, NORTH, 1, [0, 0])).toBeCloseTo(L, 6);
+  });
+
+  it('a fix past the line before the finish time does not end the course early', () => {
+    // The finish time 2 s after the boat crossed (the official time late, or the line a little further on).
+    const c: Course = { ...course, finish: { left: [-50, -60], right: [50, -60] } };
+    const pts: [number, number, number][] = [];
+    for (let s = 0; s <= 500 + 1066 / 3; s++) pts.push([s, 0, s <= 500 ? 2 * s : 1000 - 3 * (s - 500)]);
+    const fin = (500 + 1060 / 3 + 2) * 1000;
+    const pt = progressTrack(c, NORTH, track('late', pts, [0, 500_000, fin]));
+    expect(pt.p.filter((p) => p >= total)).toHaveLength(1);
+    expect(pt.t.at(-1)).toBe(fin);
+    expect(pt.p.at(-2)).toBe(total - FINISH_IN_M);
   });
 });

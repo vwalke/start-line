@@ -188,8 +188,10 @@ describe('D4 shift, wrong side / headed tack', () => {
     expect(o.facts.headed as number).toBeGreaterThan(0.1);
     expect(o.facts.ldrHeaded as number).toBeLessThan(0.1);
     expect(o.refBoats.sort()).toEqual(['L1', 'L2', 'L3']);
-    // The gap grows 6 s a minute: the window's Δgap (one-minute reads at its ends) is 6 × its read span.
-    expect(o.seconds).toBeCloseTo(6 * ((o.t1 - o.t0) / MIN - 1), 0); // reads: one-minute medians at each end
+    // The gap grows 6 s a minute: the window's Δgap (the points at its ends, as the chart has them) is 6 × its span.
+    expect(o.seconds).toBeCloseTo(6 * ((o.t1 - o.t0) / MIN), 6);
+    expect(o.gaps).toHaveLength(1);
+    expect(o.gaps![0].g1 - o.gaps![0].g0).toBeCloseTo(o.seconds, 9);
     expect(o.t1 - o.t0).toBeLessThanOrEqual(10 * MIN);
     // One shift, not a swing: the window holds the backing.
     expect(o.t0).toBeLessThanOrEqual(GUN + 5 * MIN);
@@ -243,7 +245,7 @@ describe('D5 helpers', () => {
     r[2].seg = 1;
     expect(swings(r)).toEqual([]);
   });
-  it('gapReads: one-minute medians every 30 s on the leg; none where the track covers under half; a gap of reads splits', () => {
+  it('gapReads: the chart point nearest every 30 s on the leg (at its own time); none where the track covers under half; a gap of reads splits', () => {
     const pts: GapPoint[] = [];
     for (let t = GUN; t <= GUN + 10 * MIN; t += 5000) pts.push({ tMs: t, behindS: (t - GUN) / 1000, n: 1, each: [], leg: 0 });
     const fixes: number[] = [];
@@ -254,6 +256,14 @@ describe('D5 helpers', () => {
     expect(r[0].seg).toBe(0);
     expect(r[r.length - 1].seg).toBe(1);
     expect(gapReads(pts, 1, GUN, GUN + 9 * MIN, (p) => p.behindS)).toEqual([]);
+    // Off the points' times: each read is the nearest point, at that point's time and value (what the chart shows).
+    const off = gapReads(pts, 0, GUN + MIN + 2_000, GUN + 3 * MIN, (p) => p.behindS);
+    expect(off.map((x) => [x.t - GUN, x.g])).toEqual([
+      [60_000, 60],
+      [90_000, 90],
+      [120_000, 120],
+      [150_000, 150],
+    ]);
   });
   it('windSwing: the largest move from the start of the window, signed', () => {
     expect(windSwing((t) => ((t - GUN) / MIN) * 2, GUN, GUN + 5 * MIN)).toBeCloseTo(10, 6);
@@ -284,11 +294,11 @@ describe('D5 consolidation / overstand', () => {
     expect(r.opps).toHaveLength(1);
     const o = r.opps[0];
     expect(o.variant).toBe('banked');
-    // 60 s from the turn to the top; the one-minute read at the turn sits a little above it.
-    expect(o.seconds).toBeGreaterThan(50);
-    expect(o.seconds).toBeLessThanOrEqual(60);
-    expect(o.facts.gPeak as number).toBeLessThan(-15);
-    expect(o.facts.gTrough as number).toBeCloseTo(40, 0);
+    // 60 s from the turn (20 s up) to the top (40 s down): the points there, as the chart has them.
+    expect(o.seconds).toBeCloseTo(60, 6);
+    expect(o.facts.gPeak as number).toBeCloseTo(-20, 6);
+    expect(o.facts.gTrough as number).toBeCloseTo(40, 6);
+    expect(o.gaps).toEqual([{ ids: ['P2', 'P3', 'P4', 'P5', 'P6', 'P7'], t0: o.t0, g0: o.facts.gPeak, t1: o.t1, g1: o.facts.gTrough }]);
     expect(o.facts.shift as number).toBeGreaterThanOrEqual(8);
     expect(o.facts.side).toBe('left');
     // Marks estimated: medium at most (spec §5) — here the 1.5 km split's wide range takes it lower still.
@@ -298,7 +308,7 @@ describe('D5 consolidation / overstand', () => {
     expect(o.windEst).toBe(true);
     const t = cardText({ ...o, score: 0, limit: 'marks' });
     expect(t.title).toBe('Gave back a left gain');
-    expect(t.sentence).toMatch(/^The left paid first, 1\d s up on the boats that finished 2nd–7th; then the wind swung back 12° and you were 40 s down\.$/);
+    expect(t.sentence).toBe('The left paid first, 20 s up on the boats that finished 2nd–7th; then the wind swung back 12° and you were 40 s down.');
   });
   it('no swing in the wind, or boats close together: no card (and no ✓, a gain was given back)', () => {
     const calm = detectConsolidate(swingWorld({ wind: () => 0 }));

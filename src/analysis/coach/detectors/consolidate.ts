@@ -1,7 +1,8 @@
 /**
  * D5 · Consolidation / overstand (spec §3; the debrief's "gains from the side
  * not banked"). On each leg the boat's gap to a reference is read every
- * D5_READ_STEP_MS (a GAP_READ_MS median). A swing is a peak — the gap having
+ * D5_READ_STEP_MS, each read the chart's point there (ctx.gaps: the gap at equal
+ * course progress, timeGap.ts groupGap). A swing is a peak — the gap having
  * improved D5_GAIN_S or more over the D5_LOOKBACK_MS before it — then a loss
  * of D5_LOSS_S or more within D5_LOSS_MS, all on one well-tracked stretch
  * (gapReads: Good Trade's race 1 gap grows another 15 s across its sparse
@@ -9,7 +10,7 @@
  * D5_SEP_M or more across the wind from the reference at the peak and the
  * wind swung D5_SHIFT_DEG or more by the trough; or, upwind, when the boat
  * overstood (layline test) and lost D5_OVERSTAND_S or more. Seconds = peak →
- * trough of the gap.
+ * trough of the gap: the chart's change between those two points (Opportunity.gaps).
  *
  * Two references, two stories:
  * - caught-leader: each of the leaders (finish top 3) alone, the peak being
@@ -40,9 +41,10 @@ import {
   GAP_READ_MS,
   WIND_EST_S,
   coachCoverage,
+  gapNear,
   gapNoise,
-  gapRead,
   rangeOf,
+  reading,
   refCoverage,
   untrackedS,
   windOkShare,
@@ -89,10 +91,10 @@ export interface GapReadPt {
 }
 
 /**
- * One gap read per D5_READ_STEP_MS on `leg` (the boat on that leg), from `pick`, where the boat's own
- * track `t` covers D5_READ_COVERAGE of the two minutes around it. A sparse stretch (fixes 15–30 s
- * apart, as Good Trade's race 1 from 13 to 17 min) yields a stray read or two that would join a swing
- * to what happened in the stretch; they are left out, and the stretch splits the reads.
+ * One gap read per D5_READ_STEP_MS on `leg` (the boat on that leg), from `pick`: the chart's point nearest it (within
+ * half a step; its own time), where the boat's own track `t` covers D5_READ_COVERAGE of the two minutes around it. A
+ * sparse stretch (fixes 15–30 s apart, as Good Trade's race 1 from 13 to 17 min) yields a stray read or two that would
+ * join a swing to what happened in the stretch; they are left out, and the stretch splits the reads.
  */
 export function gapReads(
   points: readonly GapPoint[],
@@ -107,11 +109,11 @@ export function gapReads(
   let seg = 0;
   for (let x = a; x <= b; x += D5_READ_STEP_MS) {
     if (t && coachCoverage(t, x - GAP_READ_MS, x + GAP_READ_MS) < D5_READ_COVERAGE) continue;
-    const g = gapRead(on, x - GAP_READ_MS / 2, x + GAP_READ_MS / 2, pick);
-    if (g == null) continue;
+    const hit = gapNear(on, x, D5_READ_STEP_MS / 2, pick);
     const prev = out[out.length - 1];
-    if (prev && x - prev.t > D5_READ_GAP_MS) seg++;
-    out.push({ t: x, g, seg });
+    if (!hit || (prev && hit.tMs <= prev.t)) continue;
+    if (prev && hit.tMs - prev.t > D5_READ_GAP_MS) seg++;
+    out.push({ t: hit.tMs, g: hit.g, seg });
   }
   return out;
 }
@@ -248,7 +250,7 @@ export function detectConsolidate(ctx: CoachCtx): ConsolidateResult {
     if (!lw) return;
     const [a, b] = lw;
     const goodLeg = coachCoverage(ctx.tr.t, a, b) >= D5_OK_COVERAGE;
-    const make = (variant: string, refs: string[], s: Swing, sepM: number, sepSigned: number | null, lay: Layline | null, extra: Record<string, Fact>): Opportunity => {
+    const make = (variant: string, refs: string[], s: Swing, sepM: number, sepSigned: number | null, lay: Layline | null, extra: Record<string, Fact>, boat?: string): Opportunity => {
       const t0 = s.tPeak;
       const t1 = s.tTrough;
       const seconds = s.gTrough - s.gPeak;
@@ -293,6 +295,7 @@ export function detectConsolidate(ctx: CoachCtx): ConsolidateResult {
         },
         refBoats: refs,
         windEst: windS >= WIND_EST_S,
+        gaps: [reading(refs, { t0: s.tPeak, g0: s.gPeak, t1: s.tTrough, g1: s.gTrough }, boat)],
       };
     };
     // Caught the leader: each leader alone.
@@ -306,7 +309,7 @@ export function detectConsolidate(ctx: CoachCtx): ConsolidateResult {
           const sep = signedSep(ctx.tr, ref, s.tPeak, w.twdAt(s.tPeak));
           if (sep == null || Math.abs(sep) < D5_SEP_M || Math.abs(windSwing(w.twdAt, s.tPeak, s.tTrough)) < D5_LEADER_SHIFT_DEG) continue;
           const tacked = detectManoeuvres(ctx.tr, w.twdAt, s.tPeak - 60_000, s.tTrough).some((m) => m.kind === 'tack');
-          const opp = make('caught-leader', [id], s, Math.abs(sep), sep, null, { ldr: ctx.nameOf(id), tacked: tacked ? 1 : 0 });
+          const opp = make('caught-leader', [id], s, Math.abs(sep), sep, null, { ldr: ctx.nameOf(id), tacked: tacked ? 1 : 0 }, id);
           found.push({ opp, rank: SPECIFIC['caught-leader'] });
           break;
         }
