@@ -392,7 +392,7 @@ Switching races keeps the tab.
   9.55 m); otherwise the key line says `hulls not to scale` (and the ⓘ why).
   The line continues dashed past each end, and the favored end is labeled
   with its bias in degrees and meters (and boat lengths when the class is
-  known), e.g. `Pin favoured 7° · 18 m (1.9 lengths)`, or `Square line`
+  known), e.g. `Pin favored 7° · 18 m (1.9 lengths)`, or `Square line`
   within 2 m. The label is small text running along the favored end's
   dashed extension, starting a clear gap past the pin or RC mark and sitting
   just above the line: "above" is screen-up once the text is turned upright
@@ -400,9 +400,9 @@ Switching races keeps the tab.
   top is the course side, away from the boats. It scales with the view like
   the boat names, so it reads the same at every zoom. It always takes the
   longest wording that fits on the extension and keeps the meters:
-  `Pin favoured 7° · 18 m (1.9 lengths)`, then `Pin favoured 7° · 18 m`,
+  `Pin favored 7° · 18 m (1.9 lengths)`, then `Pin favored 7° · 18 m`,
   `Pin fav. 7° · 18 m`, `Pin 7° · 18 m`. The Fit view leaves room past the
-  favored end for one of those: `Pin favoured 7° · 18 m` on a wide chart
+  favored end for one of those: `Pin favored 7° · 18 m` on a wide chart
   (the frame grows up to 25%), and on a chart under 480 px wide, where the
   text is larger, the longest that fits with the frame grown up to 35% (that
   frame changes only when the chart crosses 480 px). The lengths join when

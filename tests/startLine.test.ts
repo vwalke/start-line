@@ -92,7 +92,7 @@ describe.each(fixtures)('%s', (_name, a) => {
     expect(fav).not.toBeNull();
     // At Fit the "(n lengths)" part is dropped to fit the extension; zoomed in it comes back.
     expect(fav[2]).toBe(favouredTexts(a, startClass(a)!.dims)[1]);
-    expect(fav[2]).toMatch(/^(Pin|RC) favoured \d+° · \d+ m$/);
+    expect(fav[2]).toMatch(/^(Pin|RC) favored \d+° · \d+ m$/);
     expect(fav[1]).toContain('±5° of wind ≈ ±');
     const zoomed = startSnapshot(a, null, { ...fitView(startFitBox(a)), k: 4 });
     expect(zoomed).toContain(`>${favouredText(a, startClass(a)!.dims)}</text>`);
@@ -130,13 +130,13 @@ describe('favoured end text', () => {
   const [, j88] = fixtures[3];
 
   it('names the end, degrees, metres and lengths', () => {
-    expect(favouredText(j70, { loaM: 6.934, beamM: 2.249 })).toMatch(/^Pin favoured \d+° · 20 m \(2\.9 lengths\)$/);
-    expect(favouredText(j70, null)).toMatch(/^Pin favoured \d+° · 20 m$/);
-    expect(favouredText(j88, null)).toMatch(/^RC favoured \d+° · 8 m$/);
-    expect(startSnapshot(c31, null)).toMatch(/>Pin favoured \d+° · 49 m<\/text>/);
-    expect(startSnapshot(c31, null, { ...fitView(startFitBox(c31)), k: 2 })).toMatch(/>Pin favoured \d+° · 49 m \(5\.1 lengths\)<\/text>/);
+    expect(favouredText(j70, { loaM: 6.934, beamM: 2.249 })).toMatch(/^Pin favored \d+° · 20 m \(2\.9 lengths\)$/);
+    expect(favouredText(j70, null)).toMatch(/^Pin favored \d+° · 20 m$/);
+    expect(favouredText(j88, null)).toMatch(/^RC favored \d+° · 8 m$/);
+    expect(startSnapshot(c31, null)).toMatch(/>Pin favored \d+° · 49 m<\/text>/);
+    expect(startSnapshot(c31, null, { ...fitView(startFitBox(c31)), k: 2 })).toMatch(/>Pin favored \d+° · 49 m \(5\.1 lengths\)<\/text>/);
     expect(favouredTexts(c31, null)).toEqual([
-      expect.stringMatching(/^Pin favoured \d+° · 49 m$/),
+      expect.stringMatching(/^Pin favored \d+° · 49 m$/),
       expect.stringMatching(/^Pin fav\. \d+° · 49 m$/),
       expect.stringMatching(/^Pin \d+° · 49 m$/),
       expect.stringMatching(/^Pin \d+°$/),
@@ -215,7 +215,7 @@ describe('favoured end text', () => {
 
   it('puts the wind source and the sensitivity in the ⓘ bullet', () => {
     // Benelux R8's wind at the gun is the start window's (wind.ts readStartTwd).
-    expect(biasBullets(j70)).toEqual([expect.stringMatching(/^Favoured end vs wind \d+° \(tacks, gun \+0:30–3:30\); ±5° of wind ≈ ±9 m\.$/)]);
+    expect(biasBullets(j70)).toEqual([expect.stringMatching(/^Favored end vs wind \d+° \(tacks, gun \+0:30–3:30\); ±5° of wind ≈ ±9 m\.$/)]);
     expect(biasBasis(j70)).toMatch(/^Wind \d+° at the gun, wind estimated from the fleet's tacks 0:30–3:30 after the gun \([\d,]+ close-hauled headings of [\d,]+ steady, [\d,]+ \/ [\d,]+ a tack, tack angle \d+°/);
   });
 

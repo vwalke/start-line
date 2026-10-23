@@ -47,7 +47,7 @@ export function favouredTexts(a: RaceAnalysis, dims: ClassDims | null): string[]
   const end = b.favored === 'left' ? 'Pin' : 'RC';
   const deg = `${f0(biasAngle(b))}°`;
   const m = `${f0(b.byM)} m`;
-  const short = `${end} favoured ${deg} · ${m}`;
+  const short = `${end} favored ${deg} · ${m}`;
   return [...(dims ? [`${short} (${f1(b.byM / dims.loaM)} lengths)`] : []), short, `${end} fav. ${deg} · ${m}`, `${end} ${deg} · ${m}`, `${end} ${deg}`];
 }
 
@@ -142,7 +142,7 @@ export function lineChips(a: RaceAnalysis): Chip[] {
 export function biasBullets(a: RaceAnalysis): string[] {
   const src = windSource(a.wind);
   const from = src.method === 'tacks' ? `(tacks, ${src.span})` : src.method === 'model' ? 'from the weather model' : '(first leg assumed upwind)';
-  return [`Favoured end vs wind ${degLabel(a.wind.twdAtGunDeg)} ${from}; ±5° of wind ≈ ±${f0(biasSensitivityM(a.line.lengthM))} m.`];
+  return [`Favored end vs wind ${degLabel(a.wind.twdAtGunDeg)} ${from}; ±5° of wind ≈ ±${f0(biasSensitivityM(a.line.lengthM))} m.`];
 }
 
 /**
