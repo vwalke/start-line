@@ -71,7 +71,8 @@ type Cond = { col: string; op: string; vals: Val[] };
 const lit = (tok: string): Val => {
   const p = /^\$(\d+)$/.exec(tok);
   if (p) return { p: Number(p[1]) };
-  if (/^'.*'$/.test(tok)) return { lit: tok.slice(1, -1) };
+  if (/^'.*'$/.test(tok)) return { lit: tok.slice(1, -1).replace(/''/g, "'") };
+  if (/^NULL$/i.test(tok)) return { lit: null };
   if (/^-?\d+(\.\d+)?$/.test(tok)) return { lit: Number(tok) };
   throw new Error(`d1mem: unsupported value ${tok}`);
 };
@@ -173,11 +174,7 @@ export class MemD1 implements D1Like {
       if (m[6]) rows = rows.slice(0, Number(m[6]));
       return { rows: rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? null]))), changes: 0 };
     }
-    m = /^INSERT (OR IGNORE )?INTO (\w+) \(([^)]+)\) VALUES \(([^)]+)\)$/i.exec(s);
-    if (m) {
-      const t = this.table(m[2]);
-      const cols = m[3].split(',').map((c) => c.trim());
-      const vals = m[4].split(',').map((v) => val(lit(v.trim())));
+    const insert = (t: Table, cols: string[], vals: unknown[], orIgnore: boolean): number => {
       const row: Row = Object.fromEntries(t.cols.map((c) => [c, null]));
       cols.forEach((c, i) => {
         if (!t.cols.includes(c)) throw new Error(`d1mem: no column ${c}`);
@@ -185,11 +182,29 @@ export class MemD1 implements D1Like {
       });
       const bad = check(t, row, t.rows);
       if (bad) {
-        if (m[1]) return { rows: [], changes: 0 };
+        if (orIgnore) return 0;
         throw new Error(bad);
       }
       t.rows.push(row);
-      return { rows: [], changes: 1 };
+      return 1;
+    };
+    m = /^INSERT (OR IGNORE )?INTO (\w+) \(([^)]+)\) VALUES \(([^)]+)\)$/i.exec(s);
+    if (m) {
+      const vals = m[4].split(',').map((v) => val(lit(v.trim())));
+      return { rows: [], changes: insert(this.table(m[2]), m[3].split(',').map((c) => c.trim()), vals, !!m[1]) };
+    }
+    // INSERT … SELECT from one table: each selected item a column of it or a literal (scripts/grant-gift.mjs).
+    m = /^INSERT (OR IGNORE )?INTO (\w+) \(([^)]+)\) SELECT (.+?) FROM (\w+)(?: WHERE (.+))?$/i.exec(s);
+    if (m) {
+      const t = this.table(m[2]);
+      const src = this.table(m[5]);
+      const items = m[4].split(',').map((x) => x.trim());
+      let changes = 0;
+      for (const r of src.rows.filter(match(src, parseWhere(m[6])))) {
+        const vals = items.map((x) => (/^\w+$/.test(x) && src.cols.includes(x) ? r[x] : val(lit(x))));
+        changes += insert(t, m[3].split(',').map((c) => c.trim()), vals, !!m[1]);
+      }
+      return { rows: [], changes };
     }
     m = /^UPDATE (\w+) SET (.+?) WHERE (.+)$/i.exec(s);
     if (m) {

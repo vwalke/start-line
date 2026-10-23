@@ -150,6 +150,22 @@ export async function recordPurchase(db: D1Like, p: PurchaseInput): Promise<stri
   return row.id;
 }
 
+export interface PurchaseRow {
+  id: string;
+  user_id: string;
+  provider: string;
+  provider_ref: string;
+  product: Scope;
+  amount: number | null;
+  currency: string | null;
+}
+
+const PURCHASE_COLS = 'id, user_id, provider, provider_ref, product, amount, currency';
+
+export const purchaseById = (db: D1Like, id: string): Promise<PurchaseRow | null> => db.prepare(`SELECT ${PURCHASE_COLS} FROM purchases WHERE id = ?`).bind(id).first<PurchaseRow>();
+export const purchaseByRef = (db: D1Like, providerRef: string): Promise<PurchaseRow | null> =>
+  db.prepare(`SELECT ${PURCHASE_COLS} FROM purchases WHERE provider_ref = ?`).bind(providerRef).first<PurchaseRow>();
+
 export const hasPurchases = async (db: D1Like, email: string): Promise<boolean> =>
   !!(await db.prepare('SELECT id FROM purchases WHERE email = ? LIMIT 1').bind(normEmail(email)).first());
 
@@ -192,6 +208,18 @@ export const entitlementBySubscription = (db: D1Like, subscriptionId: string): P
 export const setExpiry = (db: D1Like, id: string, expiresAt: number): Promise<unknown> =>
   db.prepare('UPDATE entitlements SET expires_at = ? WHERE id = ?').bind(expiresAt, id).run();
 
+/** The user's own entitlement rows, as stored. */
+export const entitlementRowsOf = async (db: D1Like, userId: string): Promise<EntitlementRow[]> =>
+  (await db.prepare(`SELECT ${ENT_COLS} FROM entitlements WHERE user_id = ?`).bind(userId).all<EntitlementRow>()).results;
+
+/** Revoke once: the first revocation's time stands (a second is a no-op). */
+export const revokeEntitlement = (db: D1Like, id: string, now: number): Promise<unknown> =>
+  db.prepare('UPDATE entitlements SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL').bind(now, id).run();
+
+/** Gift passes (scripts/grant-gift.mjs) use these ids for their purchase and entitlement rows. */
+export const GIFT_ID_PREFIX = 'gift_';
+export const isGiftRow = (r: Pick<EntitlementRow, 'purchase_id'>): boolean => !!r.purchase_id?.startsWith(GIFT_ID_PREFIX);
+
 const toEntitlement = (r: EntitlementRow, members?: string[]): Entitlement => ({
   id: r.id,
   userId: r.user_id,
@@ -201,6 +229,7 @@ const toEntitlement = (r: EntitlementRow, members?: string[]): Entitlement => ({
   expiresAt: r.expires_at,
   seats: r.seats,
   revokedAt: r.revoked_at,
+  ...(isGiftRow(r) ? { gift: true } : {}),
   ...(members ? { members } : {}),
 });
 

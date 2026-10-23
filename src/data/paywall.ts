@@ -63,13 +63,39 @@ async function post(url: string, body: unknown, doFetch: typeof fetch = fetch): 
   }
 }
 
-export const sendSignInLink = (email: string, returnTo: string, f?: typeof fetch): Promise<PostResult> => post(`${AUTH_BASE}/email`, { email, returnTo }, f);
+/** What a signed-out sailor clicked: carried through sign-in (the server checks and signs it). */
+export interface BuyIntent {
+  product: 'regatta' | 'season';
+  eventId: string | null;
+}
+
+export const sendSignInLink = (email: string, returnTo: string, f?: typeof fetch, buy?: BuyIntent | null): Promise<PostResult> =>
+  post(`${AUTH_BASE}/email`, { email, returnTo, ...(buy ? { buy } : {}) }, f);
 export const sendRestoreLink = (email: string, returnTo: string, f?: typeof fetch): Promise<PostResult> => post(`${AUTH_BASE}/restore`, { email, returnTo }, f);
 export const signOut = (f?: typeof fetch): Promise<PostResult> => post(`${AUTH_BASE}/logout`, {}, f);
-export const startCheckout = (product: 'regatta' | 'season', eventId: string | null, returnTo: string, f?: typeof fetch): Promise<PostResult> =>
-  post(`${BILLING_BASE}/checkout`, { product, ...(eventId ? { eventId } : {}), returnTo }, f);
+/** `intent`: the server's signed marker, for the automatic checkout right after sign-in. */
+export const startCheckout = (product: 'regatta' | 'season', eventId: string | null, returnTo: string, f?: typeof fetch, intent?: string): Promise<PostResult> =>
+  post(`${BILLING_BASE}/checkout`, { product, ...(eventId ? { eventId } : {}), returnTo, ...(intent ? { intent } : {}) }, f);
 
-export const googleStartUrl = (returnTo: string): string => `${AUTH_BASE}/google/start?${new URLSearchParams({ returnTo })}`;
+export const googleStartUrl = (returnTo: string, buy?: BuyIntent | null): string =>
+  `${AUTH_BASE}/google/start?${new URLSearchParams({ returnTo, ...(buy ? { buy: buy.product, ...(buy.eventId ? { event: buy.eventId } : {}) } : {}) })}`;
+
+/** The one-time marker the server adds after a sign-in that carried an intent (functions/_auth.ts BUY_PARAM). */
+export const BUY_PARAM = 'buy';
+
+/** The marker's intent as the page reads it (unverified: the server checks the signature on checkout). */
+export function peekBuy(token: string | null): BuyIntent | null {
+  const payload = token?.split('.')[0];
+  if (!payload || token!.length > 600) return null;
+  try {
+    const o = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (payload.length % 4)) % 4))) as { p?: unknown; e?: unknown };
+    if (o.p === 'season') return { product: 'season', eventId: null };
+    if (o.p === 'regatta' && typeof o.e === 'string' && /^[A-Za-z0-9_-]{4,64}$/.test(o.e)) return { product: 'regatta', eventId: o.e };
+  } catch {
+    /* not a marker */
+  }
+  return null;
+}
 /** Manage subscription: a same-origin POST answered with `{ url }` (Stripe's Billing Portal), which the page then opens. */
 export const openPortal = (f?: typeof fetch): Promise<PostResult> => post(`${BILLING_BASE}/portal`, {}, f);
 

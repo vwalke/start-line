@@ -1,0 +1,25 @@
+{
+  "id": "evt_test_SubPaused0001",
+  "object": "event",
+  "api_version": "2025-09-30.clover",
+  "created": 1795000000,
+  "livemode": false,
+  "type": "customer.subscription.updated",
+  "data": {
+    "object": {
+      "id": "sub_test_Season0001",
+      "object": "subscription",
+      "status": "paused",
+      "cancel_at_period_end": false,
+      "canceled_at": null,
+      "ended_at": null,
+      "pause_collection": null,
+      "customer": "cus_test_Season0001",
+      "items": {
+        "object": "list",
+        "data": [{ "id": "si_test_Season0001", "object": "subscription_item", "current_period_start": 1792670400, "current_period_end": 1824206400 }]
+      }
+    },
+    "previous_attributes": { "status": "trialing" }
+  }
+}

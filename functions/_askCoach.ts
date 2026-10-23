@@ -242,8 +242,8 @@ export interface AskDeps {
   limits?: { session: RateLimiter; daily: RateLimiter } | null;
   spend?: SpendStore;
   timeoutMs?: number;
-  /** Paywall (functions/_paywall.ts askGate): judged on the parsed ids and context; a response refusing the question, or null to answer it. */
-  gate?: (ask: Pick<ParsedAsk, 'ids' | 'context'>) => Promise<Response | null>;
+  /** Paywall (functions/_paywall.ts askGate): judged on the whole parsed request (ids, context, question, history); a response refusing the question, or null to answer it. */
+  gate?: (ask: Pick<ParsedAsk, 'ids' | 'context' | 'question' | 'history'>) => Promise<Response | null>;
 }
 
 // ---- responses

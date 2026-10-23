@@ -16,7 +16,7 @@ import { UA, UPSTREAM, MAX_UPSTREAM_BYTES, looksLikeJson, ttlFor } from './_lib'
 import { sha256Hex } from '../src/data/vkx/compact';
 import { freeRacesOf, isFreeRace, telemetryIsFree, type FreeRaces } from '../src/data/freeRace';
 import type { RegattaResponse } from '../src/data/racesense/types';
-import type { AskIds } from '../src/data/askCoach/protocol';
+import type { AskIds, AskTurn } from '../src/data/askCoach/protocol';
 import { cleanString, type AskContext } from '../src/analysis/coach/askContext';
 import { DIV_NAME_RE, EVENT_ID_RE } from '../src/data/vkx/validate';
 
@@ -326,24 +326,88 @@ export function askContextIsFree(free: FreeRaces, ids: AskIds, c: AskContext): b
 }
 
 /**
- * Ask Coach: free only for a question the server can show is about race 1 alone (askContextIsFree, on
- * the regatta document fetched here); another race, the Regatta view, a context naming another race's
- * gun or times, or anything it can't check needs an entitlement for the event (with no event id, a
- * pass for every regatta). The deny response, or null to go on.
- *
- * Residual risk, by design: the question, the earlier turns and the cards' own wording are free text
- * a sailor (or a script) can fill with anything, and can't be policed. What this holds is that a
- * request labelled race 1 must carry race 1's own identity and times, so Recall's analysis of races 2+
- * isn't answered for free under race 1's label by accident or by simply relabelling it.
+ * Size caps on a free (race 1) question's context and earlier turns, characters. The page's own race 1
+ * contexts run 1.5–3k characters as JSON (every boat of the J/105 race 1 fixture, tests/paywallGate.test.ts),
+ * and its earlier turns are at most 3 questions (≤ 500) and 3 answers of about 200 words; so these
+ * leave room for longer races while keeping a bulk paste from riding along with a race 1 question.
  */
-export async function askGate(req: Request, env: PaywallEnv, ask: { ids: AskIds; context: AskContext }, deps: PaywallDeps = {}): Promise<Response | null> {
+export const FREE_CONTEXT_MAX_CHARS = 8_000;
+export const FREE_HISTORY_MAX_CHARS = 6_000;
+
+/** "Race 3", "races 2", "R3", "RS 4", "race #5", "Race no. 6": the number named. */
+const RACE_REF_RE = /\b(?:races?|rs|r)\s*(?:no\.?\s*|#\s*)?(\d{1,4})\b/gi;
+/** h:mm / hh:mm, not part of a longer number or of h:mm:ss's seconds. */
+const ANY_CLOCK_RE = /(?<![\d:])(\d{1,3}):(\d{2})(?!\d)/g;
+/** An ISO date-time ("2026-10-22T11:05", "2026-10-22 11:05"). */
+const ISO_RE = /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
+/** A Unix time in seconds or milliseconds (10 or 13 digits). */
+const EPOCH_RE = /(?<!\d)\d{10}(?:\d{3})?(?!\d)/;
+/**
+ * The page's durations (ui/format.ts duration, m:ss), which can read like clock times: a leg's fastest
+ * time (ui/coachLegs.ts, a whole chip), and the tacks chip and sentence of the start card (ui/coachCards.ts).
+ */
+const DURATION_RES = [/^(?:⚠ )?(fastest .{1,80} )(\d{1,3}:\d{2})()$/, /^(\d+ tacks by )(\d{1,3}:\d{2})()$/, /\b(tacked \d+ times by )(\d{1,3}:\d{2})( after the gun)\b/];
+
+/** Every string in a value, at any depth. */
+const stringsIn = (x: unknown): string[] =>
+  typeof x === 'string' ? [x] : Array.isArray(x) ? x.flatMap(stringsIn) : x && typeof x === 'object' ? Object.values(x).flatMap(stringsIn) : [];
+
+/**
+ * The whole request, for a viewer with no pass: askContextIsFree, then every string of the context,
+ * the question and the earlier turns may name no race but race 1 (by any of the names the page gives
+ * it), and hold no clock time outside race 1's free window (±1 min; the page's own m:ss durations
+ * excepted, and in the question and turns only those the context shows), no ISO or Unix timestamp;
+ * the context and the turns stay within FREE_CONTEXT_MAX_CHARS / FREE_HISTORY_MAX_CHARS.
+ */
+export function askRequestIsFree(free: FreeRaces, ask: { ids: AskIds; context: AskContext; question?: string; history?: readonly AskTurn[] }): boolean {
+  const { ids, context: c } = ask;
+  if (!askContextIsFree(free, ids, c)) return false;
+  const w = free.windows.find((x) => x.division === ids.div && x.raceNumber === Number(ids.race))!;
+  const history = (ask.history ?? []).map((t) => t.text);
+  if (JSON.stringify(c).length > FREE_CONTEXT_MAX_CHARS || history.reduce((n, t) => n + t.length, 0) > FREE_HISTORY_MAX_CHARS) return false;
+  const races = new Set(w.names.map((n) => Number(/\d+/.exec(n)?.[0])));
+  const inWindow = new Set<string>();
+  for (let t = w.after - 60_000, n = 0; t <= w.before + 60_000 && n <= 1440; t += 60_000, n++) inWindow.add(venueHm(t, w.tzOffsetMs));
+  // The context's durations leave its strings (they are not clock times there); the question and earlier turns may quote them.
+  // The event and division names were matched to the document's above (an event may be called "… Race 2026").
+  const durations = new Set<string>();
+  const ctxText = stringsIn({ ...c, event: free.eventName ? undefined : c.event, division: undefined }).map((s) =>
+    DURATION_RES.reduce((acc, re) => acc.replace(re, (_m, pre: string, d: string, post: string) => (durations.add(d), `${pre}${post}`)), s),
+  );
+  const ok = (s: string, exempt: ReadonlySet<string>): boolean => {
+    if (ISO_RE.test(s) || EPOCH_RE.test(s)) return false;
+    for (const m of s.matchAll(RACE_REF_RE)) if (!races.has(Number(m[1]))) return false;
+    for (const m of s.matchAll(ANY_CLOCK_RE)) {
+      const h = Number(m[1]);
+      if (h > 23 || Number(m[2]) > 59) continue; // not a clock time (a duration of an hour or more)
+      if (!inWindow.has(`${String(h).padStart(2, '0')}:${m[2]}`) && !exempt.has(`${m[1]}:${m[2]}`)) return false;
+    }
+    return true;
+  };
+  const none = new Set<string>();
+  return ctxText.every((s) => ok(s, none)) && [ask.question ?? '', ...history].every((s) => ok(s, durations));
+}
+
+/**
+ * Ask Coach: free only for a question the server can show is about race 1 alone (askRequestIsFree, on
+ * the regatta document fetched here, over the whole parsed request: ids, every context field, the
+ * question and the earlier turns); another race, the Regatta view, a context or question naming
+ * another race or its times, a timestamp, an oversized paste, or anything it can't check needs an
+ * entitlement for the event (with no event id, a pass for every regatta). The deny response, or null to go on.
+ *
+ * Residual risk, by design: a sailor (or a script) can still type anything that names no other race
+ * and no clock time outside race 1 (prose, numbers, a leg-time-shaped "13:46"), within the caps. Recall
+ * itself never serves paid data here: the answer is the model's, from what the request carries, and
+ * Recall's analysis of races 2+ (their tracks and Coach cards) comes only through the gated routes.
+ */
+export async function askGate(req: Request, env: PaywallEnv, ask: { ids: AskIds; context: AskContext; question?: string; history?: readonly AskTurn[] }, deps: PaywallDeps = {}): Promise<Response | null> {
   const { ids, context } = ask;
   const eventId = ids.event ?? null;
   const origin = new URL(req.url).origin;
   const isFree = async (): Promise<boolean | null> => {
     if (!eventId || !askShapeFree(ids, context)) return false;
     const f = await freeRacesFor(eventId, origin, deps);
-    return f ? askContextIsFree(f, ids, context) : null;
+    return f ? askRequestIsFree(f, ask) : null;
   };
   const g = await gate(req, env, { eventId, race: ids.race ?? null, isFree }, deps);
   return g.kind === 'deny' ? g.response : null;
