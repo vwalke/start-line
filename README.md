@@ -31,7 +31,13 @@ are shared by all three.
   one. Two views:
   - **Race:** its place (official when linked) and the gap to the winner, the
     gap to a group of rivals (Top 3 / boats near me / whole fleet / custom)
-    over the race with the fleet's wind under it, the biggest gains as cards
+    over the race with the fleet's wind under it (seconds at equal course
+    progress, `src/analysis/coach/timeGap.ts`: how much earlier or later each
+    rival got as far along the course, each leg's distance made good along
+    its rhumb line, a rounding counted from arriving at the mark to leaving
+    it, so roundings neither spike nor break the lines; the group's median
+    bold; no tracker data or a rival never that far is a break; the cards keep
+    the same-moment wind ladder), the biggest gains as cards
     ranked by their impact on the result (see [How the Coach ranks
     cards](#how-the-coach-ranks-cards); at most 3, at most 2 from one detector:
     the next-best from another takes the slot; penalty turns exempt),

@@ -2,8 +2,9 @@
  * The Coach tab, for the race picked in the Race menu and the boat selected in the app (no
  * pickers of its own; the Regatta view is coachRegatta.ts). Phase 1: one
  * line of key-number chips with ⚠ caveats and the one ⓘ, and the rival ladder
- * — the boat's gap in seconds to a group of boats over the race (ahead up,
- * behind down), the group median bold and each group boat thin, roundings
+ * — the boat's gap in seconds to a group of boats over the race at equal course
+ * progress (analysis/coach/timeGap.ts; ahead up, behind down), the group median
+ * bold and each group boat thin, roundings
  * marked, and the fleet's wind in a strip underneath on the same time axis.
  * Gaps in the data are breaks (and a shaded band), never joined up.
  *
@@ -13,7 +14,7 @@
 import { DEFAULT_GROUPS, NEAR_PLACES, type Group, type GroupKind } from '../analysis/coach/groups';
 import { RACE_MIN_COVERAGE } from '../analysis/coach/debrief';
 import type { CoachModel, RivalLadder } from '../analysis/coach';
-import { COACH_NEAR_FIX_S } from '../analysis/coach/tracks';
+import { COACH_MAX_SPAN_S } from '../analysis/coach/tracks';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { finishRank } from '../analysis/result';
 import { codeShort, codeWords } from './resultText';
@@ -133,11 +134,11 @@ export function coachChips(
 }
 
 export const COACH_BULLETS: readonly string[] = [
-  'Gap = how many seconds ahead (up) or behind (down) of the group, at the same moment.',
-  "Measured along the wind to the next mark, past the layline counted as extra, ÷ the fleet's median speed toward the mark on that leg.",
-  'Bold: the median of the group. Thin: each group boat. Only boats on the same leg compare.',
-  "Wind (strip below) comes from the fleet's tacks, minute by minute, not a sensor; dotted where estimated between minutes. Expect ±5–10 s, more when boats are far apart.",
-  'Breaks and grey bands: no tracker data. Nothing is filled in.',
+  'Gap = how many seconds earlier (behind, down) or later (ahead, up) the group got as far along the course as you are now.',
+  "How far along: each leg's distance made good along the line between its marks, beats and runs alike; a rounding counts from reaching the mark to leaving it, so the lines run on through it.",
+  'Bold: the median of the group. Thin: each group boat.',
+  "Wind (strip below) comes from the fleet's tacks, minute by minute, not a sensor; dotted where estimated between minutes.",
+  'Breaks and grey bands: no tracker data, or the group never got that far. Nothing is filled in.',
 ];
 
 /** The header's chip line with the ⓘ. */
@@ -372,7 +373,7 @@ export function ladderChart(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder,
   if (!ladder.group.length) {
     return `<p class="muted coach-none">${g.kind === 'custom' ? 'Tick boats under Custom to compare with.' : 'No boats in this group for this race.'}</p>`;
   }
-  if (!ladder.points.some((p) => p.behindS != null)) return `<p class="muted coach-none">No stretch where this boat and the group were tracked on the same leg.</p>`;
+  if (!ladder.points.some((p) => p.behindS != null)) return `<p class="muted coach-none">No stretch where this boat and the group were tracked at the same point of the course.</p>`;
   const L = ladderLayout(ladder, m.wind, a.meta.gunMs, opts.widthPx, each);
   const tz = a.meta.tzOffsetMs;
   const fs = L.W < 520 ? 11 : 12;
@@ -504,6 +505,6 @@ export function ladderChips(a: RaceAnalysis, ladder: RivalLadder, g: Group, each
       });
     }
   }
-  if (ladder.points.some((p) => p.behindS == null)) chips.push({ text: 'no data', swatch: 'band', title: `No fix within ${COACH_NEAR_FIX_S} s, or not on the same leg` });
+  if (ladder.points.some((p) => p.behindS == null)) chips.push({ text: 'no data', swatch: 'band', title: `A hole in the tracks (fixes over ${COACH_MAX_SPAN_S} s apart), or the group never got that far` });
   return chips;
 }
