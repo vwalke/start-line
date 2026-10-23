@@ -1100,15 +1100,17 @@ mistakes."
 
 Race 1 of every regatta stays free; races 2+ need a pass. **Off by default:**
 with `PAYWALL_ENABLED` unset (only `1`, `true` or `on`, any case, turn it
-on) every existing route answers exactly as before, `/api/auth/*` and
-`/api/billing/*` answer the proxy's own `404 {"error":"Unknown endpoint"}`,
-and `GET /api/auth/me` says `{"paywall":false}`, so the page shows no
-sign-in or lock UI. The page learns the flag from that endpoint at load
-(never from the build).
+on) every existing route answers exactly as before, and every
+`/api/auth/*` and `/api/billing/*` route (`/api/auth/me` and the Stripe
+webhook included) answers the proxy's own `404 {"error":"Unknown endpoint"}`,
+byte for byte, without touching D1. The page learns the flag from one
+`GET /api/auth/me` at load (never from the build): a 404, or any other answer
+than a well-formed `{"paywall":true,…}`, means off, so it shows no sign-in
+or lock UI and logs nothing.
 
-**Passes.** *Regatta Pass* ($12, one-off): one event id, every division and
-boat. *Season Pass* ($49/yr, subscription): every regatta while it runs.
-*Coach plan* ($199/yr, 6 seats): in the data model only (owner plus the
+**Passes.** *Regatta Pass* ($50, one-off): one event id, every division and
+boat. *Season Pass* ($149/yr, subscription): every regatta while it runs.
+*Coach plan* ($499/yr, 6 seats): in the data model only (owner plus the
 first `seats` members of `team_members`), no checkout yet. Payments go
 through Stripe Checkout with Stripe Managed Payments (Stripe as merchant of
 record) on the Walkeforward Stripe account; every key and price id comes
@@ -1134,20 +1136,34 @@ from the environment (test mode first).
   window (in a multi-division event the unfiltered mark top-up of race 1 may
   then be refused: the worker carries on without those marks).
 - `/api/vkx/data` (boat logs): race 1's are free, others need a pass.
-- `/api/coach/ask`: a question about race 1 (Race view) is free; another
-  race, or the Regatta view, needs a pass for the event.
+- `/api/coach/ask`: free only when the server can tell the question is
+  about race 1 alone, from the regatta document it fetches itself rather
+  than the page's labels: the Race view with no regatta section, ids naming
+  the division's race 1, and a context whose division, event name and race
+  name agree, whose header shows race 1's gun on the venue clock (±1 min),
+  and whose header and card windows hold only clock times inside race 1's
+  free window. Anything else (another race, the Regatta view, a context
+  naming another race's gun or times, or one it can't check) needs a pass
+  for the event. **Residual risk:** the question, earlier turns and the
+  cards' wording are free text that can't be policed; what the check holds
+  is that a request labelled race 1 must carry race 1's own identity and
+  times, so Recall's analysis of races 2+ isn't answered for free by simply
+  relabelling it.
 - Not gated: `/api/landing`, `/api/regatta` (the lock card shows the race
   header and RaceSense finishes from it), `/api/wind`, `/api/ys/*`,
   `/api/vkx/list`.
 - A refused request is `401 {"error":"sign_in_required",…}` with no session
   and `402 {"error":"payment_required","eventId","race",…}` without a pass
-  (`no-store`). The check runs **before** the shared edge cache is read;
-  entitled responses may come from the same edge cache entry (the data is
-  the same for everyone entitled) but go to the browser as
+  (`no-store`). The check runs **before** the shared edge cache is read.
+  Gated (entitled) responses never touch the shared edge cache, neither read
+  nor written, so nothing paid is ever stored under a public URL: they come
+  from upstream every time and go to the browser as
   `Cache-Control: private, max-age=300` with `Vary: Cookie`. Race 1 keeps its
-  usual public caching. Each session's user and passes are cached per
-  isolate for 60 s (`/api/auth/me` always reads afresh). With D1 down, race 1
-  still works and later races answer 503.
+  usual public caching. Sessions and passes are read from D1 on every gated
+  request (the session by its primary key, then the user's entitlements by
+  their index), never cached, so a purchase, an ended subscription or a
+  sign-out counts from the very next request. With D1 down, race 1 still
+  works and later races answer 503.
 - All of Recall's race data reaches the browser through `/api` (the page
   never fetches Vakaros, regatta.app or Yachtscoring directly), so the gate
   covers everything Recall serves. The tracks themselves also come from
@@ -1157,8 +1173,18 @@ from the environment (test mode first).
 
 **Sign-in** (`functions/_auth.ts`): email magic link (32 random bytes,
 only its SHA-256 stored, 15 min, single use; at most 5 links per address and
-20 per IP per hour per isolate; the same answer whether or not the address
-is known) and Google (state, nonce and PKCE in a signed 10-minute cookie;
+20 per IP per hour; the same answer whether or not the address is known).
+The emailed link (`GET /api/auth/verify?token=`) opens a small confirm page
+(`no-store`, `Referrer-Policy: no-referrer`, a strict CSP, no external
+assets) and uses nothing, so a mail scanner that prefetches links can't spend
+it; its **Sign in to Recall** button POSTs the token to the same URL, which
+accepts only a same-origin POST (`Origin` of this site, or, as the page's
+no-referrer policy makes browsers send `Origin: null`, `Sec-Fetch-Site:
+same-origin`), uses the token once, sets the session cookie and redirects
+(303) to `returnTo`. **The sign-in rate limits are per isolate**, in memory:
+each Workers isolate counts on its own, so the effective limit grows with the
+number of isolates serving the site. A later step could keep the counts in D1
+or use Cloudflare's Rate Limiting binding. Google (state, nonce and PKCE in a signed 10-minute cookie;
 the ID token from Google's token endpoint is trusted over TLS, its claims
 checked: issuer, audience, expiry, verified email, nonce; linked by email).
 Sessions: a random token in the `wf_session` cookie
@@ -1195,12 +1221,15 @@ subscription cancelled at period end keeps access until then) and
 `customer.subscription.deleted` (ends at `ended_at`); anything else is 200
 and ignored. Idempotent twice over: handled event ids (`stripe_events`) and
 unique keys (`purchases.provider_ref`, `entitlements.purchase_id`,
-`entitlements.subscription_id`). The webhook also runs with the flag off
-when `AUTH_DB` and `STRIPE_WEBHOOK_SECRET` are set, so test-mode purchases
-can be tried end to end first (nothing is gated while off). `GET
-/api/billing/portal` opens Stripe's Billing Portal for a customer
-(Manage subscription); whether Managed Payments customers use it or Stripe's
-own management link is to be confirmed with the account.
+`entitlements.subscription_id`). With the flag off the webhook is the
+proxy's 404 like every other billing route and writes nothing, so try
+test-mode purchases end to end on a Preview deployment with the flag on.
+`POST /api/billing/portal` (Manage subscription) answers `{url}` of
+Stripe's Billing Portal for a customer, and the page then goes there. It is
+POST only (`GET` is 405) and needs an `Origin` header from this site or an
+https walkeforward.com page (missing or cross-site: 403). Whether Managed
+Payments customers use it or Stripe's own management link is to be
+confirmed with the account.
 
 **The page** (`src/ui/paywall.ts`): an account button in the masthead (Sign
 in / Account: passes with expiry, Restore access, Manage subscription, Sign
@@ -1208,7 +1237,7 @@ out) and, for a race the viewer can't open, a lock card in place of the
 digest: the race header and RaceSense finishes from the free regatta
 document, a blurred placeholder chart (no tracks are fetched), "See the
 start, every leg and Coach's top 3 for every boat in R2–R8", **Unlock this
-regatta — $12**, **Season Pass — $49/yr**, and "Race 1 is free · Already
+regatta — $50**, **Season Pass — $149/yr**, and "Race 1 is free · Already
 bought? Sign in · Restore access". Back from Checkout it re-reads
 `/api/auth/me` until the pass lands, then unlocks.
 
@@ -1243,6 +1272,13 @@ Preview each):
 | `STRIPE_PRICE_REGATTA` / `STRIPE_PRICE_SEASON` | price ids | no |
 | `STRIPE_MANAGED_PAYMENTS` | `off` to leave Managed Payments out (default on) | no |
 | `STRIPE_API_VERSION` | sent as `Stripe-Version` when set | no |
+
+Stripe products and prices to create (test mode first): **Recall Regatta
+Pass**, one-time $50 → `STRIPE_PRICE_REGATTA`; **Recall Season Pass**,
+recurring yearly $149 → `STRIPE_PRICE_SEASON`; **Coach plan**, $499/yr for 6
+seats, optional for now (no checkout yet). What is charged comes from those
+price ids only; the prices on the page (`PRICE_REGATTA` / `PRICE_SEASON` in
+`src/ui/paywall.ts`) are copy and must be kept in step by hand.
 
 Webhook endpoint: `https://recall.walkeforward.com/api/billing/webhook`,
 events `checkout.session.completed`,

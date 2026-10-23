@@ -13,7 +13,7 @@
       "status": "paid",
       "customer": "cus_test_Season0001",
       "customer_email": "crew@example.com",
-      "amount_paid": 4900,
+      "amount_paid": 14900,
       "currency": "usd",
       "parent": {
         "type": "subscription_details",
@@ -21,7 +21,7 @@
       },
       "lines": {
         "object": "list",
-        "data": [{ "id": "il_test_Renewal0001", "object": "line_item", "amount": 4900, "period": { "start": 1824206400, "end": 1855742400 } }],
+        "data": [{ "id": "il_test_Renewal0001", "object": "line_item", "amount": 14900, "period": { "start": 1824206400, "end": 1855742400 } }],
         "has_more": false
       }
     }

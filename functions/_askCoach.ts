@@ -242,8 +242,8 @@ export interface AskDeps {
   limits?: { session: RateLimiter; daily: RateLimiter } | null;
   spend?: SpendStore;
   timeoutMs?: number;
-  /** Paywall (functions/_paywall.ts askGate): a response refusing the question, or null to answer it. */
-  gate?: (ids: AskIds) => Promise<Response | null>;
+  /** Paywall (functions/_paywall.ts askGate): judged on the parsed ids and context; a response refusing the question, or null to answer it. */
+  gate?: (ask: Pick<ParsedAsk, 'ids' | 'context'>) => Promise<Response | null>;
 }
 
 // ---- responses
@@ -548,7 +548,7 @@ export async function handleAsk(ctx: AskCtx, deps: AskDeps = {}): Promise<Respon
   const p = parseAsk(body);
   if ('error' in p) return fail(p.error === 'too-long' ? 413 : 400, p.error);
   if (deps.gate) {
-    const refused = await deps.gate(p.ids);
+    const refused = await deps.gate(p);
     if (refused) return refused;
   }
 

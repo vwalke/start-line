@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createSession, ensureUser, grant, type UserRow } from '../functions/_authDb';
-import { clearFreeCache, clearViewerCache, randomToken, tokenHash, type PaywallEnv } from '../functions/_paywall';
+import { clearFreeCache, randomToken, tokenHash, type PaywallEnv } from '../functions/_paywall';
 import { stripeHmac } from '../functions/_stripe';
 import type { RegattaResponse } from '../src/data/racesense/types';
 import { MemD1 } from './d1mem';
@@ -48,9 +48,8 @@ export function paywallEnv(db: MemD1 | undefined, over: Partial<PaywallEnv> = {}
   };
 }
 
-/** Module-level caches (sessions, race 1 windows) start empty in every test. */
+/** The module-level cache (race 1 windows) starts empty in every test. */
 export function resetPaywallCaches(): void {
-  clearViewerCache();
   clearFreeCache();
 }
 

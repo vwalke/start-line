@@ -12,7 +12,7 @@
       "mode": "subscription",
       "status": "complete",
       "payment_status": "paid",
-      "amount_total": 4900,
+      "amount_total": 14900,
       "currency": "usd",
       "client_reference_id": null,
       "customer": "cus_test_Season0001",

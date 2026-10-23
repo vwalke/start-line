@@ -12,7 +12,7 @@
       "mode": "payment",
       "status": "complete",
       "payment_status": "paid",
-      "amount_total": 1200,
+      "amount_total": 5000,
       "currency": "usd",
       "client_reference_id": null,
       "customer": "cus_test_Regatta0001",

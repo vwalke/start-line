@@ -16,7 +16,7 @@
  * next gun. The caps never cut race 1's own window.
  */
 import { buildRaceList } from './raceList';
-import { currentDoc, listRaces, telemetryWindow } from './racesense/adapter';
+import { currentDoc, findRace, listRaces, telemetryWindow, tzOffsetMs } from './racesense/adapter';
 import type { RegattaDoc, RegattaResponse } from './racesense/types';
 
 export const FREE_PRE_MS = 5 * 60_000;
@@ -31,9 +31,15 @@ export interface FreeWindow {
   gunMs: number;
   after: number;
   before: number;
+  /** The venue clock's offset from UTC, ms (the race's own, as the page's analysis uses it). */
+  tzOffsetMs: number;
+  /** The names the page may give this race ("Race 1", "Race 2" for RaceSense's number, "RS 2"), whatever the official numbering. */
+  names: string[];
 }
 
 export interface FreeRaces {
+  /** The document's event name, when it has one. */
+  eventName?: string;
   /** Every division of the document (a known division filters teleapi's rows). */
   divisions: string[];
   /** Race 1 of each division that has one. */
@@ -66,9 +72,11 @@ export function freeRaces(doc: RegattaDoc): FreeRaces {
       gunMs: first.gunMs,
       after: Math.min(win.after, Math.max(win.after - FREE_PRE_MS, prevEnd)),
       before: Math.max(win.before, Math.min(win.before + FREE_POST_MS, nextGun - NEXT_GUN_GAP_MS)),
+      tzOffsetMs: tzOffsetMs(findRace(doc, { division: div.name, raceNumber: first.raceNumber }).race.timezoneOffset),
+      names: [...new Set(['Race 1', `Race ${first.raceNumber}`, `RS ${first.raceNumber}`, ...(first.number != null ? [`Race ${first.number}`] : [])])],
     });
   }
-  return { divisions: (doc.divisions ?? []).map((d) => d.name), windows };
+  return { ...(doc.name ? { eventName: doc.name } : {}), divisions: (doc.divisions ?? []).map((d) => d.name), windows };
 }
 
 /** Free races of a regatta response (none when it has no usable document). */

@@ -12,7 +12,7 @@
       "mode": "payment",
       "status": "complete",
       "payment_status": "unpaid",
-      "amount_total": 1200,
+      "amount_total": 5000,
       "currency": "usd",
       "client_reference_id": null,
       "customer": null,

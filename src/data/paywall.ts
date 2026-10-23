@@ -1,8 +1,9 @@
 /**
  * The paywall, from the page's side: /api/auth/me says whether it is on (PAYWALL_ENABLED is a
- * Pages env var, never baked into the build), who is signed in and their passes. Anything but a
- * well-formed `{ paywall: true }` (an error, vite dev's proxy, an old deploy) reads as off, so the
- * page then looks exactly as it did before the paywall. Sign-in, checkout and sign-out go through
+ * Pages env var, never baked into the build), who is signed in and their passes. With the flag off
+ * it answers 404 (the proxy's unknown endpoint). That, or anything else but a well-formed
+ * `{ paywall: true }` (an error, vite dev's proxy, an old deploy), reads as off, quietly (nothing
+ * logged), so the page then looks exactly as it did before the paywall. Sign-in, checkout and sign-out go through
  * the same-origin /api/auth and /api/billing routes (functions/_auth.ts, functions/_stripe.ts).
  */
 import type { PassView } from '../../functions/_entitlements';
@@ -69,7 +70,8 @@ export const startCheckout = (product: 'regatta' | 'season', eventId: string | n
   post(`${BILLING_BASE}/checkout`, { product, ...(eventId ? { eventId } : {}), returnTo }, f);
 
 export const googleStartUrl = (returnTo: string): string => `${AUTH_BASE}/google/start?${new URLSearchParams({ returnTo })}`;
-export const PORTAL_URL = `${BILLING_BASE}/portal`;
+/** Manage subscription: a same-origin POST answered with `{ url }` (Stripe's Billing Portal), which the page then opens. */
+export const openPortal = (f?: typeof fetch): Promise<PostResult> => post(`${BILLING_BASE}/portal`, {}, f);
 
 /** A data request refused by the paywall: the worker's error text starts with the status (data/cache.ts). */
 export const isPaywallError = (message: string): boolean => /^40[12]\b/.test(message);

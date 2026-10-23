@@ -94,11 +94,16 @@ export async function createSession(db: D1Like, s: { tokenHash: string; userId: 
   for (const h of drop) await deleteSession(db, h);
 }
 
+/** The user id of a live session, or null (unknown or expired): one primary-key lookup. */
+export async function sessionUserId(db: D1Like, tokenHash: string, now: number): Promise<string | null> {
+  const s = await db.prepare('SELECT token_hash, user_id, created_at, expires_at FROM sessions WHERE token_hash = ?').bind(tokenHash).first<SessionRow>();
+  return s && s.expires_at > now ? s.user_id : null;
+}
+
 /** The signed-in user of a session, or null (unknown or expired). */
 export async function sessionUser(db: D1Like, tokenHash: string, now: number): Promise<UserRow | null> {
-  const s = await db.prepare('SELECT token_hash, user_id, created_at, expires_at FROM sessions WHERE token_hash = ?').bind(tokenHash).first<SessionRow>();
-  if (!s || s.expires_at <= now) return null;
-  return userById(db, s.user_id);
+  const id = await sessionUserId(db, tokenHash, now);
+  return id ? userById(db, id) : null;
 }
 
 export const deleteSession = (db: D1Like, tokenHash: string): Promise<unknown> => db.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run();
@@ -201,8 +206,13 @@ const toEntitlement = (r: EntitlementRow, members?: string[]): Entitlement => ({
 
 /** The user's own entitlements and the Coach plans they hold a seat on (with each plan's members). */
 export async function entitlementsOf(db: D1Like, userId: string): Promise<Entitlement[]> {
-  const own = (await db.prepare(`SELECT ${ENT_COLS} FROM entitlements WHERE user_id = ?`).bind(userId).all<EntitlementRow>()).results;
-  const teams = (await db.prepare('SELECT team_id FROM team_members WHERE user_id = ?').bind(userId).all<{ team_id: string }>()).results.map((t) => t.team_id);
+  // Both indexed by user (entitlements_user, team_members_user), read side by side.
+  const [ownRows, teamRows] = await Promise.all([
+    db.prepare(`SELECT ${ENT_COLS} FROM entitlements WHERE user_id = ?`).bind(userId).all<EntitlementRow>(),
+    db.prepare('SELECT team_id FROM team_members WHERE user_id = ?').bind(userId).all<{ team_id: string }>(),
+  ]);
+  const own = ownRows.results;
+  const teams = teamRows.results.map((t) => t.team_id);
   const ids = teams.filter((t) => !own.some((e) => e.id === t)).slice(0, 20);
   const joined = ids.length ? (await db.prepare(`SELECT ${ENT_COLS} FROM entitlements WHERE id IN (${ids.map(() => '?').join(', ')})`).bind(...ids).all<EntitlementRow>()).results : [];
   const out: Entitlement[] = [];

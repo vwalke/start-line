@@ -5,7 +5,8 @@
  *
  *   POST /api/billing/checkout  { product: 'regatta' | 'season', eventId?, returnTo } → { url } (a Checkout Session)
  *   POST /api/billing/webhook   Stripe's events (signed): purchases and entitlements, idempotently
- *   GET  /api/billing/portal    → Stripe's Billing Portal for the signed-in customer (Manage subscription)
+ *   POST /api/billing/portal    → { url } of Stripe's Billing Portal for the signed-in customer (Manage
+ *                               subscription); an Origin header from this site (or https walkeforward.com) is required
  *
  * Products: a Regatta Pass (STRIPE_PRICE_REGATTA, one-off, mode=payment) unlocks one event id; a
  * Season Pass (STRIPE_PRICE_SEASON, yearly, mode=subscription) unlocks every regatta while it runs.
@@ -13,9 +14,8 @@
  * as merchant of record) is asked for on every session unless STRIPE_MANAGED_PAYMENTS is off (see
  * managedPaymentsParams). STRIPE_API_VERSION, when set, goes out as the Stripe-Version header.
  *
- * With PAYWALL_ENABLED off every route here is the proxy's 404, but for the webhook: given AUTH_DB
- * and STRIPE_WEBHOOK_SECRET it still verifies and records events, so test-mode purchases can be
- * tried end to end before the flag is turned on (nothing is gated while it is off).
+ * With PAYWALL_ENABLED off every route here, the webhook included, is the proxy's 404 and D1 is never
+ * touched (try purchases end to end on a Preview deployment with the flag on).
  */
 import { unlocks, type Scope } from './_entitlements';
 import {
@@ -32,7 +32,7 @@ import {
   type D1Like,
   type UserRow,
 } from './_authDb';
-import { crossSite, safeReturnTo, unavailable, withParam } from './_auth';
+import { crossSite, originRefused, safeReturnTo, unavailable, withParam } from './_auth';
 import { jsonOut, notFound, paywallOn, viewerOf, type PaywallDeps, type PaywallEnv } from './_paywall';
 import { readCapped } from './_vkx';
 import { endpointPath } from './_lib';
@@ -148,7 +148,7 @@ async function checkout(ctx: BillingCtx, deps: PaywallDeps): Promise<Response> {
   if (!env.AUTH_DB) return jsonOut(503, { error: 'not_configured', message: 'Sign-in is not set up on this site yet.' });
   if (crossSite(req)) return jsonOut(403, { error: 'forbidden' });
   const now = (deps.now ?? Date.now)();
-  const v = await viewerOf(req, env, now, true);
+  const v = await viewerOf(req, env, now);
   if (!v.user) return signInFirst();
   const raw = await readCapped(req, 4_000);
   let body: Record<string, unknown> = {};
@@ -189,10 +189,12 @@ async function checkout(ctx: BillingCtx, deps: PaywallDeps): Promise<Response> {
   return jsonOut(200, { url: out.url });
 }
 
+/** A POST from this site (Origin required): `{ url }` for the page to go to, never a redirect a cross-site form could follow. */
 async function portal(ctx: BillingCtx, deps: PaywallDeps): Promise<Response> {
   const env = ctx.env;
+  if (originRefused(ctx.request)) return jsonOut(403, { error: 'forbidden' });
   if (!env.AUTH_DB || !env.STRIPE_SECRET_KEY?.trim()) return jsonOut(503, { error: 'not_configured', message: 'Payments are not set up on this site yet.' });
-  const v = await viewerOf(ctx.request, env, (deps.now ?? Date.now)(), true);
+  const v = await viewerOf(ctx.request, env, (deps.now ?? Date.now)());
   if (!v.user) return signInFirst();
   const customer = v.user.stripe_customer_id;
   if (!customer) return jsonOut(404, { error: 'no_customer', message: 'No payments on this account yet.' });
@@ -206,7 +208,7 @@ async function portal(ctx: BillingCtx, deps: PaywallDeps): Promise<Response> {
   }
   const out = (await res.json().catch(() => ({}))) as { url?: unknown };
   if (!res.ok || typeof out.url !== 'string') return jsonOut(502, { error: 'portal_failed' });
-  return new Response(null, { status: 302, headers: { location: out.url, 'cache-control': 'no-store' } });
+  return jsonOut(200, { url: out.url });
 }
 
 // ---- webhook
@@ -358,19 +360,17 @@ async function webhook(ctx: BillingCtx, deps: PaywallDeps): Promise<Response> {
 
 // ---- the router
 
-/** /api/billing/<path>: 404 (as the proxy's) unless PAYWALL_ENABLED; the webhook as described above. */
+/** /api/billing/<path>: 404 (as the proxy's) unless PAYWALL_ENABLED, the webhook included; every route is POST only. */
 export async function handleBilling(ctx: BillingCtx, deps: PaywallDeps = {}): Promise<Response> {
   const path = endpointPath(ctx.params?.path);
   const method = ctx.request.method.toUpperCase();
-  const on = paywallOn(ctx.env);
-  if (path === 'webhook') {
-    if (!on && !(ctx.env.AUTH_DB && ctx.env.STRIPE_WEBHOOK_SECRET?.trim())) return notFound();
-    return method === 'POST' ? webhook(ctx, deps) : jsonOut(405, { error: 'Method not allowed' }, { allow: 'POST' });
-  }
-  if (!on) return notFound();
-  const run = path === 'checkout' ? (method === 'POST' ? checkout : null) : path === 'portal' ? (method === 'GET' ? portal : null) : undefined;
-  if (run === undefined) return notFound();
-  if (run === null) return jsonOut(405, { error: 'Method not allowed' }, { allow: path === 'checkout' ? 'POST' : 'GET' });
+  if (!paywallOn(ctx.env)) return notFound();
+  const routes: Record<string, (ctx: BillingCtx, deps: PaywallDeps) => Promise<Response>> = { checkout, portal, webhook };
+  const run = Object.prototype.hasOwnProperty.call(routes, path) ? routes[path] : undefined;
+  if (!run) return notFound();
+  if (method !== 'POST') return jsonOut(405, { error: 'Method not allowed' }, { allow: 'POST' });
+  // The webhook answers for itself (a 500 on a D1 failure, so Stripe retries).
+  if (run === webhook) return webhook(ctx, deps);
   try {
     return await run(ctx, deps);
   } catch {

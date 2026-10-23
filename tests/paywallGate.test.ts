@@ -3,11 +3,16 @@ import { onRequestGet as proxyGet } from '../functions/api/[[path]]';
 import { onRequestGet as vkxDataGet } from '../functions/api/vkx/data';
 import { onRequestPost as askPost } from '../functions/api/coach/ask';
 import { objectKey } from '../functions/_vkx';
-import { PRIVATE_CACHE, type PaywallEnv } from '../functions/_paywall';
-import { telemetryWindow, currentDoc } from '../src/data/racesense/adapter';
+import { PRIVATE_CACHE, askContextIsFree, type PaywallEnv } from '../functions/_paywall';
+import { handleBilling } from '../functions/_stripe';
+import { handleAuth } from '../functions/_auth';
+import { telemetryWindow, currentDoc, listRaces } from '../src/data/racesense/adapter';
+import { freeRaces } from '../src/data/freeRace';
+import type { AskContext } from '../src/analysis/coach/askContext';
+import type { AskIds } from '../src/data/askCoach/protocol';
 import { MemBucket } from './r2mem';
 import { MemD1 } from './d1mem';
-import { EVENT, FakeCache, NOW, ORIGIN, beneluxRegatta, giveRegatta, giveSeason, mockUpstream, paywallEnv, resetPaywallCaches, signIn } from './paywallHelpers';
+import { EVENT, FakeCache, NOW, ORIGIN, beneluxRegatta, fixture, giveRegatta, giveSeason, mockUpstream, paywallEnv, resetPaywallCaches, signIn, signedWebhook } from './paywallHelpers';
 
 const doc = currentDoc(beneluxRegatta());
 const R1 = telemetryWindow(doc, { division: 'J70', raceNumber: 1 });
@@ -93,7 +98,7 @@ describe('flag on: telemetry', () => {
     expect(teleCalls()).toBe(0);
   });
 
-  it('entitled: 200 from the shared edge cache entry, sent private with Vary: Cookie; never leaked to others', async () => {
+  it('entitled: 200 from upstream, sent private with Vary: Cookie; nothing stored under the public cache key', async () => {
     const db = new MemD1();
     const env = paywallEnv(db);
     const a = await signIn(db, 'a@example.com');
@@ -108,8 +113,9 @@ describe('flag on: telemetry', () => {
     expect(first.headers.get('vary')).toBe('Cookie');
     const body = await first.text();
     expect(teleCalls()).toBe(1);
-    // The edge copy itself keeps the public header (it is shared by everyone entitled).
-    expect(cache.store.get(teleUrl(R2))?.headers.get('cache-control')).toMatch(/^public/);
+    // Nothing paid in the shared cache: no entry under the public URL (only the free regatta document is there).
+    expect(cache.store.has(teleUrl(R2))).toBe(false);
+    expect([...cache.store.keys()].filter((k) => k.includes('/api/telemetry/'))).toEqual([]);
 
     expect((await proxy(teleUrl(R2), env, b.cookie)).status).toBe(402);
     expect((await proxy(teleUrl(R2), env)).status).toBe(401);
@@ -117,7 +123,55 @@ describe('flag on: telemetry', () => {
     expect(third.status).toBe(200);
     expect(third.headers.get('cache-control')).toBe(PRIVATE_CACHE);
     expect(await third.text()).toBe(body);
+    // Each entitled request goes upstream; the denied ones never did.
+    expect(teleCalls()).toBe(2);
+    expect(cache.store.has(teleUrl(R2))).toBe(false);
+  });
+
+  it('a gated window already in the edge cache (from before the flip) is never served from it', async () => {
+    const db = new MemD1();
+    const env = paywallEnv(db);
+    await proxy(teleUrl(R2), undefined);
+    expect(cache.store.has(teleUrl(R2))).toBe(true);
+    expect((await proxy(teleUrl(R2), env)).status).toBe(401);
+    const a = await signIn(db, 'a@example.com');
+    expect((await proxy(teleUrl(R2), env, a.cookie)).status).toBe(402);
+    await giveRegatta(db, a.user.id);
+    const ok = await proxy(teleUrl(R2), env, a.cookie);
+    expect(ok.headers.get('cache-control')).toBe(PRIVATE_CACHE);
+    expect(teleCalls()).toBe(2);
+  });
+
+  it('race 1 still fills and reads the shared cache as today', async () => {
+    const env = paywallEnv(new MemD1());
+    await proxy(teleUrl(R1), env);
+    expect(cache.store.get(teleUrl(R1))?.headers.get('cache-control')).toMatch(/^public, max-age=\d+, s-maxage=\d+$/);
+    await proxy(teleUrl(R1), env);
     expect(teleCalls()).toBe(1);
+  });
+
+  it('grants, ended subscriptions and sign-outs count from the very next request (nothing cached)', async () => {
+    const db = new MemD1();
+    const env = paywallEnv(db);
+    const { user, cookie } = await signIn(db, 'crew@example.com');
+    expect((await proxy(teleUrl(R2), env, cookie)).status).toBe(402);
+    // A Season Pass lands through the webhook: allowed at once.
+    const checkout = fixture('checkout_season') as { data: { object: Record<string, unknown> } };
+    checkout.data.object.client_reference_id = user.id;
+    const at = NOW;
+    expect((await handleBilling({ request: await signedWebhook(JSON.stringify(checkout)), env, params: { path: ['webhook'] } }, { now: () => at, cache: null })).status).toBe(200);
+    expect((await proxy(teleUrl(R2), env, cookie)).status).toBe(200);
+    // The subscription is deleted (ended now): refused at once.
+    const deleted = fixture('subscription_deleted') as { data: { object: Record<string, unknown> } };
+    deleted.data.object.ended_at = Math.floor(NOW / 1000) - 60;
+    expect((await handleBilling({ request: await signedWebhook(JSON.stringify(deleted)), env, params: { path: ['webhook'] } }, { now: () => at, cache: null })).status).toBe(200);
+    expect((await proxy(teleUrl(R2), env, cookie)).status).toBe(402);
+    // Given a regatta pass again, then signed out: 401 at once.
+    await giveRegatta(db, user.id);
+    expect((await proxy(teleUrl(R2), env, cookie)).status).toBe(200);
+    const out = await handleAuth({ request: new Request(`${ORIGIN}/api/auth/logout`, { method: 'POST', headers: { origin: ORIGIN, cookie } }), env, params: { path: ['logout'] } });
+    expect(out.status).toBe(200);
+    expect((await proxy(teleUrl(R2), env, cookie)).status).toBe(401);
   });
 
   it('an expired season pass or another event’s regatta pass opens nothing', async () => {
@@ -222,21 +276,41 @@ describe('flag on: Ask Coach', () => {
       String(u).includes('anthropic') ? new Response(SSE, { headers: { 'content-type': 'text/event-stream' } }) : upstream(u)) as typeof fetch);
   });
 
-  const ask = (ids: Record<string, string>, env: PaywallEnv, cookie?: string): Promise<Response> =>
+  const ask = (ids: Record<string, string>, env: PaywallEnv, cookie?: string, context: unknown = raceContext()): Promise<Response> =>
     askPost({
       request: new Request(`${ORIGIN}/api/coach/ask`, {
         method: 'POST',
-        body: JSON.stringify({ session: 'abcdefghijklmnop1234', question: 'How was my start?', ids, context: { view: 'race', boat: { sail: 'NED 1' }, findings: [] } }),
+        body: JSON.stringify({ session: 'abcdefghijklmnop1234', question: 'How was my start?', ids, context }),
         headers: { 'content-type': 'application/json', 'cf-connecting-ip': `192.0.2.${++ip}`, ...(cookie ? { cookie } : {}) },
       }),
       env: { ...env, ANTHROPIC_API_KEY: 'sk-ant-test-fake' },
       waitUntil: () => undefined,
     });
 
+  // Race 1 and race 2 of the J70s, on the venue clock, as the page's Coach header and cards print them.
+  const W1 = freeRaces(doc).windows.find((w) => w.division === 'J70')!;
+  const hm = (ms: number): string => new Date(ms + W1.tzOffsetMs).toISOString().slice(11, 16);
+  const gun2 = listRaces(doc).find((r) => r.division === 'J70' && r.raceNumber === 2)!.gunMs;
+  /** A Race-view context as the page builds it for race 1 (coachAskContext.ts raceAskContext). */
+  const raceContext = (over: Record<string, unknown> = {}, race: Record<string, unknown> = {}): Record<string, unknown> => ({
+    view: 'race',
+    boat: { sail: 'NED 1' },
+    event: doc.name,
+    division: 'J70',
+    group: 'Top 3',
+    race: { name: 'Race 1', header: ['3rd of 10', '12 s behind Winner', `gun ${hm(W1.gunMs)}`], ...race },
+    findings: [
+      { title: 'Late off the line', seconds: 8, when: `${hm(W1.gunMs)}–${hm(W1.gunMs + 120_000)}` },
+      { title: 'Lost on the first beat', seconds: 12, when: 'Legs 1–2' },
+    ],
+    ...over,
+  });
+  const race = (r: string, view = 'race') => ({ event: EVENT, div: 'J70', race: r, view });
+
   it('answers about race 1; races 2+ and the Regatta view need a pass', async () => {
     const db = new MemD1();
     const env = paywallEnv(db);
-    const race = (r: string, view = 'race') => ({ event: EVENT, div: 'J70', race: r, view });
+    expect(hm(gun2)).not.toBe(hm(W1.gunMs));
     const r1 = await ask(race('1'), env);
     expect(r1.status).toBe(200);
     expect(r1.headers.get('content-type')).toMatch(/^text\/event-stream/);
@@ -248,13 +322,66 @@ describe('flag on: Ask Coach', () => {
     expect(refused.status).toBe(402);
     expect(await refused.json()).toMatchObject({ error: 'payment_required', eventId: EVENT, race: '2' });
     await giveRegatta(db, a.user.id);
-    resetPaywallCaches();
-    expect((await ask(race('2'), env, a.cookie)).status).toBe(200);
-    expect((await ask(race('1', 'regatta'), env, a.cookie)).status).toBe(200);
+    expect((await ask(race('2'), env, a.cookie, raceContext({}, { name: 'Race 2', header: [`gun ${hm(gun2)}`] }))).status).toBe(200);
+    expect((await ask(race('1', 'regatta'), env, a.cookie, { view: 'regatta', boat: { sail: 'NED 1' }, regatta: { status: '9 of 9 races analysed' } })).status).toBe(200);
   });
 
-  it('flag off: race 2 is answered as today', async () => {
-    const res = await ask({ event: EVENT, div: 'J70', race: '2', view: 'race' }, { PAYWALL_ENABLED: 'false' });
+  it('race 1’s label is not enough: the server checks the context against race 1 in the document it fetched', async () => {
+    const db = new MemD1();
+    const env = paywallEnv(db);
+    const { user, cookie } = await signIn(db, 'a@example.com');
+    const smuggled: [string, Record<string, unknown>][] = [
+      ['race 2’s gun in the header', raceContext({}, { header: ['3rd of 10', `gun ${hm(gun2)}`] })],
+      ['no gun in the header', raceContext({}, { header: ['3rd of 10'] })],
+      ['no header at all', raceContext({}, { header: undefined })],
+      ['a card from race 2’s window', raceContext({ findings: [{ title: 'Late off the line', when: `${hm(gun2)}–${hm(gun2 + 120_000)}` }] })],
+      ['a hole chip outside race 1', raceContext({}, { header: [`gun ${hm(W1.gunMs)}`, `⚠ no data ${hm(gun2)}–${hm(gun2 + 60_000)}`] })],
+      ['another race’s name', raceContext({}, { name: 'Race 3' })],
+      ['no race name', raceContext({}, { name: undefined })],
+      ['another division', raceContext({ division: 'J80' })],
+      ['no division', raceContext({ division: undefined })],
+      ['another event’s name', raceContext({ event: 'Some Other Regatta' })],
+      ['a regatta section', raceContext({ regatta: { status: '9 of 9 races analysed', places: [{ race: 'R2', place: '1st of 10' }] } })],
+      ['the Regatta view’s context under race ids', raceContext({ view: 'regatta' })],
+    ];
+    for (const [what, context] of smuggled) {
+      expect((await ask(race('1'), env, undefined, context)).status, what).toBe(401);
+      const res = await ask(race('1'), env, cookie, context);
+      expect(res.status, what).toBe(402);
+      expect(await res.json()).toMatchObject({ error: 'payment_required', eventId: EVENT, race: '1' });
+    }
+    // The page's own race 1 contexts pass: a ⚠ chip in the header, a card at the very end of the free window, RaceSense's label.
+    for (const context of [
+      raceContext({}, { header: [`⚠ no tracked finish`, `gun ${hm(W1.gunMs)}`, `⚠ no data ${hm(W1.gunMs + 300_000)}–${hm(W1.gunMs + 360_000)}`] }),
+      raceContext({ findings: [{ title: 'Slow at the finish', when: hm(W1.before) }] }),
+      raceContext({}, { name: 'RS 1' }),
+      raceContext({ findings: undefined }),
+    ]) {
+      expect((await ask(race('1'), env, undefined, context)).status).toBe(200);
+    }
+    // With a pass for the event, all of it is answered.
+    await giveRegatta(db, user.id);
+    for (const [what, context] of smuggled) expect((await ask(race('1'), env, cookie, context)).status, what).toBe(200);
+  });
+
+  it('askContextIsFree: race 1 only, from the document’s own race 1', () => {
+    const free = freeRaces(doc);
+    const ctx = raceContext() as unknown as AskContext;
+    const ids = race('1') as AskIds;
+    expect(askContextIsFree(free, ids, ctx)).toBe(true);
+    expect(askContextIsFree(free, { ...ids, race: '2' }, ctx)).toBe(false);
+    expect(askContextIsFree(free, { ...ids, div: 'J80' }, ctx)).toBe(false);
+    expect(askContextIsFree(free, { ...ids, race: undefined }, ctx)).toBe(false);
+    expect(askContextIsFree({ divisions: [], windows: [] }, ids, ctx)).toBe(false);
+    // The gun may be a minute off (seconds rounding either side), no more.
+    const at = (ms: number) => raceContext({}, { header: [`gun ${hm(ms)}`] }) as unknown as AskContext;
+    expect(askContextIsFree(free, ids, at(W1.gunMs + 60_000))).toBe(true);
+    expect(askContextIsFree(free, ids, at(W1.gunMs - 60_000))).toBe(true);
+    expect(askContextIsFree(free, ids, at(W1.gunMs + 180_000))).toBe(false);
+  });
+
+  it('flag off: race 2 (or any context) is answered as today', async () => {
+    const res = await ask({ event: EVENT, div: 'J70', race: '2', view: 'race' }, { PAYWALL_ENABLED: 'false' }, undefined, { view: 'race', boat: { sail: 'NED 1' }, findings: [] });
     expect(res.status).toBe(200);
   });
 });

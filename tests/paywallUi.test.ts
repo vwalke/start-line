@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { PAYWALL_OFF, fetchMe, isPaywallError, parseMe, type Me } from '../src/data/paywall';
+import { describe, expect, it, vi } from 'vitest';
+import { PAYWALL_OFF, fetchMe, isPaywallError, openPortal, parseMe, type Me } from '../src/data/paywall';
+import { jsonError } from '../functions/_lib';
 import { askCoach } from '../src/data/askCoach/api';
 import { ASK_MESSAGES, type AskErrorCode } from '../src/data/askCoach/protocol';
 import { freeRaces } from '../src/data/freeRace';
@@ -35,6 +36,26 @@ describe('paywall flag on the page', () => {
     expect(await fetchMe(down)).toEqual(PAYWALL_OFF);
     const offJson = (async () => new Response('{"paywall":false}', { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
     expect(await fetchMe(offJson)).toEqual(PAYWALL_OFF);
+  });
+
+  it('flag off (/api/auth/me answers the proxy’s 404) reads as off, quietly; so do broken answers', async () => {
+    const logged = [vi.spyOn(console, 'error').mockImplementation(() => undefined), vi.spyOn(console, 'warn').mockImplementation(() => undefined), vi.spyOn(console, 'log').mockImplementation(() => undefined)];
+    try {
+      let calls = 0;
+      const answer = (res: () => Response) =>
+        (async () => {
+          calls++;
+          return res();
+        }) as unknown as typeof fetch;
+      expect(await fetchMe(answer(() => jsonError(404, 'Unknown endpoint')))).toEqual(PAYWALL_OFF);
+      expect(await fetchMe(answer(() => new Response('{"paywall":true', { headers: { 'content-type': 'application/json' } })))).toEqual(PAYWALL_OFF);
+      expect(await fetchMe(answer(() => new Response('{"paywall":true}', { status: 500, headers: { 'content-type': 'application/json' } })))).toEqual(PAYWALL_OFF);
+      expect(await fetchMe(answer(() => new Response('[]', { headers: { 'content-type': 'application/json' } })))).toEqual(PAYWALL_OFF);
+      expect(calls).toBe(4);
+      for (const spy of logged) expect(spy).not.toHaveBeenCalled();
+    } finally {
+      for (const spy of logged) spy.mockRestore();
+    }
   });
 
   it('spots a refused data request in the worker’s error text', () => {
@@ -85,8 +106,8 @@ describe('lock card', () => {
 
   it('offers both passes, race 1 free, sign in and restore; escapes what it shows', () => {
     const html = lockCardHtml(view);
-    expect(html).toContain('Unlock this regatta — $12');
-    expect(html).toContain('Season Pass — $49/yr');
+    expect(html).toContain('Unlock this regatta — $50');
+    expect(html).toContain('Season Pass — $149/yr');
     expect(html).toContain('<h3 id="lock-title">See the start, every leg and Coach&#39;s top 3 for every boat in R2–R9.</h3>');
     expect(html).toContain('Race 1 is free');
     expect(html).toContain('data-pw="signin"');
@@ -126,6 +147,23 @@ describe('account sheet', () => {
     expect(s).toContain('Manage subscription');
     expect(s).toContain('data-pw="signout"');
     expect(passLine(pass('regatta', 'unknownEvent12'), title)).toBe('Regatta Pass · unknownEvent12');
+  });
+
+  it('Manage subscription is a button that POSTs for the portal URL (never a GET link)', async () => {
+    const m = on({ user: { email: 'a@example.com' }, entitlements: [pass('season', null, NOW + DAY)] });
+    const s = sheetHtml(m, { mode: 'account' }, title);
+    expect(s).toContain('<button type="button" class="lock-secondary" data-pw="portal">Manage subscription</button>');
+    expect(s).not.toContain('/api/billing/portal');
+    const calls: { url: string; init: RequestInit }[] = [];
+    const f = (async (url: RequestInfo | URL, init: RequestInit = {}) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ url: 'https://billing.stripe.com/p/session/test_fake' }), { headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const r = await openPortal(f);
+    expect(r).toEqual({ ok: true, status: 200, body: { url: 'https://billing.stripe.com/p/session/test_fake' } });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('/api/billing/portal');
+    expect(calls[0].init).toMatchObject({ method: 'POST', credentials: 'same-origin' });
   });
 });
 

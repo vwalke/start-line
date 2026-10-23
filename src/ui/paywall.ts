@@ -11,9 +11,9 @@ import { passesUnlock, type PassView } from '../../functions/_entitlements';
 import { isFreeRace, type FreeRaces } from '../data/freeRace';
 import {
   PAYWALL_OFF,
-  PORTAL_URL,
   fetchMe,
   googleStartUrl,
+  openPortal,
   sendRestoreLink,
   sendSignInLink,
   signOut,
@@ -26,8 +26,9 @@ import type { RegattaDoc } from '../data/racesense/types';
 import { duration, esc, gunTimeLine } from './format';
 import { raceName, raceTitleHtml, shortRaceName } from './races';
 
-export const PRICE_REGATTA = '$12';
-export const PRICE_SEASON = '$49/yr';
+/** Displayed prices (copy only: what is charged comes from the Stripe price ids, STRIPE_PRICE_REGATTA / STRIPE_PRICE_SEASON). */
+export const PRICE_REGATTA = '$50';
+export const PRICE_SEASON = '$149/yr';
 
 // ---- decisions
 
@@ -169,7 +170,7 @@ export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => str
     const passes = me.entitlements.length
       ? `<ul class="account-passes">${me.entitlements.map((p) => `<li>${esc(passLine(p, eventTitle))}</li>`).join('')}</ul>`
       : '<p class="muted">No passes yet. Race 1 of every regatta is free.</p>';
-    const manage = me.entitlements.some((p) => p.scope === 'season' && p.owner) ? `<a class="lock-secondary" href="${PORTAL_URL}">Manage subscription</a>` : '';
+    const manage = me.entitlements.some((p) => p.scope === 'season' && p.owner) ? `<button type="button" class="lock-secondary" data-pw="portal"${s.busy ? ' disabled' : ''}>Manage subscription</button>` : '';
     return `${head('Your account')}${note}<p>Signed in as <strong>${esc(me.user.email)}</strong></p>
       <h3 class="account-sub">Passes</h3>${passes}
       <p class="account-actions">${manage}<button type="button" class="lock-secondary" data-pw="restore">Restore access</button><button type="button" class="lock-secondary" data-pw="signout"${s.busy ? ' disabled' : ''}>Sign out</button></p>`;
@@ -287,6 +288,19 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     if (r.status === 401 || r.status === 409) await refresh();
   }
 
+  /** Manage subscription: POST for Stripe's portal URL, then go there. */
+  async function manage(): Promise<void> {
+    sheet = { ...sheet, busy: true, note: undefined };
+    renderSheet();
+    const r = await openPortal();
+    if (r.ok && typeof r.body.url === 'string') {
+      location.assign(r.body.url);
+      return;
+    }
+    sheet = { ...sheet, busy: false, note: typeof r.body.message === 'string' ? r.body.message : "Couldn't open the subscription page. Try again in a minute." };
+    renderSheet();
+  }
+
   async function submitEmail(form: HTMLFormElement, action: 'signin' | 'restore'): Promise<void> {
     const email = (form.elements.namedItem('email') as HTMLInputElement).value.trim();
     sheet = { mode: action, email, busy: true };
@@ -309,6 +323,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     else if (a === 'signin') openSheet({ mode: 'signin' });
     else if (a === 'restore') openSheet({ mode: 'restore', email: me.paywall && me.user ? me.user.email : undefined });
     else if (a === 'close') dialog?.close();
+    else if (a === 'portal') void manage();
     else if (a === 'signout') {
       sheet = { ...sheet, busy: true };
       renderSheet();

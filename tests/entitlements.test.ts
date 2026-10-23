@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { allowed, coachCovers, isActive, passViews, passesUnlock, unlocks, type Entitlement } from '../functions/_entitlements';
 import { FREE_POST_MS, FREE_PRE_MS, NEXT_GUN_GAP_MS, freeRaces, freeRacesOf, isFreeRace, telemetryIsFree } from '../src/data/freeRace';
-import { currentDoc, PRE_START_FETCH_MS, telemetryWindow } from '../src/data/racesense/adapter';
+import { currentDoc, findRace, PRE_START_FETCH_MS, telemetryWindow, tzOffsetMs } from '../src/data/racesense/adapter';
 import type { Race, RegattaDoc } from '../src/data/racesense/types';
 import { EVENT, NOW, beneluxRegatta } from './paywallHelpers';
 
@@ -107,6 +107,10 @@ describe('free race (race 1) and its telemetry window', () => {
   it('is the earliest scored race of each division', () => {
     expect(free.divisions).toEqual(['J70']);
     expect(free.windows.map((x) => [x.division, x.raceNumber])).toEqual([['J70', 1]]);
+    // What Ask Coach's server check compares the context with: the event, the race's names and its venue clock.
+    expect(free.eventName).toBe(doc.name);
+    expect(w.names).toEqual(['Race 1', 'RS 1']);
+    expect(w.tzOffsetMs).toBe(tzOffsetMs(findRace(doc, { division: 'J70', raceNumber: 1 }).race.timezoneOffset));
     expect(isFreeRace(free, 'J70', 1)).toBe(true);
     expect(isFreeRace(free, 'J70', 2)).toBe(false);
     expect(isFreeRace(free, 'Other', 1)).toBe(false);

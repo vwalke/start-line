@@ -1,11 +1,13 @@
 /**
  * Sign-in for the paywall: the handler behind functions/api/auth/[[path]].ts (kept in a `_` file so
- * tests call it directly). Every route answers the proxy's own 404 while PAYWALL_ENABLED is off,
- * except `GET me`, which says `{ paywall: false }` so the page shows nothing new.
+ * tests call it directly). Every route, `GET me` included, answers the proxy's own 404 while
+ * PAYWALL_ENABLED is off (the page reads that as "off" and shows nothing new).
  *
  *   GET  /api/auth/me               { paywall, user, entitlements, … } (no-store; reads D1 afresh)
  *   POST /api/auth/email            { email, returnTo } → a magic link by email (same answer whoever asks)
- *   GET  /api/auth/verify?token=    use the link once: session cookie, then back to returnTo
+ *   GET  /api/auth/verify?token=    the link's page: a "Sign in to Recall" button (uses nothing, so a
+ *                                   mail scanner's prefetch can't spend the link)
+ *   POST /api/auth/verify           token (form, same origin only) → use it once: session cookie, 303 to returnTo
  *   GET  /api/auth/google/start     → Google (state, nonce and PKCE in a signed 10-minute cookie)
  *   GET  /api/auth/google/callback  code → Google's token endpoint → session cookie
  *   POST /api/auth/logout           end this browser's session
@@ -39,7 +41,6 @@ import {
 import {
   SESSION_COOKIE,
   cookieHeader,
-  forgetViewer,
   jsonOut,
   notFound,
   paywallOn,
@@ -69,7 +70,11 @@ export interface AuthDeps extends PaywallDeps {
   log?: (line: string) => void;
 }
 
-/** Magic links per email address, and per client IP, per hour (per isolate). */
+/**
+ * Magic links per email address, and per client IP, per hour. Per isolate, in memory: each Workers
+ * isolate counts on its own, so the effective limit grows with the number of isolates serving the
+ * site. A later step could keep the counts in D1 or use a Rate Limiting binding (README "Paywall").
+ */
 export const EMAIL_RATE_MAX = 5;
 export const IP_RATE_MAX = 20;
 export const RATE_WINDOW_MS = 3_600_000;
@@ -119,6 +124,35 @@ export const crossSite = (req: Request): boolean => {
   return !!o && o !== new URL(req.url).origin;
 };
 
+/** This site, or an https page on walkeforward.com or one of its subdomains (no port). */
+export function trustedOrigin(origin: string, self: string): boolean {
+  if (origin === self) return true;
+  try {
+    const u = new URL(origin);
+    const h = u.hostname.toLowerCase();
+    return u.origin === origin && u.protocol === 'https:' && !u.port && (h === 'walkeforward.com' || h.endsWith('.walkeforward.com'));
+  } catch {
+    return false;
+  }
+}
+
+/** Stricter than crossSite, for a POST that acts on the account (the billing portal): an Origin header is required and must be trusted. */
+export const originRefused = (req: Request): boolean => {
+  const o = req.headers.get('origin');
+  return !o || !trustedOrigin(o, new URL(req.url).origin);
+};
+
+/**
+ * The magic link's form POST: this very origin only. Browsers send Origin on a form POST, but as
+ * "null" when the page's referrer policy is no-referrer (the confirm page's is), so a missing or
+ * "null" Origin passes only with `Sec-Fetch-Site: same-origin` (set by the browser, never by a page).
+ */
+export const notSameOrigin = (req: Request): boolean => {
+  const o = req.headers.get('origin');
+  if (o && o !== 'null') return o !== new URL(req.url).origin;
+  return req.headers.get('sec-fetch-site') !== 'same-origin';
+};
+
 async function readJson(req: Request): Promise<Record<string, unknown> | null> {
   const raw = await readCapped(req, MAX_BODY_BYTES);
   if (!raw) return null;
@@ -130,10 +164,10 @@ async function readJson(req: Request): Promise<Record<string, unknown> | null> {
   }
 }
 
-function redirect(to: string, cookies: string[] = []): Response {
+function redirect(to: string, cookies: string[] = [], status = 302): Response {
   const h = new Headers({ location: to, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' });
   for (const c of cookies) h.append('set-cookie', c);
-  return new Response(null, { status: 302, headers: h });
+  return new Response(null, { status, headers: h });
 }
 
 /** `to` with one query parameter set (paths and absolute URLs alike). */
@@ -236,7 +270,7 @@ async function startSession(db: D1Like, user: UserRow, req: Request, env: Paywal
 async function me(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   const env = ctx.env;
   const now = (deps.now ?? Date.now)();
-  const v = await viewerOf(ctx.request, env, now, true);
+  const v = await viewerOf(ctx.request, env, now);
   return jsonOut(200, {
     paywall: true,
     user: v.user ? { email: v.user.email } : null,
@@ -296,17 +330,57 @@ function restoreRoute(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   });
 }
 
+const escHtml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+/** The confirm page's CSP: nothing loads, no script; the form posts here, and its 303 may go on to walkeforward.com (form-action covers redirects). */
+export const VERIFY_PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://walkeforward.com https://*.walkeforward.com; base-uri 'none'; frame-ancestors 'none'";
+
+/** The magic link's page: one button that POSTs the token back here. Self-contained (no external assets), every value escaped. */
+export function verifyPageHtml(token: string): string {
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>Sign in to Recall</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh;background:#f6f7f9;color:#1b1f24}main{max-width:22rem;padding:2rem;text-align:center}button{font:inherit;font-weight:600;padding:.7rem 1.4rem;border:0;border-radius:8px;background:#0b5cad;color:#fff;cursor:pointer}p{color:#555}@media (prefers-color-scheme:dark){body{background:#14171b;color:#e8eaed}p{color:#aab}}</style>
+</head><body><main>
+<h1>Recall</h1>
+<form method="post" action="/api/auth/verify"><input type="hidden" name="token" value="${escHtml(token)}"><button type="submit">Sign in to Recall</button></form>
+<p>The link works once, for 15 minutes.</p>
+</main></body></html>`;
+}
+
+const LOGIN_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+
+/** GET: the confirm page. Uses nothing (link scanners that prefetch it can't spend the token). */
+function verifyPage(ctx: AuthCtx): Response {
+  if (!ctx.env.AUTH_DB) return notConfigured('Sign-in');
+  const token = new URL(ctx.request.url).searchParams.get('token') ?? '';
+  if (!LOGIN_TOKEN_RE.test(token)) return redirect('/?signin=expired');
+  return new Response(verifyPageHtml(token), {
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'referrer-policy': 'no-referrer',
+      'content-security-policy': VERIFY_PAGE_CSP,
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'DENY',
+    },
+  });
+}
+
+/** POST (the page's form, same origin only): use the token once, start a session, 303 to returnTo. */
 async function verifyRoute(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   const db = ctx.env.AUTH_DB;
   if (!db) return notConfigured('Sign-in');
   const req = ctx.request;
-  const token = new URL(req.url).searchParams.get('token') ?? '';
+  if (notSameOrigin(req)) return jsonOut(403, { error: 'forbidden' });
+  const raw = await readCapped(req, MAX_BODY_BYTES);
+  const token = raw ? (new URLSearchParams(new TextDecoder().decode(raw)).get('token') ?? '') : '';
   const now = (deps.now ?? Date.now)();
-  const used = /^[A-Za-z0-9_-]{43}$/.test(token) ? await consumeLoginToken(db, await tokenHash('login', token), now) : null;
-  if (!used) return redirect('/?signin=expired');
+  const used = LOGIN_TOKEN_RE.test(token) ? await consumeLoginToken(db, await tokenHash('login', token), now) : null;
+  if (!used) return redirect('/?signin=expired', [], 303);
   const user = await ensureUser(db, used.email, now);
   const cookie = await startSession(db, user, req, ctx.env, now);
-  return redirect(safeReturnTo(used.returnTo, new URL(req.url).origin), [cookie]);
+  return redirect(safeReturnTo(used.returnTo, new URL(req.url).origin), [cookie], 303);
 }
 
 async function logoutRoute(ctx: AuthCtx): Promise<Response> {
@@ -314,9 +388,7 @@ async function logoutRoute(ctx: AuthCtx): Promise<Response> {
   if (crossSite(req)) return jsonOut(403, { error: 'forbidden' });
   const token = readCookie(req, SESSION_COOKIE);
   if (token && /^[A-Za-z0-9_-]{43}$/.test(token) && ctx.env.AUTH_DB) {
-    const hash = await tokenHash('session', token);
-    await deleteSession(ctx.env.AUTH_DB, hash);
-    forgetViewer(hash);
+    await deleteSession(ctx.env.AUTH_DB, await tokenHash('session', token));
   }
   return jsonOut(200, { ok: true }, { 'set-cookie': sessionCookie('', req, ctx.env, 0) });
 }
@@ -470,16 +542,16 @@ async function googleCallback(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
 
 // ---- the router
 
-/** /api/auth/<path>: 404 (as the proxy's) unless PAYWALL_ENABLED, but for `GET me`. */
+/** /api/auth/<path>: 404 (as the proxy's) unless PAYWALL_ENABLED, `GET me` included. */
 export async function handleAuth(ctx: AuthCtx, deps: AuthDeps = {}): Promise<Response> {
   const path = endpointPath(ctx.params?.path);
   const method = ctx.request.method.toUpperCase();
-  if (!paywallOn(ctx.env)) return path === 'me' && method === 'GET' ? jsonOut(200, { paywall: false }) : notFound();
+  if (!paywallOn(ctx.env)) return notFound();
   const routes: Record<string, Partial<Record<string, () => Promise<Response>>>> = {
     me: { GET: () => me(ctx, deps) },
     email: { POST: () => emailRoute(ctx, deps) },
     restore: { POST: () => restoreRoute(ctx, deps) },
-    verify: { GET: () => verifyRoute(ctx, deps) },
+    verify: { GET: async () => verifyPage(ctx), POST: () => verifyRoute(ctx, deps) },
     logout: { POST: () => logoutRoute(ctx) },
     'google/start': { GET: () => googleStart(ctx, deps) },
     'google/callback': { GET: () => googleCallback(ctx, deps) },

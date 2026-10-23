@@ -5,17 +5,19 @@
  * "Paywall (phase 1, behind PAYWALL_ENABLED)").
  *
  * The gate: race 1 of each division is free (src/data/freeRace.ts); anything else needs a session
- * (401 sign_in_required) and an entitlement for the event (402 payment_required). Entitled data may
- * still come from the shared edge cache entry (it is the same for everyone entitled), but goes to the
- * browser as `private, max-age=300` with `Vary: Cookie`; free data keeps the route's own caching.
+ * (401 sign_in_required) and an entitlement for the event (402 payment_required). Entitled data never
+ * touches the shared edge cache (nothing paid is ever stored under a public URL): it comes from
+ * upstream and goes to the browser as `private, max-age=300` with `Vary: Cookie`; free data keeps the
+ * route's own caching. Sessions and entitlements are read from D1 on every gated request.
  */
 import { allowed, type Entitlement } from './_entitlements';
-import { entitlementsOf, sessionUser, type D1Like, type UserRow } from './_authDb';
+import { entitlementsOf, sessionUser, sessionUserId, type D1Like, type UserRow } from './_authDb';
 import { UA, UPSTREAM, MAX_UPSTREAM_BYTES, looksLikeJson, ttlFor } from './_lib';
 import { sha256Hex } from '../src/data/vkx/compact';
 import { freeRacesOf, isFreeRace, telemetryIsFree, type FreeRaces } from '../src/data/freeRace';
 import type { RegattaResponse } from '../src/data/racesense/types';
 import type { AskIds } from '../src/data/askCoach/protocol';
+import { cleanString, type AskContext } from '../src/analysis/coach/askContext';
 import { DIV_NAME_RE, EVENT_ID_RE } from '../src/data/vkx/validate';
 
 /** Cloudflare Email Sending's `send_email` binding, as far as we use it (see _auth.ts sendEmail). */
@@ -124,10 +126,8 @@ export function cookieHeader(name: string, value: string, o: { domain: string | 
 export const sessionCookie = (token: string, req: Request, env: PaywallEnv, maxAgeS: number): string =>
   cookieHeader(SESSION_COOKIE, token, { domain: cookieDomain(new URL(req.url).host, env), maxAgeS });
 
-// ---- who is asking (cached per isolate ~60 s)
-
-export const SESSION_CACHE_MS = 60_000;
-const SESSION_CACHE_MAX = 5_000;
+// ---- who is asking (read from D1 on every request, never cached: a grant, an ended subscription or a
+// sign-out counts from the very next request, in every isolate)
 
 export interface Viewer {
   user: UserRow | null;
@@ -135,25 +135,27 @@ export interface Viewer {
 }
 
 const NOBODY: Viewer = { user: null, entitlements: [] };
-const viewers = new Map<string, { at: number; v: Viewer }>();
 
-/** Forget a session's cached lookup (sign-out, or a fresh /api/auth/me). */
-export const forgetViewer = (hash: string): boolean => viewers.delete(hash);
-export const clearViewerCache = (): void => viewers.clear();
-
-/** The session's user and entitlements; `fresh` skips (and refills) the cache. */
-export async function viewerOf(req: Request, env: PaywallEnv, now: number, fresh = false): Promise<Viewer & { hash: string | null }> {
+const sessionHashOf = async (req: Request): Promise<string | null> => {
   const token = readCookie(req, SESSION_COOKIE);
+  return token && TOKEN_RE.test(token) ? tokenHash('session', token) : null;
+};
+
+/** The session's user (the row: /me, checkout and the portal need its email and Stripe customer) and entitlements. */
+export async function viewerOf(req: Request, env: PaywallEnv, now: number): Promise<Viewer & { hash: string | null }> {
   const db = env.AUTH_DB;
-  if (!token || !TOKEN_RE.test(token) || !db) return { ...NOBODY, hash: null };
-  const hash = await tokenHash('session', token);
-  const hit = viewers.get(hash);
-  if (!fresh && hit && now - hit.at < SESSION_CACHE_MS) return { ...hit.v, hash };
+  const hash = db ? await sessionHashOf(req) : null;
+  if (!db || !hash) return { ...NOBODY, hash: null };
   const user = await sessionUser(db, hash, now);
-  const v: Viewer = user ? { user, entitlements: await entitlementsOf(db, user.id) } : NOBODY;
-  if (viewers.size >= SESSION_CACHE_MAX) viewers.delete(viewers.keys().next().value!);
-  viewers.set(hash, { at: now, v });
-  return { ...v, hash };
+  return user ? { user, entitlements: await entitlementsOf(db, user.id), hash } : { ...NOBODY, hash };
+}
+
+/** What the gate needs, in two round trips: the session row (primary key), then the user's entitlements (indexed by user). */
+async function gateViewer(req: Request, env: PaywallEnv, now: number): Promise<{ userId: string | null; entitlements: Entitlement[] }> {
+  const db = env.AUTH_DB;
+  const hash = db ? await sessionHashOf(req) : null;
+  const userId = db && hash ? await sessionUserId(db, hash, now) : null;
+  return { userId, entitlements: db && userId ? await entitlementsOf(db, userId) : [] };
 }
 
 // ---- the regatta document, for race 1 (edge cache shared with /api/regatta, then ~2 min per isolate)
@@ -242,16 +244,16 @@ export async function gate(
   const now = (deps.now ?? Date.now)();
   const free = typeof o.isFree === 'boolean' ? o.isFree : await o.isFree();
   if (free === true) return { kind: 'free' };
-  let v: Viewer;
+  let v: { userId: string | null; entitlements: Entitlement[] };
   try {
-    v = await viewerOf(req, env, now);
+    v = await gateViewer(req, env, now);
   } catch {
     // D1 unreachable: fail closed (race 1 never gets here).
     return { kind: 'deny', response: jsonOut(503, { error: 'auth_unavailable', message: 'Sign-in is unavailable right now. Try again in a minute.' }) };
   }
-  if (allowed(v.entitlements, v.user?.id ?? null, { eventId: o.eventId, free: false, now })) return { kind: 'entitled' };
+  if (allowed(v.entitlements, v.userId, { eventId: o.eventId, free: false, now })) return { kind: 'entitled' };
   if (free === null) return { kind: 'deny', response: jsonOut(502, { error: 'Upstream unreachable' }) };
-  return { kind: 'deny', response: denied(!!v.user, o.eventId, o.race) };
+  return { kind: 'deny', response: denied(!!v.userId, o.eventId, o.race) };
 }
 
 // ---- the data routes' gates
@@ -288,18 +290,60 @@ export function vkxGate(req: Request, env: PaywallEnv, deps: PaywallDeps = {}): 
   return gate(req, env, { eventId: event, race: Number(race), isFree }, deps);
 }
 
+/** "11:05" on the venue clock, as the page's Coach header and cards print it (ui/coach.ts hm). */
+const venueHm = (ms: number, tzOffsetMs: number): string => new Date(ms + tzOffsetMs).toISOString().slice(11, 16);
+const CLOCK_RE = /\b\d{2}:\d{2}\b/g;
+const GUN_CHIP_RE = /^gun (\d{2}:\d{2})$/;
+
+/** The context's race-1 shape alone (no document needed): the Race view, with the ids to look it up. */
+const askShapeFree = (ids: AskIds, c: AskContext): boolean =>
+  ids.view !== 'regatta' && c.view === 'race' && !c.regatta && !!ids.div && !!ids.race && /^\d{1,12}$/.test(ids.race);
+
 /**
- * Ask Coach: a question about race 1 (the Race view) is free; about another race, or the Regatta
- * view (every race), it needs an entitlement for the event. With no event id, only a pass for every
- * regatta will do. The deny response, or null to go on.
+ * Is this Ask Coach request race 1's and nothing else, as far as the server can tell from the regatta
+ * document it fetched itself (never the browser's word for it)? All of:
+ *  - the Race view (ids and context), no regatta section;
+ *  - ids name the division's race 1 (by RaceSense number), and the context's division, event name and
+ *    race name agree with it ("Race 1", or race 1's RaceSense number);
+ *  - the header carries race 1's gun on the venue clock (`gun 11:05`, ±1 min), and every clock time in
+ *    the header and the cards' windows (`11:06–11:11`) falls within race 1's free window (±1 min).
+ * Anything missing or different: not free (an entitlement is needed).
  */
-export async function askGate(req: Request, env: PaywallEnv, ids: AskIds, deps: PaywallDeps = {}): Promise<Response | null> {
+export function askContextIsFree(free: FreeRaces, ids: AskIds, c: AskContext): boolean {
+  if (!askShapeFree(ids, c)) return false;
+  const w = free.windows.find((x) => x.division === ids.div && x.raceNumber === Number(ids.race));
+  if (!w || c.division !== cleanString(w.division, 64)) return false;
+  if (free.eventName && c.event !== cleanString(free.eventName, 120)) return false;
+  if (!c.race?.name || !w.names.includes(c.race.name)) return false;
+  const gun = new Set([-60_000, 0, 60_000].map((d) => venueHm(w.gunMs + d, w.tzOffsetMs)));
+  const header = c.race.header ?? [];
+  if (!header.some((h) => gun.has(GUN_CHIP_RE.exec(h.replace(/^⚠ /, ''))?.[1] ?? ''))) return false;
+  const inWindow = new Set<string>();
+  // Every minute of the window (a day at most: beyond that every clock time is in it anyway).
+  for (let t = w.after - 60_000, n = 0; t <= w.before + 60_000 && n <= 1440; t += 60_000, n++) inWindow.add(venueHm(t, w.tzOffsetMs));
+  const clocks = [...header, ...(c.findings ?? []).map((f) => f.when ?? '')].flatMap((s) => s.match(CLOCK_RE) ?? []);
+  return clocks.every((x) => inWindow.has(x));
+}
+
+/**
+ * Ask Coach: free only for a question the server can show is about race 1 alone (askContextIsFree, on
+ * the regatta document fetched here); another race, the Regatta view, a context naming another race's
+ * gun or times, or anything it can't check needs an entitlement for the event (with no event id, a
+ * pass for every regatta). The deny response, or null to go on.
+ *
+ * Residual risk, by design: the question, the earlier turns and the cards' own wording are free text
+ * a sailor (or a script) can fill with anything, and can't be policed. What this holds is that a
+ * request labelled race 1 must carry race 1's own identity and times, so Recall's analysis of races 2+
+ * isn't answered for free under race 1's label by accident or by simply relabelling it.
+ */
+export async function askGate(req: Request, env: PaywallEnv, ask: { ids: AskIds; context: AskContext }, deps: PaywallDeps = {}): Promise<Response | null> {
+  const { ids, context } = ask;
   const eventId = ids.event ?? null;
   const origin = new URL(req.url).origin;
   const isFree = async (): Promise<boolean | null> => {
-    if (!eventId || ids.view === 'regatta' || !ids.div || !ids.race || !/^\d{1,12}$/.test(ids.race)) return false;
+    if (!eventId || !askShapeFree(ids, context)) return false;
     const f = await freeRacesFor(eventId, origin, deps);
-    return f ? isFreeRace(f, ids.div, Number(ids.race)) : null;
+    return f ? askContextIsFree(f, ids, context) : null;
   };
   const g = await gate(req, env, { eventId, race: ids.race ?? null, isFree }, deps);
   return g.kind === 'deny' ? g.response : null;
