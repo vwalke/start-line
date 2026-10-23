@@ -137,27 +137,6 @@ export function zoomPreset(box: Box, k: number, target: Pt | null): View {
   return clampView(box, { cx, cy, k });
 }
 
-/** Gentle follow keeps the boat inside this middle part of the view (each way), panning only once it leaves. */
-export const FOLLOW_SAFE = 0.6;
-
-/**
- * Gentle follow: `v` unchanged (the same object) while `p` is inside the view's central safe area (FOLLOW_SAFE
- * of its width and height); outside it, panned just enough to bring `p` back to the safe area's edge (no
- * recentring, so a boat sailing on is tracked smoothly), clamped into the box. The zoom never changes; at Fit
- * (nothing to pan) it is left as it is.
- */
-export function followView(box: Box, v: View, p: Pt, safe = FOLLOW_SAFE): View {
-  if (v.k <= 1 || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) return v;
-  const vb = viewBox(box, v);
-  const over = (q: number, c: number, half: number): number => (q > c + half ? q - (c + half) : q < c - half ? q - (c - half) : 0);
-  const dx = over(p[0], v.cx, (vb.w * safe) / 2);
-  const dy = over(p[1], v.cy, (vb.h * safe) / 2);
-  if (Math.abs(dx) <= EPS * vb.w && Math.abs(dy) <= EPS * vb.h) return v;
-  const next = clampView(box, pan(v, dx, dy));
-  // Held at the box's edge: no move to make.
-  return Math.abs(next.cx - v.cx) <= EPS * vb.w && Math.abs(next.cy - v.cy) <= EPS * vb.h ? v : next;
-}
-
 /**
  * A wheel step's zoom factor: a trackpad pinch (Ctrl + wheel, as browsers send it) by exp(−Δ/100), as fine as
  * the fingers; a mouse wheel by 2^(−Δ/500), about 1.15× a notch (100 px). Lines and pages are made px first;

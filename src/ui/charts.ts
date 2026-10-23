@@ -9,7 +9,7 @@ import type { Vec } from '../analysis/geo';
 import { awayFromLineThresholdM, lineBias } from '../analysis/line';
 import { PRE_LEG, type BoatDrawing, type BoatResult, type ExcludedBoat, type RaceAnalysis, type TrackSegment } from '../analysis/types';
 import { matchClass, type ClassDims } from '../data/classes';
-import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatShapeOr, hullOutline, hullPathAt, hullPathD } from './boatShape';
+import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatShapeOr, HULL_LABEL_GAP_PX, hullLabelBox, hullOutline, hullPathAt, hullPathD } from './boatShape';
 import { esc, f1, f2 } from './format';
 import { placeLabels, textWidth, type LabelReq, type Rect, type StartNames } from './labels';
 import { MAP_GAP_S, drawingGapMs, mapPoints, mapPointsOf, type MapPoints } from './mapPoints';
@@ -32,6 +32,7 @@ import {
 } from './sog';
 import { casedByDay, speedColor, speedRanking, speedStyle, type RankBy, type SogScale, type SpeedTop, type TrackColour } from './speed';
 import { FAV_GAP_PX, favouredTexts, lineBiasSvg } from './startLine';
+import { FOLLOW_COURSE_S, type FollowInput } from './follow';
 import { ocsStretch, ocsSvg } from './ocsStyle';
 import { replayLabel } from './replay';
 import type { StartReplay } from '../analysis/startReplay';
@@ -722,7 +723,11 @@ export function trackPoints(a: RaceAnalysis, leg: number | null): MapPoints {
   return mapPoints(a, leg, (seg) => rotSeg(a.wind.twdAtGunDeg, seg));
 }
 
-/** The track map's fit box for leg `leg` (or all), and the rectangle its viewBox shows for `v` (default Fit). */
+/**
+ * The track map's fit box for leg `leg` (or all), and the rectangle its viewBox shows for `v` (default Fit). Sizes
+ * (mapScale) follow only the rectangle's size, i.e. the zoom level: a pan at the same zoom moves just the viewBox,
+ * with the wind arrow and scale bar (`g.map-hud`, in the view's corners) shifted along (ui/mapPaint.ts).
+ */
 export function trackMapView(a: RaceAnalysis, leg: number | null, v?: View): { box: Box; view: Box; k: number } {
   const box = mapBox(a, leg);
   const cv = clampView(box, v ?? fitView(box));
@@ -966,7 +971,7 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map${opts.scrub ? ' scrub' : ''}" role="img" aria-label="${esc(opts.scrub ? `${label}; boats at the scrubber's time` : label)}">
     ${tracks}
     <line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>${finish}${marks}${top}
-    ${windArrow(box, unit, k, 'wind (est.)')}${scaleBar(box, unit, k)}</svg>`;
+    <g class="map-hud">${windArrow(box, unit, k, 'wind (est.)')}${scaleBar(box, unit, k)}</g></svg>`;
 }
 
 // ---- race-time scrubber (Map B) ---------------------------------------------------
@@ -995,6 +1000,28 @@ export function boatsAt(a: RaceAnalysis, highlight: string | null, t: number, fu
     if (b) out.push(b);
   }
   return out;
+}
+
+/**
+ * The follow camera's input (follow.ts) for boat `id` at `t` (ms) on the track map: where boatAt has it, its course
+ * each second over the FOLLOW_COURSE_S before (none while held in a gap), and the wind (straight down: the map is
+ * drawn wind-up); null: not placed at `t`.
+ */
+export function mapFollowInput(a: RaceAnalysis, id: string, t: number, full?: FullRateSet | null): FollowInput | null {
+  const nc = pickedExcluded(a, id);
+  const d = a.drawings.find((x) => x.id === id) ?? nc?.drawing;
+  if (!d) return null;
+  const ranges = legRanges(d, true, full?.get(d.id));
+  const twd = a.wind.twdAtGunDeg;
+  const at = (ms: number): BoatAt | null => boatAt(d.id, ranges, ms, drawingGapMs(d), twd);
+  const now = at(t);
+  if (!now) return null;
+  const dirs: (Vec | null)[] = [];
+  for (let i = 0; i < FOLLOW_COURSE_S; i++) {
+    const b = i ? at(t - i * 1000) : now;
+    dirs.push(b && !b.hold ? b.dir : null);
+  }
+  return { t: t / 1000, pos: [now.mx, now.my], dirs, down: Number.isFinite(twd) ? [0, 1] : null };
 }
 
 /** Up to this many boats, every dot is labelled with its sail number; a bigger fleet labels only the selected boat. */
@@ -1055,9 +1082,14 @@ function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, 
         : `<circle class="${cls}" data-id="${esc(b.id)}" cx="${x}" cy="${y}" r="${r.toFixed(2)}" ${fill} stroke-width="${((on ? 1.8 : 1) * k).toFixed(2)}"/>`;
     const vsRing = cmp ? `<circle class="dot-vs" cx="${x}" cy="${y}" r="${(r + 2.6 * unit).toFixed(2)}" stroke-width="${(1.6 * k).toFixed(2)}"/>` : '';
     const who = byId.get(b.id);
+    const sail = who ? who.sail : b.id;
+    const fs = (on ? 12 : 10.5) * k;
+    // Beside a hull: HULL_LABEL_GAP_PX off it abeam (clear of its track), at any zoom; beside a dot: up and right of it.
+    const lbl = 'shape' in shape ? hullLabelBox([b.mx, b.my], shape.shape, shape.dims, textWidth(sail, fs), 1.1 * fs, HULL_LABEL_GAP_PX * unit) : null;
+    const [lx, ly] = lbl ? [lbl.x0, lbl.y0 + 0.85 * fs] : [b.mx + r + 3 * unit, b.my - r];
     const text =
       on || cmp || labelAll
-        ? `<text class="dot-lbl${on ? ' on' : cmp ? ' vs' : ''}" x="${(b.mx + r + 3 * unit).toFixed(1)}" y="${(b.my - r).toFixed(1)}" font-size="${(on ? 12 : 10.5) * k}" stroke-width="${(3 * k).toFixed(2)}">${esc(who ? who.sail : b.id)}</text>`
+        ? `<text class="dot-lbl${on ? ' on' : cmp ? ' vs' : ''}" x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="${fs}" stroke-width="${(3 * k).toFixed(2)}">${esc(sail)}</text>`
         : '';
     const svg = `<g class="boat-at${on ? ' on' : cmp ? ' vs' : highlight ? ' dim' : ''}">${vsRing}${tick}${ring}${text}</g>`;
     if (on) sel = svg;

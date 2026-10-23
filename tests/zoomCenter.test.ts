@@ -5,12 +5,10 @@ import { boatsAt, mapBox, scrubFrame, startClass, trackMapView } from '../src/ui
 import { attachPanZoom, type PanZoomOptions } from '../src/ui/panzoom';
 import { scrubWindow, trailWindow } from '../src/ui/scrub';
 import {
-  FOLLOW_SAFE,
   K_MAX,
   boatsZoomTarget,
   clientToChart,
   fitView,
-  followView,
   viewBox,
   wheelFactor,
   zoomPreset,
@@ -24,7 +22,7 @@ import { cascaisRace } from './helpers';
 /**
  * Map zoom (view.ts, panzoom.ts), shared by Around the gun and the track map: the presets and + / − centre on the
  * selected boat, else the fleet, else the map's centre; the wheel and pinch zoom toward the pointer; zoomed in, a
- * gentle follow keeps the selected boat in frame.
+ * look-ahead follow (follow.ts) keeps the selected boat framed.
  */
 const box: Box = { x0: 0, y0: 0, x1: 1000, y1: 500 };
 const centre = (v: View): [number, number] => [v.cx, v.cy];
@@ -79,53 +77,6 @@ describe('zoom presets: the target at the view centre', () => {
   it('Fit (and anything ≤ 1×) is the whole default extent', () => {
     expect(zoomPreset(box, 1, [10, 10])).toEqual(fitView(box));
     expect(zoomPreset(box, 0.8, null)).toEqual(fitView(box));
-  });
-});
-
-describe('gentle follow', () => {
-  const v: View = { cx: 500, cy: 250, k: 4 }; // the view: 250 × 125, x 375…625, y 187.5…312.5
-  const vb = viewBox(box, v);
-  const safe = { hw: (vb.w * FOLLOW_SAFE) / 2, hh: (vb.h * FOLLOW_SAFE) / 2 };
-
-  it('no pan while the boat stays in the middle 60%', () => {
-    expect(FOLLOW_SAFE).toBe(0.6);
-    for (const p of [
-      [500, 250],
-      [500 + safe.hw - 0.01, 250],
-      [500 - safe.hw + 0.01, 250 + safe.hh - 0.01],
-    ] as [number, number][]) {
-      expect(followView(box, v, p)).toBe(v);
-    }
-  });
-
-  it('pans just enough to bring it back to the safe area’s edge; the zoom never changes', () => {
-    const p: [number, number] = [500 + safe.hw + 20, 250 - safe.hh - 5];
-    const next = followView(box, v, p);
-    expect(next.k).toBe(4);
-    expect(next.cx).toBeCloseTo(520, 9);
-    expect(next.cy).toBeCloseTo(245, 9);
-    // Now on the edge: no further pan.
-    expect(followView(box, next, p)).toBe(next);
-  });
-
-  it('a boat sailing on is tracked a step at a time (no jump back to the centre)', () => {
-    let cur = v;
-    for (let x = 500; x <= 900; x += 5) {
-      const next = followView(box, cur, [x, 250]);
-      expect(Math.abs(next.cx - cur.cx)).toBeLessThanOrEqual(5 + 1e-9);
-      cur = next;
-      const w = viewBox(box, cur);
-      expect(x).toBeGreaterThanOrEqual(w.x0);
-      expect(x).toBeLessThanOrEqual(w.x0 + w.w);
-      expect(cur.k).toBe(4);
-    }
-  });
-
-  it('held at the map’s edge or at Fit: the view as it was', () => {
-    const atEdge = zoomPreset(box, 4, [1000, 250]);
-    expect(followView(box, atEdge, [999, 250])).toBe(atEdge);
-    const fit = fitView(box);
-    expect(followView(box, fit, [999, 499])).toBe(fit);
   });
 });
 
@@ -198,8 +149,8 @@ describe('panzoom: wheel and pinch toward the pointer', () => {
     const q = clientToChart(box, h.view(), h.rect, 700, 300);
     expect(q[0]).toBeCloseTo(p[0], 6);
     expect(q[1]).toBeCloseTo(p[1], 6);
-    // A hand zoom: the follow stops.
-    expect(h.follows).toEqual([false, false]);
+    // A wheel zoom keeps the follow (only a pan by hand stops it).
+    expect(h.follows).toEqual([]);
   });
 
   it('a plain wheel scrolls the page unless the map has focus; focused, it zooms toward the cursor', () => {

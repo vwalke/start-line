@@ -33,6 +33,8 @@ import {
   LANE_SHIFT_STEP_S,
   LANE_ZOOMS,
   laneCueSecond,
+  laneFollowInput,
+  laneFollowTarget,
   laneKeyTarget,
   lanePxPerUnit,
   laneScrubHtml,
@@ -46,7 +48,8 @@ import {
 } from '../src/ui/laneSnapshotsView';
 import { ocsLegend, ocsStretch, ocsSvg } from '../src/ui/ocsStyle';
 import { BOAT_SHAPE_MIN_PX, BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX } from '../src/ui/boatShape';
-import { FOLLOW_SAFE, fitView, presetActive, viewBox, zoomPreset, type View } from '../src/ui/view';
+import { courseStats } from '../src/ui/follow';
+import { clampView, fitView, presetActive, viewBox, zoomPreset, type View } from '../src/ui/view';
 import { ic37Race } from './helpers';
 
 /**
@@ -1289,7 +1292,7 @@ describe('around the gun: "Replay start →" cues the slider', () => {
   });
 });
 
-describe('around the gun: zoom centres on the selected boat or the fleet, and gently follows it', () => {
+describe('around the gun: zoom centers on the selected boat (with the look-ahead) or the fleet, and follows it', () => {
   /** A mount on a stand-in body whose parts are kept (the stage updated in place, as in the page). */
   function mountOn(a: RaceAnalysis, me: string | null) {
     const el = () => {
@@ -1325,15 +1328,18 @@ describe('around the gun: zoom centres on the selected boat or the fleet, and ge
     expect(laneZoomTarget({ boats: f.boats.map((b) => ({ ...b, pos: null })) }, 'B')).toBeNull();
   });
 
-  it('a preset puts the selected boat at the view’s centre (clamped at the map’s edge); without one, the fleet; Fit is the default extent', () => {
+  it('a preset centers on the selected boat with the look-ahead (clamped at the map’s edge); without one, the fleet; Fit is the default extent', () => {
     const { on, lanes } = mountOn(a, 'B');
     const L = lanes.scrub()!;
     const B = boatIn(L.frame(0), 'B').pos!;
     on.click(btn({ zoom: '4' }));
-    expect(lanes.zoom()).toEqual(zoomPreset(L.view, 4, B));
+    expect(lanes.zoom()).toEqual(zoomPreset(L.view, 4, laneFollowTarget(L, 0, 4)));
     const vb = viewBox(L.view, lanes.zoom());
     expect(B[0]).toBeGreaterThan(vb.x0);
     expect(B[0]).toBeLessThan(vb.x0 + vb.w);
+    // Sailing up the map (upwind): the view leads, the boat below its center.
+    expect(B[1]).toBeGreaterThan(lanes.zoom().cy);
+    expect(B[1]).toBeLessThan(vb.y0 + vb.h);
     expect(lanes.following()).toBe(true);
     on.click(btn({ zoom: '1' }));
     expect(lanes.zoom()).toEqual(fitView(L.view));
@@ -1343,38 +1349,33 @@ describe('around the gun: zoom centres on the selected boat or the fleet, and ge
     expect(none.lanes.zoom()).toEqual(zoomPreset(Ln.view, 2, laneZoomTarget(Ln.frame(0), null)));
   });
 
-  it('playing zoomed in: no pan while the boat is in the middle 60%, a pan to bring it back once it leaves, the zoom unchanged; a hand pan stops it', () => {
+  it('playing zoomed in: the boat held about a third of the way in from the trailing edge (upwind), the zoom unchanged; a hand pan stops it', () => {
     vi.useFakeTimers();
     try {
       const { on, lanes } = mountOn(a, 'B');
       const L = lanes.scrub()!;
       on.click(btn({ zoom: '8' }));
       on.click(btn({})); // play
-      let panned = 0;
-      let still = 0;
+      let framed = 0;
       for (let i = 0; i < 120; i++) {
-        const before = lanes.zoom();
         vi.advanceTimersByTime(LANE_PLAY_MS);
         const now = lanes.zoom();
-        const p = boatIn(L.frame(lanes.second()), 'B').pos!;
-        const vb = viewBox(L.view, before);
-        const inSafe = Math.abs(p[0] - before.cx) <= (vb.w * FOLLOW_SAFE) / 2 + 1e-9 && Math.abs(p[1] - before.cy) <= (vb.h * FOLLOW_SAFE) / 2 + 1e-9;
-        if (inSafe) {
-          expect(now).toEqual(before);
-          still++;
-        } else if (now !== before) {
-          panned++;
-          // Back on the safe area's edge (or held at the map's), never recentred.
-          const w = viewBox(L.view, now);
-          expect(Math.abs(p[1] - now.cy)).toBeLessThanOrEqual((w.h * FOLLOW_SAFE) / 2 + 1e-6);
-        }
         expect(now.k).toBe(8);
+        const input = laneFollowInput(L, 'B', lanes.second())!;
+        const dir = courseStats(input.dirs).dir!;
+        expect(dir[1]).toBeLessThan(-0.99); // up the map
         const w = viewBox(L.view, now);
+        const p = input.pos;
         expect(p[1]).toBeGreaterThanOrEqual(w.y0 - 1e-9);
         expect(p[1]).toBeLessThanOrEqual(w.y0 + w.h + 1e-9);
+        // Not held at the map's edge: the boat's share of the view from the bottom (trailing) edge.
+        if (clampView(L.view, { ...now, cy: now.cy + 1 }).cy !== now.cy + 1 || clampView(L.view, { ...now, cy: now.cy - 1 }).cy !== now.cy - 1) continue;
+        const f = (w.y0 + w.h - p[1]) / w.h;
+        expect(f).toBeGreaterThan(0.3);
+        expect(f).toBeLessThan(0.36);
+        framed++;
       }
-      expect(still).toBeGreaterThan(0);
-      expect(panned).toBeGreaterThan(0);
+      expect(framed).toBeGreaterThan(30);
       // A pan by hand: the follow stops, and play no longer moves the view.
       const by: View = { ...lanes.zoom(), cx: lanes.zoom().cx - 5 };
       lanes.setZoom(by);
@@ -1384,10 +1385,10 @@ describe('around the gun: zoom centres on the selected boat or the fleet, and ge
       on.click(btn({}));
       vi.advanceTimersByTime(LANE_PLAY_MS * 40);
       expect(lanes.zoom()).toEqual(held);
-      // A preset again: centred on the boat and following.
+      // A preset again: centered on the boat's look-ahead and following.
       on.click(btn({ zoom: '4' }));
       expect(lanes.following()).toBe(true);
-      expect(lanes.zoom()).toEqual(zoomPreset(L.view, 4, boatIn(L.frame(lanes.second()), 'B').pos));
+      expect(lanes.zoom()).toEqual(zoomPreset(L.view, 4, laneFollowTarget(L, lanes.second(), 4)));
     } finally {
       vi.useRealTimers();
     }

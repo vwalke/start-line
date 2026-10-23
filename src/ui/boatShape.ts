@@ -148,3 +148,34 @@ export function boatShapeOr(o: ShapeInput): { shape: Vec; dims: ClassDims } | { 
 
 /** The hull's SVG path data in map coordinates, centred on `at`, pointing along `dir`. */
 export const hullPathAt = (at: Vec, dir: Vec, dims: ClassDims): string => hullPathD(hullOutlineAt(at, dir, dims));
+
+/** A sail-number label sits this far off its hull, css px, at any zoom. */
+export const HULL_LABEL_GAP_PX = 3;
+
+/** The sides a hull's label tries, in order: abeam on the side facing up the screen, abeam on the other, off the bow, off the stern. */
+export type HullSide = 'abeam' | 'abeam-other' | 'bow' | 'stern';
+export const HULL_LABEL_SIDES: readonly HullSide[] = ['abeam', 'abeam-other', 'bow', 'stern'];
+
+/**
+ * A `w` × `h` label box (map units) beside the hull centered on `at`, pointing along `dir`, drawn `dims` (meters =
+ * map units): `gap` off the hull on `side`, its near edge or corner facing the hull. Abeam (perpendicular to the
+ * heading, so clear of the boat's own track astern) is preferred; 'abeam' is the side facing up the screen (to
+ * the right when exactly up or down). The box never overlaps the hull: it lies past the hull's extent along the
+ * side's direction (a rectangle LOA × beam bounds the hull).
+ */
+export function hullLabelBox(at: Vec, dir: Vec, dims: ClassDims, w: number, h: number, gap: number, side: HullSide = 'abeam'): { x0: number; y0: number; x1: number; y1: number } {
+  const stbd: Vec = [-dir[1], dir[0]];
+  const up: Vec = stbd[1] < 0 || (stbd[1] === 0 && stbd[0] > 0) ? stbd : [-stbd[0], -stbd[1]];
+  const n: Vec = side === 'abeam' ? up : side === 'abeam-other' ? [-up[0], -up[1]] : side === 'bow' ? dir : [-dir[0], -dir[1]];
+  // The hull's reach along n (its LOA × beam rectangle's support), then the gap: the point P the label faces.
+  const reach = Math.abs(n[0] * dir[0] + n[1] * dir[1]) * (dims.loaM / 2) + Math.abs(n[0] * stbd[0] + n[1] * stbd[1]) * (dims.beamM / 2);
+  // The box's point facing the hull is on P: n mapped onto the box's edge (a side's middle when n is square to it,
+  // a corner at 45°), pushed out along n by however far the box would still reach back past P.
+  const m = Math.max(Math.abs(n[0]), Math.abs(n[1]));
+  const t: Vec = [n[0] / m, n[1] / m];
+  const back = (w / 2) * (Math.abs(n[0]) - n[0] * t[0]) + (h / 2) * (Math.abs(n[1]) - n[1] * t[1]);
+  const d = reach + gap + back;
+  const cx = at[0] + n[0] * d + (t[0] * w) / 2;
+  const cy = at[1] + n[1] * d + (t[1] * h) / 2;
+  return { x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2 };
+}

@@ -75,6 +75,7 @@ import {
   isNarrowStart,
   legLegend,
   mapBox,
+  mapFollowInput,
   startBoatKey,
   startFitBox,
   startFullFrame,
@@ -187,7 +188,9 @@ import {
   writePref,
 } from './speed';
 import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
-import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, followView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
+import { followAfter, followCam, followStep, followTarget, reducedMotion, resetFollow } from './follow';
+import { mapPaint } from './mapPaint';
+import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
 import { createVkxUpload } from './vkxUpload';
 import { createPaywall, lockedRange, startRace } from './paywall';
 import { appPath } from '../landing/route';
@@ -1125,7 +1128,6 @@ export function startApp(): void {
   function renderMap(): void {
     const a = analysis;
     if (!a) return;
-    clearTimeout(mapSettle);
     // A replay ends with the full race (✕ Full race), one leg picked, or another boat selected.
     if (replayOn && (scrubT == null || legSel != null || highlight !== replayOn.boat)) leaveReplay(false);
     // So does a card's window (Map D).
@@ -1133,6 +1135,7 @@ export function startApp(): void {
     const t0 = performance.now();
     // Scrubbing: the static map, then this moment's trails and boats into its two layers (drawScrub, every frame).
     els.map.innerHTML = trackMap(a, highlight, legSel, { ...mapOpts(), full: mapFullRate(a), scrub: scrubT != null });
+    mapPainter.rendered(mapView);
     scrubData = null;
     if (scrubT != null) drawScrub(a);
     mapDrawMs = performance.now() - t0;
@@ -1170,8 +1173,14 @@ export function startApp(): void {
   /** The frame drawn last (for the hover), and its lookup once asked for. */
   let scrubData: ScrubFrame | null = null;
   let scrubPts: { f: ScrubFrame; p: MapPoints } | null = null;
-  /** Gentle follow (drawScrub): on from the presets, + / − and Fit; off once the map is moved by hand, or a replay or card frames it. */
+  /**
+   * The look-ahead follow (drawScrub, follow.ts): on from the presets, + / −, Fit and a boat selected; off once the
+   * map is panned by hand, or a replay or card frames it; a wheel or pinch zoom leaves it as it was.
+   */
   let mapFollow = true;
+  const mapCam = followCam();
+  /** The boat the follow was last turned on (or a replay / card turned it off) for. */
+  let mapFollowFor: string | null = null;
 
   /** A race opens: at the URL's `t=` (gun-relative, clamped to its window), else the full race; playback stops. */
   function openScrub(a: RaceAnalysis): void {
@@ -1256,7 +1265,8 @@ export function startApp(): void {
     scrubT = resume && scrubT != null ? scrubT : clampTime(a.meta.gunMs - REPLAY_PRE_S * 1000, scrubWindow(a));
     fitMap(a);
     if (mapFit) syncMapView(replayView(a, r, mapFit));
-    mapFollow = false;
+    mapFollowFor = r.boat;
+    mapFollow = followAfter(mapFollow, 'frame');
     render();
     setUrl({ ...scrubParams(scrubT, a.meta.gunMs, scrubTrail), [REPLAY_PARAM]: r.boat });
     save();
@@ -1302,7 +1312,8 @@ export function startApp(): void {
     scrubT = clampTime(at?.t ?? focusTime(f), scrubWindow(a));
     fitMap(a);
     if (mapFit) syncMapView(focusView(a, f, mapFit));
-    mapFollow = false;
+    mapFollowFor = f.boat;
+    mapFollow = followAfter(mapFollow, 'frame');
     render();
     setUrl({ ...scrubParams(scrubT, a.meta.gunMs, scrubTrail), ...focusParams(a, f), [REPLAY_PARAM]: null });
     save();
@@ -1377,17 +1388,29 @@ export function startApp(): void {
     const trk = svg?.querySelector('g.scrub-trk');
     const dots = svg?.querySelector('g.scrub-dots');
     if (scrubT == null || !trk || !dots) return;
-    const full = mapFullRate(a);
+    // A boat selected (here or on another view): follow it, snapping to it once zoomed in.
+    if (highlight !== mapFollowFor) {
+      mapFollowFor = highlight;
+      if (highlight != null) {
+        mapFollow = followAfter(mapFollow, 'select');
+        resetFollow(mapCam);
+      }
+    }
+    // Zoomed in: the look-ahead camera on the selected boat (the zoom stays) first, so the frame is drawn in the
+    // view it moves to; the pan only moves the viewBox (followMapView).
+    let full = mapFullRate(a);
+    const input = mapFollow && mapFit && mapView.k > 1 && highlight != null ? mapFollowInput(a, highlight, scrubT, full) : null;
+    if (input && mapFit) {
+      const next = followStep(mapCam, mapFit, mapView, input, reducedMotion());
+      if (next !== mapView) {
+        followMapView(next);
+        full = mapFullRate(a);
+      }
+    }
     const f = scrubFrame(a, highlight, legSel, mapOpts(), { t: scrubT, win: trailWindow(scrubT, scrubTrail, scrubWindow(a), focusOn ? focusFrom(focusOn) : null), full });
     trk.innerHTML = f.tracks;
     dots.innerHTML = f.dots;
     scrubData = f;
-    // Zoomed in: keep the selected boat in frame, panning only as it nears the edge (the zoom stays).
-    const me = mapFollow && mapFit && mapView.k > 1 && highlight != null ? f.boats.find((b) => b.id === highlight) : undefined;
-    if (me && mapFit) {
-      const next = followView(mapFit, mapView, [me.mx, me.my]);
-      if (next !== mapView) setMapView(next);
-    }
   }
 
   /** The URL's `t=` / `trail=` for the scrubber now (replaceState; on a pause or the end of a drag, never per frame). */
@@ -1465,14 +1488,17 @@ export function startApp(): void {
     els.mapTimeLbl.textContent = label;
     playFrame = requestAnimationFrame(playTick);
   }
-  /** Pause, keeping the time; `writeUrl` records it. */
+  /** Pause, keeping the time; `writeUrl` (a pause or the end, not another race or window opening) records it, and redraws a map the follow panned. */
   function stopPlay(writeUrl: boolean): void {
     if (!playing) return;
     playing = false;
     cancelAnimationFrame(playFrame);
     playFrame = 0;
     if (analysis) syncScrub(analysis);
-    if (writeUrl) writeScrubUrl();
+    if (writeUrl) {
+      writeScrubUrl();
+      mapPainter.settle();
+    }
   }
   const togglePlay = (): void => (playing ? stopPlay(true) : startPlay());
 
@@ -1533,12 +1559,16 @@ export function startApp(): void {
   }
 
   /**
-   * What the presets and + / − centre on: scrubbing, the selected boat at the moment shown, else the middle of
-   * the fleet then, else the map's centre (null); the full race (no moment) keeps the view's centre.
+   * What the presets and + / − center on at zoom `k`: scrubbing, the selected boat at the moment shown with the
+   * follow camera's look-ahead, else the middle of the fleet then, else the map's center (null); the full race (no
+   * moment) keeps the view's center.
    */
-  function mapTarget(): [number, number] | null {
-    if (scrubT == null || !scrubData) return [mapView.cx, mapView.cy];
-    return boatsZoomTarget(scrubData.boats, highlight, (b) => [b.mx, b.my]);
+  function mapTarget(k: number = mapView.k): [number, number] | null {
+    if (scrubT == null || !scrubData || !mapFit || !analysis) return [mapView.cx, mapView.cy];
+    const input = highlight != null ? mapFollowInput(analysis, highlight, scrubT, mapFullRate(analysis)) : null;
+    if (!input) return boatsZoomTarget(scrubData.boats, highlight, (b) => [b.mx, b.my]);
+    const vb = viewBox(mapFit, { cx: 0, cy: 0, k: Math.max(1, k) });
+    return followTarget(input.pos, input.dirs, input.down, vb.w, vb.h);
   }
 
   /** Store the map view; presets and touch-action follow it. */
@@ -1551,28 +1581,37 @@ export function startApp(): void {
     els.map.classList.toggle('zoomed', mapView.k > 1);
   }
 
-  /** A redraw slower than this (a big fleet) moves only the viewBox during a gesture… */
-  const MAP_SLOW_MS = 30;
-  /** …and redraws once the view has rested this long. */
-  const MAP_SETTLE_MS = 150;
-  let mapFrame = 0;
-  let mapSettle = 0;
   let mapDrawMs = 0;
+  /** Full redraws or viewBox moves for a new view (mapPaint.ts). */
+  const mapPainter = mapPaint({
+    render: renderMap,
+    move: (drawn) => {
+      const svg = els.map.querySelector('svg');
+      if (!svg || !mapFit) return renderMap();
+      const vb = viewBox(mapFit, mapView);
+      svg.setAttribute('viewBox', `${vb.x0} ${vb.y0} ${vb.w} ${vb.h}`);
+      // The scale bar and wind arrow sit in the view's corner: shifted by the pan from the view drawn.
+      const hud = drawn && svg.querySelector('g.map-hud');
+      if (!hud || !drawn) return;
+      const d = viewBox(mapFit, drawn);
+      hud.setAttribute('transform', `translate(${(vb.x0 - d.x0).toFixed(2)} ${(vb.y0 - d.y0).toFixed(2)})`);
+    },
+    drawMs: () => mapDrawMs,
+    view: () => mapView,
+  });
   /** Pan/zoom: store the view now, redraw on the next frame (line widths, labels and the scale bar follow the zoom). */
   function setMapView(v: View): void {
     if (!mapFit) return;
     syncMapView(v);
     hideMapTip();
-    if (mapFrame) return;
-    mapFrame = requestAnimationFrame(() => {
-      mapFrame = 0;
-      const svg = els.map.querySelector('svg');
-      if (!svg || !mapFit || mapDrawMs <= MAP_SLOW_MS) return renderMap();
-      const vb = viewBox(mapFit, mapView);
-      svg.setAttribute('viewBox', `${vb.x0} ${vb.y0} ${vb.w} ${vb.h}`);
-      clearTimeout(mapSettle);
-      mapSettle = window.setTimeout(renderMap, MAP_SETTLE_MS);
-    });
+    mapPainter.gesture();
+  }
+  /** The follow camera's pan (the zoom unchanged): store the view and move the viewBox now; drawScrub draws the boats. */
+  function followMapView(v: View): void {
+    if (!mapFit) return;
+    syncMapView(v);
+    hideMapTip();
+    mapPainter.follow(playing);
   }
 
   els.mapZoom.addEventListener('click', (ev) => {
@@ -1586,8 +1625,8 @@ export function startApp(): void {
       leaveReplay(true);
       leaveFocus(true);
     }
-    mapFollow = true;
-    setMapView(zoomPreset(mapFit, next, mapTarget()));
+    mapFollow = followAfter(mapFollow, 'preset');
+    setMapView(zoomPreset(mapFit, next, mapTarget(next)));
   });
 
   let coachPlace: { model: NonNullable<CoachModel>; base: ProgressBase } | null = null;
