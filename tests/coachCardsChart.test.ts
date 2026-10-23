@@ -56,9 +56,10 @@ function secondsOf(o: Opportunity): number {
 const reads = (o: Opportunity): boolean => ['D3', 'D4', 'D5', 'D8', 'D10'].includes(o.kind) || (o.kind === 'D9' && o.facts.mode === 'places') || (o.kind === 'D1' && o.facts.d3S != null);
 
 /** Every reading of the race's debriefs checked against the chart; how many. */
-function checkRace(r: CoachRace, boats = r.a.boats.map((b) => b.id)): { readings: number; cards: number } {
+function checkRace(r: CoachRace, boats = r.a.boats.map((b) => b.id)): { readings: number; cards: number; rivalStarts: number } {
   let readings = 0;
   let cards = 0;
+  let rivalStarts = 0;
   const check = (boat: string, gs: GapReading[]): void => {
     for (const g of gs) {
       readings++;
@@ -94,6 +95,18 @@ function checkRace(r: CoachRace, boats = r.a.boats.map((b) => b.id)): { readings
         // The last leg from when the boat left the rounding zone (the rounding is D9's): never inside it.
         const out = zoneExitMs(r.m, boat, r.a.legs.length - 1);
         if (out != null) expect(o.t0).toBeGreaterThanOrEqual(out);
+        // Each named boat from the later of the two exits: its reading starts at the chart point (with a value on its
+        // line, in the window) nearest that exit; no point of its line is nearer.
+        for (const g of o.gaps!) {
+          const rOut = zoneExitMs(r.m, g.boat!, r.a.legs.length - 1);
+          expect(g.t0).toBeGreaterThanOrEqual(o.t0);
+          if (rOut == null || rOut <= o.t0) continue;
+          const l = rivalLadder(r.m, r.a, boat, { kind: 'custom', ids: g.ids })!;
+          const k = l.group.indexOf(g.boat!);
+          const nearer = l.points.filter((p) => p.tMs >= o.t0 && p.tMs <= o.t1 && p.each[k] != null && Math.abs(p.tMs - rOut) < Math.abs(g.t0 - rOut));
+          expect(nearer).toEqual([]);
+          rivalStarts++;
+        }
         // Each named boat (a: the most lost to, b: the next) is "from behind" when its own line was below 0 at the window's start.
         const byLoss = [...o.gaps!].sort((x, y) => y.g1 - y.g0 - (x.g1 - x.g0));
         expect(o.facts.aFromBehind).toBe(byLoss[0].g0 < 0 ? 1 : 0);
@@ -116,7 +129,7 @@ function checkRace(r: CoachRace, boats = r.a.boats.map((b) => b.id)): { readings
       expect(n.seconds).toBeCloseTo(n.gaps![0].g0 - n.gaps![0].g1, 9);
     }
   }
-  return { readings, cards };
+  return { readings, cards, rivalStarts };
 }
 
 /** Cascais R3 (100 boats): built once for the file. */
@@ -138,9 +151,11 @@ describe('the cards read the chart: card seconds = the chart\'s change for the s
   }, 120_000);
 
   it('Cascais (J/70 Worlds) R3, every boat', () => {
-    const { readings, cards } = checkRace(cascais3);
+    const { readings, cards, rivalStarts } = checkRace(cascais3);
     expect(readings).toBeGreaterThan(50);
     expect(cards).toBeGreaterThan(20);
+    // Named boats that left the zone after the boat did (their reading starts later than the card's window).
+    expect(rivalStarts).toBeGreaterThan(10);
   }, 120_000);
 });
 
@@ -238,7 +253,7 @@ describe('the last run (D10) starts where the boat left the rounding zone: the r
   /** The chart points (`boat`'s thin line against `id`) at the first drawn point at or after `t`. */
   const thinAt = (r: CoachRace, boat: string, id: string, t: number): number => groupGap(r.m, boat, [id], t).find((p) => p.each[0] != null)!.each[0]!;
 
-  it('J/24 R2 USA 5320: 3 s into its rounding zone the chart read USA 3153 171 s behind, at the zone\'s exit 86 s; the card 138 → 80 s', () => {
+  it('J/24 R2 USA 5320: 3 s into its rounding zone the chart read USA 3153 171 s behind, at the zone\'s exit 86 s, at USA 3153\'s own exit 52 s; the card 138 → 80 → 52 s', () => {
     const r = coachRace(gateRace('j24r2'));
     const boat = 'USA 5320';
     const n = r.a.legs.length;
@@ -249,10 +264,17 @@ describe('the last run (D10) starts where the boat left the rounding zone: the r
     expect((out - leg) / 1000).toBeGreaterThan(120);
     expect(o.t0).toBe(out);
     const ref = o.gaps!.find((g) => g.boat === 'USA 3153')!;
-    // From the leg's start (the window before): −170.7 s; from the zone's exit: −86.2 s. 84 s of it was the rounding.
+    // From the leg's start (the window before PR #54): −170.7 s; from the boat's zone exit (PR #54): −86.2 s; from USA
+    // 3153's own exit, 88 s later (the later of the two): −52.3 s.
     expect(thinAt(r, boat, 'USA 3153', leg)).toBeCloseTo(-170.7, 1);
-    expect(ref.g0).toBeCloseTo(-86.2, 1);
-    expect(o.seconds).toBeCloseTo(79.7, 1);
+    expect(thinAt(r, boat, 'USA 3153', out)).toBeCloseTo(-86.2, 1);
+    const refOut = zoneExitMs(r.m, 'USA 3153', n - 1)!;
+    expect((refOut - out) / 1000).toBeCloseTo(87.7, 1);
+    expect(ref.t0).toBeGreaterThanOrEqual(refOut);
+    expect(ref.t0 - refOut).toBeLessThan(GAP_STEP_MS);
+    expect(ref.g0).toBeCloseTo(-52.3, 1);
+    expect(ref.g1 - ref.g0).toBeCloseTo(54.4, 1);
+    expect(o.seconds).toBeCloseTo(52.2, 1);
   }, 60_000);
 
   describe('the full feed\'s Cascais R3 USA 833 (cascaisR3Native: USA 833, TUR 442 and SWE 1121 at their native rate)', () => {
@@ -262,7 +284,7 @@ describe('the last run (D10) starts where the boat left the rounding zone: the r
     const d = debriefOf(r.a, r.m, me.id)!;
     const c = d.cards.find((x) => x.kind === 'D10')!;
 
-    it('the card reads the chart from USA 833\'s zone exit to its finish: TUR 442 81 s, SWE 1121 60 s (median 70.7 s)', () => {
+    it('the card\'s window is USA 833\'s zone exit to its finish; each rival reads its own line from its own exit: TUR 442 71 s (not 81 s), SWE 1121 71 s', () => {
       expect(c.t0).toBe(zoneExitMs(r.m, me.id, n - 1));
       for (const g of c.gaps!) {
         const l = rivalLadder(r.m, r.a, me.id, { kind: 'custom', ids: g.ids })!;
@@ -270,12 +292,26 @@ describe('the last run (D10) starts where the boat left the rounding zone: the r
         expect([at(g.t0), at(g.t1)]).toEqual([g.g0, g.g1]);
       }
       const [s, t] = [c.gaps!.find((g) => g.boat === swe.id)!, c.gaps!.find((g) => g.boat === tur.id)!];
-      expect(t.g0).toBeCloseTo(-79.3, 1);
-      expect(s.g0).toBeCloseTo(-54.7, 1);
+      const hms = (x: number) => new Date(x + r.a.meta.tzOffsetMs).toISOString().slice(11, 19);
+      // TUR 442 left the zone at 16:16:33, 81 s after USA 833 (16:15:12), its penalty circle (16:15:30–16:15:59) and
+      // bear-away behind it. Its line has no point from 16:16:41 to 16:26:51 (holes in the feed): it reads from 16:16:31,
+      // the nearest. SWE 1121 left at 16:16:07; its line has none from 16:15:51 to 16:26:31: from 16:15:41.
+      expect(hms(zoneExitMs(r.m, tur.id, n - 1)!)).toBe('16:16:33');
+      expect(hms(zoneExitMs(r.m, swe.id, n - 1)!)).toBe('16:16:07');
+      expect([hms(t.t0), hms(s.t0)]).toEqual(['16:16:31', '16:15:41']);
+      expect(t.g0).toBeCloseTo(-69.6, 1);
+      expect(s.g0).toBeCloseTo(-65.5, 1);
       expect(t.g1).toBeCloseTo(1.6, 1);
       expect(s.g1).toBeCloseTo(5.8, 1);
-      expect(c.seconds).toBeCloseTo(70.7, 1);
-      expect(cardText(c, r.a.meta.tzOffsetMs).sentence).toBe('TUR 442 gained 81 s and SWE 1121 60 s on you over the last 15 tracked minutes, and finished ahead.');
+      expect(t.g1 - t.g0).toBeCloseTo(71.2, 1);
+      expect(s.g1 - s.g0).toBeCloseTo(71.2, 1);
+      // From USA 833's exit (PR #54) TUR 442's line read −79.3 s: 81 s, 10 s of it the line coming down off the circle.
+      const l = rivalLadder(r.m, r.a, me.id, { kind: 'custom', ids: t.ids })!;
+      const k = l.group.indexOf(tur.id);
+      expect(l.points.find((p) => p.tMs >= c.t0 && p.each[k] != null)!.each[k]!).toBeCloseTo(-79.3, 1);
+      // The headline: the median of the two, each the chart's own points; the same window and words.
+      expect(c.seconds).toBeCloseTo(71.2, 1);
+      expect(cardText(c, r.a.meta.tzOffsetMs).sentence).toBe('SWE 1121 gained 71 s and TUR 442 71 s on you over the last 15 tracked minutes, and finished ahead.');
     });
 
     it('~70 s is the loss on the run, not ~55 s: at equal progress they were 69 s and 62 s behind at the mark, 70 s and 69 s 300 m down the run', () => {
@@ -296,7 +332,10 @@ describe('the last run (D10) starts where the boat left the rounding zone: the r
       const margin = (b: typeof me) => (me.finishMs! - b.finishMs!) / 1000;
       expect(behind(tur, 300) + margin(tur)).toBeGreaterThan(65);
       expect(behind(swe, 300) + margin(swe)).toBeGreaterThan(65);
-      // From the leg's start (inside the zone, the window before) the card read 69.9 s: the rule moves it 0.8 s here.
+      // At the zone's exit, 30 m on, TUR 442 was 81 s behind: its circle, filled in linearly over its zone, peaks there and
+      // the line comes back down to 70 s by 200 m. Read from its own exit, the card starts past that.
+      expect(behind(tur, 30)).toBeCloseTo(81.4, 0);
+      expect(behind(tur, 200)).toBeCloseTo(69.8, 0);
     });
 
     it('the windward rounding (D9) is found, 16.3 s, and is no card: under its minimum at its confidence, before any overlap', () => {

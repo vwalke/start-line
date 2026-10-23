@@ -5,12 +5,13 @@ import { coachDebrief } from '../src/analysis/coach/debrief';
 import { coachCtx } from '../src/analysis/coach/detectors/context';
 import { D5_GAIN_S, D5_LOSS_S, d5Peers, gapReads, swings } from '../src/analysis/coach/detectors/consolidate';
 import { typicalSep } from '../src/analysis/coach/detectors/early';
-import { legWindow } from '../src/analysis/coach/detectors/shift';
+import { D4_SHIFT_DEG, legWindow } from '../src/analysis/coach/detectors/shift';
+import { wrap180 } from '../src/analysis/geo';
 import { gapNoise, untrackedS, type GapReading } from '../src/analysis/coach/opportunity';
 import type { RaceAnalysis } from '../src/analysis/types';
 import type { RaceData } from '../src/data/types';
 import { cardHtml, cardText, d5RefChip, secondsChip, windowChip } from '../src/ui/coachCards';
-import { j105Race } from './helpers';
+import { coachRace, debriefOf, gateRace, j105Race } from './helpers';
 
 /**
  * Coach phase 3 against the Good Trade debrief (2026 J/105 CBC, Oct 18; EDT = UTC−4): the wind detectors
@@ -203,5 +204,41 @@ describe('D5 golden: race 1, caught Patriot, then let him go (debrief ≈ 32 s):
 
   it('one card: the early-lane D3 (the debrief had D5 and D3)', () => {
     expect(d.cards.map((x) => x.kind)).toEqual(['D3']);
+  });
+});
+
+describe('D4: the shift a card shows is at least D4_SHIFT_DEG, read where the card reads the chart', () => {
+  it('every D4 on five fixtures: the wind between its two chart points moved D4_SHIFT_DEG or more, the way its words say; the title and chips show that', () => {
+    let n = 0;
+    let shown = 0;
+    for (const data of [j105Race(2), j105Race(3), gateRace('j24r2'), gateRace('m24r5'), gateRace('viperr2')]) {
+      const { a, m } = coachRace(data);
+      for (const b of a.boats) {
+        const d = debriefOf(a, m, b.id);
+        if (!d) continue;
+        for (const o of d.found.filter((x) => x.kind === 'D4')) {
+          n++;
+          const dTwd = wrap180(m.wind.twdAt(o.t1) - m.wind.twdAt(o.t0));
+          expect(o.facts.shift).toBeCloseTo(Math.abs(dTwd), 9);
+          expect(o.facts.shift as number).toBeGreaterThanOrEqual(D4_SHIFT_DEG);
+          expect(o.facts.dir).toBe(dTwd < 0 ? 'left' : 'right');
+        }
+        for (const c of d.cards.filter((x) => x.kind === 'D4')) {
+          shown++;
+          const t = cardText(c, a.meta.tzOffsetMs);
+          expect(Number(/ (\d+)° (left|right) shift$/.exec(t.title)![1])).toBeGreaterThanOrEqual(D4_SHIFT_DEG);
+          const [w0, w1] = /^wind (\d+)° → (\d+)°$/.exec(t.chips[0])!.slice(1).map(Number);
+          expect(Math.abs(wrap180(w1 - w0))).toBeGreaterThanOrEqual(D4_SHIFT_DEG - 1);
+        }
+      }
+    }
+    expect(n).toBeGreaterThan(30);
+    expect(shown).toBeGreaterThan(25);
+  }, 120_000);
+
+  it('J/105 R3 USA 343: no D4 (its best window\'s chart points had the wind 16° → 13°, a 4° card; 21° → 13° at the window\'s ends)', () => {
+    const { a, m } = coachRace(j105Race(3));
+    const d = debriefOf(a, m, 'USA 343')!;
+    expect(d.found.some((x) => x.kind === 'D4')).toBe(false);
   });
 });

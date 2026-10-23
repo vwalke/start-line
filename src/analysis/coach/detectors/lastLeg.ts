@@ -5,13 +5,18 @@
  * to the boats that finished 1–2 places ahead, and the boat's speed against
  * the leaders'. Fires when some of them pulled D10_GAP_S or more further ahead
  * and finished under D10_AHEAD_S ahead. Seconds: the median over those boats,
- * the range from the least to the most. Each boat's change is its own (thin) line on the chart (ctx.gaps `each`).
+ * the range from the least to the most. Each boat's change is its own (thin) line on the chart (ctx.gaps `each`), read
+ * from the chart point nearest the later of the two boats' zone exits (nearestPoint): until the rival too was out of
+ * its rounding its line is still coming off it, not a gain on the run (Cascais R3: TUR 442's penalty circle at the
+ * windward mark, filled in over its zone, has it 81 s behind USA 833 at the exit and 70 s 200 m on). The card's
+ * window (t0, t1, mins) stays the boat's own.
  */
 import { MS_TO_KN, median } from '../../geo';
 import { finishRank } from '../../result';
 import { COVERAGE_GAP_S } from '../../coverage';
 import { COACH_MAX_SPAN_S, trackLegAt, type CoachTrack } from '../tracks';
 import { zoneExitMs } from '../timeGap';
+import type { GapPoint } from '../ladder';
 import { NOISE_BASE_S, coachCoverage, gapChange, reading, refCoverage, windOkShare, type GapReading, type Opportunity } from '../opportunity';
 import type { CoachCtx } from './context';
 
@@ -32,6 +37,21 @@ export function meanSogKn(tr: Pick<CoachTrack, 't' | 'x' | 'y'>, a: number, b: n
     s += dt / 1000;
   }
   return s >= 30 ? (d / s) * MS_TO_KN : null;
+}
+
+/**
+ * The chart point with a value nearest `t` in [a, b] (the first after it on a tie), ms; `t` with none. A thin line rests
+ * on fixes, so the first point after a rival's zone exit can be minutes on (the native Cascais R3 feed: TUR 442 left
+ * the zone at 16:16:33 and its line has no point from 16:16:41 to 16:26:51); a point a few seconds before the exit reads
+ * the zone's own linear fill.
+ */
+export function nearestPoint(pts: readonly GapPoint[], t: number, a: number, b: number, pick: (p: GapPoint) => number | null): number {
+  let best: number | null = null;
+  for (const p of pts) {
+    if (p.tMs < a || p.tMs > b || pick(p) == null) continue;
+    if (best == null || Math.abs(p.tMs - t) < Math.abs(best - t) || (Math.abs(p.tMs - t) === Math.abs(best - t) && p.tMs > best)) best = p.tMs;
+  }
+  return best ?? t;
 }
 
 /** When the boat is first known to be on leg `leg`, ms; null if never. */
@@ -69,7 +89,11 @@ export function detectLastLeg(ctx: CoachCtx): Opportunity | null {
   const pts = ctx.gaps(ids, t0, t1);
   const gaps: GapReading[] = [];
   const each = refs.map((r, k) => {
-    const g = gapChange(pts, t0, t1, (q) => q.each[k]);
+    // Each boat's change from when it, too, had left the zone (the later of the two exits): its own rounding (a penalty
+    // circle at the mark, a stall) is its line's, not a gain on the run.
+    const rOut = zoneExitMs(ctx.m, r.id, last);
+    const pick = (q: GapPoint): number | null => q.each[k];
+    const g = gapChange(pts, rOut != null && rOut > t0 ? nearestPoint(pts, rOut, t0, t1, pick) : t0, t1, pick);
     if (g) gaps.push(reading(ids, g, r.id));
     return { id: r.id, d: g ? g.g1 - g.g0 : null, behindAtStart: g != null && g.g0 < 0, aheadS: (fin - r.finishMs!) / 1000, place: finishRank(r)! };
   });
