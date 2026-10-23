@@ -1,0 +1,27 @@
+{
+  "id": "evt_test_ChRefundSeason0001",
+  "object": "event",
+  "api_version": "2024-06-20",
+  "created": 1792756800,
+  "livemode": false,
+  "type": "charge.refunded",
+  "data": {
+    "object": {
+      "id": "ch_test_Season0001",
+      "object": "charge",
+      "amount": 14900,
+      "amount_captured": 14900,
+      "amount_refunded": 14900,
+      "refunded": true,
+      "currency": "usd",
+      "customer": "cus_test_Season0001",
+      "invoice": "in_test_SeasonFirst0001",
+      "payment_intent": "pi_test_Season0001",
+      "description": "Subscription creation",
+      "metadata": {},
+      "status": "succeeded",
+      "livemode": false
+    },
+    "previous_attributes": { "amount_refunded": 0, "refunded": false }
+  }
+}

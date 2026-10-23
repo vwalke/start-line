@@ -10,6 +10,7 @@
 import { passesUnlock, type PassView } from '../../functions/_entitlements';
 import { isFreeRace, type FreeRaces } from '../data/freeRace';
 import {
+  BUY_PARAM,
   PAYWALL_OFF,
   fetchMe,
   googleStartUrl,
@@ -17,12 +18,15 @@ import {
   sendRestoreLink,
   sendSignInLink,
   signOut,
+  peekBuy,
   startCheckout,
+  type BuyIntent,
   type Me,
 } from '../data/paywall';
 import type { ListedRace } from '../data/raceList';
-import { findRace, tzOffsetMs } from '../data/racesense/adapter';
+import { findRace, tzOffsetMs, type RaceListItem } from '../data/racesense/adapter';
 import type { RegattaDoc } from '../data/racesense/types';
+import { pickRace } from './lastView';
 import { duration, esc, gunTimeLine } from './format';
 import { raceName, raceTitleHtml, shortRaceName } from './races';
 
@@ -39,6 +43,28 @@ export function isLocked(me: Me, free: FreeRaces, eventId: string, division: str
   return !passesUnlock(me.entitlements, eventId, now);
 }
 
+/**
+ * The race to open when the link names none: `last` (the latest finished race, as always) unless the
+ * paywall is on and this viewer can't open this regatta, then race 1 of last's division as the server
+ * counts it (freeRace.ts), so a first visit opens on the free race rather than a lock card. `last`
+ * again when that division has no listed race 1. `free` is only worked out when it is needed.
+ */
+export function defaultRaceFor(races: readonly RaceListItem[], last: RaceListItem | null, o: { me: Me; free: () => FreeRaces; eventId: string; now: number }): RaceListItem | null {
+  if (!o.me.paywall || passesUnlock(o.me.entitlements, o.eventId, o.now)) return last;
+  const division = (last ?? races[0])?.division;
+  const w = division == null ? undefined : o.free().windows.find((x) => x.division === division);
+  return (w && races.find((r) => r.division === w.division && r.raceNumber === w.raceNumber)) || last;
+}
+
+/** The race an event opens on: the wanted one (an explicit `race=`, locked or not) if listed, else defaultRaceFor (pickRace's rules). */
+export const startRace = (
+  races: RaceListItem[],
+  want: { division: string; raceNumber: number } | undefined,
+  last: RaceListItem | null,
+  o: { me: Me; free: () => FreeRaces; eventId: string; now: number },
+  strict = false,
+): RaceListItem | null => pickRace(races, want, defaultRaceFor(races, last, o), strict);
+
 /** The races a pass would open in this division, as the picker names them: "R2–R8", "R2", or '' when none. */
 export function lockedRange(races: readonly ListedRace[], free: FreeRaces, division: string): string {
   const names = races
@@ -54,8 +80,9 @@ export const valueLine = (range: string): string => `See the start, every leg an
 /** A pass, in a line: "Regatta Pass · this regatta", "Season Pass · until 21 Oct 2027". */
 export function passLine(p: PassView, eventTitle: (id: string) => string): string {
   const until = p.expiresAt != null ? ` · until ${new Date(p.expiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : '';
-  if (p.scope === 'regatta') return `Regatta Pass · ${p.eventId ? eventTitle(p.eventId) : 'one regatta'}${until}`;
-  if (p.scope === 'season') return `Season Pass · every regatta${until}`;
+  const gift = p.gift ? ' (gift)' : '';
+  if (p.scope === 'regatta') return `Regatta Pass${gift} · ${p.eventId ? eventTitle(p.eventId) : 'one regatta'}${until}`;
+  if (p.scope === 'season') return `Season Pass${gift} · every regatta${until}`;
   return `Coach plan${p.owner ? '' : ' (team seat)'} · every regatta${until}`;
 }
 
@@ -76,6 +103,9 @@ export interface LockView {
   range: string;
   signedIn: string | null;
   canBuy: boolean;
+  /** The sign-in methods set up here (/api/auth/me signIn): email links (and so Restore access), Google. */
+  signInEmail?: boolean;
+  signInGoogle?: boolean;
   message?: string;
 }
 
@@ -98,6 +128,8 @@ export function lockView(doc: RegattaDoc, o: { division: string; raceNumber: num
     range: o.range,
     signedIn: o.me.paywall && o.me.user ? o.me.user.email : null,
     canBuy: o.me.paywall,
+    signInEmail: o.me.paywall && o.me.signIn.email,
+    signInGoogle: o.me.paywall && o.me.signIn.google,
   };
 }
 
@@ -119,9 +151,13 @@ export function lockCardHtml(v: LockView): string {
     ? `<details class="lock-results"><summary>Finishes <span class="muted">(RaceSense, unofficial)</span></summary>
         <table><thead><tr><th scope="col">#</th><th scope="col">Sail</th><th scope="col">Boat</th><th scope="col" class="num">Elapsed</th></tr></thead><tbody>${rows}</tbody></table></details>`
     : '';
+  // Only what is set up: Restore access sends an email, so it goes with email sign-in.
+  const restore = v.signInEmail ? ' · <button type="button" class="linkish" data-pw="restore">Restore access</button>' : '';
   const who = v.signedIn
-    ? `Signed in as ${esc(v.signedIn)} · <button type="button" class="linkish" data-pw="restore">Restore access</button>`
-    : `Already bought? <button type="button" class="linkish" data-pw="signin">Sign in</button> · <button type="button" class="linkish" data-pw="restore">Restore access</button>`;
+    ? `Signed in as ${esc(v.signedIn)}${restore}`
+    : v.signInEmail || v.signInGoogle
+      ? `Already bought? <button type="button" class="linkish" data-pw="signin">Sign in</button>${restore}`
+      : 'Sign-in is unavailable right now';
   return `<div id="lock-summary">${v.titleHtml}<p>${[esc(v.gunLine), `${v.boats} boats`].filter(Boolean).join(' · ')}</p></div>
     <section class="card lock-card" aria-labelledby="lock-title">
       <div class="lock-teaser-wrap">${TEASER_SVG}<span class="lock-badge" aria-hidden="true">🔒</span></div>
@@ -158,6 +194,10 @@ export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => str
       <label>Email <input type="email" name="email" autocomplete="email" required maxlength="254" value="${esc(s.email ?? '')}"${s.busy ? ' disabled' : ''}></label>
       <button type="submit" class="lock-primary"${s.busy ? ' disabled' : ''}>${esc(label)}</button>
     </form>`;
+  const email = me.signIn.email;
+  const google = me.signIn.google;
+  // With email sign-in off there is no email UI at all (no link form, Restore access or "check your email").
+  if (!email && (s.mode === 'sent' || s.mode === 'restore-sent' || s.mode === 'restore')) s = { ...s, mode: me.user ? 'account' : 'signin' };
   if (s.mode === 'sent' || s.mode === 'restore-sent') {
     const what = s.mode === 'sent' ? 'a sign-in link' : 'a sign-in link if we have a purchase for that address';
     return `${head('Check your email')}<p>We've sent ${what} to <strong>${esc(s.email ?? '')}</strong>. It works once, for 15 minutes.</p>
@@ -170,14 +210,15 @@ export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => str
     const passes = me.entitlements.length
       ? `<ul class="account-passes">${me.entitlements.map((p) => `<li>${esc(passLine(p, eventTitle))}</li>`).join('')}</ul>`
       : '<p class="muted">No passes yet. Race 1 of every regatta is free.</p>';
-    const manage = me.entitlements.some((p) => p.scope === 'season' && p.owner) ? `<button type="button" class="lock-secondary" data-pw="portal"${s.busy ? ' disabled' : ''}>Manage subscription</button>` : '';
+    const manage = me.entitlements.some((p) => p.scope === 'season' && p.owner && !p.gift) ? `<button type="button" class="lock-secondary" data-pw="portal"${s.busy ? ' disabled' : ''}>Manage subscription</button>` : '';
     return `${head('Your account')}${note}<p>Signed in as <strong>${esc(me.user.email)}</strong></p>
       <h3 class="account-sub">Passes</h3>${passes}
-      <p class="account-actions">${manage}<button type="button" class="lock-secondary" data-pw="restore">Restore access</button><button type="button" class="lock-secondary" data-pw="signout"${s.busy ? ' disabled' : ''}>Sign out</button></p>`;
+      <p class="account-actions">${manage}${email ? '<button type="button" class="lock-secondary" data-pw="restore">Restore access</button>' : ''}<button type="button" class="lock-secondary" data-pw="signout"${s.busy ? ' disabled' : ''}>Sign out</button></p>`;
   }
-  const google = me.signIn.google ? `<p><a class="lock-secondary google" data-pw="google" href="#">Continue with Google</a></p>` : '';
-  const email = me.signIn.email ? emailForm('signin', 'Email me a sign-in link') : '<p class="muted">Email sign-in is not set up here yet.</p>';
-  return `${head('Sign in')}${note}<p>Your passes are kept with your email address.</p>${email}${google}
+  if (!email && !google) return `${head('Sign in')}${note}<p class="muted">Sign-in is unavailable right now. Race 1 of every regatta is free.</p>`;
+  const googleBtn = google ? `<p><a class="lock-secondary google" data-pw="google" href="#">Continue with Google</a></p>` : '';
+  if (!email) return `${head('Sign in')}${note}<p>Your passes are kept with your account.</p>${googleBtn}`;
+  return `${head('Sign in')}${note}<p>Your passes are kept with your email address.</p>${emailForm('signin', 'Email me a sign-in link')}${googleBtn}
     <p class="lock-small"><button type="button" class="linkish" data-pw="restore">Restore access</button></p>`;
 }
 
@@ -199,7 +240,21 @@ export function hereWithout(href: string): string {
   const u = new URL(href);
   u.searchParams.delete('checkout');
   u.searchParams.delete('signin');
+  u.searchParams.delete(BUY_PARAM);
   return `${u.pathname}${u.search}${u.hash}`;
+}
+
+/**
+ * Back from a sign-in that carried a purchase intent (the server's one-time `buy=` marker): the checkout to
+ * start, or null: paywall off, signed out, no or unreadable marker, or the pass is already held (a purchase
+ * or a gift that just attached: the race simply opens). The server re-checks the marker's signature, user and expiry.
+ */
+export function autoCheckout(me: Me, search: string, now: number): (BuyIntent & { intent: string }) | null {
+  if (!me.paywall || !me.user) return null;
+  const token = new URLSearchParams(search).get(BUY_PARAM);
+  const b = peekBuy(token);
+  if (!b || passesUnlock(me.entitlements, b.product === 'season' ? null : b.eventId, now)) return null;
+  return { ...b, intent: token! };
 }
 
 // ---- the controller
@@ -233,6 +288,9 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
   let dialog: HTMLDialogElement | null = null;
   let openBtn: HTMLButtonElement | null = null;
   let sheet: SheetState = { mode: 'signin' };
+  /** The pass clicked while signed out: carried through the sign-in the sheet starts. */
+  let pendingBuy: BuyIntent | null = null;
+  let autoStarted = false;
 
   const renderLock = (): void => {
     if (!lockEl || !target) return;
@@ -270,7 +328,11 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
 
   async function buy(product: 'regatta' | 'season'): Promise<void> {
     if (!me.paywall) return;
-    if (!me.user) return openSheet({ mode: 'signin', note: 'Sign in first: your pass is kept with your email.' });
+    if (!me.user) {
+      pendingBuy = { product, eventId: product === 'regatta' ? (target?.eventId ?? null) : null };
+      if (pendingBuy.product === 'regatta' && !pendingBuy.eventId) pendingBuy = null;
+      return openSheet({ mode: 'signin', note: 'Sign in first: checkout opens right after.' });
+    }
     lockMsg = 'Opening the payment page…';
     renderLock();
     const r = await startCheckout(product, product === 'regatta' ? (target?.eventId ?? null) : null, hereWithout(location.href));
@@ -305,7 +367,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     const email = (form.elements.namedItem('email') as HTMLInputElement).value.trim();
     sheet = { mode: action, email, busy: true };
     renderSheet();
-    const r = await (action === 'signin' ? sendSignInLink : sendRestoreLink)(email, hereWithout(location.href));
+    const r = action === 'signin' ? await sendSignInLink(email, hereWithout(location.href), undefined, pendingBuy) : await sendRestoreLink(email, hereWithout(location.href));
     if (r.ok) sheet = { mode: action === 'signin' ? 'sent' : 'restore-sent', email };
     else sheet = { mode: action, email, note: typeof r.body.message === 'string' ? r.body.message : "Couldn't send the email. Try again in a minute." };
     renderSheet();
@@ -317,10 +379,13 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     const a = el.dataset.pw;
     if (a === 'google') {
       ev.preventDefault();
-      location.assign(googleStartUrl(hereWithout(location.href)));
+      location.assign(googleStartUrl(hereWithout(location.href), pendingBuy));
     } else if (a === 'buy-regatta') void buy('regatta');
     else if (a === 'buy-season') void buy('season');
-    else if (a === 'signin') openSheet({ mode: 'signin' });
+    else if (a === 'signin') {
+      pendingBuy = null;
+      openSheet({ mode: 'signin' });
+    }
     else if (a === 'restore') openSheet({ mode: 'restore', email: me.paywall && me.user ? me.user.email : undefined });
     else if (a === 'close') dialog?.close();
     else if (a === 'portal') void manage();
@@ -353,7 +418,10 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     dialog.setAttribute('aria-labelledby', 'account-title');
     dialog.innerHTML = '<div class="switcher-sheet"></div>';
     document.body.appendChild(dialog);
-    openBtn.addEventListener('click', () => openSheet({ mode: me.paywall && me.user ? 'account' : 'signin' }));
+    openBtn.addEventListener('click', () => {
+      pendingBuy = null;
+      openSheet({ mode: me.paywall && me.user ? 'account' : 'signin' });
+    });
     dialog.addEventListener('close', () => {
       openBtn?.setAttribute('aria-expanded', 'false');
       openBtn?.focus();
@@ -373,6 +441,22 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
 
   /** Back from Stripe, Google or an email link: say so, tidy the URL, and wait for the pass to land. */
   async function arrive(): Promise<void> {
+    // A sign-in that carried a purchase intent: straight on to Stripe, once (the marker leaves the URL first).
+    const auto = autoCheckout(me, location.search, Date.now());
+    if (new URLSearchParams(location.search).has(BUY_PARAM)) history.replaceState(history.state, '', hereWithout(location.href));
+    if (auto && !autoStarted) {
+      autoStarted = true;
+      o.notice('Opening the payment page…');
+      const r = await startCheckout(auto.product, auto.eventId, hereWithout(location.href), undefined, auto.intent);
+      if (r.ok && typeof r.body.url === 'string') {
+        location.assign(r.body.url);
+        return;
+      }
+      o.notice('');
+      // 409: the pass is held after all (refresh unlocks); anything else leaves the lock card to click.
+      if (r.status === 409 || r.status === 401) await refresh();
+      return;
+    }
     const p = returnParam(location.search);
     if (!p) return;
     history.replaceState(history.state, '', hereWithout(location.href));

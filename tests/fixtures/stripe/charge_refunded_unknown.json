@@ -1,0 +1,25 @@
+{
+  "id": "evt_test_ChRefundOther0001",
+  "object": "event",
+  "api_version": "2025-09-30.clover",
+  "created": 1792756800,
+  "livemode": false,
+  "type": "charge.refunded",
+  "data": {
+    "object": {
+      "id": "ch_test_Other0001",
+      "object": "charge",
+      "amount": 2500,
+      "amount_captured": 2500,
+      "amount_refunded": 2500,
+      "refunded": true,
+      "currency": "usd",
+      "customer": "cus_test_Other0001",
+      "payment_intent": "pi_test_Other0001",
+      "metadata": {},
+      "status": "succeeded",
+      "livemode": false
+    },
+    "previous_attributes": { "amount_refunded": 0, "refunded": false }
+  }
+}

@@ -3,8 +3,9 @@
  * so tests call it directly). Stripe's REST API with plain `fetch` (form-encoded), no SDK; the
  * webhook's signature is checked with WebCrypto.
  *
- *   POST /api/billing/checkout  { product: 'regatta' | 'season', eventId?, returnTo } → { url } (a Checkout Session)
- *   POST /api/billing/webhook   Stripe's events (signed): purchases and entitlements, idempotently
+ *   POST /api/billing/checkout  { product: 'regatta' | 'season', eventId?, returnTo } → { url } (a Checkout Session); an
+ *                               Origin header from this site (or https walkeforward.com) is required, as for the portal
+ *   POST /api/billing/webhook   Stripe's events (signed): purchases and entitlements, idempotently; a full refund revokes
  *   POST /api/billing/portal    → { url } of Stripe's Billing Portal for the signed-in customer (Manage
  *                               subscription); an Origin header from this site (or https walkeforward.com) is required
  *
@@ -17,22 +18,28 @@
  * With PAYWALL_ENABLED off every route here, the webhook included, is the proxy's 404 and D1 is never
  * touched (try purchases end to end on a Preview deployment with the flag on).
  */
-import { unlocks, type Scope } from './_entitlements';
+import type { Scope } from './_entitlements';
 import {
   ensureUser,
   entitlementBySubscription,
+  entitlementRowsOf,
   eventSeen,
   grant,
+  isGiftRow,
   markEvent,
+  purchaseById,
+  purchaseByRef,
   recordPurchase,
+  revokeEntitlement,
   setExpiry,
   setStripeCustomer,
   userById,
   userByStripeCustomer,
   type D1Like,
+  type EntitlementRow,
   type UserRow,
 } from './_authDb';
-import { crossSite, originRefused, safeReturnTo, unavailable, withParam } from './_auth';
+import { intentHeld, originRefused, readBuy, safeReturnTo, unavailable, withParam } from './_auth';
 import { jsonOut, notFound, paywallOn, viewerOf, type PaywallDeps, type PaywallEnv } from './_paywall';
 import { readCapped } from './_vkx';
 import { endpointPath } from './_lib';
@@ -145,8 +152,9 @@ const signInFirst = (): Response => jsonOut(401, { error: 'sign_in_required', me
 async function checkout(ctx: BillingCtx, deps: PaywallDeps): Promise<Response> {
   const env = ctx.env;
   const req = ctx.request;
+  // As strict as the portal: an Origin header (every browser sends one on a fetch POST) from this site or walkeforward.com.
+  if (originRefused(req)) return jsonOut(403, { error: 'forbidden' });
   if (!env.AUTH_DB) return jsonOut(503, { error: 'not_configured', message: 'Sign-in is not set up on this site yet.' });
-  if (crossSite(req)) return jsonOut(403, { error: 'forbidden' });
   const now = (deps.now ?? Date.now)();
   const v = await viewerOf(req, env, now);
   if (!v.user) return signInFirst();
@@ -162,10 +170,16 @@ async function checkout(ctx: BillingCtx, deps: PaywallDeps): Promise<Response> {
   if (product !== 'regatta' && product !== 'season') return jsonOut(400, { error: 'bad_product' });
   const eventId = typeof body.eventId === 'string' && EVENT_ID_RE.test(body.eventId) ? body.eventId : null;
   if (product === 'regatta' && !eventId) return jsonOut(400, { error: 'bad_event' });
+  // The page's automatic checkout after sign-in sends the server's signed marker: it must be this user's,
+  // unexpired, for this very product and event (a stale or forged one starts nothing).
+  if (body.intent !== undefined) {
+    const b = await readBuy(env.AUTH_SECRET?.trim() ?? '', body.intent, v.user.id, now);
+    if (!b || b.product !== product || b.eventId !== (product === 'regatta' ? eventId : null)) return jsonOut(400, { error: 'bad_intent' });
+  }
   const price = (product === 'regatta' ? env.STRIPE_PRICE_REGATTA : env.STRIPE_PRICE_SEASON)?.trim();
   if (!env.STRIPE_SECRET_KEY?.trim() || !price) return jsonOut(503, { error: 'not_configured', message: 'Payments are not set up on this site yet.' });
   const user = v.user;
-  const has = v.entitlements.some((e) => (product === 'season' ? e.scope !== 'regatta' : true) && unlocks(e, user.id, product === 'season' ? null : eventId, now));
+  const has = intentHeld(v.entitlements, user.id, { product, eventId }, now);
   if (has) return jsonOut(409, { error: 'already_entitled', message: product === 'season' ? 'You already have a pass that covers every regatta.' : 'This regatta is already unlocked for you.' });
   const origin = new URL(req.url).origin;
   const back = new URL(safeReturnTo(body.returnTo, origin), origin).href;
@@ -239,7 +253,7 @@ export function invoiceSubscription(inv: Obj): string | null {
   return null;
 }
 
-export type WebhookOutcome = 'granted' | 'extended' | 'updated' | 'ended' | 'ignored' | 'duplicate';
+export type WebhookOutcome = 'granted' | 'extended' | 'updated' | 'ended' | 'revoked' | 'ignored' | 'duplicate';
 
 async function findBuyer(db: D1Like, s: Obj, now: number): Promise<UserRow | null> {
   const meta = obj(s.metadata);
@@ -297,7 +311,8 @@ async function onInvoicePaid(db: D1Like, inv: Obj, now: number): Promise<Webhook
   return 'extended';
 }
 
-const ENDED = new Set(['canceled', 'unpaid', 'incomplete_expired']);
+/** Statuses that end access now (`paused`: a trial ended without a payment method; resuming makes it active again). */
+export const ENDED = new Set(['canceled', 'unpaid', 'incomplete_expired', 'paused']);
 
 async function onSubscriptionChange(db: D1Like, sub: Obj, deleted: boolean, now: number): Promise<WebhookOutcome> {
   const id = str(sub.id);
@@ -316,6 +331,65 @@ async function onSubscriptionChange(db: D1Like, sub: Obj, deleted: boolean, now:
   return 'updated';
 }
 
+/** Fully refunded (`refunded`, or the whole amount back); a partial refund keeps the pass. */
+export function fullyRefunded(ch: Obj): boolean {
+  if (ch.refunded === true) return true;
+  const amount = num(ch.amount);
+  const back = num(ch.amount_refunded);
+  return amount != null && back != null && amount > 0 && back >= amount;
+}
+
+/**
+ * The Stripe-bought entitlements a charge paid for, from what the charge carries and D1 already
+ * holds (no Stripe API call, no schema change); none when it can't be tied (another product on the
+ * account, or an API version whose charges name no invoice: README "Paywall", Refunds):
+ *  - a Regatta Pass: the charge's metadata (product, user_id, event_id), which Stripe copies onto the
+ *    charge from the PaymentIntent, where Checkout put payment_intent_data[metadata]; the user's
+ *    regatta entitlement for that event that a Stripe purchase granted (never a gift);
+ *  - a Season Pass invoice: the charge's `invoice`. Its subscription when the invoice is expanded;
+ *    else a renewal recorded as a purchase (provider_ref in_…) names the user; else (the first
+ *    invoice, the checkout's own) the charge's customer, when that user holds exactly one Stripe
+ *    season entitlement and its purchase was for this very amount.
+ */
+async function chargeEntitlements(db: D1Like, ch: Obj): Promise<EntitlementRow[]> {
+  const meta = obj(ch.metadata);
+  const userId = str(meta.user_id);
+  if (meta.product === 'regatta' && userId) {
+    const eventId = str(meta.event_id);
+    if (!eventId || !EVENT_ID_RE.test(eventId)) return [];
+    const rows = (await entitlementRowsOf(db, userId)).filter((e) => e.scope === 'regatta' && e.event_id === eventId && e.purchase_id && !isGiftRow(e));
+    const out: EntitlementRow[] = [];
+    for (const e of rows) if ((await purchaseById(db, e.purchase_id!))?.provider === 'stripe') out.push(e);
+    return out;
+  }
+  const invoiceId = idOf(ch.invoice);
+  if (!invoiceId) return [];
+  const sub = invoiceSubscription(obj(ch.invoice));
+  if (sub) {
+    const ent = await entitlementBySubscription(db, sub);
+    return ent ? [ent] : [];
+  }
+  const renewal = await purchaseByRef(db, invoiceId);
+  const customer = idOf(ch.customer);
+  const owner = renewal?.provider === 'stripe' ? renewal.user_id : customer ? ((await userByStripeCustomer(db, customer))?.id ?? null) : null;
+  if (!owner) return [];
+  const seasons = (await entitlementRowsOf(db, owner)).filter((e) => e.scope !== 'regatta' && e.subscription_id && e.revoked_at == null && !isGiftRow(e));
+  if (seasons.length !== 1) return [];
+  if (renewal?.provider === 'stripe') return seasons;
+  const bought = seasons[0].purchase_id ? await purchaseById(db, seasons[0].purchase_id) : null;
+  const amount = num(ch.amount);
+  return bought && bought.amount != null && bought.amount === amount ? seasons : [];
+}
+
+/** charge.refunded: a full refund revokes what the charge paid for (idempotently: the first revocation stands). */
+async function onChargeRefunded(db: D1Like, ch: Obj, now: number): Promise<WebhookOutcome> {
+  if (!fullyRefunded(ch)) return 'ignored';
+  const ents = await chargeEntitlements(db, ch);
+  if (!ents.length) return 'ignored';
+  for (const e of ents) await revokeEntitlement(db, e.id, now);
+  return 'revoked';
+}
+
 /** Apply one verified event; replays (same event id) do nothing. */
 export async function applyEvent(db: D1Like, ev: Obj, now: number): Promise<WebhookOutcome> {
   const id = str(ev.id);
@@ -328,6 +402,9 @@ export async function applyEvent(db: D1Like, ev: Obj, now: number): Promise<Webh
   else if (type === 'invoice.paid') out = await onInvoicePaid(db, o, now);
   else if (type === 'customer.subscription.updated') out = await onSubscriptionChange(db, o, false, now);
   else if (type === 'customer.subscription.deleted') out = await onSubscriptionChange(db, o, true, now);
+  else if (type === 'charge.refunded') out = await onChargeRefunded(db, o, now);
+  // charge.dispute.created is not handled: a dispute names its charge and PaymentIntent by id only (no
+  // metadata), so tying it to a pass needs a Stripe API call or a stored charge id (README "Paywall").
   // Recorded after it is applied: a failure part-way is retried by Stripe, and every write above is idempotent.
   await markEvent(db, id, type, now);
   return out;

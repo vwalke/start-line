@@ -24,6 +24,8 @@ export interface Entitlement {
   /** Coach plan seats, owner excluded. */
   seats: number | null;
   revokedAt: number | null;
+  /** A gift pass (scripts/grant-gift.mjs), not a purchase. */
+  gift?: boolean;
   /** Coach plan: member user ids, in the order they joined. */
   members?: string[];
 }
@@ -70,6 +72,8 @@ export interface PassView {
   seats: number | null;
   /** The user owns it (false: a seat on someone's Coach plan). */
   owner: boolean;
+  /** A gift pass (nothing to manage in Stripe). */
+  gift?: true;
 }
 
 /** The entitlements worth listing: active now, newest first. */
@@ -77,7 +81,7 @@ export function passViews(ents: readonly Entitlement[], userId: string, now: num
   return ents
     .filter((e) => isActive(e, now) && (e.scope !== 'coach' || coachCovers(e, userId)))
     .sort((a, b) => b.startsAt - a.startsAt)
-    .map((e) => ({ scope: e.scope, eventId: e.eventId, startsAt: e.startsAt, expiresAt: e.expiresAt, seats: e.seats, owner: e.userId === userId }));
+    .map((e) => ({ scope: e.scope, eventId: e.eventId, startsAt: e.startsAt, expiresAt: e.expiresAt, seats: e.seats, owner: e.userId === userId, ...(e.gift ? { gift: true as const } : {}) }));
 }
 
 /** The page's check on /api/auth/me's list (the passes there are the user's own, already filtered). */

@@ -1,0 +1,25 @@
+{
+  "id": "evt_test_ChRefundPartial0001",
+  "object": "event",
+  "api_version": "2025-09-30.clover",
+  "created": 1792756800,
+  "livemode": false,
+  "type": "charge.refunded",
+  "data": {
+    "object": {
+      "id": "ch_test_Regatta0001",
+      "object": "charge",
+      "amount": 5000,
+      "amount_captured": 5000,
+      "amount_refunded": 2000,
+      "refunded": false,
+      "currency": "usd",
+      "customer": "cus_test_Regatta0001",
+      "payment_intent": "pi_test_Regatta0001",
+      "metadata": { "product": "regatta", "event_id": "fDHdPcEOM6mcMRkdXNnj", "user_id": "set-by-the-test" },
+      "status": "succeeded",
+      "livemode": false
+    },
+    "previous_attributes": { "amount_refunded": 0 }
+  }
+}

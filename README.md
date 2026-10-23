@@ -1234,17 +1234,28 @@ from the environment (test mode first).
 - `/api/vkx/data` (boat logs): race 1's are free, others need a pass.
 - `/api/coach/ask`: free only when the server can tell the question is
   about race 1 alone, from the regatta document it fetches itself rather
-  than the page's labels: the Race view with no regatta section, ids naming
+  than the page's labels, over the whole parsed request
+  (`askRequestIsFree`): the Race view with no regatta section, ids naming
   the division's race 1, and a context whose division, event name and race
-  name agree, whose header shows race 1's gun on the venue clock (±1 min),
-  and whose header and card windows hold only clock times inside race 1's
-  free window. Anything else (another race, the Regatta view, a context
-  naming another race's gun or times, or one it can't check) needs a pass
-  for the event. **Residual risk:** the question, earlier turns and the
-  cards' wording are free text that can't be policed; what the check holds
-  is that a request labelled race 1 must carry race 1's own identity and
-  times, so Recall's analysis of races 2+ isn't answered for free by simply
-  relabelling it.
+  name agree, whose header shows race 1's gun on the venue clock (±1 min);
+  then every string of the context (every field), the question and the
+  earlier turns may name no other race (`R3`, `Race 3`, `RS 4`, `races 2`,
+  `race #5`: only race 1's own names pass), hold no clock time outside race
+  1's free window (±1 min) and no ISO or Unix timestamp. The page's own
+  m:ss durations that read like clock times (a leg's `fastest … 15:54`, the
+  start card's `2 tacks by 2:48`) are exempt where the page puts them, and
+  in the question and turns only the ones the context shows (answers quote
+  them). The context is capped at 8,000 characters as JSON and the earlier
+  turns at 6,000 (the page's race 1 contexts run 1.5–3k; its turns are 3
+  questions and 3 answers of about 200 words), so a bulk paste can't ride
+  along. Anything else needs a pass for the event (401 / 402). **Residual
+  risk:** a sailor (or a script) can still type anything that names no
+  other race and no clock time outside race 1 (prose, numbers, a
+  leg-time-shaped `13:46`), within the caps, and ordinal wording ("the
+  second race") isn't parsed. Recall itself never serves paid data here:
+  the answer is the model's, from what the request carries, and Recall's
+  analysis of races 2+ (tracks, Coach cards) comes only through the gated
+  routes.
 - Not gated: `/api/landing`, `/api/regatta` (the lock card shows the race
   header and RaceSense finishes from it), `/api/wind`, `/api/ys/*`,
   `/api/vkx/list`.
@@ -1298,7 +1309,10 @@ webhook for an unknown address creates its user and signing in with that
 address restores everything.
 
 **Payments** (`functions/_stripe.ts`): `POST /api/billing/checkout`
-(signed in, else 401) creates a Checkout Session with `fetch`
+(signed in, else 401; an `Origin` header from this site or an https
+walkeforward.com page, as for the portal: missing, `null` or cross-site is
+403, and every browser sends `Origin` on the page's fetch POST) creates a
+Checkout Session with `fetch`
 (`mode=payment` + `STRIPE_PRICE_REGATTA`, or `mode=subscription` +
 `STRIPE_PRICE_SEASON`; metadata product / event id / user id;
 `client_reference_id`; the known customer or `customer_email`; success and
@@ -1313,9 +1327,34 @@ approved**; it lives in `managedPaymentsParams` only. `POST
 handles `checkout.session.completed` / `…async_payment_succeeded` (purchase
 and pass), `invoice.paid` (season extended to the line's period end),
 `customer.subscription.updated` (expiry follows the period end, so a
-subscription cancelled at period end keeps access until then) and
-`customer.subscription.deleted` (ends at `ended_at`); anything else is 200
-and ignored. Idempotent twice over: handled event ids (`stripe_events`) and
+subscription cancelled at period end keeps access until then; `canceled`,
+`unpaid`, `incomplete_expired` and `paused` end it now, and a resumed one
+runs to its period end again), `customer.subscription.deleted` (ends at
+`ended_at`) and `charge.refunded` (below); anything else is 200 and
+ignored.
+
+*Refunds.* A **full** refund (`refunded`, or `amount_refunded` ≥
+`amount`) revokes what the charge paid for (`entitlements.revoked_at`,
+which stops it unlocking from the next request; the first revocation's
+time stands, so replays and later refund events are no-ops); a partial
+refund keeps the pass. No schema change and no Stripe API call: a *Regatta
+Pass* is found by the charge's `metadata` (product, user_id, event_id:
+Checkout puts them on the PaymentIntent through
+`payment_intent_data[metadata]`, and Stripe copies a PaymentIntent's
+metadata onto its charges; **confirm on a test-mode refund that the charge
+shows them**). A *Season Pass* is found by the charge's `invoice`: its
+subscription when the invoice is expanded, else a renewal recorded as an
+`in_…` purchase names the user, else (the first invoice, the checkout's
+own) the charge's customer, when that user holds exactly one Stripe season
+pass bought for that very amount. On API versions from 2025-03-31.basil a
+charge no longer names its invoice, so a season refund there is ignored:
+cancel the subscription in Stripe as well (immediately), which sends
+`customer.subscription.deleted` and ends access. A charge it can't tie to a
+pass (another product on the account) is ignored; gift passes are never
+touched. *Disputes* (`charge.dispute.created`) are not handled: a dispute
+names its charge and PaymentIntent by id only, with no metadata, so tying
+it to a pass needs a Stripe API call or a stored charge id (a schema
+change); revoke by hand (or refund) if a dispute is lost. Idempotent twice over: handled event ids (`stripe_events`) and
 unique keys (`purchases.provider_ref`, `entitlements.purchase_id`,
 `entitlements.subscription_id`). With the flag off the webhook is the
 proxy's 404 like every other billing route and writes nothing, so try
@@ -1335,7 +1374,38 @@ document, a blurred placeholder chart (no tracks are fetched), "See the
 start, every leg and Coach's top 3 for every boat in R2–R8", **Unlock this
 regatta — $50**, **Season Pass — $149/yr**, and "Race 1 is free · Already
 bought? Sign in · Restore access". Back from Checkout it re-reads
-`/api/auth/me` until the pass lands, then unlocks.
+`/api/auth/me` until the pass lands, then unlocks. Only the sign-in methods
+`/api/auth/me` reports (`signIn.email`, `signIn.google`) are shown: with
+email off there is no email form, no Restore access (it sends an email) and
+no "check your email" (the lock card reads "Race 1 is free · Already bought?
+Sign in"); with Google off, no Google button; with neither, "Sign-in is
+unavailable right now" instead of buttons.
+
+*Checkout through sign-in.* A signed-out sailor who clicks a pass is asked
+to sign in, and the pass goes along: in Google's signed state cookie, or in
+the magic link's stored `return_to` (D1, written only by the server, single
+use, 15 minutes). After the callback or the link's confirm, the server
+re-validates it (product, `EVENT_ID_RE`) and, unless the user already holds
+that pass (bought earlier, or a gift that just attached: the race simply
+opens), sends them back to the race with a one-time `buy=` marker: the
+intent, the user id and a 10-minute expiry, HMAC-signed with `AUTH_SECRET`.
+The page strips the marker from the URL at once and, signed in and not yet
+holding the pass, POSTs it with `/api/billing/checkout` once; checkout
+accepts a marker only for the session's user, unexpired, for that very
+product and event (else 400), and the session and Origin rules apply as for
+a click (a held pass is 409: the page re-reads `/me` and unlocks). The page
+starts checkout itself (rather than the callback creating the session and
+redirecting to Stripe) so there is one checkout path, no Stripe call or
+off-site redirect in the sign-in routes, and a forged or stale marker starts
+nothing. An event opened with no
+`race=` (a bare link, the latest event, a pick in the event menu) lands on
+the latest finished race as always, except for a viewer without access to
+that regatta: then on race 1 of that race's division, as the server counts
+it (`defaultRaceFor` in `src/ui/paywall.ts`), so a first visit opens on the
+free race rather than a lock card; the URL names the race shown. The choice
+waits for `/api/auth/me` (asked at load; the first race waited for it
+already), so there is no flash of the lock card. A link naming a locked race
+still shows the lock card.
 
 **Database.** D1 bound as `AUTH_DB`; schema in
 `migrations/0001_paywall.sql` (users, sessions, login_tokens, purchases,
@@ -1379,7 +1449,55 @@ price ids only; the prices on the page (`PRICE_REGATTA` / `PRICE_SEASON` in
 Webhook endpoint: `https://recall.walkeforward.com/api/billing/webhook`,
 events `checkout.session.completed`,
 `checkout.session.async_payment_succeeded`, `invoice.paid`,
-`customer.subscription.updated`, `customer.subscription.deleted`.
+`customer.subscription.updated`, `customer.subscription.deleted`,
+`charge.refunded`.
+
+### Admin: gift passes
+
+A free pass locked to an email address: a Season Pass, or a Regatta Pass for
+one event id, with an optional expiry (default none). No codes and no public
+endpoint: `scripts/grant-gift.mjs` (node, no dependencies) builds the SQL and
+runs it with `npx wrangler d1 execute <db> --remote --command …` (`--local`
+for a local D1, `--print` to show the SQL and run nothing; `--db` defaults to
+`recall-auth`). These change production data: run them by hand, never from CI.
+
+```sh
+# Season Pass for an address (no expiry):
+node scripts/grant-gift.mjs grant season --email sailor@example.com
+# … through 31 Oct 2027 (UTC), with a note (shown in the output only):
+node scripts/grant-gift.mjs grant season --email sailor@example.com --expires 2027-10-31 --note "race committee"
+# Regatta Pass for one event:
+node scripts/grant-gift.mjs grant regatta --event fDHdPcEOM6mcMRkdXNnj --email sailor@example.com
+# Revoke (signed in yet or not; the pass stops unlocking at once):
+node scripts/grant-gift.mjs revoke season --email sailor@example.com
+node scripts/grant-gift.mjs revoke regatta --event fDHdPcEOM6mcMRkdXNnj --email sailor@example.com
+node scripts/grant-gift.mjs revoke --id gift_0123456789abcdef01234567
+# Every gift (or one address's): id, email, scope, event, starts, expires, revoked, signed_in
+node scripts/grant-gift.mjs list
+node scripts/grant-gift.mjs list --email sailor@example.com
+# Show the SQL only:
+node scripts/grant-gift.mjs grant season --email sailor@example.com --print
+```
+
+How it works (no migration: the tables of `migrations/0001_paywall.sql`
+only): a gift is a `purchases` row (`provider 'gift'`, `provider_ref
+'gift:<key>'`, amount 0, status `gift`) and its entitlement, both with the id
+`gift_<key>`, where the key comes from the email (lower-cased, trimmed), the
+scope and the event id. They belong to the user with that email, created if
+new (as a Stripe webhook does for a buyer with no account), so the pass
+unlocks nothing until someone signs in as that very address: a magic link
+proves it, Google only with a verified email (and links by it), and every
+session comes from one of the two. An existing user gets it on their next
+request. Granting the same gift again changes nothing but its expiry (and
+lifts a revocation); revoking twice keeps the first revocation's time.
+Inputs are checked strictly (the server's email and event-id patterns; dates
+as YYYY-MM-DD, not past) and quoted as SQL strings; wrangler runs without a
+shell. The page lists it as "Season Pass (gift)", with no Manage
+subscription; refunds never touch it; Restore access sends that address a
+link. Caveats: the note isn't stored (no column for it); a gift for an
+address other than the one a Google-linked account was made with is a
+separate account (sign in with a link to that address); `signed_in` in the
+list means the address has a session now.
 
 ## Local development
 

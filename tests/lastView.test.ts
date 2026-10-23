@@ -284,8 +284,9 @@ describe('app wiring', () => {
     expect(app).toMatch(/addEventListener\('pageshow'[\s\S]{0,120}persisted/);
   });
 
-  it('picks races through pickRace, strictly for a restore', () => {
-    expect(app).toContain('pickRace(races, want, defaultRace(doc), opts.strict)');
+  it('picks races through pickRace (via the paywall-aware startRace), strictly for a restore', () => {
+    expect(app).toMatch(/startRace\(races, want, defaultRace\(doc\), \{[^}]*\}, opts\.strict\)/);
+    expect(readFileSync(new URL('../src/ui/paywall.ts', import.meta.url), 'utf8')).toContain('pickRace(races, want, defaultRaceFor(races, last, o), strict)');
     expect(app).toMatch(/loadEvent\(id, want, \{ strict: true, view: p\.view \}\)/);
     expect(app).not.toMatch(/\?\? defaultRace\(doc\) \?\? races\[0\]/);
   });

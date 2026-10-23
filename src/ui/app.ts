@@ -61,7 +61,6 @@ import {
   applyView,
   clearLastView,
   isTransientError,
-  pickRace,
   readLastView,
   resolveStart,
   startTab,
@@ -190,7 +189,7 @@ import {
 import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
 import { carryView, clampView, clientToChart, fitView, presetActive, viewBox, type Box, type View } from './view';
 import { createVkxUpload } from './vkxUpload';
-import { createPaywall, lockedRange } from './paywall';
+import { createPaywall, lockedRange, startRace } from './paywall';
 import { freeRacesOf, type FreeRaces } from '../data/freeRace';
 import { isPaywallError } from '../data/paywall';
 
@@ -2380,7 +2379,11 @@ export function startApp(): void {
         list = raceList ?? list;
       }
       const races = list.races;
-      const pick = pickRace(races, want, defaultRace(doc), opts.strict);
+      // The default race depends on the viewer's passes (race 1 for a regatta they can't open): /api/auth/me
+      // first (already asked at load; loadRace waits for it anyway), so the free race opens without a lock card's flash.
+      await paywall.ready;
+      if (req !== eventReq) return 'superseded';
+      const pick = startRace(races, want, defaultRace(doc), { me: paywall.me(), free: () => freeOf(next), eventId: id, now: Date.now() }, opts.strict);
       if (!pick) return 'missing';
       els.race.value = `${pick.division}|${pick.raceNumber}`;
       const wanted = want && pick.division === want.division && pick.raceNumber === want.raceNumber;

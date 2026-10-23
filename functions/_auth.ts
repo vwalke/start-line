@@ -19,7 +19,8 @@
  * Email goes out through EMAIL_PROVIDER: resend | cloudflare | log (log is the default on
  * localhost only; elsewhere an unset provider is a 503, never a silently logged link).
  */
-import { passViews } from './_entitlements';
+import { passViews, unlocks, type Entitlement } from './_entitlements';
+import { EVENT_ID_RE } from '../src/data/vkx/validate';
 import {
   consumeLoginToken,
   createLoginToken,
@@ -291,7 +292,7 @@ async function sendLink(ctx: AuthCtx, db: D1Like, email: string, returnTo: strin
 }
 
 /** Shared by email and restore: checks, limits, then `send` (or not) — the answer never says which. */
-async function linkRequest(ctx: AuthCtx, deps: AuthDeps, send: (db: D1Like, email: string, returnTo: string) => Promise<SendResult>): Promise<Response> {
+async function linkRequest(ctx: AuthCtx, deps: AuthDeps, send: (db: D1Like, email: string, returnTo: string, body: Record<string, unknown> | null) => Promise<SendResult>): Promise<Response> {
   const db = ctx.env.AUTH_DB;
   if (!db) return notConfigured('Sign-in');
   const req = ctx.request;
@@ -309,13 +310,17 @@ async function linkRequest(ctx: AuthCtx, deps: AuthDeps, send: (db: D1Like, emai
     if (!byEmail || !byIp) return jsonOut(429, { error: 'rate_limited', message: 'Too many sign-in emails. Try again in an hour.' });
   }
   const returnTo = safeReturnTo(body?.returnTo, new URL(req.url).origin);
-  const r = await send(db, email, returnTo);
+  const r = await send(db, email, returnTo, body);
   if (!r.ok) return jsonOut(r.status, { error: 'email_failed', message: r.error });
   return jsonOut(200, { ok: true });
 }
 
 function emailRoute(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
-  return linkRequest(ctx, deps, (db, email, returnTo) => sendLink(ctx, db, email, returnTo, deps));
+  // A pass clicked while signed out rides along in the stored return_to (server-side, single use, 15 minutes).
+  return linkRequest(ctx, deps, (db, email, returnTo, body) => {
+    const buy = body?.buy && typeof body.buy === 'object' ? (body.buy as Record<string, unknown>) : null;
+    return sendLink(ctx, db, email, linkReturnTo(returnTo, buy ? parseIntent(buy.product, buy.eventId) : null), deps);
+  });
 }
 
 /** Restore access: a link only for an email with purchases (or a user with passes); the same answer either way. */
@@ -326,7 +331,7 @@ function restoreRoute(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
       const u = await userByEmail(db, email);
       bought = !!u && (await entitlementsOf(db, u.id)).length > 0;
     }
-    return bought ? sendLink(ctx, db, email, returnTo, deps) : { ok: true };
+    return bought ? sendLink(ctx, db, email, linkReturnTo(returnTo, null), deps) : { ok: true };
   });
 }
 
@@ -380,7 +385,8 @@ async function verifyRoute(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   if (!used) return redirect('/?signin=expired', [], 303);
   const user = await ensureUser(db, used.email, now);
   const cookie = await startSession(db, user, req, ctx.env, now);
-  return redirect(safeReturnTo(used.returnTo, new URL(req.url).origin), [cookie], 303);
+  const { returnTo, buy } = splitLinkReturnTo(safeReturnTo(used.returnTo, new URL(req.url).origin));
+  return redirect(await afterSignIn(db, ctx.env, user, returnTo, buy, now), [cookie], 303);
 }
 
 async function logoutRoute(ctx: AuthCtx): Promise<Response> {
@@ -413,7 +419,91 @@ export interface OAuthState {
   verifier: string;
   returnTo: string;
   exp: number;
+  /** What the sailor was buying when they were asked to sign in (validated before it is signed in here). */
+  buy?: BuyIntent;
 }
+
+// ---- purchase intent, carried through sign-in
+
+/** The pass a signed-out sailor clicked: checked against the product list and EVENT_ID_RE, else none. */
+export interface BuyIntent {
+  product: 'regatta' | 'season';
+  eventId: string | null;
+}
+
+export function parseIntent(product: unknown, eventId: unknown): BuyIntent | null {
+  if (product === 'season') return { product, eventId: null };
+  if (product === 'regatta' && typeof eventId === 'string' && EVENT_ID_RE.test(eventId)) return { product, eventId };
+  return null;
+}
+
+/** The marker's query parameter (one-time, for the page) and its life. */
+export const BUY_PARAM = 'buy';
+export const BUY_TTL_MS = 10 * 60_000;
+
+/**
+ * `payload.signature` (base64url JSON, HMAC-SHA256 under AUTH_SECRET with a purpose prefix): the
+ * intent, the user it was signed for, and its expiry. The page hands it back to /api/billing/checkout,
+ * which accepts it only for that user, unexpired, for the same product and event.
+ */
+export async function signBuy(secret: string, b: BuyIntent & { userId: string; exp: number }): Promise<string> {
+  const payload = b64url(new TextEncoder().encode(JSON.stringify({ p: b.product, e: b.eventId, u: b.userId, x: b.exp })));
+  return `${payload}.${await hmac(secret, `recall-buy:${payload}`)}`;
+}
+
+export async function readBuy(secret: string, raw: unknown, userId: string, now: number): Promise<BuyIntent | null> {
+  if (typeof raw !== 'string' || raw.length > 600 || !secret) return null;
+  const [payload, sig, extra] = raw.split('.');
+  if (!payload || !sig || extra !== undefined || !sameText(sig, await hmac(secret, `recall-buy:${payload}`))) return null;
+  try {
+    const o = JSON.parse(fromB64url(payload)) as { p?: unknown; e?: unknown; u?: unknown; x?: unknown };
+    if (o.u !== userId || typeof o.x !== 'number' || now >= o.x) return null;
+    return parseIntent(o.p, o.e);
+  } catch {
+    return null;
+  }
+}
+
+/** Does the user already hold what the intent would buy (a pass for that event, or one for every regatta)? */
+export const intentHeld = (ents: readonly Entitlement[], userId: string, b: BuyIntent, now: number): boolean =>
+  ents.some((e) => (b.product === 'season' ? e.scope !== 'regatta' : true) && unlocks(e, userId, b.product === 'season' ? null : b.eventId, now));
+
+/** A return path without any buy marker (the server adds its own, signed). */
+const withoutBuy = (to: string): string => {
+  const abs = /^https?:/i.test(to);
+  const u = new URL(to, 'https://x.invalid');
+  u.searchParams.delete(BUY_PARAM);
+  return abs ? u.href : `${u.pathname}${u.search}${u.hash}`;
+};
+
+/**
+ * Where a fresh sign-in goes: returnTo, plus a signed one-time buy marker when there was an intent, the
+ * user doesn't hold that pass already (then the race just opens), and AUTH_SECRET can sign it.
+ */
+async function afterSignIn(db: D1Like, env: PaywallEnv, user: UserRow, returnTo: string, buy: BuyIntent | null, now: number): Promise<string> {
+  const to = withoutBuy(returnTo);
+  if (!buy || !env.AUTH_SECRET) return to;
+  if (intentHeld(await entitlementsOf(db, user.id), user.id, buy, now)) return to;
+  return withParam(to, BUY_PARAM, await signBuy(env.AUTH_SECRET, { ...buy, userId: user.id, exp: now + BUY_TTL_MS }));
+}
+
+/** The magic link's stored return_to carries the intent server-side (D1, written only here) as this parameter. */
+const LINK_BUY_PARAM = 'pw_buy';
+const linkReturnTo = (returnTo: string, buy: BuyIntent | null): string => {
+  const to = withoutBuy(returnTo);
+  const u = new URL(to, 'https://x.invalid');
+  u.searchParams.delete(LINK_BUY_PARAM);
+  if (buy) u.searchParams.set(LINK_BUY_PARAM, buy.product === 'regatta' ? `regatta.${buy.eventId}` : 'season');
+  return /^https?:/i.test(to) ? u.href : `${u.pathname}${u.search}${u.hash}`;
+};
+const splitLinkReturnTo = (stored: string): { returnTo: string; buy: BuyIntent | null } => {
+  const abs = /^https?:/i.test(stored);
+  const u = new URL(stored, 'https://x.invalid');
+  const raw = u.searchParams.get(LINK_BUY_PARAM) ?? '';
+  u.searchParams.delete(LINK_BUY_PARAM);
+  const [product, eventId] = raw.split('.');
+  return { returnTo: abs ? u.href : `${u.pathname}${u.search}${u.hash}`, buy: parseIntent(product, eventId) };
+};
 
 /** `payload.signature`, both base64url; the signature is an HMAC-SHA256 under AUTH_SECRET. */
 export async function signState(secret: string, s: OAuthState): Promise<string> {
@@ -442,7 +532,15 @@ async function googleStart(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   const req = ctx.request;
   const url = new URL(req.url);
   const now = (deps.now ?? Date.now)();
-  const s: OAuthState = { state: randomToken(), nonce: randomToken(), verifier: randomToken(), returnTo: safeReturnTo(url.searchParams.get('returnTo'), url.origin), exp: now + OAUTH_TTL_S * 1000 };
+  const buy = parseIntent(url.searchParams.get(BUY_PARAM), url.searchParams.get('event'));
+  const s: OAuthState = {
+    state: randomToken(),
+    nonce: randomToken(),
+    verifier: randomToken(),
+    returnTo: safeReturnTo(url.searchParams.get('returnTo'), url.origin),
+    exp: now + OAUTH_TTL_S * 1000,
+    ...(buy ? { buy } : {}),
+  };
   const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s.verifier))));
   const q = new URLSearchParams({
     client_id: env.GOOGLE_CLIENT_ID!,
@@ -537,7 +635,9 @@ async function googleCallback(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
     await setGoogleSub(db, user.id, who.sub);
   }
   const cookie = await startSession(db, user, req, env, now);
-  return redirect(s.returnTo, [cookie, clear]);
+  // The signed state carried the intent (if any): re-checked before the marker is signed for this user.
+  const buy = s.buy ? parseIntent(s.buy.product, s.buy.eventId) : null;
+  return redirect(await afterSignIn(db, env, user, safeReturnTo(s.returnTo, url.origin), buy, now), [cookie, clear]);
 }
 
 // ---- the router
