@@ -1,7 +1,8 @@
 /**
  * Recall Coach, phase 1: the engine core on top of a RaceAnalysis — the
  * fleet's minute-by-minute wind (twdSeries.ts), the wind ladder and same-moment
- * gaps (ladder.ts), and the reference groups (groups.ts). Built lazily, when
+ * gaps (ladder.ts) the detectors read, the rival ladder's gaps at equal course
+ * progress (timeGap.ts), and the reference groups (groups.ts). Built lazily, when
  * the Coach tab first needs it: the wind from the raw fixes in the worker
  * (`coachWind`; the ~1 Hz drawn tracks blur the tack clusters), and the fixes
  * near the marks (`zoneTracks`, an uploaded log at its full rate), the ladder
@@ -12,7 +13,8 @@ import type { RaceAnalysis } from '../types';
 import type { RaceData } from '../../data/types';
 import { makeTwdAt, windPoints } from '../wind';
 import { groupIds, type Group } from './groups';
-import { fleetVmg, gapSeries, inferLegSpans, type Course, type GapPoint } from './ladder';
+import { fleetVmg, inferLegSpans, type Course, type GapPoint } from './ladder';
+import { legWinds, timeGapSeries } from './timeGap';
 import { lineCrossing } from './lineCross';
 import { startCross } from '../startCross';
 import { boundsOf, coachTracks, longestHole, projectCoachTrack, type CoachTrack } from './tracks';
@@ -327,7 +329,7 @@ export interface RivalLadder {
   hole: { fromMs: number; toMs: number } | null;
 }
 
-/** The chosen boat's gap to `group` over the race, every LADDER_STEP_MS from the gun to its finish (or last fix). */
+/** The chosen boat's gap to `group` over the race at equal course progress (timeGap.ts), every LADDER_STEP_MS from the gun to its finish (or last fix). */
 export function rivalLadder(m: CoachModel, a: RaceAnalysis, boat: string, g: Group, stepMs = LADDER_STEP_MS): RivalLadder | null {
   const tr = m.tracks.get(boat);
   if (!tr) return null;
@@ -342,7 +344,7 @@ export function rivalLadder(m: CoachModel, a: RaceAnalysis, boat: string, g: Gro
   return {
     boat,
     group: group.map((x) => x.id),
-    points: gapSeries(m.course, m.wind, m.vmg, tr, group, m.gunMs, toMs, stepMs),
+    points: timeGapSeries(m.course, legWinds(m.course, m.wind, m.tracks.values(), m.gunMs, m.endMs), tr, group, m.gunMs, toMs, stepMs),
     roundings,
     hole: longestHole(tr.t, m.gunMs, toMs),
   };
