@@ -13,19 +13,19 @@ import {
   type AuthCtx,
   type AuthDeps,
 } from '../functions/_auth';
-import { MAX_SESSIONS, LOGIN_TOKEN_TTL_MS, recordPurchase, ensureUser, userByEmail } from '../functions/_authDb';
-import { RateLimiter } from '../functions/_vkx';
+import { DEFAULT_MAX_SESSIONS, LOGIN_TOKEN_TTL_MS, recordPurchase, ensureUser, userByEmail } from '../functions/_authDb';
 import { cookieDomain, flagOn, sessionCookie, tokenHash, viewerOf, type PaywallEnv } from '../functions/_paywall';
 import { jsonError } from '../functions/_lib';
 import { onRequest as authRoute } from '../functions/api/auth/[[path]]';
 import { onRequestGet as proxyGet } from '../functions/api/[[path]]';
 import { MemD1 } from './d1mem';
-import { EVENT, NOW, ORIGIN, giveRegatta, paywallEnv, resetPaywallCaches, signIn } from './paywallHelpers';
+import { EVENT, NOW, ORIGIN, TURNSTILE_TOKEN, giveRegatta, paywallEnv, resetPaywallCaches, signIn, withTurnstile } from './paywallHelpers';
 
 const ctx = (request: Request, env: PaywallEnv, path: string): AuthCtx => ({ request, env, params: { path: path.split('/') } });
 const json = async (r: Response): Promise<Record<string, unknown>> => (await r.json()) as Record<string, unknown>;
-const postJson = (path: string, body: unknown, headers: Record<string, string> = {}, origin = ORIGIN): Request =>
-  new Request(`${origin}/api/auth/${path}`, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', origin, 'cf-connecting-ip': '203.0.113.9', ...headers } });
+/** A POST from the page; email and restore carry the Turnstile widget's token unless the body says otherwise. */
+const postJson = (path: string, body: Record<string, unknown>, headers: Record<string, string> = {}, origin = ORIGIN): Request =>
+  new Request(`${origin}/api/auth/${path}`, { method: 'POST', body: JSON.stringify(path === 'email' || path === 'restore' ? { turnstileToken: TURNSTILE_TOKEN, ...body } : body), headers: { 'content-type': 'application/json', origin, 'cf-connecting-ip': '203.0.113.9', ...headers } });
 
 /** The confirm page's form POST for the token in an emailed link (same origin, as a browser sends it). */
 const confirmPost = (link: string, headers: Record<string, string> = { origin: ORIGIN }): Request =>
@@ -35,13 +35,13 @@ const confirmPost = (link: string, headers: Record<string, string> = { origin: O
     headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'TestBrowser/1', ...headers },
   });
 
-/** Deps with a captured `log` mailbox and fresh limiters. */
+/** Deps with a captured `log` mailbox and Cloudflare's siteverify faked (withTurnstile). */
 function mailbox(now = NOW): AuthDeps & { sent: string[]; links: () => string[] } {
   const sent: string[] = [];
   return {
     now: () => now,
     cache: null,
-    limits: { email: new RateLimiter(EMAIL_RATE_MAX, 3_600_000), ip: new RateLimiter(20, 3_600_000) },
+    fetch: withTurnstile(),
     log: (line) => sent.push(line),
     sent,
     links: () => sent.flatMap((s) => s.match(/https?:\/\/\S+\/api\/auth\/verify\?token=[A-Za-z0-9_-]+/g) ?? []),
@@ -89,7 +89,7 @@ describe('flag', () => {
 describe('me', () => {
   it('signed out: paywall on, no user, the sign-in options configured', async () => {
     const res = await handleAuth(ctx(new Request(`${ORIGIN}/api/auth/me`), paywallEnv(new MemD1()), 'me'), mailbox());
-    expect(await json(res)).toEqual({ paywall: true, user: null, entitlements: [], signIn: { email: true, google: true } });
+    expect(await json(res)).toEqual({ paywall: true, user: null, entitlements: [], signIn: { email: true, google: true, turnstileSiteKey: 'turnstile_site_test_fake' } });
   });
 
   it('signed in: the email and the active passes', async () => {
@@ -104,7 +104,7 @@ describe('me', () => {
 
   it('with the flag on but no D1 bound: signed out, nothing to sign in with', async () => {
     const res = await handleAuth(ctx(new Request(`${ORIGIN}/api/auth/me`), paywallEnv(undefined), 'me'), mailbox());
-    expect(await json(res)).toEqual({ paywall: true, user: null, entitlements: [], signIn: { email: false, google: false } });
+    expect(await json(res)).toEqual({ paywall: true, user: null, entitlements: [], signIn: { email: false, google: false, turnstileSiteKey: 'turnstile_site_test_fake' } });
   });
 });
 
@@ -133,10 +133,12 @@ describe('magic link', () => {
     expect(await userByEmail(db, 'racer@example.com')).not.toBeNull();
     const [s] = db.rows('sessions');
     expect(s).toMatchObject({ expires_at: NOW + 60_000 + 30 * 86_400_000, user_agent: 'TestBrowser/1' });
-    // Single use: a second POST goes back to the page with a gentle "expired", no cookie.
+    // Single use: a second POST gets a page saying so (with a way back), no cookie.
     const again = await verify(NOW + 61_000);
-    expect(again.status).toBe(303);
-    expect(again.headers.get('location')).toBe('/?signin=expired');
+    expect(again.status).toBe(400);
+    expect(again.headers.get('cache-control')).toBe('no-store');
+    expect(again.headers.get('content-security-policy')).toMatch(/^default-src 'none';/);
+    expect(await again.text()).toContain('This link has expired or was already used. Open Recall and ask for a new one.');
     expect(again.headers.get('set-cookie')).toBeNull();
     expect(db.rows('sessions')).toHaveLength(1);
   });
@@ -159,7 +161,9 @@ describe('magic link', () => {
       const html = await page.text();
       expect(html).toContain('<form method="post" action="/api/auth/verify">');
       expect(html).toContain(`name="token" value="${token}"`);
-      expect(html).toContain('Sign in to Recall');
+      expect(html).toContain('<h1>Sign in to Recall</h1>');
+      expect(html).toContain('<p>Tap the button to finish signing in.</p>');
+      expect(html).toContain('<button type="submit">Sign in</button>');
       // Self-contained: no scripts, nothing loaded from anywhere.
       expect(html).not.toMatch(/<script|src=|href=|url\(/i);
     }
@@ -209,12 +213,17 @@ describe('magic link', () => {
     const env = paywallEnv(db);
     const m = mailbox();
     await handleAuth(ctx(postJson('email', { email: 'late@example.com' }), env, 'email'), m);
-    const late = await handleAuth(ctx(confirmPost(m.links()[0]), env, 'verify'), mailbox(NOW + LOGIN_TOKEN_TTL_MS));
-    expect(late.headers.get('location')).toBe('/?signin=expired');
-    const bogus = await handleAuth(ctx(confirmPost(`${ORIGIN}/api/auth/verify?token=${'A'.repeat(43)}`), env, 'verify'), mailbox());
-    expect(bogus.headers.get('location')).toBe('/?signin=expired');
-    const empty = await handleAuth(ctx(confirmPost(`${ORIGIN}/api/auth/verify`), env, 'verify'), mailbox());
-    expect(empty.headers.get('location')).toBe('/?signin=expired');
+    const expiredPage = async (res: Response): Promise<void> => {
+      expect(res.status).toBe(400);
+      expect(res.headers.get('set-cookie')).toBeNull();
+      const html = await res.text();
+      expect(html).toContain('This link has expired or was already used. Open Recall and ask for a new one.');
+      expect(html).toContain('<a href="/regattas">Open Recall</a>');
+      expect(html).not.toMatch(/<script|src=/i);
+    };
+    await expiredPage(await handleAuth(ctx(confirmPost(m.links()[0]), env, 'verify'), mailbox(NOW + LOGIN_TOKEN_TTL_MS)));
+    await expiredPage(await handleAuth(ctx(confirmPost(`${ORIGIN}/api/auth/verify?token=${'A'.repeat(43)}`), env, 'verify'), mailbox()));
+    await expiredPage(await handleAuth(ctx(confirmPost(`${ORIGIN}/api/auth/verify`), env, 'verify'), mailbox()));
     expect(db.rows('users')).toEqual([]);
   });
 
@@ -237,7 +246,7 @@ describe('magic link', () => {
 
   it('fails closed (503) with no email provider outside localhost; logs by default on localhost only', async () => {
     const db = new MemD1();
-    const env = paywallEnv(db, { EMAIL_PROVIDER: undefined });
+    const env = paywallEnv(db, { EMAIL_PROVIDER: undefined, TURNSTILE_SITE_KEY: undefined, TURNSTILE_SECRET_KEY: undefined });
     expect(emailProvider(env, 'recall.walkeforward.com')).toBeNull();
     expect(emailProvider(env, 'start-line.pages.dev')).toBeNull();
     expect(emailProvider(env, 'localhost:8788')).toBe('log');
@@ -260,24 +269,31 @@ describe('magic link', () => {
       calls.push({ url: String(url), init });
       return new Response('{}', { status });
     }) as typeof fetch;
-    const res = await handleAuth(ctx(postJson('email', { email: 'a@example.com' }), env, 'email'), { ...mailbox(), fetch: f });
+    const res = await handleAuth(ctx(postJson('email', { email: 'a@example.com' }), env, 'email'), { ...mailbox(), fetch: withTurnstile(f) });
     expect(res.status).toBe(200);
     expect(calls[0].url).toBe('https://api.resend.com/emails');
     expect(calls[0].init.headers).toMatchObject({ authorization: 'Bearer re_test_fake' });
     const sentBody = JSON.parse(String(calls[0].init.body)) as Record<string, unknown>;
     expect(sentBody).toMatchObject({ from: 'Recall <recall@walkeforward.example>', to: ['a@example.com'], subject: 'Your Recall sign-in link' });
     expect(String(sentBody.text)).toMatch(/\/api\/auth\/verify\?token=/);
+    expect(String(sentBody.html)).toContain('>Sign in to Recall</a>');
     status = 500;
-    expect((await handleAuth(ctx(postJson('email', { email: 'b@example.com' }), env, 'email'), { ...mailbox(), fetch: f })).status).toBe(502);
+    expect((await handleAuth(ctx(postJson('email', { email: 'b@example.com' }), env, 'email'), { ...mailbox(), fetch: withTurnstile(f) })).status).toBe(502);
   });
 
-  it('cloudflare provider: hands the send_email binding from, to and the raw message', async () => {
+  it('cloudflare provider: hands an email binding the builder shape (from, to, subject, html, text)', async () => {
     const sent: unknown[] = [];
-    const env = paywallEnv(new MemD1(), { EMAIL_PROVIDER: 'cloudflare', EMAIL: { send: async (msg: unknown) => void sent.push(msg) } });
+    const env = paywallEnv(new MemD1(), { EMAIL_PROVIDER: 'cloudflare', EMAIL_FROM: 'Recall <signin@walkeforward.com>', EMAIL: { send: async (msg: unknown) => void sent.push(msg) } });
     expect((await handleAuth(ctx(postJson('email', { email: 'a@example.com' }), env, 'email'), mailbox())).status).toBe(200);
-    const msg = sent[0] as { from: string; to: string; raw: string };
-    expect(msg).toMatchObject({ from: 'recall@walkeforward.example', to: 'a@example.com' });
-    expect(msg.raw).toMatch(/^From: Recall <recall@walkeforward\.example>\r\nTo: <a@example\.com>\r\nSubject: Your Recall sign-in link/);
+    const msg = sent[0] as Record<string, unknown>;
+    expect(Object.keys(msg).sort()).toEqual(['from', 'html', 'subject', 'text', 'to']);
+    expect(msg).toMatchObject({ from: { email: 'signin@walkeforward.com', name: 'Recall' }, to: 'a@example.com', subject: 'Your Recall sign-in link' });
+    expect(String(msg.text)).toMatch(/\/api\/auth\/verify\?token=/);
+    expect(String(msg.html)).toContain('Sign in to Recall');
+    const missing = paywallEnv(new MemD1(), { EMAIL_PROVIDER: 'cloudflare' });
+    const res = await handleAuth(ctx(postJson('email', { email: 'a@example.com' }), missing, 'email'), mailbox());
+    expect(res.status).toBe(503);
+    expect((await json(res)).message).toContain('(EMAIL binding)');
   });
 });
 
@@ -313,12 +329,13 @@ describe('sessions and cookies', () => {
     expect(local).toBe('wf_session=tok; Path=/; Max-Age=60; Secure; HttpOnly; SameSite=Lax');
   });
 
-  it(`keeps at most ${MAX_SESSIONS} sessions per user, revoking the oldest`, async () => {
+  it(`keeps at most ${DEFAULT_MAX_SESSIONS} live sessions per user, revoking (not deleting) the oldest`, async () => {
     const db = new MemD1();
     const env = paywallEnv(db);
     const cookies: string[] = [];
     for (let i = 0; i < 4; i++) cookies.push((await signIn(db, 'many@example.com', NOW + i * 1000)).cookie);
-    expect(db.rows('sessions')).toHaveLength(MAX_SESSIONS);
+    expect(db.rows('sessions').filter((r) => r.revoked_at == null)).toHaveLength(DEFAULT_MAX_SESSIONS);
+    expect(db.rows('sessions').filter((r) => r.revoked_at != null)).toHaveLength(1);
     const who = async (cookie: string) => (await viewerOf(new Request(ORIGIN, { headers: { cookie } }), env, NOW + 10_000)).user?.email ?? null;
     expect(await who(cookies[0])).toBeNull();
     for (const c of cookies.slice(1)) expect(await who(c)).toBe('many@example.com');

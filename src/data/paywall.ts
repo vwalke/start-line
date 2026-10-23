@@ -11,16 +11,58 @@ import type { PassView } from '../../functions/_entitlements';
 export const AUTH_BASE = '/api/auth';
 export const BILLING_BASE = '/api/billing';
 
+/** Why this browser was signed out from elsewhere: the 3-device cap, another device, or the admin. */
+export type SignedOutReason = 'device_limit' | 'remote' | 'admin';
+
+/** One signed-in device of the account (`id` is the session's public id; never a token). */
+export interface DeviceView {
+  id: string;
+  label: string;
+  method: 'email' | 'google' | null;
+  createdAt: number;
+  lastSeenAt: number;
+  current: boolean;
+}
+
+/** A device this sign-in signed out (the cap): its name and when it was last used. */
+export interface BumpedView {
+  label: string;
+  lastSeenAt: number;
+}
+
 export type Me =
   | { paywall: false }
   | {
       paywall: true;
       user: { email: string } | null;
       entitlements: PassView[];
-      signIn: { email: boolean; google: boolean };
+      /** turnstileSiteKey: the email forms' Turnstile widget (null or absent: none). */
+      signIn: { email: boolean; google: boolean; turnstileSiteKey?: string | null };
+      signedOutReason?: SignedOutReason;
+      devices?: { max: number; list: DeviceView[] };
+      bumped?: BumpedView[];
     };
 
 export const PAYWALL_OFF: Me = { paywall: false };
+
+const REASONS: readonly SignedOutReason[] = ['device_limit', 'remote', 'admin'];
+const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+
+function parseDevices(raw: unknown): { max: number; list: DeviceView[] } | undefined {
+  const d = (raw && typeof raw === 'object' ? raw : null) as { max?: unknown; list?: unknown } | null;
+  if (!d || !isNum(d.max) || !Array.isArray(d.list)) return undefined;
+  const list = (d.list as Record<string, unknown>[])
+    .filter((x) => x && typeof x === 'object' && typeof x.id === 'string' && typeof x.label === 'string' && isNum(x.createdAt) && isNum(x.lastSeenAt))
+    .map((x): DeviceView => ({
+      id: x.id as string,
+      label: x.label as string,
+      method: x.method === 'email' || x.method === 'google' ? x.method : null,
+      createdAt: x.createdAt as number,
+      lastSeenAt: x.lastSeenAt as number,
+      current: x.current === true,
+    }));
+  return { max: d.max, list };
+}
 
 /** /api/auth/me's body, checked; anything unexpected is "off". */
 export function parseMe(body: unknown): Me {
@@ -28,12 +70,19 @@ export function parseMe(body: unknown): Me {
   if (b.paywall !== true) return PAYWALL_OFF;
   const u = b.user as { email?: unknown } | null | undefined;
   const ents = Array.isArray(b.entitlements) ? (b.entitlements as PassView[]).filter((e) => e && typeof e === 'object' && typeof e.scope === 'string') : [];
-  const s = (b.signIn ?? {}) as { email?: unknown; google?: unknown };
+  const s = (b.signIn ?? {}) as { email?: unknown; google?: unknown; turnstileSiteKey?: unknown };
+  const user = u && typeof u.email === 'string' ? { email: u.email } : null;
+  const devices = user ? parseDevices(b.devices) : undefined;
+  const bumped = user && Array.isArray(b.bumped) ? (b.bumped as Record<string, unknown>[]).filter((x) => x && typeof x.label === 'string' && isNum(x.lastSeenAt)).map((x) => ({ label: x.label as string, lastSeenAt: x.lastSeenAt as number })) : [];
+  const reason = !user && REASONS.includes(b.signedOutReason as SignedOutReason) ? (b.signedOutReason as SignedOutReason) : undefined;
   return {
     paywall: true,
-    user: u && typeof u.email === 'string' ? { email: u.email } : null,
+    user,
     entitlements: ents,
-    signIn: { email: s.email === true, google: s.google === true },
+    signIn: { email: s.email === true, google: s.google === true, turnstileSiteKey: typeof s.turnstileSiteKey === 'string' && s.turnstileSiteKey ? s.turnstileSiteKey : null },
+    ...(reason ? { signedOutReason: reason } : {}),
+    ...(devices ? { devices } : {}),
+    ...(bumped.length ? { bumped } : {}),
   };
 }
 
@@ -69,10 +118,15 @@ export interface BuyIntent {
   eventId: string;
 }
 
-export const sendSignInLink = (email: string, returnTo: string, f?: typeof fetch, buy?: BuyIntent | null): Promise<PostResult> =>
-  post(`${AUTH_BASE}/email`, { email, returnTo, ...(buy ? { buy } : {}) }, f);
-export const sendRestoreLink = (email: string, returnTo: string, f?: typeof fetch): Promise<PostResult> => post(`${AUTH_BASE}/restore`, { email, returnTo }, f);
+/** `turnstileToken`: the Turnstile widget's answer, when the site uses Turnstile. */
+export const sendSignInLink = (email: string, returnTo: string, f?: typeof fetch, buy?: BuyIntent | null, turnstileToken?: string | null): Promise<PostResult> =>
+  post(`${AUTH_BASE}/email`, { email, returnTo, ...(buy ? { buy } : {}), ...(turnstileToken ? { turnstileToken } : {}) }, f);
+export const sendRestoreLink = (email: string, returnTo: string, f?: typeof fetch, turnstileToken?: string | null): Promise<PostResult> =>
+  post(`${AUTH_BASE}/restore`, { email, returnTo, ...(turnstileToken ? { turnstileToken } : {}) }, f);
 export const signOut = (f?: typeof fetch): Promise<PostResult> => post(`${AUTH_BASE}/logout`, {}, f);
+/** Sign out another device of the account (by its id in the device list); the answer carries the updated `devices`. */
+export const revokeDevice = (id: string, f?: typeof fetch): Promise<PostResult> => post(`${AUTH_BASE}/sessions/revoke`, { id }, f);
+export const revokeOtherDevices = (f?: typeof fetch): Promise<PostResult> => post(`${AUTH_BASE}/sessions/revoke-others`, {}, f);
 /** `intent`: the server's signed marker, for the automatic checkout right after sign-in. */
 export const startCheckout = (eventId: string, returnTo: string, f?: typeof fetch, intent?: string): Promise<PostResult> =>
   post(`${BILLING_BASE}/checkout`, { product: 'regatta', eventId, returnTo, ...(intent ? { intent } : {}) }, f);

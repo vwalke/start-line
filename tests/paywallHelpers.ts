@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { createSession, ensureUser, grant, type UserRow } from '../functions/_authDb';
+import { createSession, ensureUser, grant, type BumpedDevice, type UserRow } from '../functions/_authDb';
 import { clearFreeCache, randomToken, tokenHash, type PaywallEnv } from '../functions/_paywall';
 import { stripeHmac } from '../functions/_stripe';
 import type { RegattaResponse } from '../src/data/racesense/types';
@@ -44,8 +44,32 @@ export function paywallEnv(db: MemD1 | undefined, over: Partial<PaywallEnv> = {}
     STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET,
     // No STRIPE_PRICE_SEASON: the Season Pass is no longer sold, and nothing needs it.
     STRIPE_PRICE_REGATTA: 'price_test_regatta',
+    TURNSTILE_SITE_KEY: 'turnstile_site_test_fake',
+    TURNSTILE_SECRET_KEY: 'turnstile_secret_test_fake',
     ...over,
   };
+}
+
+/** What the page's Turnstile widget hands the email forms; withTurnstile's siteverify accepts it. */
+export const TURNSTILE_TOKEN = 'turnstile_token_test_fake';
+export const TURNSTILE_VERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+
+/**
+ * A fetch whose Turnstile siteverify passes TURNSTILE_TOKEN as solved on `hostname` (default the
+ * ORIGIN's) and fails any other token; everything else goes to `next` (else a 404). `calls` keeps
+ * each siteverify form.
+ */
+export function withTurnstile(next?: typeof fetch, hostname = new URL(ORIGIN).hostname): typeof fetch & { calls: URLSearchParams[] } {
+  const calls: URLSearchParams[] = [];
+  const f = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    if (String(input) !== TURNSTILE_VERIFY) return next ? next(input, init) : new Response('nope', { status: 404 });
+    const form = new URLSearchParams(String(init.body));
+    calls.push(form);
+    const ok = form.get('response') === TURNSTILE_TOKEN && form.get('secret') === 'turnstile_secret_test_fake';
+    return new Response(JSON.stringify(ok ? { success: true, hostname, action: 'signin' } : { success: false, 'error-codes': ['invalid-input-response'] }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch & { calls: URLSearchParams[] };
+  f.calls = calls;
+  return f;
 }
 
 /** The module-level cache (race 1 windows) starts empty in every test. */
@@ -53,12 +77,17 @@ export function resetPaywallCaches(): void {
   clearFreeCache();
 }
 
-/** A signed-in user: their row and the Cookie header value. */
-export async function signIn(db: MemD1, email: string, now = NOW): Promise<{ user: UserRow; cookie: string }> {
+/** A signed-in user: their row, the Cookie header value, the session's public id and the devices its sign-in bumped. */
+export async function signIn(
+  db: MemD1,
+  email: string,
+  now = NOW,
+  o: { userAgent?: string; method?: 'email' | 'google' } = {},
+): Promise<{ user: UserRow; cookie: string; publicId: string; bumped: BumpedDevice[] }> {
   const user = await ensureUser(db, email, now);
   const token = randomToken();
-  await createSession(db, { tokenHash: await tokenHash('session', token), userId: user.id, now });
-  return { user, cookie: `wf_session=${token}` };
+  const { publicId, bumped } = await createSession(db, { tokenHash: await tokenHash('session', token), userId: user.id, now, userAgent: o.userAgent, method: o.method });
+  return { user, cookie: `wf_session=${token}`, publicId, bumped };
 }
 
 export const giveRegatta = (db: MemD1, userId: string, eventId = EVENT, now = NOW): Promise<unknown> =>

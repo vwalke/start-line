@@ -4,8 +4,11 @@
  *     pass, or a data request answered 401 / 402): the race header from the free regatta document,
  *     its RaceSense finishes, a blurred placeholder chart (no tracks are loaded), and the Regatta Pass
  *     (the only pass on sale: race 1 of every regatta is free, the rest of a regatta is $50);
- *   - an account button in the masthead opening a sheet: sign in (email link or Google), the
- *     passes held, Restore access, Manage subscription (an existing Season Pass subscriber only), Sign out.
+ *   - an account button in the masthead opening a sheet: sign in (email link, behind Turnstile when
+ *     the site has a key, or Google), the passes held, the signed-in devices (sign out any other one,
+ *     or all of them), Restore access, Manage subscription (an existing Season Pass subscriber only), Sign out;
+ *   - a browser signed out from elsewhere (the 3-device cap, another device, the admin) gets the
+ *     sign-in sheet once, saying why; a sign-in that signed out another device says which, once.
  * Decisions and markup are pure functions (tested in node); createPaywall wires them to the DOM.
  */
 import { passesUnlock, type PassView } from '../../functions/_entitlements';
@@ -18,14 +21,20 @@ import {
   fetchMe,
   googleStartUrl,
   openPortal,
+  revokeDevice,
+  revokeOtherDevices,
   sendRestoreLink,
   sendSignInLink,
   signOut,
   peekBuy,
   startCheckout,
+  type BumpedView,
   type BuyIntent,
+  type DeviceView,
   type Me,
+  type SignedOutReason,
 } from '../data/paywall';
+import { createTurnstile, type Turnstile } from './turnstile';
 import type { ListedRace } from '../data/raceList';
 import { findRace, tzOffsetMs, type RaceListItem } from '../data/racesense/adapter';
 import type { RegattaDoc } from '../data/racesense/types';
@@ -184,15 +193,54 @@ export interface SheetState {
   busy?: boolean;
 }
 
+/** "Oct 20" (with the year when it isn't this year's), in the viewer's time zone. */
+export function shortDate(ms: number, now = Date.now()): string {
+  const d = new Date(ms);
+  const sameYear = d.getFullYear() === new Date(now).getFullYear();
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+}
+
+/** The sign-in sheet's note for a browser signed out from elsewhere (/api/auth/me signedOutReason). */
+export function signedOutNote(reason: SignedOutReason): string {
+  if (reason === 'device_limit') return 'You were signed out on this device because your account signed in somewhere else. Recall stays signed in on up to 3 devices at a time.';
+  if (reason === 'remote') return 'You were signed out on this device from another device.';
+  return 'You were signed out. Sign in again to keep going.';
+}
+
+/** "Signing in here signed out Safari on iPhone (last used Oct 20)." for the devices this sign-in bumped; '' for none. */
+export function bumpedNote(bumped: readonly BumpedView[], now = Date.now()): string {
+  const names = bumped.map((b) => `${b.label} (last used ${shortDate(b.lastSeenAt, now)})`);
+  if (!names.length) return '';
+  const list = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+  return `Signing in here signed out ${list}.`;
+}
+
+/** The account sheet's Devices section: how many of the cap, one row per device, Sign out for the others. */
+export function devicesHtml(devices: { max: number; list: readonly DeviceView[] } | undefined, busy = false, now = Date.now()): string {
+  if (!devices || !devices.list.length) return '';
+  const dis = busy ? ' disabled' : '';
+  const rows = devices.list
+    .map(
+      (d) => `<li class="account-device"><span class="account-device-name">${esc(d.label)}</span>
+        <span class="account-device-when muted">${d.current ? 'This device' : `Last used ${esc(shortDate(d.lastSeenAt, now))}`}</span>
+        ${d.current ? '' : `<button type="button" class="lock-secondary" data-pw="revoke" data-id="${esc(d.id)}"${dis}>Sign out</button>`}</li>`,
+    )
+    .join('');
+  const others = devices.list.length > 1 ? `<p class="account-actions"><button type="button" class="lock-secondary" data-pw="revoke-others"${dis}>Sign out all other devices</button></p>` : '';
+  return `<h3 class="account-sub">Devices</h3><p>Signed in on ${devices.list.length} of ${devices.max} devices.</p><ul class="account-devices">${rows}</ul>${others}`;
+}
+
 export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => string): string {
   if (!me.paywall) return '';
   const note = s.note ? `<p class="account-note" role="status">${esc(s.note)}</p>` : '';
   const head = (title: string): string =>
     `<div class="switcher-head"><h2 class="switcher-title" id="account-title">${esc(title)}</h2><button type="button" class="switcher-close" data-pw="close">Close</button></div>`;
+  // Turnstile's widget goes in the slot (src/ui/turnstile.ts), only when the site has a key.
+  const slot = (action: 'signin' | 'restore'): string => (me.signIn.turnstileSiteKey ? `<div class="account-turnstile" data-pw-turnstile="${action}"></div>` : '');
   const emailForm = (action: 'signin' | 'restore', label: string): string =>
     `<form class="account-form" data-pw-form="${action}">
       <label>Email <input type="email" name="email" autocomplete="email" required maxlength="254" value="${esc(s.email ?? '')}"${s.busy ? ' disabled' : ''}></label>
-      <button type="submit" class="lock-primary"${s.busy ? ' disabled' : ''}>${esc(label)}</button>
+      ${slot(action)}<button type="submit" class="lock-primary"${s.busy ? ' disabled' : ''}>${esc(label)}</button>
     </form>`;
   const email = me.signIn.email;
   const google = me.signIn.google;
@@ -214,6 +262,7 @@ export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => str
     const manage = me.entitlements.some((p) => p.scope === 'season' && p.owner && !p.gift) ? `<button type="button" class="lock-secondary" data-pw="portal"${s.busy ? ' disabled' : ''}>Manage subscription</button>` : '';
     return `${head('Your account')}${note}<p>Signed in as <strong>${esc(me.user.email)}</strong></p>
       <h3 class="account-sub">Passes</h3>${passes}
+      ${devicesHtml(me.devices, s.busy)}
       <p class="account-actions">${manage}${email ? '<button type="button" class="lock-secondary" data-pw="restore">Restore access</button>' : ''}<button type="button" class="lock-secondary" data-pw="signout"${s.busy ? ' disabled' : ''}>Sign out</button></p>`;
   }
   if (!email && !google) return `${head('Sign in')}${note}<p class="muted">Sign-in is unavailable right now. Race 1 of every regatta is free.</p>`;
@@ -281,6 +330,79 @@ export interface Paywall {
   refresh(): Promise<boolean>;
 }
 
+export type NoteStore = Pick<Storage, 'getItem' | 'setItem'>;
+
+/**
+ * The "Signing in here signed out …" note until the sailor has seen it: shown (as often as /me is
+ * re-read) and only marked seen in `store` (sessionStorage on the page, by the current device's id)
+ * when they dismiss it or open the account sheet, which then carries it as its note. It shows in its
+ * own element (`render`), never the app's #notice, so loading a race can't wipe it.
+ */
+export function createBumpNote(o: { store: NoteStore | null; render: (text: string) => void; now?: () => number }) {
+  let key: string | null = null;
+  let text = '';
+  const seen = new Set<string>();
+  const wasSeen = (k: string): boolean => {
+    if (seen.has(k)) return true;
+    try {
+      return !!o.store?.getItem(k);
+    } catch {
+      return false;
+    }
+  };
+  const markSeen = (): void => {
+    if (!key) return;
+    seen.add(key);
+    try {
+      o.store?.setItem(key, '1');
+    } catch {
+      /* storage off: remembered for this page only */
+    }
+  };
+  const hide = (): void => {
+    text = '';
+    key = null;
+    o.render('');
+  };
+  return {
+    /** After each /me: show the note if this session bumped devices and it hasn't been seen. */
+    update(me: Me): void {
+      const current = me.paywall && me.user && me.bumped?.length ? me.devices?.list.find((d) => d.current)?.id : undefined;
+      const k = current ? `recall.bumped.${current}` : null;
+      if (!k || !me.paywall || wasSeen(k)) {
+        if (text) hide();
+        return;
+      }
+      key = k;
+      text = bumpedNote(me.bumped ?? [], (o.now ?? Date.now)());
+      o.render(text);
+    },
+    /** The Dismiss button. */
+    dismiss(): void {
+      markSeen();
+      hide();
+    },
+    /** The account sheet opened: its note (if any), now seen; the separate note goes. */
+    takeForSheet(): string {
+      const t = text;
+      if (t) {
+        markSeen();
+        hide();
+      }
+      return t;
+    },
+    text: (): string => text,
+  };
+}
+
+const sessionStore = (): Storage | null => {
+  try {
+    return sessionStorage;
+  } catch {
+    return null;
+  }
+};
+
 export function createPaywall(o: { onChange: () => void; notice: (text: string) => void; eventTitle: (id: string) => string }): Paywall {
   let me: Me = PAYWALL_OFF;
   let lockEl: HTMLElement | null = null;
@@ -292,20 +414,74 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
   /** The pass clicked while signed out: carried through the sign-in the sheet starts. */
   let pendingBuy: BuyIntent | null = null;
   let autoStarted = false;
+  /** Turnstile on the email forms: made the first time a form shows with a site key (never with the paywall off). */
+  let turnstile: Turnstile | null = null;
+  let reasonShown = false;
+  /** The bump note's own element, right after the app's #notice (which race loading clears freely). */
+  let noteEl: HTMLElement | null = null;
+  const bump = createBumpNote({
+    store: sessionStore(),
+    render: (text) => {
+      if (!noteEl && text) {
+        const anchor = document.getElementById('notice');
+        if (!anchor) return;
+        noteEl = document.createElement('div');
+        noteEl.id = 'account-notice';
+        noteEl.className = 'notice account-notice';
+        noteEl.setAttribute('role', 'status');
+        noteEl.addEventListener('click', (ev) => {
+          if ((ev.target as HTMLElement).closest('[data-pw="dismiss-note"]')) bump.dismiss();
+        });
+        anchor.after(noteEl);
+      }
+      if (!noteEl) return;
+      noteEl.textContent = text;
+      if (text) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.pw = 'dismiss-note';
+        btn.textContent = 'Dismiss';
+        noteEl.append(' ', btn);
+      }
+      noteEl.hidden = !text;
+    },
+  });
 
   const renderLock = (): void => {
     if (!lockEl || !target) return;
     lockEl.innerHTML = lockCardHtml({ ...lockView(target.doc, { ...target, me }), message: lockMsg });
   };
-  const renderSheet = (): void => {
-    if (dialog) dialog.querySelector('.switcher-sheet')!.innerHTML = sheetHtml(me, sheet, o.eventTitle);
+  /** The widget follows the form's slot: rendered into a new slot, removed with the form. */
+  const syncTurnstile = (box: Element): void => {
+    const key = me.paywall ? me.signIn.turnstileSiteKey : null;
+    const slot = key ? box.querySelector<HTMLElement>('[data-pw-turnstile]') : null;
+    if (!slot || !key) return turnstile?.unmount();
+    turnstile ??= createTurnstile({ siteKey: key });
+    void turnstile.mount(slot, slot.dataset.pwTurnstile === 'restore' ? 'restore' : 'signin');
   };
+  const renderSheet = (): void => {
+    const box = dialog?.querySelector('.switcher-sheet');
+    if (!box) return;
+    box.innerHTML = sheetHtml(me, sheet, o.eventTitle);
+    syncTurnstile(box);
+  };
+  /** Signed out from elsewhere: open the sign-in sheet once, saying why. */
+  const sayWhySignedOut = (): void => {
+    if (!me.paywall || me.user || !me.signedOutReason || reasonShown) return;
+    reasonShown = true;
+    pendingBuy = null;
+    openSheet({ mode: 'signin', note: signedOutNote(me.signedOutReason) });
+  };
+  /** Just signed in and that bumped a device: say which, until dismissed or the account sheet opens. */
+  const sayWhoWasBumped = (): void => bump.update(me);
   const renderButton = (): void => {
     if (!openBtn) return;
     openBtn.textContent = me.paywall && me.user ? 'Account' : 'Sign in';
   };
   const openSheet = (s: SheetState): void => {
-    sheet = s;
+    // The account sheet carries the bump note at its top (and that counts as seen).
+    const bumpText = s.mode === 'account' && !s.note ? bump.takeForSheet() : '';
+    sheet = bumpText ? { ...s, note: bumpText } : s;
     renderSheet();
     if (dialog && !dialog.open) {
       openBtn?.setAttribute('aria-expanded', 'true');
@@ -324,6 +500,8 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     renderLock();
     if (dialog?.open) renderSheet();
     o.onChange();
+    sayWhySignedOut();
+    sayWhoWasBumped();
     return true;
   }
 
@@ -369,10 +547,32 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
   async function submitEmail(form: HTMLFormElement, action: 'signin' | 'restore'): Promise<void> {
     const email = (form.elements.namedItem('email') as HTMLInputElement).value.trim();
     sheet = { mode: action, email, busy: true };
-    renderSheet();
-    const r = action === 'signin' ? await sendSignInLink(email, hereWithout(location.href), undefined, pendingBuy) : await sendRestoreLink(email, hereWithout(location.href));
+    // Busy in place (not a re-render), so the Turnstile widget in the form keeps its token.
+    for (const el of form.querySelectorAll<HTMLInputElement | HTMLButtonElement>('input, button')) el.disabled = true;
+    let token: string | null = null;
+    if (me.paywall && me.signIn.turnstileSiteKey) {
+      token = turnstile ? await turnstile.token() : null;
+      if (!token) {
+        sheet = { mode: action, email, note: 'Please complete the check and try again.' };
+        return renderSheet();
+      }
+    }
+    const back = hereWithout(location.href);
+    const r = action === 'signin' ? await sendSignInLink(email, back, undefined, pendingBuy, token) : await sendRestoreLink(email, back, undefined, token);
+    // A token is good once: ask for a fresh one whatever the answer.
+    turnstile?.reset();
     if (r.ok) sheet = { mode: action === 'signin' ? 'sent' : 'restore-sent', email };
     else sheet = { mode: action, email, note: typeof r.body.message === 'string' ? r.body.message : "Couldn't send the email. Try again in a minute." };
+    renderSheet();
+  }
+
+  /** Sign out another device (or every other one), then show the list as it now stands. */
+  async function revoke(id: string | null): Promise<void> {
+    sheet = { mode: 'account', busy: true };
+    renderSheet();
+    const r = id ? await revokeDevice(id) : await revokeOtherDevices();
+    sheet = { mode: 'account', note: r.ok ? undefined : typeof r.body.message === 'string' ? r.body.message : "Couldn't sign that device out. Try again in a minute." };
+    await refresh();
     renderSheet();
   }
 
@@ -391,6 +591,8 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     else if (a === 'restore') openSheet({ mode: 'restore', email: me.paywall && me.user ? me.user.email : undefined });
     else if (a === 'close') dialog?.close();
     else if (a === 'portal') void manage();
+    else if (a === 'revoke' && el.dataset.id) void revoke(el.dataset.id);
+    else if (a === 'revoke-others') void revoke(null);
     else if (a === 'signout') {
       sheet = { ...sheet, busy: true };
       renderSheet();
@@ -425,6 +627,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
       openSheet({ mode: me.paywall && me.user ? 'account' : 'signin' });
     });
     dialog.addEventListener('close', () => {
+      turnstile?.unmount();
       openBtn?.setAttribute('aria-expanded', 'false');
       openBtn?.focus();
     });
@@ -481,7 +684,11 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
   const ready = fetchMe().then((m) => {
     me = m;
     mount();
-    if (m.paywall) void arrive();
+    if (m.paywall) {
+      sayWhySignedOut();
+      sayWhoWasBumped();
+      void arrive();
+    }
     return m;
   });
 

@@ -1,15 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { BUY_PARAM, BUY_TTL_MS, EMAIL_RATE_MAX, handleAuth, parseIntent, readBuy, signBuy, type AuthCtx, type AuthDeps } from '../functions/_auth';
+import { BUY_PARAM, BUY_TTL_MS, handleAuth, parseIntent, readBuy, signBuy, type AuthCtx, type AuthDeps } from '../functions/_auth';
 import { ensureUser } from '../functions/_authDb';
 import { handleBilling, type BillingCtx } from '../functions/_stripe';
-import { RateLimiter } from '../functions/_vkx';
 import type { PaywallEnv } from '../functions/_paywall';
 import { googleStartUrl, peekBuy, type Me } from '../src/data/paywall';
 import { autoCheckout, hereWithout, lockCardHtml, sheetHtml, type LockView } from '../src/ui/paywall';
 import type { PassView } from '../functions/_entitlements';
 import { grantSql } from '../scripts/grant-gift.mjs';
 import { MemD1 } from './d1mem';
-import { EVENT, NOW, ORIGIN, giveRegatta, giveSeason, paywallEnv, resetPaywallCaches, signIn } from './paywallHelpers';
+import { EVENT, NOW, ORIGIN, TURNSTILE_TOKEN, giveRegatta, giveSeason, paywallEnv, resetPaywallCaches, signIn, withTurnstile } from './paywallHelpers';
 
 const SECRET = 'auth_secret_test_fake';
 const authCtx = (request: Request, env: PaywallEnv, path: string): AuthCtx => ({ request, env, params: { path: path.split('/') } });
@@ -21,7 +20,7 @@ function mailbox(now = NOW): AuthDeps & { links: () => string[] } {
   return {
     now: () => now,
     cache: null,
-    limits: { email: new RateLimiter(EMAIL_RATE_MAX, 3_600_000), ip: new RateLimiter(20, 3_600_000) },
+    fetch: withTurnstile(),
     log: (line) => sent.push(line),
     links: () => sent.flatMap((s) => s.match(/https?:\/\/\S+\/api\/auth\/verify\?token=[A-Za-z0-9_-]+/g) ?? []),
   };
@@ -31,7 +30,7 @@ function mailbox(now = NOW): AuthDeps & { links: () => string[] } {
 async function magicLink(db: MemD1, body: Record<string, unknown>, route = 'email'): Promise<Response> {
   const env = paywallEnv(db);
   const m = mailbox();
-  const req = new Request(`${ORIGIN}/api/auth/${route}`, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', origin: ORIGIN, 'cf-connecting-ip': '203.0.113.9' } });
+  const req = new Request(`${ORIGIN}/api/auth/${route}`, { method: 'POST', body: JSON.stringify({ ...body, turnstileToken: TURNSTILE_TOKEN }), headers: { 'content-type': 'application/json', origin: ORIGIN, 'cf-connecting-ip': '203.0.113.9' } });
   expect((await handleAuth(authCtx(req, env, route), m)).status).toBe(200);
   const token = new URL(m.links()[0]).searchParams.get('token')!;
   const confirm = new Request(`${ORIGIN}/api/auth/verify`, { method: 'POST', body: new URLSearchParams({ token }).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGIN } });
