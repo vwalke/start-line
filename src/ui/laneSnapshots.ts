@@ -1,19 +1,22 @@
 /**
- * The Start tab's "Lane snapshots" (Chris): the fleet at gun +60 s, +120 s and +180 s, each boat a dot with
- * its trail back to LANE_TRAIL_FROM_S (gun −30 s) in every frame, so a coach can see how each boat came off
- * the line and whether it held its lane. Pure: frames → boats, trails, the selected boat's place to windward;
- * ui/laneSnapshotsView.ts draws them.
+ * The Start tab's "After the gun" view: the fleet at any second from the gun to gun +3:00 (a time slider), each
+ * boat a dot with its trail back to LANE_TRAIL_FROM_S (gun −30 s), so a coach can see how each boat came off the
+ * line and whether it held its lane. Pure: per-second frames → boats, trails, the selected boat's place to
+ * windward; ui/laneSnapshotsView.ts draws them. Kept apart from the start chart.
+ *
+ * Everything is worked out once per race and selection (laneScrub): each boat's position on the 1 s grid
+ * 0 … LANE_END_S and its trail points up to LANE_END_S; a frame (frame(s)) only slices those.
  *
  * Positions are the scrubber's (mapPieces.ts boatAt): linear between fixes, held hollow for MAP_HOLD_S inside
- * a gap, else none (the boat is missing in that frame, never placed). Trails come from the same drawn tracks
+ * a gap, else none (the boat is missing at that second, never placed). Trails come from the same drawn tracks
  * (the pre-gun track and the legs), broken wherever consecutive fixes are a gap apart (mapPoints.ts's rule).
  *
- * The view is wind-up (the analysis's wind at the gun, as the start chart) and shared by the three frames: fitted
- * tightly to what they draw (laneView); a true-wind badge points downwind, and places are by distance made to windward
- * along the wind. With no wind estimate the view is north up and the wind is assumed square to the line, from
- * the course side. "Over" (a ring on the map only): a boat over early (StartReplay, the worker's startCross facts,
- * as Map C) is over at a frame until its clearing (clearedMs; never cleared: still over); from then on it is
- * "cleared", with when, in every frame (each trail runs from before the gun, so each shows the excursion and the return).
+ * The view is wind-up (the analysis's wind at the gun, as the start chart) and fixed for the whole slider: fitted
+ * once to everything drawn at any second up to the 3-minute point (laneView), so it never rescales while
+ * scrubbing; a true-wind badge points downwind, and places are by distance made to windward along the wind. With
+ * no wind estimate the view is north up and the wind is assumed square to the line, from the course side. "Over"
+ * (a ring on the map only): a boat over early (StartReplay, the worker's startCross facts, as Map C) is over at a
+ * second until its clearing (clearedMs; never cleared: still over); from then on it is "cleared", with when.
  */
 import { dot, len, sub, type Vec } from '../analysis/geo';
 import { windSource } from '../analysis/line';
@@ -25,13 +28,14 @@ import { drawingGapMs } from './mapPoints';
 import { gunRel } from './scrub';
 import type { Box } from './view';
 
-/** The frames, s from the gun. */
-export const LANE_FRAMES_S = [60, 120, 180] as const;
+/** The slider's end, s from the gun (it starts at the gun), in steps of LANE_STEP_S. */
+export const LANE_END_S = 180;
+export const LANE_STEP_S = 1;
 /** Every frame's trail starts here, s from the gun (or where the data does). */
 export const LANE_TRAIL_FROM_S = -30;
 /**
  * The outlier guard (it only ever leaves points out, never pads): points further than max(LANE_GUARD_LINES × the
- * line, LANE_GUARD_MIN_M) from the line's middle don't count toward the shared view, nor do boats away from the line.
+ * line, LANE_GUARD_MIN_M) from the line's middle don't count toward the view, nor do boats away from the line.
  */
 export const LANE_GUARD_LINES = 3;
 export const LANE_GUARD_MIN_M = 400;
@@ -42,7 +46,7 @@ export const LANE_PAD_M = 10;
 export const LANE_SNAP_MS = 1000;
 
 /** Boat `id` at `t`: the scrubber's position (boatAt), else its track's end fix within LANE_SNAP_MS; east/north and map coordinates. */
-function placeAt(id: string, ranges: readonly LegRange[], t: number, gapMs: number, twd: number): { x: number; y: number; mx: number; my: number; hold: boolean } | null {
+export function placeAt(id: string, ranges: readonly LegRange[], t: number, gapMs: number, twd: number): { x: number; y: number; mx: number; my: number; hold: boolean } | null {
   const at = boatAt(id, ranges, t, gapMs, twd);
   if (at) return at;
   let best: { i: number; r: LegRange; dt: number } | null = null;
@@ -66,7 +70,7 @@ export type LaneOver = 'over' | 'cleared' | null;
 export interface LaneBoat {
   id: string;
   sail: string;
-  /** Map coordinates (wind-up, y down) at the frame's time; null: no fix near enough (missing in this frame). */
+  /** Map coordinates (wind-up, y down) at the frame's time; null: no fix near enough (missing at this second). */
   pos: Vec | null;
   /** In a gap, held at the fix before it (drawn hollow). */
   hold: boolean;
@@ -81,7 +85,7 @@ export interface LaneBoat {
   clearedMs: number | null;
   /** Distance made to windward from the line's middle, along the (true or assumed) wind axis, m. */
   windwardM: number | null;
-  /** 1 = furthest to windward by `windwardM`, of the boats placed in this frame (approximate). */
+  /** 1 = furthest to windward by `windwardM`, of the boats placed at this second (approximate). */
   rank: number | null;
 }
 
@@ -91,7 +95,7 @@ export interface LaneFrame {
   t: number;
   /** The trail starts here, ms. */
   from: number;
-  /** "gun +1:00". */
+  /** "gun +1:23". */
   title: string;
   boats: LaneBoat[];
   /** No boat has a position or a trail. */
@@ -116,14 +120,19 @@ export interface LaneWind {
   assumed: boolean;
 }
 
-export interface LaneSnapshots {
-  frames: LaneFrame[];
+export interface LaneScrub {
+  /** The slider's end, s from the gun (LANE_END_S). */
+  end: number;
+  /** The fleet at gun + `s` (to the whole second, clamped to 0 … end), sliced from the precomputed grid. */
+  frame: (s: number) => LaneFrame;
   /** The start line's pin and RC ends, map coordinates. */
   line: [Vec, Vec];
   /** The true wind (null: no wind estimate and no line to assume it from). */
   wind: LaneWind | null;
-  /** The shared view, map coordinates. */
+  /** The view, map coordinates: fixed for the whole slider (the 3-minute extent). */
   view: Box;
+  /** Some boat was over early (the key's legend for the rings). */
+  anyOver: boolean;
   /** Wind at the top (else north-up). */
   windUp: boolean;
   /** The key's note on the wind and the orientation. */
@@ -166,7 +175,7 @@ function upwindAxis(a: RaceAnalysis, twd: number | null): Vec | null {
   return fm && dot(sub(fm, left), n) < 0 ? [-n[0], -n[1]] : n;
 }
 
-/** The wind arrow's label and title (also said in each frame's label) and the key's note, by where the wind comes from (as the start chart's wind chip). */
+/** The wind arrow's label and title (also said in every frame's label) and the key's note, by where the wind comes from (as the start chart's wind chip). */
 function windWords(a: RaceAnalysis, windUp: boolean): { label: string; title: string; note: string } {
   if (!windUp) {
     return {
@@ -185,14 +194,17 @@ function windWords(a: RaceAnalysis, windUp: boolean): { label: string; title: st
   return { label: `TWD ~${deg} assumed`, title: `True wind from ${deg} (assumed from the course)`, note: 'True wind ↓ from the top, assumed from the course (first leg dead upwind).' };
 }
 
-/** A boat's trail over [from, to]: its drawn fixes there (map coordinates), with its position at both ends where it has one, broken at gaps. */
-function trailOf(a: RaceAnalysis, id: string, twd: number, from: number, to: number): Vec[][] {
-  const d = a.drawings.find((x) => x.id === id);
-  if (!d) return [];
+interface TrailPt {
+  t: number;
+  p: Vec;
+}
+
+/** A boat's trail points over [from, to]: its drawn fixes there (map coordinates), with its position at both ends where it has one; not yet broken at gaps. */
+function trailPts(d: RaceAnalysis['drawings'][number], twd: number, from: number, to: number): TrailPt[] {
   const gapMs = drawingGapMs(d);
   const ranges = legRanges(d, true);
-  const pts: { t: number; p: Vec }[] = [];
-  const start = boatAt(id, ranges, from, gapMs, twd);
+  const pts: TrailPt[] = [];
+  const start = boatAt(d.id, ranges, from, gapMs, twd);
   if (start && !start.hold) pts.push({ t: from, p: [start.mx, start.my] });
   for (const r of ranges) {
     const [i0, i1] = timeRange(r.src.t, from, to, r.lo, r.hi);
@@ -204,8 +216,13 @@ function trailOf(a: RaceAnalysis, id: string, twd: number, from: number, to: num
       pts.push({ t, p: [rot.x[i], rot.y[i]] });
     }
   }
-  const end = boatAt(id, ranges, to, gapMs, twd);
+  const end = boatAt(d.id, ranges, to, gapMs, twd);
   if (end && !end.hold && (!pts.length || pts[pts.length - 1].t < to)) pts.push({ t: to, p: [end.mx, end.my] });
+  return pts;
+}
+
+/** Trail points as polylines, broken wherever consecutive points are over `gapMs` apart (single points dropped). */
+function breakAtGaps(pts: readonly TrailPt[], gapMs: number): Vec[][] {
   const out: Vec[][] = [];
   let cur: Vec[] = [];
   for (let i = 0; i < pts.length; i++) {
@@ -217,6 +234,12 @@ function trailOf(a: RaceAnalysis, id: string, twd: number, from: number, to: num
   }
   if (cur.length > 1) out.push(cur);
   return out;
+}
+
+/** A boat's trail over [from, to], worked out directly (the reference the sliced trails match). */
+export function laneTrail(a: RaceAnalysis, id: string, twd: number, from: number, to: number): Vec[][] {
+  const d = a.drawings.find((x) => x.id === id);
+  return d ? breakAtGaps(trailPts(d, twd, from, to), drawingGapMs(d)) : [];
 }
 
 /**
@@ -238,8 +261,8 @@ function frameCaption(f: Omit<LaneFrame, 'caption' | 'label'>, me: string | null
 }
 
 /**
- * The shared view: the tight box around the line's ends and every point drawn in any frame (positions and trails
- * from gun −0:30), padded LANE_PAD each side (at least LANE_PAD_M). Points beyond `guard` from the line's middle
+ * The view: the tight box around the line's ends and every point drawn at any second of the slider (positions and
+ * trails from gun −0:30 to the 3-minute point), padded LANE_PAD each side (at least LANE_PAD_M). Points beyond `guard` from the line's middle
  * are left out (a stray boat can't blow the view up); nothing else is added (the wind badge sits outside the map).
  */
 export function laneView(line: [Vec, Vec], pts: readonly Vec[], guard: number): Box {
@@ -259,9 +282,26 @@ export function laneView(line: [Vec, Vec], pts: readonly Vec[], guard: number): 
   return { x0: box.x0 - px, y0: box.y0 - py, x1: box.x1 + px, y1: box.y1 + py };
 }
 
-/** The three lane snapshots of race `a` for the selected boat and its group. */
-export function laneSnapshots(a: RaceAnalysis, o: LaneOptions): LaneSnapshots {
+/** A boat's place at one second of the grid: map and east/north coordinates; `ends`: its trail ends here (the scrubber's own position, not held or snapped). */
+interface GridPos {
+  pos: Vec;
+  en: Vec;
+  hold: boolean;
+  ends: boolean;
+}
+
+/** `s` (s from the gun) as a second of the slider: rounded to the step, clamped to 0 … `end`. */
+export const laneSecond = (s: number, end = LANE_END_S): number =>
+  Number.isFinite(s) ? Math.max(0, Math.min(end, Math.round(s / LANE_STEP_S) * LANE_STEP_S)) : 0;
+
+/**
+ * The "after the gun" view of race `a` for the selected boat and its group: every boat's position on the 1 s grid
+ * 0 … LANE_END_S and its trail points from gun −30 s to the end, worked out once, and the view fitted once to all
+ * of them and the line; frame(s) slices them for second `s` (memoised), so scrubbing does no new work.
+ */
+export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
   const gun = a.meta.gunMs;
+  const end = LANE_END_S;
   const windUp = Number.isFinite(a.wind.twdAtGunDeg);
   const twd = windUp ? a.wind.twdAtGunDeg : 0;
   const rot = rotator(twd);
@@ -276,39 +316,66 @@ export function laneSnapshots(a: RaceAnalysis, o: LaneOptions): LaneSnapshots {
   const drawn = new Map(a.drawings.map((d) => [d.id, d]));
   // Who has any fix at all (the selected boat's "not tracked").
   const tracked = new Set(a.drawings.filter((d) => legRanges(d, true).some((r) => r.hi > r.lo)).map((d) => d.id));
-  const frames: LaneFrame[] = [];
-  const allPts: Vec[] = [];
   const from = gun + LANE_TRAIL_FROM_S * 1000;
-  for (const s of LANE_FRAMES_S) {
+  const allPts: Vec[] = [];
+  // Once per boat: its position at every second, and its trail points to the end (a frame takes those up to its time).
+  const pre = a.boats.map((b) => {
+    const d = drawn.get(b.id);
+    const grid: (GridPos | null)[] = [];
+    let pts: TrailPt[] = [];
+    let gapMs = Infinity;
+    if (d) {
+      const ranges = legRanges(d, true);
+      gapMs = drawingGapMs(d);
+      for (let s = 0; s <= end; s += LANE_STEP_S) {
+        const t = gun + s * 1000;
+        const at = placeAt(b.id, ranges, t, gapMs, twd);
+        // The trail ends at the boat only where the scrubber itself places it (not held, not snapped to an end fix).
+        const ends = !!at && !at.hold && boatAt(b.id, ranges, t, gapMs, twd) != null;
+        grid.push(at ? { pos: [at.mx, at.my], en: [at.x, at.y], hold: at.hold, ends } : null);
+      }
+      pts = trailPts(d, twd, from, gun + end * 1000);
+    }
+    // A boat away from the line (start.awayFromLine) is drawn but doesn't size the view.
+    if (!b.start?.awayFromLine) {
+      for (const g of grid) if (g) allPts.push(g.pos);
+      for (const q of pts) allPts.push(q.p);
+    }
+    return { b, grid, pts, gapMs };
+  });
+  const line: [Vec, Vec] = [rot(left), rot(right)];
+  // Downwind in map coordinates: the upwind axis turned as the view is, reversed (straight down when wind-up).
+  const upMap = up ? rot(up) : null;
+  const wind: LaneWind | null = upMap ? { down: [-upMap[0], -upMap[1]], label: words.label, title: words.title, assumed: !windUp } : null;
+  // Fitted once to every second's positions and the trails to the end (each frame's trail is a prefix of those).
+  const view = laneView(line, allPts, Math.max(LANE_GUARD_LINES * lineM, LANE_GUARD_MIN_M));
+
+  const build = (s: number): LaneFrame => {
     const t = gun + s * 1000;
-    const boats: LaneBoat[] = a.boats.map((b) => {
-      const d = drawn.get(b.id);
-      const at = d ? placeAt(b.id, legRanges(d, true), t, drawingGapMs(d), twd) : null;
-      const pos: Vec | null = at ? [at.mx, at.my] : null;
-      const en: Vec | null = at ? [at.x, at.y] : null;
+    const boats: LaneBoat[] = pre.map(({ b, grid, pts, gapMs }) => {
+      const g = grid[s / LANE_STEP_S] ?? null;
+      // Its trail points up to t, then its position at t (as laneTrail), broken at gaps.
+      let n = 0;
+      while (n < pts.length && pts[n].t <= t) n++;
+      const upTo = pts.slice(0, n);
+      if (g?.ends && (!n || pts[n - 1].t < t)) upTo.push({ t, p: g.pos });
       const r = repOf.get(b.id);
       let over: LaneOver = null;
       if (r) {
         if (r.clearedMs == null || t < r.clearedMs) over = 'over';
         else if (r.clearedMs > from) over = 'cleared';
       }
-      const trail = d ? trailOf(a, b.id, twd, from, t) : [];
-      // A boat away from the line (start.awayFromLine) is drawn but doesn't size the view.
-      if (!b.start?.awayFromLine) {
-        if (pos) allPts.push(pos);
-        for (const seg of trail) allPts.push(...seg);
-      }
       return {
         id: b.id,
         sail: b.sail,
-        pos,
-        hold: !!at?.hold,
+        pos: g ? g.pos : null,
+        hold: !!g?.hold,
         tracked: tracked.has(b.id),
-        trail,
+        trail: breakAtGaps(upTo, gapMs),
         role: b.id === o.me ? 'me' : group.has(b.id) ? 'group' : 'other',
         over,
         clearedMs: over === 'cleared' ? r!.clearedMs : null,
-        windwardM: en && up ? dot(sub(en, mid), up) : null,
+        windwardM: g && up ? dot(sub(g.en, mid), up) : null,
         rank: null,
       };
     });
@@ -319,14 +386,21 @@ export function laneSnapshots(a: RaceAnalysis, o: LaneOptions): LaneSnapshots {
     const base = { s, t, from, title: gunRel(t, gun), boats, empty, placed };
     const { caption, spoken } = frameCaption(base, o.me);
     const label = empty
-      ? `Lane snapshot at ${base.title}: no tracks at this time.`
-      : [`Lane snapshot at ${base.title}: ${placed} of ${boats.length} boats placed.`, spoken, up ? `${words.title}.` : ''].filter(Boolean).join(' ');
-    frames.push({ ...base, caption, label });
-  }
-  const line: [Vec, Vec] = [rot(left), rot(right)];
-  // Downwind in map coordinates: the upwind axis turned as the view is, reversed (straight down when wind-up).
-  const upMap = up ? rot(up) : null;
-  const wind: LaneWind | null = upMap ? { down: [-upMap[0], -upMap[1]], label: words.label, title: words.title, assumed: !windUp } : null;
-  const view = laneView(line, allPts, Math.max(LANE_GUARD_LINES * lineM, LANE_GUARD_MIN_M));
-  return { frames, line, wind, view, windUp, note: words.note, me: o.me };
+      ? `Fleet at ${base.title}: no tracks at this time.`
+      : [`Fleet at ${base.title}: ${placed} of ${boats.length} boats placed.`, spoken, up ? `${words.title}.` : ''].filter(Boolean).join(' ');
+    return { ...base, caption, label };
+  };
+  const memo = new Map<number, LaneFrame>();
+  const frame = (s: number): LaneFrame => {
+    const k = laneSecond(s, end);
+    let f = memo.get(k);
+    if (!f) memo.set(k, (f = build(k)));
+    return f;
+  };
+  // Over or cleared at some second (one cleared before the trails start never shows).
+  const anyOver = a.boats.some((b) => {
+    const r = repOf.get(b.id);
+    return !!r && (r.clearedMs == null || r.clearedMs > from);
+  });
+  return { end, frame, line, wind, view, windUp, note: words.note, me: o.me, anyOver };
 }
