@@ -2,7 +2,7 @@
  * D4 · Shift, wrong side / headed tack (spec §3; deep.py headed share). On
  * each beat, windows 3–10 min long slide over the boat's time on the leg. A
  * window fires when the fleet wind (twdSeries) moved D4_SHIFT_DEG or more
- * between its ends, the boat sat on the losing side of it — across the wind
+ * between its ends — and between the chart points its seconds read, the wind the card shows — the boat sat on the losing side of it — across the wind
  * from the leaders (the finish top 3) who were D4_SIDE_M or more toward the
  * side the shift favoured (a veer favours the right, a backing the left) — and
  * it spent at least D4_HEADED_X × those leaders' share of the window on the
@@ -243,11 +243,14 @@ export function detectShift(ctx: CoachCtx): ShiftResult {
         if (!g) continue;
         const dgap = g.g1 - g.g0;
         if (dgap <= 0 || (top.best && dgap <= top.best.win.dgap)) continue;
-        // The wind chips at the chart points the seconds read (g.t0, g.t1), not the window's ends.
+        // The wind chips at the chart points the seconds read (g.t0, g.t1), not the window's ends: the shift the card
+        // shows is gated there too (D4_SHIFT_DEG, the same way round), so no card shows a smaller one.
         const w0 = w.twdAt(g.t0);
         const w1 = w.twdAt(g.t1);
+        const shown = wrap180(w1 - w0);
+        if (Math.abs(shown) < D4_SHIFT_DEG || Math.sign(shown) !== Math.sign(dTwd)) continue;
         top.best = {
-          win: { leg: k, t0: g.t0, t1: g.t1, dTwd: wrap180(w1 - w0), twd0: w0, twd1: w1, refs, seps, dgap, g0: g.g0, g1: g.g1 },
+          win: { leg: k, t0: g.t0, t1: g.t1, dTwd: shown, twd0: w0, twd1: w1, refs, seps, dgap, g0: g.g0, g1: g.g1 },
           headed: me.share,
           ldrHeaded: ldr.map((x) => ({ id: x.id, share: x.h!.share })),
         };
