@@ -30,7 +30,7 @@ import { buildRaceList } from '../src/data/raceList';
 import { buildRaceData, currentDoc, nextGunMs } from '../src/data/racesense/adapter';
 import { linkRequest, linksOf, officialFor, orphanContexts, withDoc } from '../src/data/recovery';
 import { coachBoatFor, coachNoBoatHtml, coachViewHtml, parseCoachView } from '../src/ui/coach';
-import { createRegattaRunner, finishShort, regattaHtml, regattaJobs, regattaPlacesHtml, regattaViewHtml, type RegattaJob, type WorkerPort } from '../src/ui/coachRegatta';
+import { createRegattaRunner, finishShort, placeWhat, regattaHtml, regattaJobs, regattaPlacesHtml, regattaViewHtml, type RegattaJob, type WorkerPort } from '../src/ui/coachRegatta';
 import { parseLastView, resolveStart, serializeLastView, startTab, type LastView } from '../src/ui/lastView';
 import { parsePickerParams } from '../src/ui/params';
 import { raceOptionText } from '../src/ui/races';
@@ -58,6 +58,28 @@ describe('the Coach panel follows the app: no race chips, no boat select', () =>
     }
     expect(parseCoachView('regatta')).toBe('regatta');
     for (const x of [null, undefined, '', 'race', 'weekend', 'Regatta']) expect(parseCoachView(x)).toBe('race');
+  });
+
+  it('Race | Regatta is a large segmented control above the header card, one button pressed; a locked regatta race still says so', () => {
+    const html = coachViewHtml('regatta');
+    expect(html).toMatch(/^<div class="seg coach-view" role="group" aria-label="Coach view">/);
+    expect(html.match(/<button type="button"/g)).toHaveLength(2);
+    expect(html).toContain('data-coach-view="race" aria-pressed="false"');
+    expect(html).toContain('data-coach-view="regatta" aria-pressed="true"');
+    expect(html).toContain('<span class="cv-lbl">Regatta</span><span class="cv-sub">every race</span>');
+    // Out of the header card, first in the Coach panel.
+    const index = read('../index.html');
+    const panel = index.slice(index.indexOf('<div id="panel-coach"'), index.indexOf('id="coach-ask"'));
+    expect(panel.indexOf('<div id="coach-pick" class="coach-pick"></div>')).toBeGreaterThan(0);
+    expect(panel.indexOf('id="coach-pick"')).toBeLessThan(panel.indexOf('id="coach-head-card"'));
+    // Tap targets ≥ 44 px, full width on a phone, a filled selected state.
+    const css = read('../src/style.css');
+    expect(css).toMatch(/\.coach-view button \{[^}]*min-height: 48px/);
+    expect(css).toMatch(/\.coach-view \{ display: flex; width: 100%;/);
+    expect(css).toMatch(/\.seg button\[aria-pressed='true'\] \{ background: var\(--accent\)/);
+    // The paywall is unchanged: a regatta race the viewer can't open is still marked locked in the Regatta view.
+    const row = { raceNumber: 2, label: 'R2', name: 'Race 2', status: 'error', error: '402 pass needed', low: false, weight: 1 } as Parameters<typeof placeWhat>[0];
+    expect(placeWhat(row)).toBe('locked: unlock this regatta to see it');
   });
 
   it('the boat is the one selected in the app, if it sailed this race; else a prompt to pick one in the boat list', () => {

@@ -82,13 +82,14 @@ export const coachBoatFor = (a: Pick<RaceAnalysis, 'boats'>, selected: string | 
   selected && a.boats.some((b) => b.id === selected) ? selected : null;
 
 /**
- * The Coach panel's top line: Race (the race picked in the Race menu) or Regatta (every race of
- * the event). Race and boat are the app's own selection: no picker of its own here.
+ * The Coach panel's top line, a full-width segmented control above the header card: Race (the race
+ * picked in the Race menu) or Regatta (every race of the event). Race and boat are the app's own
+ * selection: no picker of its own here.
  */
 export function coachViewHtml(view: CoachView): string {
-  const btn = (v: CoachView, label: string, title: string): string =>
-    `<button type="button" data-coach-view="${v}" aria-pressed="${view === v}" title="${esc(title)}">${label}</button>`;
-  return `<div class="seg coach-view" role="group" aria-label="Coach view">${btn('race', 'Race', 'This race (the Race menu)')}${btn('regatta', 'Regatta', 'Every race of the event')}</div>`;
+  const btn = (v: CoachView, label: string, sub: string, title: string): string =>
+    `<button type="button" data-coach-view="${v}" aria-pressed="${view === v}" title="${esc(title)}"><span class="cv-lbl">${label}</span><span class="cv-sub">${sub}</span></button>`;
+  return `<div class="seg coach-view" role="group" aria-label="Coach view">${btn('race', 'Race', 'this race', 'This race (the Race menu)')}${btn('regatta', 'Regatta', 'every race', 'Every race of the event')}</div>`;
 }
 
 /** No boat selected: where to pick one. */
