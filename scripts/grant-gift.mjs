@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * Gift passes (admin only): a free Season Pass, or a Regatta Pass for one event id, locked to an email
- * address, in the paywall's D1 database (README "Admin: gift passes"). No dependencies; the SQL runs
- * through `npx wrangler d1 execute <db> --remote|--local --command …`, or is printed with --print.
+ * Gift passes (admin only): a free all-regattas pass (scope `season`, alias `all`: every regatta, no
+ * longer sold but still honoured), or a Regatta Pass for one event id, locked to an email address, in
+ * the paywall's D1 database (README "Admin: gift passes"). No dependencies; the SQL runs through
+ * `npx wrangler d1 execute <db> --remote|--local --command …`, or is printed with --print.
  *
- *   node scripts/grant-gift.mjs grant season --email a@example.com [--expires 2027-10-31] [--note "…"]
+ *   node scripts/grant-gift.mjs grant all --email a@example.com [--expires 2027-10-31] [--note "…"]
  *   node scripts/grant-gift.mjs grant regatta --event <event id> --email a@example.com [--expires …]
- *   node scripts/grant-gift.mjs revoke season --email a@example.com
+ *   node scripts/grant-gift.mjs revoke all --email a@example.com
  *   node scripts/grant-gift.mjs revoke regatta --event <event id> --email a@example.com
  *   node scripts/grant-gift.mjs revoke --id gift_…
  *   node scripts/grant-gift.mjs list [--email a@example.com]
@@ -32,13 +33,18 @@ export const GIFT_ID_RE = /^gift_[0-9a-f]{24}$/;
 export const DEFAULT_DB = 'recall-auth';
 
 const USAGE = `Usage:
-  node scripts/grant-gift.mjs grant season --email <email> [--expires YYYY-MM-DD] [--note <text>]
+  node scripts/grant-gift.mjs grant all --email <email> [--expires YYYY-MM-DD] [--note <text>]
   node scripts/grant-gift.mjs grant regatta --event <event id> --email <email> [--expires YYYY-MM-DD] [--note <text>]
-  node scripts/grant-gift.mjs revoke season --email <email>
+  node scripts/grant-gift.mjs revoke all --email <email>
   node scripts/grant-gift.mjs revoke regatta --event <event id> --email <email>
   node scripts/grant-gift.mjs revoke --id gift_<24 hex>
   node scripts/grant-gift.mjs list [--email <email>]
+Scopes: all (or season): an all-regattas pass, every regatta (no expiry unless --expires);
+        regatta: a Regatta Pass for one event id.
 Options: --db <name> (default ${DEFAULT_DB}), --remote (default) or --local, --print (show the SQL only)`;
+
+/** The command line's scope names: `all` is `season` (the stored scope of an all-regattas pass). */
+export const SCOPE_ALIASES = { all: 'season', season: 'season', regatta: 'regatta' };
 
 export const normEmail = (e) => e.trim().toLowerCase();
 
@@ -82,7 +88,7 @@ const sqlNullable = (n) => (n == null ? 'NULL' : sqlInt(n));
 export function grantSql({ email, scope, eventId = null, expiresAt = null, now, userId = randomUUID() }) {
   const e = checkEmail(email);
   if (scope !== 'season' && scope !== 'regatta') throw new Error(`Scope must be season or regatta, not ${JSON.stringify(scope)}`);
-  if (scope === 'regatta' ? !EVENT_ID_RE.test(String(eventId ?? '')) : eventId != null) throw new Error(scope === 'regatta' ? `Not an event id: ${JSON.stringify(eventId)}` : 'A Season Pass takes no event id');
+  if (scope === 'regatta' ? !EVENT_ID_RE.test(String(eventId ?? '')) : eventId != null) throw new Error(scope === 'regatta' ? `Not an event id: ${JSON.stringify(eventId)}` : 'An all-regattas pass takes no event id');
   if (!/^[0-9a-f-]{36}$/.test(userId)) throw new Error('Bad user id');
   const key = giftKey(e, scope, eventId);
   const id = sqlString(`gift_${key}`);
@@ -141,7 +147,8 @@ export function parseArgs(argv, now = Date.now()) {
   const allow = (...names) => {
     for (const k of Object.keys(o)) if (!['--db', '--remote', '--local', '--print', ...names].includes(k)) throw new Error(`${k} doesn't go with ${pos[0]}`);
   };
-  const [cmd, scope, ...rest] = pos;
+  const [cmd, scopeArg, ...rest] = pos;
+  const scope = Object.prototype.hasOwnProperty.call(SCOPE_ALIASES, scopeArg ?? '') ? SCOPE_ALIASES[scopeArg] : scopeArg;
   if (cmd === 'list') {
     if (pos.length > 1) throw new Error(`Unexpected ${pos[1]}`);
     allow('--email');
@@ -155,9 +162,9 @@ export function parseArgs(argv, now = Date.now()) {
     if (!GIFT_ID_RE.test(o['--id'])) throw new Error(`Not a gift id: ${JSON.stringify(o['--id'])}`);
     return { ...common, cmd, id: o['--id'] };
   }
-  if (scope !== 'season' && scope !== 'regatta') throw new Error(`${cmd} needs season or regatta`);
+  if (scope !== 'season' && scope !== 'regatta') throw new Error(`${cmd} needs all (or season) or regatta`);
   if (scope === 'regatta' && o['--event'] == null) throw new Error('A Regatta Pass needs --event <event id>');
-  if (scope === 'season' && o['--event'] != null) throw new Error('A Season Pass takes no --event');
+  if (scope === 'season' && o['--event'] != null) throw new Error('An all-regattas pass takes no --event');
   if (o['--email'] == null) throw new Error(`${cmd} needs --email`);
   const email = checkEmail(o['--email']);
   const eventId = scope === 'regatta' ? o['--event'] : null;
@@ -183,7 +190,7 @@ export function sqlFor(p, now = Date.now(), userId) {
 export const wranglerArgs = (p, sql) => ['wrangler', 'd1', 'execute', p.db, p.target === 'local' ? '--local' : '--remote', '--command', sql];
 
 function describe(p) {
-  const what = p.cmd === 'list' ? `List gifts${p.email ? ` for ${p.email}` : ''}` : p.scope ? `${p.cmd === 'grant' ? 'Grant' : 'Revoke'} a ${p.scope === 'season' ? 'Season Pass' : `Regatta Pass for event ${p.eventId}`} ${p.cmd === 'grant' ? 'to' : 'of'} ${p.email}` : `Revoke gift ${p.id}`;
+  const what = p.cmd === 'list' ? `List gifts${p.email ? ` for ${p.email}` : ''}` : p.scope ? `${p.cmd === 'grant' ? 'Grant' : 'Revoke'} ${p.scope === 'season' ? 'an all-regattas pass' : `a Regatta Pass for event ${p.eventId}`} ${p.cmd === 'grant' ? 'to' : 'of'} ${p.email}` : `Revoke gift ${p.id}`;
   const exp = p.cmd === 'grant' ? (p.expiresAt != null ? `, through ${new Date(p.expiresAt - 1).toISOString().slice(0, 10)} (UTC)` : ', no expiry') : '';
   return `${what}${exp}${p.id && p.cmd !== 'list' ? ` [${p.id}]` : ''}${p.note ? ` (note: ${p.note})` : ''} on ${p.db} (${p.target})`;
 }

@@ -427,12 +427,12 @@ export interface OAuthState {
 
 /** The pass a signed-out sailor clicked: checked against the product list and EVENT_ID_RE, else none. */
 export interface BuyIntent {
-  product: 'regatta' | 'season';
-  eventId: string | null;
+  product: 'regatta';
+  eventId: string;
 }
 
+/** Only the Regatta Pass is sold: a `season` intent (no longer on sale, or an old marker) is none. */
 export function parseIntent(product: unknown, eventId: unknown): BuyIntent | null {
-  if (product === 'season') return { product, eventId: null };
   if (product === 'regatta' && typeof eventId === 'string' && EVENT_ID_RE.test(eventId)) return { product, eventId };
   return null;
 }
@@ -464,9 +464,8 @@ export async function readBuy(secret: string, raw: unknown, userId: string, now:
   }
 }
 
-/** Does the user already hold what the intent would buy (a pass for that event, or one for every regatta)? */
-export const intentHeld = (ents: readonly Entitlement[], userId: string, b: BuyIntent, now: number): boolean =>
-  ents.some((e) => (b.product === 'season' ? e.scope !== 'regatta' : true) && unlocks(e, userId, b.product === 'season' ? null : b.eventId, now));
+/** Does the user already hold what the intent would buy (any pass that opens that event: its own, or an all-regattas one)? */
+export const intentHeld = (ents: readonly Entitlement[], userId: string, b: BuyIntent, now: number): boolean => ents.some((e) => unlocks(e, userId, b.eventId, now));
 
 /** A return path without any buy marker (the server adds its own, signed). */
 const withoutBuy = (to: string): string => {
@@ -493,7 +492,7 @@ const linkReturnTo = (returnTo: string, buy: BuyIntent | null): string => {
   const to = withoutBuy(returnTo);
   const u = new URL(to, 'https://x.invalid');
   u.searchParams.delete(LINK_BUY_PARAM);
-  if (buy) u.searchParams.set(LINK_BUY_PARAM, buy.product === 'regatta' ? `regatta.${buy.eventId}` : 'season');
+  if (buy) u.searchParams.set(LINK_BUY_PARAM, `regatta.${buy.eventId}`);
   return /^https?:/i.test(to) ? u.href : `${u.pathname}${u.search}${u.hash}`;
 };
 const splitLinkReturnTo = (stored: string): { returnTo: string; buy: BuyIntent | null } => {

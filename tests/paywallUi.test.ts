@@ -104,12 +104,12 @@ describe('lock card', () => {
     expect(view.results[0].elapsed).toMatch(/^\d+:\d\d$/);
   });
 
-  it('offers both passes, race 1 free, sign in and restore; escapes what it shows', () => {
+  it('offers the Regatta Pass only, race 1 free, sign in and restore; escapes what it shows', () => {
     const html = lockCardHtml(view);
     expect(html).toContain('Unlock this regatta — $50');
-    expect(html).toContain('Season Pass — $149/yr');
+    expect(html.match(/data-pw="buy-\w+"/g)).toEqual(['data-pw="buy-regatta"']);
     expect(html).toContain('<h3 id="lock-title">See the start, every leg and Coach&#39;s top 3 for every boat in R2–R9.</h3>');
-    expect(html).toContain('Race 1 is free');
+    expect(html).toContain('Race 1 of every regatta is free; unlock the rest of a regatta for $50');
     expect(html).toContain('data-pw="signin"');
     expect(html).toContain('data-pw="restore"');
     expect(html).toContain('class="lock-teaser"');
@@ -118,6 +118,43 @@ describe('lock card', () => {
     expect(signedIn).toContain('Signed in as &lt;b&gt;x&lt;/b&gt;@example.com');
     expect(signedIn).not.toContain('data-pw="signin"');
     expect(signedIn).toContain('&lt;i&gt;');
+  });
+});
+
+describe('no Season Pass offer anywhere', () => {
+  const title = (id: string): string => id;
+  const listed = races.find((r) => r.raceNumber === 3);
+  const SEASON_OFFER = /season|all-regattas|\$149|per year|\/yr|buy-season|subscribe/i;
+  const viewers: [string, Me][] = [
+    ['logged out', on()],
+    ['logged out, Google only', on({ signIn: { email: false, google: true } })],
+    ['logged in, no pass', on({ user: { email: 'a@example.com' } })],
+    ['logged in, a regatta pass for another event', on({ user: { email: 'a@example.com' }, entitlements: [pass('regatta', 'otherEvent1234')] })],
+    ['logged in, a regatta pass for this event', on({ user: { email: 'a@example.com' }, entitlements: [pass('regatta', EVENT)] })],
+  ];
+
+  it('the lock card, the sign-in sheet and the account sheet never offer one', () => {
+    for (const [who, m] of viewers) {
+      const card = lockCardHtml(lockView(doc, { division: 'J70', raceNumber: 3, listed, range: 'R2–R9', me: m }));
+      expect(card, who).not.toMatch(SEASON_OFFER);
+      expect(card, who).toContain('data-pw="buy-regatta"');
+      for (const mode of ['signin', 'sent', 'restore', 'restore-sent', 'account'] as const) {
+        const s = sheetHtml(m, { mode, email: 'a@example.com' }, title);
+        expect(s, `${who} ${mode}`).not.toMatch(SEASON_OFFER);
+        expect(s, `${who} ${mode}`).not.toContain('data-pw="buy-');
+        expect(s, `${who} ${mode}`).not.toContain('Manage subscription');
+      }
+    }
+    // With a lock message or a disabled buy button too.
+    expect(lockCardHtml({ ...lockView(doc, { division: 'J70', raceNumber: 3, listed, range: '', me: PAYWALL_OFF }), message: 'Opening the payment page…' })).not.toMatch(SEASON_OFFER);
+  });
+
+  it('an existing all-regattas pass is shown (not offered), and still opens every regatta', () => {
+    const m = on({ user: { email: 'a@example.com' }, entitlements: [pass('season', null, Date.parse('2027-10-22T12:00:00Z'))] });
+    const s = sheetHtml(m, { mode: 'account' }, title);
+    expect(s).toContain('All-regattas pass · every regatta · until 22 Oct 2027');
+    expect(s).not.toMatch(/data-pw="buy-|\$149|\/yr/);
+    for (const eventId of [EVENT, 'otherEvent1234']) for (const race of [2, 9]) expect(isLocked(m, free, eventId, 'J70', race, NOW)).toBe(false);
   });
 });
 
@@ -142,7 +179,7 @@ describe('account sheet', () => {
     const m = on({ user: { email: 'a@example.com' }, entitlements: [pass('season', null, Date.parse('2027-10-22T12:00:00Z')), pass('regatta', EVENT)] });
     const s = sheetHtml(m, { mode: 'account' }, title);
     expect(s).toContain('Signed in as <strong>a@example.com</strong>');
-    expect(s).toContain('Season Pass · every regatta · until 22 Oct 2027');
+    expect(s).toContain('All-regattas pass · every regatta · until 22 Oct 2027');
     expect(s).toContain('Regatta Pass · Benelux Act III');
     expect(s).toContain('Manage subscription');
     expect(s).toContain('data-pw="signout"');

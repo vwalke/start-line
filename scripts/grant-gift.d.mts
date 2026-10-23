@@ -11,6 +11,7 @@ export const EVENT_ID_RE: RegExp;
 export const DB_RE: RegExp;
 export const GIFT_ID_RE: RegExp;
 export const DEFAULT_DB: string;
+export const SCOPE_ALIASES: Record<'all' | 'season' | 'regatta', GiftScope>;
 export function normEmail(e: string): string;
 export function checkEmail(raw: unknown): string;
 export function expiryMs(raw: unknown, now: number): number;

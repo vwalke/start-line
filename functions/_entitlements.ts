@@ -2,7 +2,7 @@
  * Who may see what (pure: no D1, no clock of its own). Race 1 of every regatta is free; races 2+
  * need one of:
  *   regatta  a Regatta Pass for that event id (one-off; no expiry unless one is set)
- *   season   a Season Pass: starts_at ≤ now < expires_at
+ *   season   an all-regattas pass (a Season Pass subscription, no longer sold, or a gift): starts_at ≤ now < expires_at
  *   coach    a Coach plan (data model only for now): its owner, or one of its first `seats`
  *            members, while the plan runs
  * A revoked entitlement allows nothing. Also used by the page (the lock card) on the entitlements

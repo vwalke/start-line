@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { EMAIL_RE as SCRIPT_EMAIL_RE, EVENT_ID_RE as SCRIPT_EVENT_ID_RE, checkEmail, expiryMs, giftId, grantSql, listSql, parseArgs, revokeSql, sqlFor, sqlString, wranglerArgs } from '../scripts/grant-gift.mjs';
 import { EMAIL_RE, entitlementsOf, userByEmail } from '../functions/_authDb';
@@ -12,6 +14,12 @@ import { EVENT, NOW, ORIGIN, paywallEnv, resetPaywallCaches, signIn } from './pa
 
 const DAY = 86_400_000;
 const OTHER_EVENT = 'someOtherEvent1';
+const SCRIPT = fileURLToPath(new URL('../scripts/grant-gift.mjs', import.meta.url));
+/** The script itself, run as an admin would (only ever with --print or --help here: nothing reaches wrangler). */
+const cli = (...argv: string[]): { status: number | null; out: string; err: string } => {
+  const r = spawnSync(process.execPath, [SCRIPT, ...argv], { encoding: 'utf8' });
+  return { status: r.status, out: r.stdout, err: r.stderr };
+};
 const ctx = (request: Request, env: PaywallEnv, path: string): AuthCtx => ({ request, env, params: { path: path.split('/') } });
 const json = async (r: Response): Promise<Record<string, unknown>> => (await r.json()) as Record<string, unknown>;
 
@@ -115,6 +123,63 @@ describe('scripts/grant-gift.mjs: arguments and SQL', () => {
     for (const argv of bad) expect(() => parseArgs(argv, NOW), argv.join(' ')).toThrow();
   });
 
+  it('`all` is the all-regattas pass (stored as scope season): the same gift, the same id', () => {
+    const viaAll = parseArgs(['grant', 'all', '--email', 'a@example.com', '--expires', '2027-10-22'], NOW);
+    const viaSeason = parseArgs(['grant', 'season', '--email', 'a@example.com', '--expires', '2027-10-22'], NOW);
+    expect(viaAll).toEqual(viaSeason);
+    expect(viaAll).toMatchObject({ cmd: 'grant', scope: 'season', eventId: null, expiresAt: Date.UTC(2027, 9, 23), id: giftId('a@example.com', 'season', null) });
+    expect(parseArgs(['revoke', 'all', '--email', 'a@example.com'], NOW)).toMatchObject({ cmd: 'revoke', id: giftId('a@example.com', 'season', null) });
+    for (const argv of [['grant', 'all', '--email', 'a@example.com', '--event', EVENT], ['grant', 'ALL', '--email', 'a@example.com'], ['grant', 'every', '--email', 'a@example.com'], ['grant', 'toString', '--email', 'a@example.com']]) {
+      expect(() => parseArgs(argv, NOW), argv.join(' ')).toThrow();
+    }
+  });
+
+  it('the SQL of a 1-year all-regattas gift and of a per-regatta gift', () => {
+    const userId = '00000000-0000-4000-8000-000000000001';
+    const year = parseArgs(['grant', 'all', '--email', 'Crew@Example.com', '--expires', '2027-10-22'], NOW);
+    const yid = giftId('crew@example.com', 'season', null);
+    expect(sqlFor(year as Exclude<typeof year, { cmd: 'help' }>, NOW, userId).split('\n')).toEqual([
+      `INSERT OR IGNORE INTO users (id, email, created_at) VALUES ('${userId}', 'crew@example.com', ${NOW});`,
+      `INSERT OR IGNORE INTO purchases (id, user_id, provider, provider_ref, product, amount, currency, status, email, created_at) SELECT '${yid}', id, 'gift', 'gift:${yid.slice(5)}', 'season', 0, NULL, 'gift', 'crew@example.com', ${NOW} FROM users WHERE email = 'crew@example.com';`,
+      `INSERT OR IGNORE INTO entitlements (id, user_id, scope, event_id, starts_at, expires_at, purchase_id) SELECT '${yid}', user_id, 'season', NULL, ${NOW}, ${Date.UTC(2027, 9, 23)}, id FROM purchases WHERE id = '${yid}';`,
+      `UPDATE entitlements SET expires_at = ${Date.UTC(2027, 9, 23)}, revoked_at = NULL WHERE id = '${yid}';`,
+    ]);
+    const one = parseArgs(['grant', 'regatta', '--event', EVENT, '--email', 'crew@example.com'], NOW);
+    const rid = giftId('crew@example.com', 'regatta', EVENT);
+    expect(sqlFor(one as Exclude<typeof one, { cmd: 'help' }>, NOW, userId).split('\n')).toEqual([
+      `INSERT OR IGNORE INTO users (id, email, created_at) VALUES ('${userId}', 'crew@example.com', ${NOW});`,
+      `INSERT OR IGNORE INTO purchases (id, user_id, provider, provider_ref, product, amount, currency, status, email, created_at) SELECT '${rid}', id, 'gift', 'gift:${rid.slice(5)}', 'regatta', 0, NULL, 'gift', 'crew@example.com', ${NOW} FROM users WHERE email = 'crew@example.com';`,
+      `INSERT OR IGNORE INTO entitlements (id, user_id, scope, event_id, starts_at, expires_at, purchase_id) SELECT '${rid}', user_id, 'regatta', '${EVENT}', ${NOW}, NULL, id FROM purchases WHERE id = '${rid}';`,
+      `UPDATE entitlements SET expires_at = NULL, revoked_at = NULL WHERE id = '${rid}';`,
+    ]);
+    expect(rid).not.toBe(yid);
+  });
+
+  it('the command line: help calls it an all-regattas pass; --print shows the SQL and runs nothing', () => {
+    const help = cli('--help');
+    expect(help.status).toBe(0);
+    expect(help.out).toContain('grant all --email <email> [--expires YYYY-MM-DD]');
+    expect(help.out).toContain('grant regatta --event <event id> --email <email>');
+    expect(help.out).toMatch(/all \(or season\): an all-regattas pass/);
+    expect(help.out).not.toMatch(/Season Pass/);
+    const year = cli('grant', 'all', '--email', 'crew@example.com', '--expires', '2099-10-22', '--print');
+    expect(year.status).toBe(0);
+    expect(year.err).toContain('Grant an all-regattas pass to crew@example.com, through 2099-10-22 (UTC)');
+    expect(year.out).toContain(`'season', NULL,`);
+    expect(year.out).toContain(`${Date.UTC(2099, 9, 23)}`);
+    const one = cli('grant', 'regatta', '--event', EVENT, '--email', 'crew@example.com', '--print');
+    expect(one.status).toBe(0);
+    expect(one.err).toContain(`Grant a Regatta Pass for event ${EVENT} to crew@example.com, no expiry`);
+    expect(one.out).toContain(`'regatta', '${EVENT}',`);
+    const revoke = cli('revoke', 'all', '--email', 'crew@example.com', '--print');
+    expect(revoke.err).toContain('Revoke an all-regattas pass of crew@example.com');
+    expect(revoke.out.trim()).toMatch(new RegExp(`^UPDATE entitlements SET revoked_at = \\d+ WHERE id = '${giftId('crew@example.com', 'season', null)}' AND revoked_at IS NULL;$`));
+    const list = cli('list', '--print');
+    expect(list.status).toBe(0);
+    expect(list.out).toContain("WHERE p.provider = 'gift'");
+    expect(cli('grant', 'all', '--email', 'crew@example.com', '--event', EVENT, '--print')).toMatchObject({ status: 2 });
+  });
+
   it('builds safe SQL: quotes doubled, control characters refused, ids derived (same gift, same id)', () => {
     expect(sqlString("o'brien@example.com")).toBe("'o''brien@example.com'");
     expect(() => sqlString('a\nb')).toThrow();
@@ -206,6 +271,23 @@ describe('gift passes, end to end', () => {
     expect(await opens(db, 'a@example.com', null as unknown as string)).toBe(false);
   });
 
+  it('a 1-year all-regattas gift (grant all --expires a year out) opens every regatta for that year, then stops', async () => {
+    const db = new MemD1();
+    await grantCmd(db, ['grant', 'all', '--email', 'crew@example.com', '--expires', '2027-10-22']);
+    const cookie = await magicLink(db, 'crew@example.com');
+    expect(await passes(db, cookie)).toEqual([{ scope: 'season', eventId: null, startsAt: NOW, expiresAt: Date.UTC(2027, 9, 23), seats: null, owner: true, gift: true }]);
+    for (const ev of [EVENT, OTHER_EVENT]) {
+      expect(await opens(db, 'crew@example.com', ev)).toBe(true);
+      expect(await opens(db, 'crew@example.com', ev, Date.UTC(2027, 9, 23) - 1)).toBe(true);
+      expect(await opens(db, 'crew@example.com', ev, Date.UTC(2027, 9, 23))).toBe(false);
+    }
+    // The page shows it as held (no offer to buy one, no Manage subscription for a gift).
+    const [p] = await passes(db, cookie);
+    expect(passLine(p, (id) => id)).toMatch(/^All-regattas pass \(gift\) · every regatta · until 2[23] Oct 2027$/); // the local date of the UTC end
+    await grantCmd(db, ['revoke', 'all', '--email', 'crew@example.com'], NOW + 1);
+    expect(await opens(db, 'crew@example.com', EVENT, NOW + 2)).toBe(false);
+  });
+
   it('a season gift with an expiry runs through that day (UTC), then stops; without one it doesn’t end', async () => {
     const db = new MemD1();
     await grantCmd(db, ['grant', 'season', '--email', 'until@example.com', '--expires', '2026-11-30']);
@@ -240,7 +322,7 @@ describe('gift passes, end to end', () => {
 
   it('shows as a gift on the page, with no "Manage subscription"', () => {
     const [p] = passViews([{ id: 'gift_x', userId: 'u', scope: 'season', eventId: null, startsAt: NOW - 1, expiresAt: null, seats: null, revokedAt: null, gift: true }], 'u', NOW);
-    expect(passLine(p, (id) => id)).toBe('Season Pass (gift) · every regatta');
+    expect(passLine(p, (id) => id)).toBe('All-regattas pass (gift) · every regatta');
     const me = { paywall: true as const, user: { email: 'a@example.com' }, entitlements: [p], signIn: { email: true, google: false } };
     expect(sheetHtml(me, { mode: 'account' }, (id) => id)).not.toContain('Manage subscription');
     const bought = { ...p, gift: undefined };

@@ -93,7 +93,7 @@ describe('Stripe webhook events', () => {
     expect(db.rows('users')).toEqual([]);
   });
 
-  it('season: a year by default, extended by invoice.paid, kept to period end when cancelled, ended on delete', async () => {
+  it('season (existing subscriptions, no longer sold): a year by default, extended by invoice.paid, kept to period end when cancelled, ended on delete', async () => {
     const db = new MemD1();
     await deliver(db, fixture('checkout_season'));
     const [e] = db.rows('entitlements');
@@ -116,6 +116,19 @@ describe('Stripe webhook events', () => {
     const deleted = await deliver(db, fixture('subscription_deleted'), undefined, 1810000000_000);
     expect(await json(deleted)).toEqual({ received: true, outcome: 'ended' });
     expect(db.rows('entitlements')[0].expires_at).toBe(1810000000_000);
+  });
+
+  it('season: a paused subscription ends access now; resumed (active again) runs to the period end', async () => {
+    const db = new MemD1();
+    await deliver(db, fixture('checkout_season'));
+    expect(await json(await deliver(db, fixture('subscription_paused'), undefined, 1805000000_000))).toMatchObject({ outcome: 'ended' });
+    const ended = db.rows('entitlements')[0].expires_at as number;
+    expect(ended).toBeLessThanOrEqual(1805000000_000);
+    const resumed = fixture('subscription_updated') as { id: string; data: { object: Record<string, unknown> } };
+    resumed.id = 'evt_test_SubResumed0001';
+    resumed.data.object.cancel_at_period_end = false;
+    expect(await json(await deliver(db, resumed, undefined, 1806000000_000))).toMatchObject({ outcome: 'updated' });
+    expect(db.rows('entitlements')[0].expires_at).toBe(1824206400_000);
   });
 
   it('takes the period end from the event when the subscription is expanded', async () => {
@@ -213,11 +226,12 @@ describe('Checkout', () => {
     });
   });
 
-  it('builds the season session as a subscription, on the known customer, managed payments optional', () => {
+  it('builds the session on the known customer, always a one-off payment; managed payments optional', () => {
     const form = Object.fromEntries(
-      checkoutForm({ product: 'season', price: 'price_test_season', user: { id: 'u1', email: 'a@example.com', stripe_customer_id: 'cus_test_1' }, eventId: null, successUrl: 's', cancelUrl: 'c', managed: false }),
+      checkoutForm({ product: 'regatta', price: 'price_test_regatta', user: { id: 'u1', email: 'a@example.com', stripe_customer_id: 'cus_test_1' }, eventId: EVENT, successUrl: 's', cancelUrl: 'c', managed: false }),
     );
-    expect(form).toMatchObject({ mode: 'subscription', customer: 'cus_test_1', 'subscription_data[metadata][product]': 'season', 'subscription_data[metadata][user_id]': 'u1' });
+    expect(form).toMatchObject({ mode: 'payment', customer: 'cus_test_1', 'payment_intent_data[metadata][product]': 'regatta', 'payment_intent_data[metadata][user_id]': 'u1' });
+    expect(Object.keys(form).some((k) => k.startsWith('subscription_data'))).toBe(false);
     expect(form.customer_email).toBeUndefined();
     expect(form['managed_payments[enabled]']).toBeUndefined();
     expect(managedOn(undefined)).toBe(true);
@@ -239,9 +253,48 @@ describe('Checkout', () => {
     resetPaywallCaches();
     expect((await handleBilling(ctx(post({ product: 'regatta', eventId: EVENT }, cookie), env, 'checkout'), deps({ fetch: f }))).status).toBe(409);
     expect(f.calls).toHaveLength(0);
-    // Unconfigured prices: 503, no call out.
-    const noPrice = paywallEnv(db, { STRIPE_PRICE_SEASON: undefined });
-    expect((await handleBilling(ctx(post({ product: 'season' }, cookie), noPrice, 'checkout'), deps({ fetch: f }))).status).toBe(503);
+    // Unconfigured price: 503, no call out.
+    const noPrice = paywallEnv(db, { STRIPE_PRICE_REGATTA: undefined });
+    expect((await handleBilling(ctx(post({ product: 'regatta', eventId: 'someOtherEvent1' }, cookie), noPrice, 'checkout'), deps({ fetch: f }))).status).toBe(503);
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it('refuses the Season Pass (no longer sold): 400 not_available, no Stripe call, whatever is configured', async () => {
+    const db = new MemD1();
+    const f = stripeMock();
+    const { cookie } = await signIn(db, 'buyer@example.com');
+    for (const env of [paywallEnv(db), paywallEnv(db, { STRIPE_PRICE_SEASON: 'price_test_season' } as Partial<PaywallEnv>)]) {
+      for (const body of [{ product: 'season' }, { product: 'season', eventId: EVENT, returnTo: '/' }]) {
+        const res = await handleBilling(ctx(post(body, cookie), env, 'checkout'), deps({ fetch: f }));
+        expect(res.status).toBe(400);
+        const out = await json(res);
+        expect(out).toMatchObject({ error: 'not_available' });
+        expect(String(out.message)).toMatch(/no longer sold/);
+        expect(String(out.message)).toContain('$50');
+      }
+    }
+    expect(f.calls).toHaveLength(0);
+    // The regatta pass still opens Stripe without any STRIPE_PRICE_SEASON.
+    expect((await handleBilling(ctx(post({ product: 'regatta', eventId: EVENT }, cookie), paywallEnv(db), 'checkout'), deps({ fetch: f }))).status).toBe(200);
+    expect(f.calls).toHaveLength(1);
+    expect(new URLSearchParams(String(f.calls[0].init.body)).get('line_items[0][price]')).toBe('price_test_regatta');
+  });
+
+  it('an existing Season Pass subscriber: every regatta already held (409, no Stripe call), and Manage subscription opens their portal', async () => {
+    const db = new MemD1();
+    await deliver(db, fixture('checkout_season'));
+    const { cookie } = await signIn(db, 'crew@example.com');
+    resetPaywallCaches();
+    const f = stripeMock();
+    for (const eventId of [EVENT, 'someOtherEvent1']) {
+      const res = await handleBilling(ctx(post({ product: 'regatta', eventId }, cookie), paywallEnv(db), 'checkout'), deps({ fetch: f }));
+      expect(res.status, eventId).toBe(409);
+    }
+    expect(f.calls).toHaveLength(0);
+    const portal = await handleBilling(ctx(portalPost(cookie), paywallEnv(db), 'portal'), deps({ fetch: f }));
+    expect(portal.status).toBe(200);
+    expect(f.calls.map((c) => c.url)).toEqual(['https://api.stripe.com/v1/billing_portal/sessions']);
+    expect(new URLSearchParams(String(f.calls[0].init.body)).get('customer')).toBe('cus_test_Season0001');
   });
 
   it('is the proxy’s 404 with the flag off (route file included)', async () => {
