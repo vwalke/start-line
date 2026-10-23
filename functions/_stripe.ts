@@ -41,7 +41,7 @@ import {
   type EntitlementRow,
   type UserRow,
 } from './_authDb';
-import { intentHeld, originRefused, readBuy, safeReturnTo, unavailable, withParam } from './_auth';
+import { DEFAULT_RETURN_TO, intentHeld, originRefused, readBuy, safeReturnTo, unavailable, withParam } from './_auth';
 import { jsonOut, notFound, paywallOn, viewerOf, type PaywallDeps, type PaywallEnv } from './_paywall';
 import { readCapped } from './_vkx';
 import { endpointPath } from './_lib';
@@ -215,7 +215,7 @@ async function portal(ctx: BillingCtx, deps: PaywallDeps): Promise<Response> {
   const customer = v.user.stripe_customer_id;
   if (!customer) return jsonOut(404, { error: 'no_customer', message: 'No payments on this account yet.' });
   const origin = new URL(ctx.request.url).origin;
-  const form = new URLSearchParams({ customer, return_url: `${origin}/` });
+  const form = new URLSearchParams({ customer, return_url: `${origin}${DEFAULT_RETURN_TO}` });
   let res: Response;
   try {
     res = await (deps.fetch ?? fetch)(`${STRIPE_API}/v1/billing_portal/sessions`, { method: 'POST', headers: stripeHeaders(env), body: form });

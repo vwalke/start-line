@@ -94,29 +94,33 @@ const isolateLimits = (): { email: RateLimiter; ip: RateLimiter } =>
 
 const isLocalHost = (host: string): boolean => /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host);
 
+/** Where a server redirect lands by default: the app's regatta list (bare `/` is the landing page, src/landing/route.ts). */
+export const DEFAULT_RETURN_TO = '/regattas';
+
 /**
  * Where to send the browser back to: a path on this site, or an https page on walkeforward.com or one
- * of its subdomains (or this very origin, for previews and dev). Anything else is "/": never an open redirect.
+ * of its subdomains (or this very origin, for previews and dev). Anything else is DEFAULT_RETURN_TO: never an
+ * open redirect.
  */
 export function safeReturnTo(raw: unknown, origin: string): string {
-  if (typeof raw !== 'string' || !raw || raw.length > 2000) return '/';
+  if (typeof raw !== 'string' || !raw || raw.length > 2000) return DEFAULT_RETURN_TO;
   // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f\\]/.test(raw)) return '/';
+  if (/[\u0000-\u001f\u007f\\]/.test(raw)) return DEFAULT_RETURN_TO;
   try {
     if (raw.startsWith('/')) {
-      if (raw.startsWith('//')) return '/';
+      if (raw.startsWith('//')) return DEFAULT_RETURN_TO;
       const u = new URL(raw, origin);
-      return u.origin === origin ? `${u.pathname}${u.search}${u.hash}` : '/';
+      return u.origin === origin ? `${u.pathname}${u.search}${u.hash}` : DEFAULT_RETURN_TO;
     }
     const u = new URL(raw);
-    if (u.username || u.password) return '/';
+    if (u.username || u.password) return DEFAULT_RETURN_TO;
     if (u.origin === origin) return `${u.pathname}${u.search}${u.hash}`;
     const h = u.hostname.toLowerCase();
     if (u.protocol === 'https:' && !u.port && (h === 'walkeforward.com' || h.endsWith('.walkeforward.com'))) return u.href;
   } catch {
     /* not a URL */
   }
-  return '/';
+  return DEFAULT_RETURN_TO;
 }
 
 /** The browser's own origin for this request; a POST from elsewhere is refused. */

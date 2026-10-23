@@ -327,7 +327,7 @@ describe('Checkout', () => {
     expect(res.headers.get('location')).toBeNull();
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(await json(res)).toEqual({ url: 'https://billing.stripe.com/p/session/test_fake' });
-    expect(calls).toEqual([`https://api.stripe.com/v1/billing_portal/sessions customer=cus_test_1&return_url=${encodeURIComponent(`${ORIGIN}/`)}`]);
+    expect(calls).toEqual([`https://api.stripe.com/v1/billing_portal/sessions customer=cus_test_1&return_url=${encodeURIComponent(`${ORIGIN}/regattas`)}`]);
     // A walkeforward.com page may ask too.
     expect((await handleBilling(ctx(portalPost(cookie, 'https://walkeforward.com'), env, 'portal'), deps({ fetch: f }))).status).toBe(200);
     // GET: 405 with the flag on (it used to redirect).
