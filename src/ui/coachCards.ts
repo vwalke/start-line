@@ -19,6 +19,7 @@ import { D3_WINDOW_MS } from '../analysis/coach/detectors/early';
 import { D9_SLOW_S } from '../analysis/coach/detectors/rounding';
 import { D13_TRAFFIC_BOATS } from '../analysis/coach/detectors/gate';
 import { D8_WINDOW_MS } from '../analysis/coach/detectors/shadow';
+import { D17_HIGH_MEASURED } from '../analysis/coach/detectors/manoeuvreCost';
 import type { Fact, GoodNote } from '../analysis/coach/opportunity';
 import type { PenaltyFinding } from '../analysis/coach/penalty';
 import type { PenaltyTurn } from '../analysis/coach/detectors/penaltyTurn';
@@ -301,6 +302,8 @@ export function cardText(c: Card, tz = 0): CardText {
       return nowhereText(c);
     case 'D16':
       return biasText(c);
+    case 'D17':
+      return manoeuvreText(c);
     default:
       return { title: 'Time lost', chips: [], sentence: `About ${sec} s.`, tip: '' };
   }
@@ -529,9 +532,47 @@ function biasText(c: Card): CardText {
   };
 }
 
-/** The ➕ lines of D14 / D15 / D16 (no glyph). */
+const MANOEUVRE_TIPS: Record<string, string> = {
+  tack: 'Smooth tacks: build full speed first, steer one steady arc, and ease to accelerate before pointing; tack less when it isn’t for a shift or a lane.',
+  gybe: 'Smooth gybes: turn in a puff with speed on, keep the kite full through the turn and settle the new angle fast; gybe less when it isn’t for pressure or a shift.',
+};
+
+/** Metres a manoeuvre, never below 0 (a turn onto a lift can make more ground than the steady sailing before it). */
+const manM = (m: Fact): string => r0(Math.max(0, num(m)));
+/** "tack" / "tacks". */
+const manWord = (man: Fact, n = 2): string => `${man === 'gybe' ? 'gybe' : 'tack'}${n === 1 ? '' : 's'}`;
+
+/**
+ * D17's card: each tack (gybe) cost more than the fleet's on the leg, or there were many more of them; the race's other
+ * such legs as "also …". Only the measured turns are charged; a count at the fleet's cost a turn, and the card says so.
+ */
+function manoeuvreText(c: Card): CardText {
+  const f = c.facts;
+  const n = num(f.n);
+  const k = num(f.measured);
+  const extra = num(f.extraN);
+  const verb = f.man === 'gybe' ? 'gybed' : 'tacked';
+  const of = k < n ? ` of ${n}` : '';
+  const h = num(f.handlingM);
+  const handling =
+    h > 0
+      ? `your ${manWord(f.man)} cost ~${manM(f.medM)} m each (~${r0(f.medS)} s), the fleet's ~${manM(f.fMedM)} m: ~${r0(h)} m lost on the fleet over the ${k}${of} measured`
+      : `your ${k}${of} measured ${manWord(f.man, k)} cost ~${manM(f.medM)} m each, the fleet's ~${manM(f.fMedM)} m${Math.round(-h) > 0 ? ` (~${r0(-h)} m less over them)` : ''}`;
+  const count = extra > 0 ? ` You ${verb} ${n} ${s1(n, 'time', 'times')}, the fleet ${timesPhrase(f.fN)}: ${f1(extra).replace(/\.0$/, '')} extra × the fleet's ~${manM(f.fMedM)} m a ${manWord(f.man, 1)} = ~${r0(f.countM)} m.` : '';
+  const total = extra > 0 && Math.round(h) !== 0 ? ` ~${r0(f.extraM)} m lost on the fleet in all.` : '';
+  const also = f.also ? ` Also on ${f.also}.` : '';
+  return {
+    title: num(f.many) && num(f.countM) >= num(f.handlingM) ? `Too many ${manWord(f.man)} on ${f.leg}` : `Costly ${manWord(f.man)} on ${f.leg}`,
+    chips: [`~${manM(f.medM)} m a ${manWord(f.man, 1)} vs fleet ~${manM(f.fMedM)} m`, f.fN != null ? `${n} ${manWord(f.man, n)} vs fleet ${f1(num(f.fN)).replace(/\.0$/, '')}` : `${n} ${manWord(f.man, n)}`, `${r0(k)} of ${n} measured`],
+    sentence: `${f.leg}: ${handling}.${count}${total}${also}`,
+    tip: MANOEUVRE_TIPS[String(f.man)] ?? MANOEUVRE_TIPS.tack,
+  };
+}
+
+/** The ➕ lines of D14 / D15 / D16 / D17 (no glyph). */
 function newWent(n: GoodNote): string | null {
   const f = n.facts;
+  if (n.detector === 'D17') return `${f.leg}: ${manWord(f.man)} ~${manM(f.medM)} m each vs fleet ~${manM(f.fMedM)} m (${r0(f.measured)} measured)${f.also ? ` (also ${f.also})` : ''}`;
   if (n.detector === 'D14') return `${f.leg}: on the ${f.paid} side, which paid (~${r0(f.effect)} places on the ${f.other} third); you ${legPlaces(f.gain)}${f.also ? ` (also ${f.also})` : ''}`;
   if (n.detector === 'D15') return `${f.leg}: fast and making ground, VMG ${kn(f.vmg)} vs fleet ${kn(f.fVmg)} kn at ${kn(f.sog)} vs ${kn(f.fSog)} kn`;
   if (n.detector === 'D16') {
@@ -589,6 +630,10 @@ export function cardWarnings(c: Card, a: RaceAnalysis, raceCov?: number | null):
             ? 'from the tracker feed'
             : c.kind === 'D16'
             ? 'wind at the gun est.'
+            : c.kind === 'D17'
+            ? num(c.facts.measured) < D17_HIGH_MEASURED
+              ? 'few manoeuvres measured'
+              : 'few boats measured'
             : c.kind === 'D14'
             ? 'few boats a third'
             : c.kind === 'D13'

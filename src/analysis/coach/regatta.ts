@@ -4,7 +4,7 @@
  * worker) down to a small digest — the boat's place, its legs against the fleet, and every finding
  * the race's debrief keeps (rank.ts, uncapped) — and the digests are summed up here: the place row,
  * the findings that recur (by seconds at stake and by how many races; the side of the course D14, speed without progress
- * D15 and the line bias D16 are themes like the others; a data-gated detector — D8
+ * D15, the line bias D16 and the manoeuvres D17 are themes like the others; a data-gated detector — D8
  * dirty air, D9 roundings, D11 heel — counts only the races it had the data to measure), the best and worst
  * legs by type, the three things to work on (pattern cards for what recurs), and what went well,
  * by fixed rules. Races the tracker covered poorly are kept
@@ -129,6 +129,7 @@ export function wentOf(a: Pick<RaceAnalysis, 'legs'>, n: GoodNote): WentDigest {
   if (n.detector === 'D1' || n.detector === 'D3') return { family: 'start', label: n.detector === 'D1' ? 'Start' : 'First minutes', seconds };
   if (n.detector === 'D16') return { family: 'start', label: 'Start: favoured end', seconds };
   if (n.detector === 'D14') return { family: 'side', label: String(f.leg ?? 'Leg'), seconds };
+  if (n.detector === 'D17') return { family: 'manoeuvres', label: String(f.leg ?? 'Leg'), seconds };
   if (n.detector === 'D11') return { family: `heel:${f.legKind === 'downwind' ? 'downwind' : 'upwind'}`, label: String(f.leg ?? 'Leg'), seconds };
   const leg = a.legs.find((l) => l.name === f.leg);
   return { family: `leg:${leg?.kind ?? 'upwind'}`, label: String(f.leg ?? 'Leg'), seconds };
@@ -197,7 +198,7 @@ export function raceDigest(a: RaceAnalysis, model: CoachModel | null, sail: stri
   const d = model ? coachDebrief(a, model, me.id) : null;
   // Penalty turns (D12) are a penalty, never a theme: they go to the Penalties row (`turns`), not the findings.
   const ranked = d && !d.noData ? rankOpportunities(d.found, Infinity) : [];
-  // The side of the course (D14) is one card a race: the other legs on the side that didn't pay ride on it (`alsoS`) and count here.
+  // The side of the course (D14) is one card a race, and the manoeuvres (D17) one a kind: the other legs ride on it (`alsoS`) and count here.
   const findings: FindingDigest[] = ranked
     .filter((c) => c.kind !== 'D12')
     .map((c) => ({ theme: themeKey(c.kind, c.variant), kind: c.kind, variant: c.variant, seconds: c.seconds + alsoSeconds(c), confidence: c.confidence }));
@@ -231,8 +232,8 @@ export function raceDigest(a: RaceAnalysis, model: CoachModel | null, sail: stri
   };
 }
 
-/** The seconds of the legs riding on a D14 card (detectors/side.ts `alsoS`); 0 for any other card. */
-export const alsoSeconds = (c: Pick<Opportunity, 'kind' | 'facts'>): number => (c.kind === 'D14' && typeof c.facts.alsoS === 'number' ? c.facts.alsoS : 0);
+/** The seconds of the legs riding on a D14 or D17 card (detectors/side.ts withAlso `alsoS`); 0 for any other card. */
+export const alsoSeconds = (c: Pick<Opportunity, 'kind' | 'facts'>): number => ((c.kind === 'D14' || c.kind === 'D17') && typeof c.facts.alsoS === 'number' ? c.facts.alsoS : 0);
 
 /** The worker's path: the Coach model from the race's raw fixes (as the race view builds it), then the digest. */
 export function digestRace(a: RaceAnalysis, data: RaceData, sail: string, official: readonly OfficialResultRow[] | null = null): RaceDigest {
@@ -273,6 +274,7 @@ export const THEMES: Record<string, Theme> = {
   side: { label: 'Side of the course', phrase: 'on the side of the course that didn’t pay', pattern: 'The side you sailed didn’t pay' },
   distance: { label: 'Fast but not making progress', phrase: 'fast but sailing extra distance', pattern: 'Fast, but sailing extra distance for the ground made' },
   'line-end': { label: 'Starting at the unfavoured end', phrase: 'starting away from the favoured end of a biased line', pattern: 'You started away from the favoured end of the line' },
+  manoeuvres: { label: 'Tacks and gybes', phrase: 'losing more ground in tacks or gybes than the fleet', pattern: 'Your tacks and gybes cost more than the fleet’s' },
 };
 
 /** A finding's theme. */
@@ -311,6 +313,8 @@ export function themeKey(kind: DetectorKind, variant: string): string {
       return 'distance';
     case 'D16':
       return 'line-end';
+    case 'D17':
+      return 'manoeuvres';
   }
 }
 export const themeOf = (key: string): Theme => THEMES[key] ?? { label: key, phrase: key, pattern: key };
@@ -351,6 +355,8 @@ const TIPS: Record<string, string> = {
   'D15:upwind': 'Sail the angle of the boats making the most ground upwind: speed only pays in the right direction.',
   'D15:downwind': 'Soak with the boats making the most ground downwind: speed only pays in the right direction.',
   D16: 'Check the line bias before the start and, when it is 6° or more off square, start near the favoured end.',
+  'D17:tack': 'Smooth tacks: build full speed first, steer one steady arc and ease to accelerate; tack less when it isn’t for a shift or a lane.',
+  'D17:gybe': 'Smooth gybes: turn in a puff with speed on, keep the kite full and settle the new angle fast; gybe less when it isn’t for pressure.',
 };
 export const tipOf = (kind: DetectorKind, variant: string): string => TIPS[`${kind}:${variant}`] ?? TIPS[kind] ?? '';
 
@@ -541,6 +547,7 @@ const FAMILY_TITLE: Record<string, string> = {
   'round:reach': 'Reach-mark roundings',
   'round:gate': 'Gate choice',
   side: 'Side of the course',
+  manoeuvres: 'Tacks and gybes',
   'heel:upwind': 'Heel upwind',
   'heel:downwind': 'Heel on the runs',
 };

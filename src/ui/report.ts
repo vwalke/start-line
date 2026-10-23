@@ -26,6 +26,7 @@ import type { RegattaSummary } from '../analysis/coach/regatta';
 import { median } from '../analysis/geo';
 import { biasAngle, lineBias, windSource } from '../analysis/line';
 import { D16_MIN_DEG } from '../analysis/coach/detectors/lineBias';
+import { legCost, type LegCost } from '../analysis/coach/detectors/manoeuvreCost';
 import { finishRank } from '../analysis/result';
 import type { BoatResult, LegKind, RaceAnalysis } from '../analysis/types';
 import { codeInfo, pointsText } from '../data/official/codes';
@@ -354,16 +355,22 @@ function startVerdict(a: RaceAnalysis, deb: CoachDebrief | null, model: CoachMod
   return { text: 'No start finding', kind: 'note' };
 }
 
-/** "5 tacks", "3 gybes", "2 tacks · 1 gybe" as the legs table counts them (tacks on beats, gybes on runs, both on reaches). */
-function manoeuvres(kind: LegKind, tacks: number, gybes: number, approx: boolean): string {
+/**
+ * "5 tacks", "3 gybes", "2 tacks · 1 gybe" as the legs table counts them (tacks on beats, gybes on runs, both on reaches);
+ * with D17's measured cost against the group's when there is one: "6 tacks · ~14 m each (fleet ~8)", "(group ~8)".
+ */
+function manoeuvres(kind: LegKind, tacks: number, gybes: number, approx: boolean, cost: LegCost | null = null, ref = 'fleet'): string {
   const t = `${approx ? '~' : ''}${tacks} ${tacks === 1 ? 'tack' : 'tacks'}`;
   const g = `${approx ? '~' : ''}${gybes} ${gybes === 1 ? 'gybe' : 'gybes'}`;
-  return kind === 'upwind' ? t : kind === 'downwind' ? g : `${t} · ${g}`;
+  const each = cost ? ` · ~${f0(Math.max(0, cost.medM))} m each (${ref} ~${f0(Math.max(0, cost.fMedM))})` : '';
+  return kind === 'upwind' ? `${t}${each}` : kind === 'downwind' ? `${g}${each}` : `${t} · ${g}`;
 }
 
-function legRows(a: RaceAnalysis, b: BoatResult, stories: LegStory[], g: Group): ReportLeg[] {
+function legRows(a: RaceAnalysis, b: BoatResult, stories: LegStory[], g: Group, model: CoachModel | null | undefined): ReportLeg[] {
   const group = g.kind === 'fleet' ? a.boats.filter((x) => x.id !== b.id).map((x) => x.id) : groupIds(a.boats, b.id, g);
   const byId = new Map(a.boats.map((x) => [x.id, x]));
+  // D17's reference is the group too, like the SOG / VMG medians (none under D17_MIN_REF_BOATS measured: Top 3 never).
+  const refIds = new Set(group);
   const groupMed = (k: number, f: (l: NonNullable<BoatResult['legs'][number]>) => number): number | null => {
     const xs = group.map((id) => byId.get(id)?.legs[k]).filter((l): l is NonNullable<typeof l> => l != null).map(f).filter(Number.isFinite);
     return xs.length ? median(xs) : null;
@@ -388,7 +395,7 @@ function legRows(a: RaceAnalysis, b: BoatResult, stories: LegStory[], g: Group):
       vsGroup: s?.vsGroup && vs ? signedS(s.vsGroup.deltaS) : MISSING,
       sog: pair(l?.sogKn, groupMed(k, (x) => x.sogKn)),
       vmg: pair(l?.vmgKn, groupMed(k, (x) => x.vmgKn)),
-      manoeuvres: l ? manoeuvres(leg.kind, l.tacks, l.gybes, l.manoeuvreGap) : MISSING,
+      manoeuvres: l ? manoeuvres(leg.kind, l.tacks, l.gybes, l.manoeuvreGap, model ? legCost({ a, m: model, boat: b.id }, k, refIds) : null, g.kind === 'fleet' ? 'fleet' : 'group') : MISSING,
       side: sideText || MISSING,
       gate: s?.gate?.side ? gateChip(s.gate.side) : MISSING,
       coverage: l ? pct(l.coverage) : MISSING,
@@ -571,7 +578,7 @@ export function buildReport(inp: ReportInput): ReportModel {
     header: headerFields(a, b, deb, inp.official),
     start: startFields(a, model, b),
     startVerdict: startVerdict(a, deb, model),
-    legs: legRows(a, b, stories, group),
+    legs: legRows(a, b, stories, group, model),
     roundings: model === undefined ? [{ text: 'Working out the roundings…', kind: 'note' }] : model ? roundingLines(a, deb, stories) : [{ text: 'No course: roundings not measured', kind: 'note' }],
     penalties: penaltyLines(a, b, deb, model),
     coach: coachSection(a, b, deb, model),

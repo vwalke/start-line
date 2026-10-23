@@ -5,6 +5,10 @@ import { matchBoats } from '../src/data/official/sail';
 import { parseResults, type YsResultBoat, type YsResultReport } from '../src/data/official/yachtscoring';
 import type { RegattaResponse, TelemetryPage, WindResponse } from '../src/data/racesense/types';
 import type { RaceData } from '../src/data/types';
+import { analyzeRace } from '../src/analysis/analyze';
+import { buildCoach, coachRaw, type CoachModel } from '../src/analysis/coach';
+import { coachDebrief, type CoachDebrief } from '../src/analysis/coach/debrief';
+import type { RaceAnalysis } from '../src/analysis/types';
 
 const here = (p: string): string => fileURLToPath(new URL(p, import.meta.url));
 
@@ -119,6 +123,39 @@ export const CASCAIS_RACES = {
   r3: { division: 'Open', raceNumber: 3 },
 } as const;
 export const cascaisRace = (key: keyof typeof CASCAIS_RACES): RaceData => trimmedRace(`./fixtures/cascais_${key}.json`, CASCAIS_RACES[key].division, CASCAIS_RACES[key].raceNumber);
+
+/** A race through the app path: the analysis and the Coach's model. */
+export interface CoachRace {
+  a: RaceAnalysis;
+  m: CoachModel;
+}
+export function coachRace(data: RaceData): CoachRace {
+  const a = analyzeRace(data);
+  const raw = coachRaw(a, data);
+  return { a, m: buildCoach(a, raw.wind, raw.crossMs, raw.zones ?? null, raw.heel ?? null, raw.turns ?? null, raw.overStart ?? null)! };
+}
+
+/** Each boat's debrief once per model: the fleet-wide tests of one file share them (read-only). */
+const debriefs = new WeakMap<CoachModel, Map<string, CoachDebrief | null>>();
+export function debriefOf(a: RaceAnalysis, m: CoachModel, id: string): CoachDebrief | null {
+  let byId = debriefs.get(m);
+  if (!byId) debriefs.set(m, (byId = new Map()));
+  if (!byId.has(id)) byId.set(id, coachDebrief(a, m, id));
+  return byId.get(id)!;
+}
+
+/** D17 over every boat: its cards in the top 3, all it found (before the ranking), its Went well lines. */
+export function d17Tally(a: RaceAnalysis, m: CoachModel): { cards: number; found: number; plus: number } {
+  const out = { cards: 0, found: 0, plus: 0 };
+  for (const b of a.boats) {
+    const d = debriefOf(a, m, b.id);
+    if (!d) continue;
+    out.cards += d.cards.filter((c) => c.kind === 'D17').length;
+    out.found += d.found.filter((o) => o.kind === 'D17').length;
+    out.plus += d.plus.filter((n) => n.detector === 'D17').length;
+  }
+  return out;
+}
 
 export type CsvRow = Record<string, string>;
 export function loadExpected(): CsvRow[] {
