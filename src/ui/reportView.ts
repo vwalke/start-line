@@ -8,6 +8,7 @@
  * `#report[data-state="ready"]` (the article's `data-state`, copied to the section by the app) once the Coach's
  * findings are in: what a screenshot waits for.
  */
+import { D17_MIN_REF_BOATS } from '../analysis/coach/detectors/manoeuvreCost';
 import type { RaceAnalysis } from '../analysis/types';
 import { trackMap } from './charts';
 import { esc } from './format';
@@ -50,7 +51,7 @@ function legsHtml(m: ReportModel): string {
     )
     .join('');
   return `<table class="rp-table rp-legs-t"><thead><tr>${head.map((h) => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
-    <p class="rp-key">SOG / VMG: this boat / ${esc(m.groupLabel)} median. Places in the whole fleet (fixed fleet); ~ estimated or across a gap in the track.</p>`;
+    <p class="rp-key">SOG / VMG: this boat / ${esc(m.groupLabel)} median; a tack's or gybe's measured cost against the same group's, with ${D17_MIN_REF_BOATS}+ of its boats measured. Places in the whole fleet (fixed fleet); ~ estimated or across a gap in the track.</p>`;
 }
 
 function coachHtml(m: ReportModel): string {

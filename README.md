@@ -32,8 +32,9 @@ are shared by all three.
   - **Race:** its place (official when linked) and the gap to the winner, the
     gap to a group of rivals (Top 3 / boats near me / whole fleet / custom)
     over the race with the fleet's wind under it, the biggest gains as cards
-    (at most 3, at most 2 from one detector: the next-best from another
-    takes the slot; penalty turns exempt),
+    ranked by their impact on the result (see [How the Coach ranks
+    cards](#how-the-coach-ranks-cards); at most 3, at most 2 from one detector:
+    the next-best from another takes the slot; penalty turns exempt),
     **Went well** (up to 3 lines with the seconds gained: legs, roundings
     and the start where the boat gained on the top 3), the ✓ "Not the
     problem" chips (on a stretch the tracker covered under 50 % a "Not judged"
@@ -215,6 +216,57 @@ are shared by all three.
     beyond it. Needs the boat's position at the gun (read, or estimated across
     a short hole); not for a boat over early. The Report's start section shows
     the line bias too.
+  - **D17 manoeuvre cost** (`manoeuvreCost.ts`): each tack on a beat and gybe
+    on a run (the legs table's detection) against the boat's own steady
+    sailing just before it: the VMG over up to 25 s (at least 15 s) ending
+    8 s before the head-to-wind (dead-downwind) crossing is the baseline; from
+    there to 30 s after the crossing (40 s for a gybe) the ground it would
+    have made at that VMG less what it made is the metres lost, ÷ the VMG the
+    seconds. Only on dense fixes: no gap over 10 s across the whole stretch
+    and a fix within 5 s of each end (a turn across a 5–10 s gap is measured;
+    it only leaves the leg's count untrusted). The steady window starts 20 s
+    after the previous manoeuvre and 30 s into the leg (back to full speed:
+    the median tack is at 99% of its VMG 15–20 s after the crossing, the
+    median beat level 30 s after a leeward rounding), with no other
+    manoeuvre before the recovery's end, at a baseline VMG of 0.5 m/s or
+    more, ending 15 s before the next rounding. A run's gybe-set is the
+    rounding's (the leg story's window: up to 30 s after first sailing
+    downwind, past an offset mark), never counted or measured as a gybe of
+    the run, for any boat. Per leg the boat's measured turns (3+, or 2
+    against 10+ other boats measured, each of the two then judged) against
+    the fleet's: one median per other boat (5+ boats, 10+ manoeuvres), the
+    fleet's figure the median of those; and its count against the fleet's
+    median count where both counts are trusted (80 %+ of the leg tracked,
+    none across a gap). Only what was measured is charged: extra metres =
+    the sum over the measured turns of (metres − the fleet's) + (with many
+    more turns than the fleet) the extra count × the fleet's metres a turn.
+    A card when that is 25 m or 10 s or more and the median is costly (1.3×
+    the fleet's, 4 m more, and 2 standard errors more: one manoeuvre's metres
+    swing with the puffs, so the difference is judged against the boat's
+    turn-to-turn spread over its measured and the spread of the boats'
+    medians over the boats) or the count is well above the fleet's (2 more
+    and 1.5×) ("Costly tacks on Beat 2: your tacks cost ~17 m each (~7 s),
+    the fleet's ~5 m: ~36 m lost on the fleet over the 3 of 6 measured"; a
+    count says "You tacked 9 times, the fleet 5 times: 4 extra × the fleet's
+    ~5 m a tack = ~20 m"). Seconds = extra metres ÷ the boat's VMG; the
+    card's window is the measured turns' own stretches, so a rate finding on
+    the leg (D6, D15) gives up only those. Confidence: the coverage of those
+    stretches (and the leg's, for a count), the fleet's boats with 3+
+    measured, the wind; medium under 5 measured, which needs 10 s (not 20 s:
+    measured turn by turn, its own test stands for the noise). The ⚠ chip
+    says "few manoeuvres measured" or "few boats measured". One card a race
+    per kind of manoeuvre (the leg that cost the most, the others on it as
+    "Also on …"). A median 0.7× the fleet's or better (4 m and 2 standard
+    errors less) worth 10 s or more over the measured is a Went well line
+    ("Beat 2: tacks ~0 m each vs fleet ~14 m (3 measured)"). The Report's
+    legs table adds the measured cost to the tacks / gybes against the
+    selected group's, 5+ of its boats measured ("6 tacks · ~17 m each (fleet
+    ~5)", "(group ~5)"; never against the top 3); a "Tacks and gybes" theme in
+    the Regatta view. The public feed is bursty, so it is quiet there: on
+    Cascais J/70 R2, the whole feed, 282 turns are measured fleet-wide but
+    no leg has a costly enough one, so no card; on the committed fixtures
+    one finding (J/24 R2) and two Went well lines. An uploaded log measures
+    every manoeuvre.
   - **Regatta view, Penalties:** a row above the pattern cards, one line per code
     ("DPI in 8 of 8 races · 24 penalty points · ≈ 24 places", "UFD in 1 of 8 races
     (R3) · 16 points; result lost") and penalty turns ("Penalty turns in 2 of 8
@@ -267,7 +319,7 @@ are shared by all three.
   the estimated place at the gun when the start place is unranked, the line bias, line position, place over the line and front row, over early and when it
   cleared, the start card), leg by leg (places in → out of the fixed fleet, time
   against the Coach's group, SOG and VMG against the group's median, tacks /
-  gybes, side, gate buoy, data), roundings and gates (D9 / D13), penalties (the
+  gybes with D17's measured cost a manoeuvre, side, gate buoy, data), roundings and gates (D9 / D13), penalties (the
   code, penalty turns), and the Coach's penalty card, ranked findings (its order
   and seconds), Went well and the cards' tips as things to work on; a small track
   map. Only figures Recall already works out: what the data lacks is `—` with a
@@ -585,6 +637,50 @@ Switching races keeps the tab.
   list, the start chart or a table row to highlight it in both charts, both
   tables and both findings lists.
 
+## How the Coach ranks cards
+
+`src/analysis/coach/rank.ts`, with the weights and caps in `opportunity.ts`.
+A race's cards are ordered by their **impact on the result**, so the first card
+is the thing that cost the most:
+
+```
+impact = W[confidence] × min(seconds, CAP[confidence])
+W   = high 1, medium 0.7, low 0.4                       (CONF_WEIGHT)
+CAP = high ∞, medium ∞, low 60 s                        (IMPACT_CAP_S; LOW_IMPACT_CAP_S = 2 × the low minimum)
+```
+
+- **Seconds are the one currency.** Time lost anywhere adds up at the finish;
+  places don't (5 places lost in a pack at the first mark are not 5 places at
+  the finish). Every detector reports seconds lost; the ones that measure
+  places turn them into seconds where they were lost: D14 by the fleet's
+  seconds per place at the leg's end around the boat's place, D9's
+  sparse-data card by its median gap change to the boats that passed it, D13
+  by the time against the boats rounding the other buoy at the same time.
+- **Confidence discounts, and caps.** A medium card counts 0.7 of its seconds,
+  a low one 0.4. A low-confidence estimate leans on interpolation across
+  holes, and that error grows with the hole, not with what was lost: its
+  seconds count up to 60 s only, so a low card scores at most 24 and never
+  outranks a high card of 24 s or more or a medium of 35 s or more. The card
+  still shows all its seconds. Two cards tied on impact (two low cards at the
+  cap) go by the more seconds, then the earlier window.
+- **Each race-second is claimed once.** Moments go first: penalty turns (D12)
+  and the gate choice (D13) claim their stretches before anything else, and
+  the start's window (D1, D3, D16) is taken out of the rate findings' spans
+  (D6, D7, D11, D14, D15, D17) with their seconds pro rata. Then, highest
+  impact first, each card keeps what is left of its window; a later card loses
+  the share of its window already held, and its impact is worked out again on
+  what it keeps.
+- **Minimums by confidence**: a card shows only with 10 s or more at high
+  confidence (4 s for D1, measured off the crossings), 20 s at medium (10 s
+  for D17, measured turn by turn), 30 s at low; none is never a card.
+- **The top 3**: at most 2 from one detector (MAX_PER_KIND; penalty turns
+  exempt): a third is passed over before it claims any seconds and the next
+  card of another detector takes the slot. The side of the course (D14) is one
+  card a race, D17 one a kind of manoeuvre, before ranking. Shown in impact
+  order: a penalty turn is taken first but shows where its impact puts it. An
+  official code (OCS, DPI, …) is the penalty card, pinned above the ranked
+  ones. The Regatta view ranks the same way, uncapped.
+
 ## Data sources & caveats
 
 | Endpoint | Used for | How |
@@ -853,7 +949,7 @@ functions/_auth.ts, _stripe.ts, _authDb.ts, _entitlements.ts  sign-in, payments,
 src/data/freeRace.ts         race 1 and its free telemetry window (shared by the gate and the page)
 src/ui/paywall.ts            lock card and account sheet (only when /api/auth/me says the paywall is on)
 migrations/0001_paywall.sql  D1 schema for the paywall (not applied: see Paywall)
-tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1–r3, ic37_r5, gate_*, cascais_r2, cascais_r3, vkx/, stripe/: fake webhook events); tests/d1mem.ts runs the paywall's SQL against the migration's schema in memory
+tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1–r3, ic37_r5, gate_*, cascais_r2, cascais_r3, vkx/, stripe/: fake webhook events); tests/d1mem.ts runs the paywall's SQL against the migration's schema in memory; tests/setup.ts yields to the event loop after each test (a long run of synchronous tests otherwise times out vitest's worker RPC, 'Timeout calling "onTaskUpdate"')
 scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88|j105|j105r1|j105r3|ic37|gate-*|cascais-r2|cascais-r3)
 scripts/make-recovery-fixtures.ts  records tests/fixtures/recovery (Yachtscoring, probes, finishing bands; network once)
 scripts/make-vkx-fixture.mjs builds tests/fixtures/vkx from a boat log + regatta doc

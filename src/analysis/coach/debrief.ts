@@ -2,7 +2,7 @@
  * Recall Coach, phases 2–4: one boat's debrief for one race — every detector
  * (D1, D2 and D8 → D3, D3 → D1 when both fired, D4, D5, D6, D7, D8, D9, D10, D11 → D6 / D7 on a leg they share, D12,
  * D13 with D9's low-resolution places at the same gate as its chip, D14 side of the course (one card a race: sideCard), D15 fast but going nowhere,
- * D16 line bias), ranked and gated (rank.ts), with the ✓ row (detectors that measured the boat as fine; on a stretch
+ * D16 line bias, D17 manoeuvre cost: one card a race per kind of manoeuvre), ranked and gated (rank.ts), with the ✓ row (detectors that measured the boat as fine; on a stretch
  * the boat's tracker covered under OK_THIN_COVERAGE the note says "not enough data to judge …" instead, `thin`) and
  * ➕ Went well (wentWell: legs, roundings, the side that paid, the favoured end and the start where it gained, with
  * seconds; at most WENT_WELL_MAX). D6 / D7's ✓ leaves out a leg D15 found the boat going nowhere on.
@@ -27,8 +27,9 @@ import { detectGate } from './detectors/gate';
 import { detectSide, withAlso } from './detectors/side';
 import { detectNowhere } from './detectors/nowhere';
 import { detectLineBias } from './detectors/lineBias';
+import { detectManoeuvreCost } from './detectors/manoeuvreCost';
 import { D3_GAP_S, D3_WINDOW_MS } from './detectors/early';
-import { longestHole, trackLegAt } from './tracks';
+import { longestHole, longestHoleIn, trackLegAt } from './tracks';
 import { coachCoverage, gapChange, rangeOf, type GoodNote, type Opportunity } from './opportunity';
 import { median } from '../geo';
 import { rankOpportunities, type Card } from './rank';
@@ -136,7 +137,7 @@ export function startGains(ctx: CoachCtx, d1Fired = false): GoodNote[] {
  * one mostly inside a bigger one's window is the same gain (a rounding's zone and the line crossing are moments of
  * their own: never; nor heel, D11, which says how a leg's gain was sailed); at most WENT_WELL_MAX.
  */
-const MOMENTS = new Set<GoodNote['detector']>(['D1', 'D9', 'D11', 'D13', 'D16']);
+const MOMENTS = new Set<GoodNote['detector']>(['D1', 'D9', 'D11', 'D13', 'D16', 'D17']);
 
 export function wentWell(notes: readonly GoodNote[], max = WENT_WELL_MAX): GoodNote[] {
   const sorted = [...notes].sort((p, q) => (q.seconds ?? 0) - (p.seconds ?? 0) || p.t0 - q.t0);
@@ -305,6 +306,7 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
   const down = detectAngles(ctx, 'downwind', worse);
   const side = detectSide(ctx);
   const bias = detectLineBias(ctx);
+  const moves = detectManoeuvreCost(ctx);
   const last = detectLastLeg(ctx);
   const cons = detectConsolidate(ctx);
   const shift = detectShift(ctx);
@@ -326,7 +328,7 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
   const turnOpp = penalty ? null : turnCard(ctx, turns);
   const present = (o: Opportunity | null): o is Opportunity => !!o;
   const head = [merged.start, merged.early, d4, ...cons.opps, d6, d7, shadow.opp, ...gated.round, ...gated.gate, ...withHeel.heel, last, turnOpp].filter(present);
-  const tail = [...nowhere.opps, bias.opp].filter(present);
+  const tail = [...nowhere.opps, bias.opp, ...moves.opps].filter(present);
   const found = [...head, sideCard(side.legs, [...head, ...tail]), ...tail].filter(present);
   const clearAir: GoodNote | null =
     shadow.evaluated && !shadow.opp && !shadow.chip ? { kind: 'ok', detector: 'D8', variant: 'ok', facts: { share: shadow.share, fleetShare: shadow.fleetShare }, t0: ctx.gun, t1: m.endMs } : null;
@@ -337,13 +339,14 @@ export function coachDebrief(a: RaceAnalysis, m: CoachModel, boat: string): Coac
     .map((o) => thinNote(ctx, o, raceCov));
   const dense = found.some((o) => o.coverage >= OK_WINDOW) || ok.some((o) => !o.thin);
   const noData = raceCov < RACE_MIN_COVERAGE && !dense;
-  // Each card's longest hole, for a low-confidence card's ⚠ chip.
-  const cards = (noData ? [] : rankOpportunities(found)).map((c) => ({ ...c, conf: { ...c.conf, hole: longestHole(ctx.tr.t, c.t0, c.t1) } }));
+  // Each card's longest hole, for a low-confidence card's ⚠ chip (D17's within its measured stretches, not between them).
+  const holeOf = (c: Opportunity): ReturnType<typeof longestHole> => (c.kind === 'D17' && c.spans ? longestHoleIn(ctx.tr.t, c.spans) : longestHole(ctx.tr.t, c.t0, c.t1));
+  const cards = (noData ? [] : rankOpportunities(found)).map((c) => ({ ...c, conf: { ...c.conf, hole: holeOf(c) } }));
   return {
     cards,
     penalty,
     ok: noData ? [] : ok,
-    plus: noData ? [] : wentWell([...legGains(ctx), ...round.good, ...gate.good, ...startGains(ctx, start.fired), ...heel.plus, ...(side.good ? [side.good] : []), ...nowhere.good, ...(bias.good ? [bias.good] : [])]),
+    plus: noData ? [] : wentWell([...legGains(ctx), ...round.good, ...gate.good, ...startGains(ctx, start.fired), ...heel.plus, ...(side.good ? [side.good] : []), ...nowhere.good, ...(bias.good ? [bias.good] : []), ...(moves.good ? [moves.good] : [])]),
     totalS: cards.reduce((s, c) => s + c.seconds, 0),
     raceCov,
     noData,

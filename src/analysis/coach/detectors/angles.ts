@@ -46,8 +46,22 @@ interface Samples {
   sog: number[];
 }
 
+/** legSamples once per track, wind and leg (every boat's debrief reads the whole fleet's); read-only. */
+const samplesMemo = new WeakMap<CoachTrack, WeakMap<(t: number) => number, Map<string, Samples>>>();
+
 /** A boat's samples on `leg`: |TWA| against the fleet wind, SOG; in the kind's band and moving. */
 export function legSamples(tr: CoachTrack, leg: number, kind: LegKind, twdAt: (t: number) => number): Samples {
+  let byWind = samplesMemo.get(tr);
+  if (!byWind) samplesMemo.set(tr, (byWind = new WeakMap()));
+  let byLeg = byWind.get(twdAt);
+  if (!byLeg) byWind.set(twdAt, (byLeg = new Map()));
+  const key = `${leg}:${kind}`;
+  let out = byLeg.get(key);
+  if (!out) byLeg.set(key, (out = readSamples(tr, leg, kind, twdAt)));
+  return out;
+}
+
+function readSamples(tr: CoachTrack, leg: number, kind: LegKind, twdAt: (t: number) => number): Samples {
   const c = cogPairs(tr);
   const out: Samples = { t: [], twa: [], sog: [] };
   for (let i = 0; i < c.t.length; i++) {

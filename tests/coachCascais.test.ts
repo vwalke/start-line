@@ -1,7 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import { buildCoach, coachRaw, type CoachModel } from '../src/analysis/coach';
-import { coachDebrief } from '../src/analysis/coach/debrief';
 import { D14_MIN_Z } from '../src/analysis/coach/detectors/side';
 import { D15_VMG_DROP } from '../src/analysis/coach/detectors/nowhere';
 import { D16_MATERIAL_S, D16_MIN_DEG, medianStartPct } from '../src/analysis/coach/detectors/lineBias';
@@ -20,7 +19,7 @@ import { cardText, goodTexts, wentText } from '../src/ui/coachCards';
 import { placeChip } from '../src/ui/coachLegs';
 import { biasBullets } from '../src/ui/startLine';
 import { raceAskContext } from '../src/ui/coachAskContext';
-import { cascaisRace, gateRace, j105Race } from './helpers';
+import { cascaisRace, d17Tally, debriefOf, gateRace, j105Race } from './helpers';
 
 // ---- pure helpers
 
@@ -197,7 +196,7 @@ describe('Cascais: the side of the course', () => {
   it('D14 cards: the boats in the losing third with their own position mid-leg, one card a race; the text names the side and the metres', () => {
     let cards = 0;
     for (const b of r2.a.boats) {
-      const d = coachDebrief(r2.a, r2.m, b.id)!;
+      const d = debriefOf(r2.a, r2.m, b.id)!;
       // One a race: the other legs on the side that didn't pay ride on it ("also …").
       expect(d.cards.filter((x) => x.kind === 'D14').length).toBeLessThanOrEqual(1);
       expect(d.plus.filter((x) => x.detector === 'D14').length).toBeLessThanOrEqual(1);
@@ -251,13 +250,13 @@ describe('Cascais: the wind at the gun from the fleet’s tacks 0:30–3:30 afte
 
 describe('Cascais: the line bias (D16) and thin data', () => {
   it('R3: pin favoured; USA 833 at the pin is a Went well; a boat at the committee-boat end gets the card, against the median', () => {
-    const d = coachDebrief(r3.a, r3.m, r3.id('USA 833'))!;
+    const d = debriefOf(r3.a, r3.m, r3.id('USA 833'))!;
     const p = d.plus.find((x) => x.detector === 'D16')!;
     expect(p.facts.favoured).toBe('pin');
     expect(p.facts.deg as number).toBeGreaterThanOrEqual(D16_MIN_DEG);
     expect(wentText(p)).toMatch(/^Start: pin end favoured \d+° \(~\d+ m\) and you started \d+ m toward the pin from the fleet's median start \(≈ \d+ m upwind\)$/);
     const far = r3.a.boats.find((b) => b.start && !b.start.over && b.start.linePosPct > 90 && (b.start.dtlGapS == null || b.start.estDtlM != null))!;
-    const c = coachDebrief(r3.a, r3.m, far.id)!.found.find((o) => o.kind === 'D16')!;
+    const c = debriefOf(r3.a, r3.m, far.id)!.found.find((o) => o.kind === 'D16')!;
     expect(c.variant).toBe('unfavoured');
     expect(cardText(rankOpportunities([c], 3)[0] ?? { ...c, score: 0, limit: null }).sentence).toMatch(
       /^Pin favoured \d+° \(~\d+ m over the line\)\. You started \d+ m toward the committee boat from the fleet's median start: ≈ \d+ m upwind, about \d+ s at the fleet's [\d.]+ kn up the first beat\.$/,
@@ -268,7 +267,7 @@ describe('Cascais: the line bias (D16) and thin data', () => {
     let found = 0;
     let cards = 0;
     for (const b of r3.a.boats) {
-      const d = coachDebrief(r3.a, r3.m, b.id)!;
+      const d = debriefOf(r3.a, r3.m, b.id)!;
       cards += d.cards.filter((c) => c.kind === 'D16').length;
       const o = d.found.find((x) => x.kind === 'D16');
       if (!o) continue;
@@ -284,10 +283,10 @@ describe('Cascais: the line bias (D16) and thin data', () => {
     expect(windSource(r3.a.wind).confidence).toBe('medium');
     expect(found).toBe(31);
     expect(cards).toBe(17);
-    for (const b of r2.a.boats) expect(coachDebrief(r2.a, r2.m, b.id)!.found.some((x) => x.kind === 'D16')).toBe(false);
+    for (const b of r2.a.boats) expect(debriefOf(r2.a, r2.m, b.id)!.found.some((x) => x.kind === 'D16')).toBe(false);
   }, 120_000);
   it('R2: USA 833 on thin data (37% on the full feed): "not enough data to judge banked gains", never ✓', () => {
-    const d = coachDebrief(r2.a, r2.m, r2.id('USA 833'))!;
+    const d = debriefOf(r2.a, r2.m, r2.id('USA 833'))!;
     const d5 = d.ok.find((o) => o.detector === 'D5')!;
     expect(d5.thin).toBe(true);
     expect(goodTexts(d5)[0]).toMatch(/^Not enough data to judge banked gains \(tracker \d+%\)$/);
@@ -298,13 +297,21 @@ describe('Cascais: the line bias (D16) and thin data', () => {
   });
 });
 
+describe('D17 over the whole fleet (with coachManoeuvreFleet.test.ts: every committed fixture)', () => {
+  // 10 s apart away from the gun and the windward marks: a handful of turns measured, no leg with a fleet reference.
+  it('R2 and R3: no D17 card, finding or Went well line', () => {
+    expect(d17Tally(r2.a, r2.m)).toEqual({ cards: 0, found: 0, plus: 0 });
+    expect(d17Tally(r3.a, r3.m)).toEqual({ cards: 0, found: 0, plus: 0 });
+  }, 120_000);
+});
+
 describe('D15 fast but going nowhere: quiet on ordinary noise', () => {
   it('fires on few boats of the committed fixtures, and only fast ones with D15_VMG_DROP less VMG', () => {
     for (const data of [j105Race(3), gateRace('j24r5')]) {
       const r = build(data);
       let n = 0;
       for (const b of r.a.boats) {
-        for (const o of coachDebrief(r.a, r.m, b.id)!.found.filter((x) => x.kind === 'D15')) {
+        for (const o of debriefOf(r.a, r.m, b.id)!.found.filter((x) => x.kind === 'D15')) {
           n++;
           expect(o.facts.sog as number).toBeGreaterThanOrEqual(o.facts.fSog as number);
           expect(o.facts.vmg as number).toBeLessThanOrEqual((o.facts.fVmg as number) * (1 - D15_VMG_DROP));
