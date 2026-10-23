@@ -416,27 +416,33 @@ Switching races keeps the tab.
   boat labels: Auto places them greedily (selected boat, then by start place)
   and leaves out any that would overlap another label or the line, so
   zooming in reveals more; hover or tap a boat for its name either way.
-- **Lane snapshots** (`ui/laneSnapshots.ts`, drawn by `ui/laneSnapshotsView.ts`;
-  Chris): a section under the start chart, open by default (collapsible). It shows three
-  maps at gun +1:00, +2:00 and +3:00, one at a time at the panel's full width
-  (on a phone too), so a coach can see how each boat came off the line and
-  whether it held its lane. A segmented control (`+1:00 | +2:00 | +3:00`,
-  aria-pressed), ‹ › buttons and the ← → keys (with focus in the section)
-  step between them, clamped at the ends (no wrap: ‹ is disabled on +1:00, ›
-  on +3:00). It opens on +1:00 and keeps the frame picked across redraws (a
-  new boat, say) for the session; switching repaints the last drawing, with
-  nothing worked out again. All three are drawn in the same view (one
-  viewBox), so boats don't jump; the two not on show are `hidden` (from
-  screen readers too). Each frame draws every boat as a dot with its trail back to gun −0:30
-  (or where the data starts) and the start line, in one view shared by the
-  three frames. The view is fitted tightly to what they draw: the line's
-  ends and every position and trail point, padded 8% each way (at least
+- **After the gun (0–3 min)** (`ui/laneSnapshots.ts`, drawn by
+  `ui/laneSnapshotsView.ts`): a section under the start chart, open by
+  default (collapsible), kept as a view of its own (not merged into the
+  start chart). One map at the panel's full width (on a phone too) shows the
+  fleet at any second from the gun to gun +3:00, so a coach can see how each
+  boat came off the line and whether it held its lane. A time slider
+  (`<input type="range">`, 0–180 s, 1 s steps; full width, on its own row on
+  a phone) moves it, with ‹ › (∓1 s) and a play / pause button (one second
+  every 100 ms, 10× real time; it stops at +3:00, starts again from the gun
+  when pressed there, and never starts by itself). With focus in the
+  section, ← → step 1 s, Shift+← → 10 s, Home / End go to the gun / +3:00;
+  all clamped (‹ is disabled at the gun, › at +3:00). Buttons are 44 px tap
+  targets. The time (`gun +1:23`) heads the map and is the slider's spoken
+  value. It opens at the gun and keeps the second picked across redraws (a
+  new boat, say) for the session. Every boat's position on the 1 s grid and
+  its trail points are worked out once per race and selection; scrubbing
+  only redraws the map. Each second draws every boat as a dot with its trail back to gun −0:30
+  (or where the data starts) and the start line. The view is fixed for the
+  whole slider (it never rescales while scrubbing): fitted once to the
+  3-minute extent, i.e. the line's ends and every position at every second
+  0–180 s and every trail point to +3:00, padded 8% each way (at least
   10 m). Nothing else is added. The only guard leaves points out (it never
   pads): boats away from the line, and points more than 3× the line's length
   (at least 400 m) from its middle, so one stray boat can't blow the view
   up. The map keeps that extent's aspect, full width, its height capped on
   a desktop (60vh, 560 px; 70vh on a phone) and centered. Text (sail labels
-  13 / 12 px), dots and strokes stay the same size on screen at any frame
+  13 / 12 px), dots and strokes stay the same size on screen at any map
   size: strokes are non-scaling, and text and dots are sized from the map's
   measured px per meter (re-measured on resize). The true wind is a small
   badge over the map's top-right corner, outside the map: an arrow pointing
@@ -448,23 +454,27 @@ Switching races keeps the tab.
   (`Wind assumed ⟂ line`, a dashed arrow turned that way). No mark is drawn. The selected boat and its Coach group (Top 3 by
   default) are highlighted and labeled, the rest faded. Positions are the
   track map scrubber's: interpolated across short steps, held hollow for up
-  to 5 s in a gap, else the boat is missing in that frame (never placed);
-  trails break at gaps. A boat whose feed starts within 1 s of a frame is
-  placed at its first fix. Each frame's caption is just the selected boat's
+  to 5 s in a gap, else the boat is missing at that second (never placed);
+  trails break at gaps. A boat within 1 s of a fix where the scrubber has
+  no position (its feed starting or ending, the far side of a gap) is
+  placed at that fix. The caption is just the selected boat's
   place upwind among the boats placed (`USA 016: ≈ 6 of 15`: an approximate
   ranking by distance made from the line's middle along the wind, or along the line's
   perpendicular when the wind is assumed), or its one note (`no position
-  (tracker gap).` / `not tracked.`); a frame with no positions and no trails
+  (tracker gap).` / `not tracked.`); a second with no positions and no trails
   says `No tracks at this time.` A boat over early (the over-early facts from
   the worker, as "Replay start") has a small red ring, solid before it
   cleared and dashed from its clearing on, and its dot's tooltip says so
   (`USA 019, over early (OCS), cleared +35 s`). The key line says who is
   highlighted and where the wind comes from; when any boat was over early it
   adds a legend for the rings (a solid ring `OCS`, a dashed one `OCS,
-  cleared`, both always). Each frame's screen-reader
-  label is short: `Lane snapshot at gun +1:00: 15 of 15 boats placed. USA
-  016: ≈ 6 of 15 upwind. True wind from 18° (estimated).` Nothing is
-  worked out while the section is collapsed or the Start tab is not showing.
+  cleared`, both always). The map's screen-reader
+  label is short: `Fleet at gun +1:00: 15 of 15 boats placed. USA
+  016: ≈ 6 of 15 upwind. True wind from 18° (estimated).`; the same is said
+  through a polite live region 0.7 s after the slider settles (not on every
+  second while dragging). Nothing is
+  worked out while the section is collapsed or the Start tab is not
+  showing, and play stops when either happens.
 - **Key lines** (`ui/info.ts`, `ui/captions.ts`): under every chart and
   table, one short row of chips with the key facts only, e.g.
   `Line 143 m · RC fav. 2° · 4 m · wind est. (medium) · hulls to scale`,

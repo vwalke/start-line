@@ -1114,21 +1114,24 @@ svg .cl-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 .vkx-actions button { font: inherit; min-height: 36px; padding: 4px 14px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
 .vkx-actions .vkx-ok { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 
-/* ---------- Start tab: lane snapshots (ui/laneSnapshotsView.ts) ---------- */
+/* ---------- Start tab: after the gun, a time slider (ui/laneSnapshotsView.ts) ---------- */
 .lane-snapshots { margin: 8px 0 0; }
 .lane-snapshots > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--ink-2); padding: 4px 0; min-height: 28px; }
 .lane-snapshots > summary .muted { font-weight: 500; }
-/* One frame at a time, full width: ‹ +1:00 | +2:00 | +3:00 › above it. */
-.lane-nav { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
-.lane-step { font: inherit; font-size: 1.1rem; line-height: 1; min-width: 32px; min-height: 30px; padding: 2px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; }
+/* ‹ ▶ [slider] › above the map; 44 px tap targets. On a phone the slider takes its own full-width row. */
+.lane-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.lane-step, .lane-play { flex: none; font: inherit; font-size: 1.2rem; line-height: 1; min-width: 44px; min-height: 44px; padding: 0 8px; display: inline-grid; place-items: center; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); color: var(--ink); cursor: pointer; }
 .lane-step:disabled { opacity: 0.4; cursor: default; }
-.lane-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.lane-nav .seg button { min-height: 30px; }
-.lane-frames { margin-top: 6px; }
+.lane-step:focus-visible, .lane-play:focus-visible, .lane-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lane-play svg { width: 16px; height: 16px; fill: currentColor; }
+.lane-play .i-pause, .lane-play[aria-pressed='true'] .i-play { display: none; }
+.lane-play[aria-pressed='true'] .i-pause { display: inline; }
+.lane-range { flex: 1 1 200px; min-width: 0; min-height: 44px; margin: 0; accent-color: var(--accent); }
+.lane-stage { margin-top: 6px; }
 .lane-frame { margin: 0; border: 1px solid var(--rule); border-radius: 8px; padding: 6px; background: var(--surface); display: flex; flex-direction: column; }
-.lane-frame[hidden] { display: none; }
 .lane-frame figcaption { font-size: 0.85rem; color: var(--ink-2); line-height: 1.35; }
-.lane-frame figcaption b { color: var(--ink); }
+.lane-frame figcaption b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.lane-live { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 /* The map: full width, the view's aspect, its height capped on a desktop (centred, xMidYMid meet); the wind badge over its top-right corner. */
 .lane-map { position: relative; margin-top: 4px; }
 .lane-svg { width: 100%; height: auto; max-height: min(60vh, 560px); display: block; }
@@ -1152,7 +1155,8 @@ svg .lane-dot:not(.hold) { stroke: var(--surface); }
 svg .lane-over, svg .lane-cleared { fill: none; stroke: var(--bad); }
 svg .lane-empty { fill: var(--ink-3); }
 @media (max-width: 600px) {
-  .lane-nav .seg button { padding: 3px 7px; }
+  .lane-range { order: -1; flex-basis: 100%; }
+  .lane-ctl .lane-step[data-lane-step='1'] { margin-left: auto; }
   .lane-svg { max-height: 70vh; }
 }
 
