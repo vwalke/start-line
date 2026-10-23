@@ -21,8 +21,10 @@
  * place in the fleet by distance to go (progress.ts: the fixed fleet, sparse tracks interpolated) at its
  * own fix nearest D9_PLACES_AT_MS before the rounding (within D9_PLACES_REACH_MS, at least
  * D9_PLACES_MIN_MS from it) and the same after. Fires when it lost placesThreshold(fleet) places or more:
- * max(3, min(5, ceil(5 % of the fleet))) — 3 up to 60 boats, 4 to 80, 5 beyond. Seconds: the median change
- * in gap (distance to go ÷ the two legs' mean fleet VMG) to the boats that passed it. If the boats that came
+ * max(3, min(5, ceil(5 % of the fleet))) — 3 up to 60 boats, 4 to 80, 5 beyond. Who passed it is the same-moment
+ * ranking (a place is a moment's order, not a time); the seconds are the chart's: its gap to the boats that passed it
+ * (Custom: them; the gap at equal course progress, ctx.gaps), the change between its points nearest the two reads
+ * (within GAP_STEP_MS). If the boats that came
  * in from the other side (across the wind, D9_SHIFT_WINDOW_MS either side of its rounding) gained
  * D9_SHIFT_GAIN places more on average than its own side and most of the boats that passed it came from
  * there, the card says the loss looks like a shift, the seconds are halved and the confidence is low.
@@ -42,7 +44,8 @@ import type { LegKind, RaceAnalysis } from '../../types';
 import type { ZoneTrack } from '../index';
 import { progressAt, progressBase, type ProgressBase, type ProgressPlaces } from '../progress';
 import { posAt } from '../tracks';
-import { NOISE_BASE_S, coachCoverage, rangeOf, type Confidence, type GoodNote, type Opportunity } from '../opportunity';
+import { NOISE_BASE_S, coachCoverage, gapNear, rangeOf, type Confidence, type GapReading, type GoodNote, type Opportunity } from '../opportunity';
+import { GAP_STEP_MS } from '../timeGap';
 import type { CoachCtx } from './context';
 
 export const D9_ZONE_M = 100;
@@ -114,8 +117,10 @@ export interface PlacesRead {
   of: number;
   threshold: number;
   passers: string[];
-  /** The median gap change to the passers, s (before any shift discount). */
+  /** The gap change to the passers (the chart with them as its group), s (before any shift discount). */
   gapS: number | null;
+  /** The chart's points it was read from. */
+  gap: GapReading | null;
   /** Share of the fleet's places interpolated at the two reads (mean), 0–1. */
   estShare: number;
   /** The other side gained through the same rounding: looking upwind, 'left' or 'right'. */
@@ -334,16 +339,11 @@ export function placesThrough(ctx: CoachCtx, k: number, at: (t: number) => Progr
       Math.abs(their - r) <= D9_SHIFT_WINDOW_MS
     );
   });
-  // The gap to each passer, the two legs' mean fleet VMG (one speed for both reads, so a steady gap stays steady).
-  const vs = [ctx.m.vmg[k], ctx.m.vmg[k + 1]].filter((v): v is number => v != null && v > 0);
-  const v = vs.length ? vs.reduce((x, y) => x + y, 0) / vs.length : null;
-  const dg = passers
-    .map((id) => {
-      const b = pb.byId.get(id)!.dtg;
-      const a = pa.byId.get(id)!.dtg;
-      return Number.isFinite(a) && Number.isFinite(b) && v ? ((me1.dtg - a) - (me0.dtg - b)) / v : null;
-    })
-    .filter((x): x is number => x != null);
+  // The gap to the passers as the chart has it (Custom: them), its points nearest the two reads.
+  const pts = passers.length ? ctx.gaps(passers, tBefore - GAP_STEP_MS, tAfter + GAP_STEP_MS) : [];
+  const g0 = gapNear(pts, tBefore, GAP_STEP_MS);
+  const g1 = gapNear(pts, tAfter, GAP_STEP_MS);
+  const gap: GapReading | null = g0 && g1 && g1.tMs > g0.tMs ? { ids: passers, t0: g0.tMs, g0: g0.g, t1: g1.tMs, g1: g1.g } : null;
   const share = (p: ProgressPlaces): number => [...p.byId.values()].filter((x) => x.est).length / Math.max(1, p.byId.size);
 
   // The shift check: the boats rounding near the same time, by the side they came in from.
@@ -385,7 +385,8 @@ export function placesThrough(ctx: CoachCtx, k: number, at: (t: number) => Progr
     of: pb.of,
     threshold: placesThreshold(pb.of),
     passers,
-    gapS: dg.length ? median(dg) : null,
+    gapS: gap ? gap.g1 - gap.g0 : null,
+    gap,
     estShare: (share(pb) + share(pa)) / 2,
     shift,
   };
@@ -479,6 +480,7 @@ export function detectRounding(ctx: CoachCtx): D9Result {
         shiftN: pl.shift?.n ?? null,
       },
       refBoats: pl.passers,
+      gaps: pl.gap ? [pl.gap] : undefined,
     });
   };
 

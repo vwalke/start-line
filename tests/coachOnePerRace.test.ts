@@ -153,8 +153,9 @@ describe('Melges 24 R5 and J/24 R2: one side-of-course card a race, material lin
       for (const c of d.cards) kinds.set(c.kind, (kinds.get(c.kind) ?? 0) + 1);
       for (const [k, v] of kinds) if (!CAP_EXEMPT.has(k as Opportunity['kind'])) expect(v).toBeLessThanOrEqual(MAX_PER_KIND);
     }
-    // 43 D14 cards (up to 3 a boat) before.
-    expect(cards).toBeLessThanOrEqual(28);
+    // 43 D14 cards (up to 3 a boat) before one a race; 28 then, 29 since the cards read the chart's gap (D5's 7 cards
+    // on this race no longer fire, so a D14 takes one of the slots).
+    expect(cards).toBeLessThanOrEqual(29);
   }, 60_000);
 
   it('D16 against the median start: every card D16_MATERIAL_S or more, its boat beyond the median toward the unfavoured end', () => {
@@ -187,8 +188,10 @@ describe('Melges 24 R5 and J/24 R2: one side-of-course card a race, material lin
       }
       return { found, card, good };
     };
-    // M24 R5: 10 top-3 cards before (the unfavoured third); now found on 8 boats, 5 in their top 3; the Went well lines as before.
-    expect(tally(m24)).toEqual({ found: 8, card: 5, good: 14 });
+    // M24 R5: 10 top-3 cards before (the unfavoured third); now found on 8 boats, 6 in their top 3 (5 before the finish was
+    // anchored to the finish times: 829's last-run card, 21 s, no longer fires and its D16 takes the slot). Went well: 17
+    // lines (14 before the cards read the chart's gap: 4 fewer legs "gained on the top 3" leave room for 3 more of these).
+    expect(tally(m24)).toEqual({ found: 8, card: 6, good: 17 });
     // J/24 R2: none in PR #46's start-window wind (pin 1.5°); Beat 1's, RC 6.7°: found on 4, 2 in their top 3.
     expect(tally(j24)).toEqual({ found: 4, card: 2, good: 13 });
     for (const r of [m24, j24]) for (const b of r.a.boats) for (const c of debriefOf(r.a, r.m, b.id)!.cards) if (c.kind === 'D16') expect(c.seconds).toBeGreaterThanOrEqual(MIN_SECONDS[c.confidence]);

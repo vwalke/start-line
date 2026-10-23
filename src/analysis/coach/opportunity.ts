@@ -1,10 +1,10 @@
 /**
  * Recall Coach, phase 2 (spec §2, §5): what every detector emits, and the
- * shared arithmetic — gap reads off the ladder, the noise model, coverage and
- * confidence. Detectors live in detectors/*.ts; rank.ts ranks and gates.
+ * shared arithmetic — gap reads off the chart's points (timeGap.ts groupGap: the
+ * gap at equal course progress), the noise model, coverage and confidence.
+ * Detectors live in detectors/*.ts; rank.ts ranks and gates.
  */
 import { coverage } from '../coverage';
-import { median } from '../geo';
 import type { GapPoint } from './ladder';
 import { COACH_MAX_SPAN_S } from './tracks';
 
@@ -63,6 +63,21 @@ export interface Opportunity {
   chips?: AttachedChip[];
   /** The window's numbers lean on the wind across a big separation (⚠ wind est.). */
   windEst?: boolean;
+  /** The chart's points its seconds were read from (a Δgap card): the same values the Coach chart shows for that group then. */
+  gaps?: GapReading[];
+}
+
+/**
+ * Two of the chart's points a card read (timeGap.ts groupGap, s, + = behind): the median of `ids` (the bold line with
+ * that group: Custom, or Top 3 when they are the leaders), or `boat`'s own line (a thin line). A Δgap is g1 − g0.
+ */
+export interface GapReading {
+  ids: string[];
+  boat?: string;
+  t0: number;
+  g0: number;
+  t1: number;
+  g1: number;
 }
 
 /** A finding folded into another card (D2 → D3, spec §5; D11 → D6 / D7 on the same leg). */
@@ -85,6 +100,8 @@ export interface GoodNote {
   coverage?: number;
   /** ✓ on thin data (coverage under OK_THIN_COVERAGE): the row says "not enough data to judge …", never "fine". */
   thin?: boolean;
+  /** ➕ read off the gap: the chart's points (Opportunity.gaps). */
+  gaps?: GapReading[];
 }
 
 // ---- the noise model (spec §2)
@@ -115,7 +132,7 @@ export const rangeOf = (s: number, noise: number): { secondsLo: number; secondsH
 // ---- coverage
 
 /**
- * The Coach's coverage of [a, b]: time between fixes at most COACH_MAX_SPAN_S apart — what the ladder
+ * The Coach's coverage of [a, b]: time between fixes at most COACH_MAX_SPAN_S apart — what the gap
  * and the course-over-ground pairs can read (a stricter 5 s gap counts a 1.5 s tracker with brief
  * dropouts as mostly missing). 0–1.
  */
@@ -218,18 +235,33 @@ export const minSeconds = (kind: DetectorKind, level: Confidence): number =>
 
 // ---- gap reads
 
-/** One gap reading taken this wide (a median of the points), so one noisy fix doesn't move it, ms. */
+/**
+ * A Δgap's two reads are at least this far apart, ms. Each is one of the chart's points (timeGap.ts groupGap), not a
+ * median around it: the card's seconds are then exactly the chart's change between the two (the progress gap is
+ * already a fixed group's median, read across holes, so it doesn't need smoothing).
+ */
 export const GAP_READ_MS = 60_000;
 
-/** The median of the group gaps at points in [a, b]; null with none. */
-export function gapRead(points: readonly GapPoint[], a: number, b: number, pick: (p: GapPoint) => number | null = (p) => p.behindS): number | null {
-  const v = points.filter((p) => p.tMs >= a && p.tMs <= b).map(pick).filter((x): x is number => x != null);
-  return v.length ? median(v) : null;
+/** The point nearest `t` within `reachMs` that has a value (`pick`), the earlier on a tie: its time and value; null with none. */
+export function gapNear(
+  points: readonly GapPoint[],
+  t: number,
+  reachMs: number,
+  pick: (p: GapPoint) => number | null = (p) => p.behindS,
+): { tMs: number; g: number } | null {
+  let best: { tMs: number; g: number; d: number } | null = null;
+  for (const p of points) {
+    const d = Math.abs(p.tMs - t);
+    if (d > reachMs || (best && d >= best.d)) continue;
+    const g = pick(p);
+    if (g != null) best = { tMs: p.tMs, g, d };
+  }
+  return best && { tMs: best.tMs, g: best.g };
 }
 
 /**
- * Δgap over a window (spec §2): the gap read in the first GAP_READ_MS that has one, to the gap read in the
- * last; with when those reads were. Null when the window has fewer than two readable minutes.
+ * Δgap over a window (spec §2): the chart's value at the first point in [a, b] that has one (`pick`), to its value at
+ * the last; with when those are. Null when they are under GAP_READ_MS apart.
  */
 export function gapChange(
   points: readonly GapPoint[],
@@ -239,10 +271,18 @@ export function gapChange(
 ): { g0: number; g1: number; t0: number; t1: number } | null {
   const ok = points.filter((p) => p.tMs >= a && p.tMs <= b && pick(p) != null);
   if (ok.length < 2) return null;
-  const first = ok[0].tMs;
-  const last = ok[ok.length - 1].tMs;
-  if (last - first < GAP_READ_MS) return null;
-  const g0 = gapRead(ok, first, first + GAP_READ_MS, pick)!;
-  const g1 = gapRead(ok, last - GAP_READ_MS, last, pick)!;
-  return { g0, g1, t0: first, t1: last };
+  const first = ok[0];
+  const last = ok[ok.length - 1];
+  if (last.tMs - first.tMs < GAP_READ_MS) return null;
+  return { g0: pick(first)!, g1: pick(last)!, t0: first.tMs, t1: last.tMs };
 }
+
+/** A GapReading of a gapChange against `ids` (or `boat`'s own line). */
+export const reading = (ids: readonly string[], g: { g0: number; g1: number; t0: number; t1: number }, boat?: string): GapReading => ({
+  ids: [...ids],
+  ...(boat != null ? { boat } : {}),
+  t0: g.t0,
+  g0: g.g0,
+  t1: g.t1,
+  g1: g.g1,
+});

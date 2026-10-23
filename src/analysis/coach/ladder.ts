@@ -13,7 +13,9 @@
  *   + = behind. Same leg only, and only where both boats have a real fix
  *   (tracks.ts posAt); anything else is null, so a chart breaks there.
  *   (Same leg: the remaining legs cancel; the rung's scale is left out so the
- *   seconds use the VMG as Recall measures it, along the wind.)
+ *   seconds use the VMG as Recall measures it, along the wind.) The chart and the
+ *   cards no longer read this gap: they read time at equal course progress
+ *   (timeGap.ts groupGap), measured up this ladder along one wind per leg.
  */
 import { MS_TO_KN, bearingVec, dot, len, median, sub, type Vec } from '../geo';
 import type { LegKind } from '../types';
@@ -117,13 +119,19 @@ export interface GapPoint {
   behindS: number | null;
   /** How many group boats the median is over. */
   n: number;
+  /** How many of those are read across a tracker hole (timeGap.ts: bridged, estimated); absent: none. */
+  est?: number;
   /** Per group boat (in the group's order), s; null where it doesn't compare. */
   each: (number | null)[];
   /** The chosen boat's leg, or null. */
   leg: number | null;
 }
 
-/** The chosen boat's gap to each group boat and to the group (median, GROUP_MIN_SHARE of it), every `stepMs` from `fromMs` to `toMs`. */
+/**
+ * The chosen boat's same-moment gap to each group boat and to the group (median, GROUP_MIN_SHARE of it), every `stepMs`
+ * from `fromMs` to `toMs`. The app no longer reads it (the chart and the cards read timeGap.ts groupGap, time at equal
+ * course progress): the tests keep it as the reference the debrief was written from.
+ */
 export function gapSeries(
   c: Course,
   w: Wind,

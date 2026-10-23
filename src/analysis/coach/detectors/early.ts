@@ -4,7 +4,7 @@
  * the change in gap to the leaders (the finish top 3) over the window. Fires
  * on D3_MIN_TACKS+ tacks before +4 min while the fleet median is at most
  * D3_FLEET_MAX, or on a gap change of D3_GAP_S or more. Seconds = that gap
- * change. It starts at the crossing, where D1 ends, so nothing is claimed twice; when D1 fired too, the two
+ * change: the chart's (Top 3) change between its first and last point in the window. It starts at the crossing, where D1 ends, so nothing is claimed twice; when D1 fired too, the two
  * are one start card (debrief.ts mergeStart).
  * D2 rides on it as a chip and turns it into "Slow off a great start".
  */
@@ -17,6 +17,7 @@ import {
   gapChange,
   gapNoise,
   rangeOf,
+  reading,
   refCoverage,
   untrackedS,
   windOkShare,
@@ -107,5 +108,6 @@ export function detectEarly(ctx: CoachCtx, start: { crossMs: number | null; d1Fi
     refBoats: refs,
     chips: rolled ? [rolled] : undefined,
     windEst: windS >= WIND_EST_S,
+    gaps: [reading(refs, dg)],
   };
 }

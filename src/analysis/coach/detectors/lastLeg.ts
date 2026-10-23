@@ -4,13 +4,13 @@
  * to the boats that finished 1–2 places ahead, and the boat's speed against
  * the leaders'. Fires when some of them pulled D10_GAP_S or more further ahead
  * and finished under D10_AHEAD_S ahead. Seconds: the median over those boats,
- * the range from the least to the most.
+ * the range from the least to the most. Each boat's change is its own (thin) line on the chart (ctx.gaps `each`).
  */
 import { MS_TO_KN, median } from '../../geo';
 import { finishRank } from '../../result';
 import { COVERAGE_GAP_S } from '../../coverage';
 import { COACH_MAX_SPAN_S, trackLegAt, type CoachTrack } from '../tracks';
-import { NOISE_BASE_S, coachCoverage, gapChange, refCoverage, windOkShare, type Opportunity } from '../opportunity';
+import { NOISE_BASE_S, coachCoverage, gapChange, reading, refCoverage, windOkShare, type GapReading, type Opportunity } from '../opportunity';
 import type { CoachCtx } from './context';
 
 export const D10_TRACKED_MS = 6 * 60_000;
@@ -56,17 +56,17 @@ export function detectLastLeg(ctx: CoachCtx): Opportunity | null {
   const t1 = end;
   if (!(t1 > t0) || trackLegAt(tr, t1) !== last) return null;
   const refs = ctx.a.boats
-    .filter((b) => b.id !== ctx.boat && b.finishMs != null && finishRank(b) != null && finishRank(b)! < p && finishRank(b)! >= p - D10_PLACES)
+    // Tracked only: the gap series lists those (its `each`, in this order).
+    .filter((b) => b.id !== ctx.boat && b.finishMs != null && finishRank(b) != null && finishRank(b)! < p && finishRank(b)! >= p - D10_PLACES && ctx.m.tracks.has(b.id))
     .sort((x, y) => finishRank(x)! - finishRank(y)!);
   if (!refs.length) return null;
-  const pts = ctx.gaps(
-    refs.map((r) => r.id),
-    t0,
-    t1,
-  );
+  const ids = refs.map((r) => r.id);
+  const pts = ctx.gaps(ids, t0, t1);
+  const gaps: GapReading[] = [];
   const each = refs.map((r, k) => {
     const g = gapChange(pts, t0, t1, (q) => q.each[k]);
-    return { id: r.id, d: g ? g.g1 - g.g0 : null, aheadS: (fin - r.finishMs!) / 1000, place: finishRank(r)! };
+    if (g) gaps.push(reading(ids, g, r.id));
+    return { id: r.id, d: g ? g.g1 - g.g0 : null, behindAtStart: g != null && g.g0 < 0, aheadS: (fin - r.finishMs!) / 1000, place: finishRank(r)! };
   });
   const read = each.filter((e): e is typeof e & { d: number } => e.d != null);
   if (!read.length) return null;
@@ -96,6 +96,8 @@ export function detectLastLeg(ctx: CoachCtx): Opportunity | null {
       da: byLoss[0].d,
       b: byLoss[1] ? ctx.nameOf(byLoss[1].id) : null,
       db: byLoss[1]?.d ?? null,
+      // How many of those two were behind the boat when the window starts (they caught up and passed: not "further ahead").
+      fromBehind: byLoss.slice(0, 2).filter((e) => e.behindAtStart).length,
       mins: (t1 - t0) / 60_000,
       sog: meanSogKn(tr, t0, t1),
       ldrSog: ldrSogs.length ? median(ldrSogs) : null,
@@ -105,6 +107,7 @@ export function detectLastLeg(ctx: CoachCtx): Opportunity | null {
       placeHi: Math.max(...read.map((e) => e.place)),
       inGap: inGap ? 1 : 0,
     },
-    refBoats: refs.map((r) => r.id),
+    refBoats: ids,
+    gaps,
   };
 }

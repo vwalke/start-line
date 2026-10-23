@@ -6,7 +6,9 @@
  * progress (analysis/coach/timeGap.ts; ahead up, behind down), the group median
  * bold and each group boat thin, roundings
  * marked, and the fleet's wind in a strip underneath on the same time axis.
- * Gaps in the data are breaks (and a shaded band), never joined up.
+ * Gaps in the data: the bold group line bridges a boat's tracker gap of up to GROUP_BRIDGE_S (10 min) in a straight
+ * line (the readout counts those boats as estimated); each boat's thin line is not filled in and breaks. Where the
+ * bold line breaks too, a shaded band.
  *
  * The group (Chris's "Ivan group") lives in the URL as `grp=top3|near|fleet|c:<id>,<id>`,
  * the boat as `boat=<id>`, the view as `cview=regatta`, next to the race (`event`, `div`, `race`).
@@ -14,7 +16,9 @@
 import { DEFAULT_GROUPS, NEAR_PLACES, type Group, type GroupKind } from '../analysis/coach/groups';
 import { RACE_MIN_COVERAGE } from '../analysis/coach/debrief';
 import type { CoachModel, RivalLadder } from '../analysis/coach';
-import { GROUP_DRAW_HOLE_S } from '../analysis/coach/timeGap';
+import type { GapPoint } from '../analysis/coach/ladder';
+import { GROUP_BRIDGE_S, GROUP_DRAW_HOLE_S } from '../analysis/coach/timeGap';
+import { COACH_MAX_SPAN_S } from '../analysis/coach/tracks';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { finishRank } from '../analysis/result';
 import { codeShort, codeWords } from './resultText';
@@ -137,9 +141,9 @@ export function coachChips(
 export const COACH_BULLETS: readonly string[] = [
   'Gap = how many seconds earlier (behind, down) or later (ahead, up) the group got as far along the course as you are now.',
   "How far along: on beats and runs, how far up (or down) the leg's wind ladder, one wind direction for the whole leg, so both tacks and gybes count alike; on reaches, distance made good along the line between the marks. A rounding counts from 30 m before the mark to 30 m down the next leg, so the lines run on through it.",
-  'Bold: the median of the group, always over the same boats; a boat in a short tracker hole (up to 10 min) keeps its place, read straight across the hole. Thin: each group boat, as tracked.',
+  `Bold: the median of the group, always over the same boats. Where a boat's tracker has a gap of up to ${GROUP_BRIDGE_S / 60} min, the bold line bridges it in a straight line (the readout counts that boat as estimated). Thin: each group boat as tracked; its line is not filled in across gaps.`,
   "Wind (strip below) comes from the fleet's tacks, minute by minute, not a sensor; dotted where estimated between minutes.",
-  'Breaks and grey bands: no tracker data (your boat or most of the group), or the group never got that far.',
+  `Breaks: a thin line breaks where that boat's or your fixes are over ${COACH_MAX_SPAN_S} s apart; the bold line (and a grey band) where yours or most of the group's are over ${GROUP_DRAW_HOLE_S} s apart, or the group never got that far.`,
 ];
 
 /** The header's chip line with the ⓘ. */
@@ -337,8 +341,14 @@ function runsPath(pts: { tMs: number }[], val: (i: number) => number | null, L: 
   return d;
 }
 
-/** Spans (ms) where the median has no value, between the first and last point that has one. */
-export function nullSpans(points: { tMs: number; behindS: number | null }[], minMs = 20_000): [number, number][] {
+/**
+ * The shortest stretch without a bold value that gets a grey band, ms: longer than COACH_MAX_SPAN_S, the thin lines'
+ * break (a stretch of fixes that far apart is a hole), so a band and a thin line's break mean the same thing.
+ */
+export const NO_DATA_MIN_MS = COACH_MAX_SPAN_S * 1000;
+
+/** Spans (ms) where the median has no value for longer than `minMs`: from the last point with one (or the first point) to the next (or the last point). */
+export function nullSpans(points: { tMs: number; behindS: number | null }[], minMs = NO_DATA_MIN_MS): [number, number][] {
   const out: [number, number][] = [];
   let start: number | null = null;
   let lastOk: number | null = null;
@@ -346,12 +356,12 @@ export function nullSpans(points: { tMs: number; behindS: number | null }[], min
     if (p.behindS == null) {
       if (start == null) start = lastOk ?? p.tMs;
     } else {
-      if (start != null && p.tMs - start >= minMs) out.push([start, p.tMs]);
+      if (start != null && p.tMs - start > minMs) out.push([start, p.tMs]);
       start = null;
       lastOk = p.tMs;
     }
   }
-  if (start != null && points.length && points[points.length - 1].tMs - start >= minMs) out.push([start, points[points.length - 1].tMs]);
+  if (start != null && points.length && points[points.length - 1].tMs - start > minMs) out.push([start, points[points.length - 1].tMs]);
   return out;
 }
 
@@ -480,14 +490,36 @@ export function ladderHover(ladder: RivalLadder, L: LadderLayout, px: number, re
   return best < 0 ? null : { i: best, tMs: ladder.points[best].tMs };
 }
 
+/** "6 boats", "6 boats, 2 estimated": the boats in the median, and how many of them are bridged across a tracker gap. */
+export const boatsCount = (p: Pick<GapPoint, 'n' | 'est'>): string => `${p.n} boat${p.n === 1 ? '' : 's'}${p.est ? `, ${p.est} estimated` : ''}`;
+
 /** The tooltip's HTML for point `i`. */
 export function ladderTipHtml(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder, g: Group, i: number): string {
   const p = ladder.points[i];
   const tz = a.meta.tzOffsetMs;
   const head = `<b>${localTime(p.tMs, tz)}</b> <span class="muted">(gun +${duration((p.tMs - a.meta.gunMs) / 1000)})</span>`;
-  const gap = p.behindS == null ? 'no data' : `<b>${gapWords(p.behindS)}</b> of ${GROUP_SHORT[g.kind]} <span class="muted">(${p.n} boat${p.n === 1 ? '' : 's'})</span>`;
+  const gap = p.behindS == null ? 'no data' : `<b>${gapWords(p.behindS)}</b> of ${GROUP_SHORT[g.kind]} <span class="muted">(${boatsCount(p)})</span>`;
   const leg = p.leg != null ? `<br><span class="muted">${esc(a.legs[p.leg]?.name ?? '')}</span>` : '';
   return `${head}<br>${gap}<br>Wind ${degLabel(m.wind.twdAt(p.tMs))}${leg}`;
+}
+
+/**
+ * Whether the chart shows a break: a grey band (nullSpans), or with `each` a thin line stopping and starting again
+ * (a gap of over COACH_MAX_SPAN_S in that boat's or your fixes). The "no data" chip shows exactly then.
+ */
+export function ladderBreaks(ladder: Pick<RivalLadder, 'points' | 'group'>, each: boolean): boolean {
+  if (nullSpans(ladder.points).length) return true;
+  if (!each) return false;
+  return ladder.group.some((_, k) => {
+    let seen = false;
+    let gap = false;
+    for (const p of ladder.points) {
+      if (p.each[k] == null) gap = seen;
+      else if (gap) return true;
+      else seen = true;
+    }
+    return false;
+  });
 }
 
 /** The chart's legend chips: the bold median, each group boat by name and colour, no data. */
@@ -506,6 +538,12 @@ export function ladderChips(a: RaceAnalysis, ladder: RivalLadder, g: Group, each
       });
     }
   }
-  if (ladder.points.some((p) => p.behindS == null)) chips.push({ text: 'no data', swatch: 'band', title: `A hole in the tracks (fixes over ${GROUP_DRAW_HOLE_S} s apart) for your boat or most of the group, or the group never got that far` });
+  if (ladderBreaks(ladder, each)) {
+    chips.push({
+      text: 'no data',
+      swatch: 'band',
+      title: `A hole in the tracks: a thin line breaks where that boat's or your fixes are over ${COACH_MAX_SPAN_S} s apart; the bold line (grey band) where yours or most of the group's are over ${GROUP_DRAW_HOLE_S} s apart, or the group never got that far`,
+    });
+  }
   return chips;
 }

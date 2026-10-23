@@ -22,6 +22,7 @@ import {
 import type { GapPoint } from '../src/analysis/coach/ladder';
 import { confidenceOf, type GoodNote, type Opportunity } from '../src/analysis/coach/opportunity';
 import { rankOpportunities } from '../src/analysis/coach/rank';
+import { groupGap } from '../src/analysis/coach/timeGap';
 import type { CoachTrack } from '../src/analysis/coach/tracks';
 import { bearingVec, type Vec } from '../src/analysis/geo';
 import type { BoatResult, LegKind, RaceAnalysis } from '../src/analysis/types';
@@ -519,7 +520,9 @@ function fileWorld(o: { n: number; slowS?: number; hzOf?: (i: number) => number;
     return { ...boatOf(tr.id, order.indexOf(i) + 1), finishMs: f, start: { startPlace: i + 1 }, legs: [leg(g, r, i + 1), leg(r, f, 0)] } as unknown as BoatResult;
   });
   boats.sort((p, q) => p.finishPos! - q.finishPos!);
-  return world({ boats, tracks, leaders: boats.filter((b) => b.id !== 'me').slice(0, 3).map((b) => b.id), endMs: GUN + 3_000_000 });
+  const ctx = world({ boats, tracks, leaders: boats.filter((b) => b.id !== 'me').slice(0, 3).map((b) => b.id), endMs: GUN + 3_000_000 });
+  // The chart's gap (timeGap.ts groupGap) on this model: D9's seconds are read off it.
+  return { ...ctx, gaps: (ids, from, to) => groupGap(ctx.m, ctx.boat, ids, from, to) };
 }
 
 describe('D9 fallback: places through the rounding on sparse data', () => {
@@ -540,9 +543,17 @@ describe('D9 fallback: places through the rounding on sparse data', () => {
     expect(pl.shift).toBeNull();
     const [o] = r.opps;
     expect(o.facts).toMatchObject({ mode: 'places', lost: pl.lost, fleet: 100 });
-    // ~50 s lost while slow: the gap to the boats that passed grew by about that.
+    // ~50 s lost while slow: the gap to the boats that passed grew by about that — on the chart with them as the group,
+    // its points nearest the two place reads (no longer distance to go ÷ the fleet's VMG).
     expect(o.seconds).toBeGreaterThan(35);
     expect(o.seconds).toBeLessThan(60);
+    const [g] = o.gaps!;
+    expect(g.ids).toEqual(pl.passers);
+    expect(Math.abs(g.t0 - pl.tBefore)).toBeLessThanOrEqual(10_000);
+    expect(Math.abs(g.t1 - pl.tAfter)).toBeLessThanOrEqual(10_000);
+    const pts = ctx.gaps(g.ids, g.t0, g.t1);
+    expect([pts[0].behindS, pts.at(-1)!.behindS]).toEqual([g.g0, g.g1]);
+    expect(o.seconds).toBeCloseTo(g.g1 - g.g0, 9);
     expect(confidenceOf(o.conf)).toEqual({ level: 'medium', limit: 'refs' });
     expect(r.evaluated).toEqual(['windward']);
     const [card] = rankOpportunities([o]);

@@ -17,7 +17,9 @@ import { c31Race, fixtureRace, j105Race, j88Race, m24Race } from './helpers';
  * path: the worker's raw half (coachRaw: the wind and the start crossings from the raw fixes), the model on
  * the drawn tracks, then the debrief. Tolerance ±10 s where the fixture supports the item.
  * Phase 3 adds D4/D5 (the debrief's R1 #2, R2 #1, R3 #1): their goldens are in coachShiftGolden.test.ts; here
- * only the ranks they move (R1: the D5 card ranks first, R2: D4 above D1).
+ * only the ranks they move. The cards read the chart's gap (time at equal course progress, timeGap.ts groupGap), so
+ * their seconds are the chart's: where that differs from the debrief's same-moment wind ladder, the numbers here moved
+ * (each says from what).
  */
 const GT = 'USA 96';
 const edt = (hhmmss: string): number => Date.parse(`2026-10-18T${hhmmss}-04:00`);
@@ -34,14 +36,20 @@ const card = (d: CoachDebrief, kind: string) => d.cards.find((c) => c.kind === k
 describe('Coach golden: Good Trade race 1 (gun 11:05 EDT)', () => {
   const { a, model, d } = setup(j105Race(1));
 
-  it('"Slow off a great start" ≈ 30 s, with the D2 chip 4.4 vs 7.5 kn Relentless', () => {
-    // Phase 3: #2. The D5 caught-leader card (45 s, medium: score 31.8) edges it (29.4 s, high); see coachShiftGolden.
+  it('"Slow off a great start" ≈ 19 s on the chart (the debrief\'s ≈ 30 s was the wind ladder), with the D2 chip 4.4 vs 7.5 kn Relentless', () => {
+    // #1: the D5 caught-leader card (45 s on the wind ladder) no longer fires, see coachShiftGolden.
     const c = card(d, 'D3')!;
-    expect(d.cards.indexOf(c)).toBe(1);
+    expect(d.cards.indexOf(c)).toBe(0);
     expect(c.variant).toBe('slow-start');
-    // Got 29.4 s: the median gap to the top 3 (Patriot, Mirage, Crescendo) a minute after the crossing (+5.6 s) → at +5 min.
-    expect(c.seconds).toBeGreaterThanOrEqual(30 - 10);
-    expect(c.seconds).toBeLessThanOrEqual(30 + 10);
+    // Got 18.6 s: the chart (Top 3: Patriot, Mirage, Crescendo) 2.9 s behind at 11:05:11 → 21.5 s at 11:10:01. On the
+    // same-moment wind ladder (one-minute medians) it was 29.4 s, 5.6 → 35 s: the debrief's ≈ 30 s.
+    expect(Math.abs(c.seconds - 19)).toBeLessThanOrEqual(5);
+    const l = rivalLadder(model, a, GT, { kind: 'leaders' })!;
+    const at = (t: number) => l.points.find((p) => p.tMs === t)!.behindS!;
+    const [g] = c.gaps!;
+    expect(g.ids).toEqual(c.refBoats);
+    expect(c.seconds).toBeCloseTo(at(g.t1) - at(g.t0), 9);
+    expect([g.t0, g.t1]).toEqual([edt('11:05:11'), edt('11:10:01')]);
     expect(c.refBoats.map((id) => a.boats.find((b) => b.id === id)!.name)).toEqual(['Patriot', 'Mirage', 'Crescendo']);
     const d2 = c.chips!.find((x) => x.kind === 'D2')!;
     expect(d2.facts.nbrName).toBe('Relentless');
@@ -54,10 +62,10 @@ describe('Coach golden: Good Trade race 1 (gun 11:05 EDT)', () => {
     expect(t.sentence).toContain('Relentless, bow-level 20 m to windward, rolled you at 7.5 kn and 2 early tacks');
     expect(windowChip(c, a)).toBe('11:05–11:10');
     expect(c.confidence).toBe('high');
-    // Typical lateral sep in the first 5 min is tens of metres, not the 400 m
-    // end-of-window spread: ±5 s + a small wind term, so ≈ mid, not 14–44 s.
-    expect(secondsChip(c)).toMatch(/^≈ \d+ s$/);
-    expect(c.secondsHi / Math.max(1, c.secondsLo)).toBeLessThanOrEqual(2);
+    // Typical lateral sep in the first 5 min is ~100 m, not the 400 m end-of-window spread: ±5 s + a small wind
+    // term (+ a share of the untracked time), not ±15 s. On 18.6 s that is 11–26 s (on the ladder's 29.4 s it read ≈).
+    expect(c.secondsHi - c.seconds).toBeLessThan(8);
+    expect(secondsChip(c)).toBe('11–26 s');
   });
 
   it('D6 does not fire: the ✓ upwind chip, pointing ≈ 39° vs the fleet ≈ 43° (debrief 39 vs 43)', () => {
@@ -73,9 +81,9 @@ describe('Coach golden: Good Trade race 1 (gun 11:05 EDT)', () => {
     // line is no front-row start: no ✓ start (that is for the first third over, on time and close to the line).
     expect(d.found.some((o) => o.kind === 'D1')).toBe(false);
     expect(d.ok.some((n) => n.detector === 'D1')).toBe(false);
-    // Two cards (phase 3 adds D5), and it says so.
-    expect(d.cards.map((c) => c.kind)).toEqual(['D5', 'D3']);
-    expect(html).toContain('Only 2 clear gains with this data');
+    // One card (D5's caught-leader no longer fires on the chart's gap), and it says so.
+    expect(d.cards.map((c) => c.kind)).toEqual(['D3']);
+    expect(html).toContain('Only 1 clear gain with this data');
   });
 
   it('the header adds the seconds at stake; a selected card shades its window on the gap chart', () => {
@@ -92,12 +100,10 @@ describe('Coach golden: Good Trade race 1 (gun 11:05 EDT)', () => {
 describe('Coach golden: Good Trade race 2 (gun 12:25 EDT)', () => {
   const { a, model, d } = setup(j105Race(2));
 
-  it('the start (D1) ≈ 50 s: 64 m back at the gun, 17th of 18 over the line, the front row 6–9 s after the gun', () => {
+  it('the start (D1) ≈ 71 s: 64 m back at the gun, 17th of 18 over the line, the front row 6–9 s after the gun, then 24 s more', () => {
     const c = card(d, 'D1')!;
     expect(c.variant).toBe('second-row');
     // 55.6 s − the front row's median (5.8, 6.7, 8.6, 12.3, 13.9) = 47 s (start.py on the full data: 55.6 and the same five).
-    expect(c.seconds).toBeGreaterThanOrEqual(50 - 10);
-    expect(c.seconds).toBeLessThanOrEqual(50 + 10);
     expect(Math.round(c.facts.dtl as number)).toBe(64);
     expect(c.facts.crossRank).toBe(17);
     expect(c.facts.n).toBe(18);
@@ -105,22 +111,26 @@ describe('Coach golden: Good Trade race 2 (gun 12:25 EDT)', () => {
     expect([Math.round(c.facts.frontLo as number), Math.round(c.facts.frontHi as number)]).toEqual([6, 9]);
     // Square at the gun: the fleet's tacks 0:30–3:30 after it read 28° (Beat 1's 26° made the pin favoured by 15 m).
     expect(c.facts.favoured).toBeNull();
-    // The early-lane D3 after it (19 s) merges into the start card; D4 (the same minutes of Beat 1) claims most of
-    // that part, never the crossing's 47 s.
+    // The early-lane D3 after it merges into the start card: 24.4 s on the chart (Top 3: 42.6 s behind at 12:26:01 →
+    // 67.0 s at 12:30:51; on the wind ladder it was 19 s). The start card now ranks first (71.4 s): the wrong-side shift
+    // (D4) reads 59.7 s on the chart (89.9 s on the ladder), so the start keeps its D3 part and D4 gives up its overlap.
     expect(c.facts.d1S as number).toBeCloseTo(47, 0);
-    expect(Math.round(c.facts.d3S as number)).toBe(19);
-    expect(c.seconds).toBeGreaterThanOrEqual(47);
-    expect(c.seconds).toBeLessThan(47 + 19);
-    expect(secondsChip(c)).toBe('≈ 51 s');
-    // Phase 3: the wrong-side shift (D4 ≈ 90 s) is #1, the start #2 — the debrief's order.
-    expect(d.cards.map((x) => x.kind).slice(0, 2)).toEqual(['D4', 'D1']);
+    expect(Math.round(c.facts.d3S as number)).toBe(24);
+    expect(c.seconds).toBeCloseTo((c.facts.d1S as number) + (c.facts.d3S as number), 6);
+    expect(secondsChip(c)).toBe('≈ 71 s');
+    const [g] = c.gaps!;
+    const l = rivalLadder(model, a, GT, { kind: 'leaders' })!;
+    const at = (t: number) => l.points.find((p) => p.tMs === t)!.behindS!;
+    expect(c.facts.d3S as number).toBeCloseTo(at(g.t1) - at(g.t0), 9);
+    expect(d.cards.map((x) => x.kind)).toEqual(['D1', 'D4', 'D7']);
   });
 
-  it('the last run (D10): evaluated, but the ladder does not support the debrief’s 10–35 s — no card (see the note)', () => {
+  it('the last run (D10): evaluated, but the chart does not support the debrief’s 10–35 s — no card (see the note)', () => {
     // The debrief's "Crescendo +36 s, Patriot +12 s" came from time-at-distance along the rhumb axis, which
-    // ends 55 s behind Crescendo although it finished 42 s ahead. The wind ladder (finish as a line) ends at
-    // the true margins and gives Crescendo ≈ +12 s, Patriot ≈ 0 over the run: under the medium minimum (20 s;
-    // the marks are estimated from the fleet's turns).
+    // ends 55 s behind Crescendo although it finished 42 s ahead. On the chart (equal course progress) Crescendo's
+    // line goes 30 → 55 s and Patriot's 28 → 32 s over the tracked run: 14.3 s, the median of the two, is under the
+    // medium minimum (20 s; the marks are estimated from the fleet's turns). (The same-moment wind ladder gave
+    // Crescendo ≈ +12 s, Patriot ≈ 0; before the finish was anchored to the finish times, 38 → 57 s and 33 → 35 s.)
     const ctx = coachCtx(a, model, GT)!;
     const o = detectLastLeg(ctx);
     expect(card(d, 'D10')).toBeUndefined();
@@ -129,10 +139,16 @@ describe('Coach golden: Good Trade race 2 (gun 12:25 EDT)', () => {
     expect(Math.round(fin('USA 242'))).toBe(32);
     // The boats 1–2 places ahead by tracked finish are Crescendo (2nd) and Patriot (3rd).
     const pts = ctx.gaps(['USA 159', 'USA 242'], edt('13:27:30'), edt('13:33:09'));
-    const last = (k: number) => pts.filter((p) => p.each[k] != null).at(-1)!.each[k]!;
-    expect(Math.abs(last(0) - fin('USA 159'))).toBeLessThan(5);
-    expect(Math.abs(last(1) - fin('USA 242'))).toBeLessThan(5);
-    if (o) expect(o.seconds).toBeLessThan(MIN_SECONDS.medium);
+    const lastPt = (k: number) => pts.filter((p) => p.each[k] != null).at(-1)!;
+    // The chart's last points are at Good Trade's last fix (13:32:21), 48 s before its finish: its track ends in a hole,
+    // so no line reaches its finish (where each would read the finish times' difference). Patriot 31.9 s (finished 32 s
+    // ahead); Crescendo 54.7 s (finished 42 s ahead: Good Trade's untracked last 48 s were 13 s quicker than
+    // Crescendo's over the same water).
+    expect(lastPt(0).tMs).toBe(edt('13:32:21'));
+    expect(Math.abs(lastPt(1).each[1]! - fin('USA 242'))).toBeLessThan(1);
+    expect(lastPt(0).each[0]!).toBeCloseTo(54.7, 1);
+    expect(o!.seconds).toBeCloseTo(14.3, 1);
+    expect(o!.seconds).toBeLessThan(MIN_SECONDS.medium);
   });
 
   it('…the same last-run window does get a card: slow downwind (D7) ≈ 33 s, VMG below the fleet', () => {
@@ -190,10 +206,11 @@ describe('Coach golden: Good Trade race 3 (gun 14:10 EDT)', () => {
     expect(cardText(c).chips[0]).toMatch(/^153° vs top-3 14\d°$/);
   });
 
-  it('early (D3) ≈ 38 s to the leaders (Mirage first): 2 tacks by 3:51 while the fleet held on', () => {
+  it('early (D3) ≈ 47 s to the leaders (Mirage first): 2 tacks by 3:51 while the fleet held on', () => {
     const c = card(d, 'D3')!;
-    expect(c.seconds).toBeGreaterThanOrEqual(38 - 10);
-    expect(c.seconds).toBeLessThanOrEqual(38 + 10);
+    // Got 47.1 s: the chart (Top 3) 2.5 s ahead at 14:10:11 → 44.6 s behind at 14:15:01. On the wind ladder (one-minute
+    // medians) it was 37.9 s.
+    expect(Math.abs(c.seconds - 47)).toBeLessThanOrEqual(5);
     expect(a.boats.find((b) => b.id === c.refBoats[0])!.name).toBe('Mirage');
     expect(c.variant).toBe('tacks');
     expect(c.facts.tacks).toBe(2);

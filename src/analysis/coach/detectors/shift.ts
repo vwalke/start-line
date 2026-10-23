@@ -7,7 +7,8 @@
  * side the shift favoured (a veer favours the right, a backing the left) — and
  * it spent at least D4_HEADED_X × those leaders' share of the window on the
  * headed tack (and at least D4_HEADED_MIN). Seconds = Δgap to those leaders
- * over the window (the ladder, spec §2); the window that lost most wins.
+ * over the window (spec §2): the chart's bold line with them as its group (ctx.gaps,
+ * the gap at equal course progress), its first point to its last; the window that lost most wins.
  * The shares are read inside the window, not over the whole beat: a beat's
  * other minutes (the start, the swing back after it) would wash the shift out
  * (R2 Beat 1: Good Trade 19 % vs Mirage 10 % over the beat, 20 % vs 0 % over
@@ -20,8 +21,7 @@
 import { bearingVec, dot, median, sub, wrap180 } from '../../geo';
 import { posAt, trackLegAt, type CoachTrack } from '../tracks';
 import { cogPairs, type TwdSeries } from '../twdSeries';
-import { WIND_EST_S, coachCoverage, gapChange, gapNoise, rangeOf, refCoverage, untrackedS, windOkShare, type GoodNote, type Opportunity } from '../opportunity';
-import { GROUP_MIN_SHARE, type GapPoint } from '../ladder';
+import { WIND_EST_S, coachCoverage, gapChange, gapNoise, rangeOf, reading, refCoverage, untrackedS, windOkShare, type GoodNote, type Opportunity } from '../opportunity';
 import type { CoachCtx } from './context';
 
 export const D4_MIN_WINDOW_MS = 3 * 60_000;
@@ -152,14 +152,6 @@ export function twdRange(twdAt: (t: number) => number, a: number, b: number): nu
   return hi - lo;
 }
 
-/** The group median over a subset `ks` of a gap series' boats (GROUP_MIN_SHARE of them), for gapChange's `pick`. */
-export const subsetPick =
-  (ks: number[]) =>
-  (p: GapPoint): number | null => {
-    const v = ks.map((k) => p.each[k]).filter((x): x is number => x != null);
-    return v.length && v.length >= Math.max(1, Math.ceil(GROUP_MIN_SHARE * ks.length)) ? median(v) : null;
-  };
-
 /** First and last fix of the boat on `leg`, ms; null when it has fewer than two. */
 export function legWindow(tr: CoachTrack, leg: number): [number, number] | null {
   let a: number | null = null;
@@ -180,10 +172,12 @@ export interface ShiftWindow {
   dTwd: number;
   twd0: number;
   twd1: number;
-  /** The leaders on the favoured side, their mean separations (the boat's offset, + = right) and their Δgap median. */
+  /** The leaders on the favoured side, their mean separations (the boat's offset, + = right) and the Δgap to them (g0 → g1). */
   refs: string[];
   seps: number[];
   dgap: number;
+  g0: number;
+  g1: number;
 }
 
 interface Best {
@@ -217,7 +211,6 @@ export function detectShift(ctx: CoachCtx): ShiftResult {
     if (b - a < D4_MIN_WINDOW_MS) return;
     const mine = headedSamples(ctx.tr, k, w);
     const theirs = ltr.map((tr) => headedSamples(tr, k, w));
-    const pts = ctx.gaps(leaders, a, b);
     const goodLeg = coachCoverage(ctx.tr.t, a, b) >= D4_OK_COVERAGE;
     let shiftSeen = false;
     let losing = false;
@@ -244,12 +237,14 @@ export function detectShift(ctx: CoachCtx): ShiftResult {
         const me = shareIn(mine, t0, t1);
         const ldr = ks.map((i) => ({ id: leaders[i], h: shareIn(theirs[i], t0, t1) })).filter((x) => x.h != null);
         if (!me || !ldr.length || me.share < D4_HEADED_MIN || me.share < D4_HEADED_X * median(ldr.map((x) => x.h!.share))) continue;
-        const g = gapChange(pts, t0, t1, subsetPick(ks));
+        // The chart with those leaders as its group (Custom): its bold line.
+        const refs = ks.map((i) => leaders[i]);
+        const g = gapChange(ctx.gaps(refs, a, b), t0, t1);
         if (!g) continue;
         const dgap = g.g1 - g.g0;
         if (dgap <= 0 || (top.best && dgap <= top.best.win.dgap)) continue;
         top.best = {
-          win: { leg: k, t0: g.t0, t1: g.t1, dTwd, twd0, twd1, refs: ks.map((i) => leaders[i]), seps, dgap },
+          win: { leg: k, t0: g.t0, t1: g.t1, dTwd, twd0, twd1, refs, seps, dgap, g0: g.g0, g1: g.g1 },
           headed: me.share,
           ldrHeaded: ldr.map((x) => ({ id: x.id, share: x.h!.share })),
         };
@@ -312,6 +307,7 @@ export function detectShift(ctx: CoachCtx): ShiftResult {
       },
       refBoats: win.refs,
       windEst: windS >= WIND_EST_S,
+      gaps: [reading(win.refs, win)],
     },
     ok: null,
   };

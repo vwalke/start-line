@@ -41,15 +41,26 @@ are shared by all three.
     along the rhumb line. A rounding is a zone from `ROUNDING_IN_M` = 30 m
     before the mark to `ROUNDING_OUT_M` = 30 m down the next leg, crossed
     linearly in time by every boat, so roundings neither spike nor break the
-    lines. The group's median is bold, over a fixed set of boats: a rival in
-    a tracker hole up to `GROUP_BRIDGE_S` = 10 min keeps its place, read in a
-    straight line across the hole (progress is monotone), so the line doesn't
-    jump when boats round or drop out of the data; it is drawn only where at
-    least half the group's gaps rest on holes of `GROUP_DRAW_HOLE_S` = 30 s or
-    less, and breaks for a point if the set changes anyway. Thin lines keep
-    the position rule (fixes at most 15 s apart, read within 5 s of one). No
-    tracker data or a rival never that far is a break; the cards keep the
-    same-moment wind ladder), the biggest gains as cards
+    lines. The finish is anchored to the finish times: the last leg is
+    measured to the line the finishers crossed (fitted through where they
+    were at their finish times, else the feed's; extended past its ends), and
+    the last `FINISH_IN_M` = 30 m are a zone crossed linearly in time up to
+    each boat's finish time, so at your finish each rival reads the finish
+    times' difference (the feed's line can be off: J/70 Worlds race 3's boats
+    crossed it 14–29 s before their finish times). The group's median is bold, over a fixed set of boats: the bold
+    line bridges a rival's tracker gap of up to `GROUP_BRIDGE_S` = 10 min in a
+    straight line (progress is monotone; the readout counts those boats as
+    estimated: "6 boats, 2 estimated"), so the line doesn't jump when boats
+    round or drop out of the data; it is drawn only where at least half the
+    group's gaps rest on holes of `GROUP_DRAW_HOLE_S` = 30 s or less, and
+    breaks for a point if the set changes anyway. Thin lines are not filled
+    in: they keep the position rule (fixes at most 15 s apart, read within 5 s
+    of one; on a stretch that starts or ends at a rounding-zone edge, linear in
+    time by construction, only the 15 s rule, so ~10 s tracks don't drop points
+    there). A gap between fixes where the boat made no progress (a tack back, a
+    stall in a rounding zone) isn't a hole. The "no data" chip shows exactly
+    when a line breaks. The cards read the same series (`groupGap`), so
+    a card's seconds are the chart's change for the same group), the biggest gains as cards
     ranked by their impact on the result (see [How the Coach ranks
     cards](#how-the-coach-ranks-cards); at most 3, at most 2 from one detector:
     the next-best from another takes the slot; penalty turns exempt),
@@ -102,8 +113,8 @@ are shared by all three.
     after.     Losing max(3, min(5, ceil(5 % of the fleet))) places or more (3 up to
     60 boats, 4 to 80, 5 beyond) is a card at medium confidence ("Windward
     mark: lost 7 places through the rounding, 10th → 17th of 100 (sparse data,
-    timing approximate)"); seconds = the median change in gap (distance to go
-    ÷ the two legs' fleet VMG) to the boats that passed it. The boat's own
+    timing approximate)"); seconds = the change in the chart's gap to the boats
+    that passed it (Custom: them; its points nearest the two reads). The boat's own
     places must be from a position (a hole at the read is not judged); only
     boats measured at both reads count as passers. DNS/DNC and tracked boats
     official results don't list are left out of the ranking; a DNF/RET is not
@@ -672,8 +683,16 @@ CAP = high ∞, medium ∞, low 60 s                        (IMPACT_CAP_S; LOW_I
   the finish). Every detector reports seconds lost; the ones that measure
   places turn them into seconds where they were lost: D14 by the fleet's
   seconds per place at the leg's end around the boat's place, D9's
-  sparse-data card by its median gap change to the boats that passed it, D13
+  sparse-data card by the chart's gap change to the boats that passed it, D13
   by the time against the boats rounding the other buoy at the same time.
+- **A gap card's seconds are the chart's.** D3, D4, D5, D8, D10, D9's sparse-data
+  card and the Went well legs read the Gap-to-rivals chart's own points
+  (`timeGap.ts` `groupGap`: time at equal course progress, every 10 s from the
+  gun), with the card's boats as the group: the seconds are the chart's change
+  between the two points the card names (`Opportunity.gaps`), never another
+  gap. Where a higher card already holds part of its window (below), the card
+  shows less than that change. Who passed whom at a mark (D9) and the leg table's places
+  stay a same-moment ranking: a place is a moment's order, not a time.
 - **Confidence discounts, and caps.** A medium card counts 0.7 of its seconds,
   a low one 0.4. A low-confidence estimate leans on interpolation across
   holes, and that error grows with the hole, not with what was lost: its
