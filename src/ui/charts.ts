@@ -562,7 +562,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
   }
   trails.push(...ncTrails);
   const label = range
-    ? `Boats relative to the start line at the gun (Vakaros timing); trails and hulls coloured by speed over ground, ${f1(range.lo)} to ${f1(range.hi)} kn: dark purple slowest, yellow-green fastest`
+    ? `Boats relative to the start line at the gun (Vakaros timing); trails and hulls colored by speed over ground, ${f1(range.lo)} to ${f1(range.hi)} kn: dark purple slowest, yellow-green fastest`
     : 'Boats relative to the start line at the gun (Vakaros timing)';
 
   return `<svg viewBox="${view.x0} ${view.y0} ${w} ${h}" class="chart start" role="img"
@@ -1009,16 +1009,16 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
     opts.colour !== 'sog'
       ? ''
       : perLeg
-        ? `coloured by boat speed (SOG), scaled within each leg${legRanges ? ` (${legRanges})` : ''}: dark purple slowest on that leg, through teal, to yellow-green fastest`
-        : `coloured by boat speed (SOG)${sog ? `, ${f1(sog.lo)} to ${f1(sog.hi)} kn` : ''}: dark purple slowest, through teal, to yellow-green fastest`;
+        ? `colored by boat speed (SOG), scaled within each leg${legRanges ? ` (${legRanges})` : ''}: dark purple slowest on that leg, through teal, to yellow-green fastest`
+        : `colored by boat speed (SOG)${sog ? `, ${f1(sog.lo)} to ${f1(sog.hi)} kn` : ''}: dark purple slowest, through teal, to yellow-green fastest`;
   const label =
     leg == null
       ? speed
-        ? `Tracks coloured by speed, ${speed.overall ? 'race time' : 'rank on each leg'}: yellow and boldest fastest`
+        ? `Tracks colored by speed, ${speed.overall ? 'race time' : 'rank on each leg'}: yellow and boldest fastest`
         : sogLabel
           ? `Tracks ${sogLabel}`
-          : 'Tracks coloured by leg'
-      : `Tracks on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', coloured by speed on the leg: yellow and boldest fastest' : sogLabel ? `, ${sogLabel}` : ''}`;
+          : 'Tracks colored by leg'
+      : `Tracks on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', colored by speed on the leg: yellow and boldest fastest' : sogLabel ? `, ${sogLabel}` : ''}`;
   const tracks = layer ? `${layer.gaps}${layer.paths}${layer.hi}` : '<g class="scrub-trk"></g>';
   const top = layer ? layer.labels : '<g class="scrub-dots"></g>';
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map${opts.scrub ? ' scrub' : ''}" role="img" aria-label="${esc(opts.scrub ? `${label}; boats at the scrubber's time` : label)}">

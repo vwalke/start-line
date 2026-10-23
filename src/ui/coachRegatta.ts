@@ -211,7 +211,7 @@ export const legExtremeText = (e: LegTypeSummary['best']): string => `${e.label}
 /** What a race's place chip says on hover: "3rd of 20, official", "not analysed yet", "couldn't load: …". */
 export function placeWhat(r: RegattaSummary['rows'][number]): string {
   const f = r.digest?.finish ?? null;
-  if (r.status === 'pending' || r.status === 'running') return 'not analysed yet';
+  if (r.status === 'pending' || r.status === 'running') return 'not analyzed yet';
   if (r.status === 'error') return isPaywallError(r.error ?? '') ? 'locked: unlock this regatta to see it' : `couldn't load: ${r.error ?? ''}`;
   if (f) {
     const coded = f.code ? `${f.code}${f.points != null ? ` (${pointsText(f.points)} points)` : ''}${onWaterText(f) ? `, ${onWaterText(f)}` : ''}` : 'no place';
@@ -226,8 +226,8 @@ export function regattaStatusHtml(s: RegattaSummary, p: RegattaProgress): string
   const low = s.rows.filter((r) => r.low).length;
   const errs = s.rows.filter((r) => r.status === 'error').length;
   const parts: string[] = [];
-  if (p.running) parts.push(`Analysing ${esc(p.running)} (${p.done + 1} of ${p.total})${p.message ? ` · ${esc(p.message)}` : '…'}`);
-  else parts.push(`${s.done} of ${s.total} races analysed`);
+  if (p.running) parts.push(`Analyzing ${esc(p.running)} (${p.done + 1} of ${p.total})${p.message ? ` · ${esc(p.message)}` : '…'}`);
+  else parts.push(`${s.done} of ${s.total} races analyzed`);
   if (low) parts.push(`⚠ ${low} with low tracker data (marked, counted less)`);
   if (errs) parts.push(`${errs} couldn't be loaded`);
   return `<p class="regatta-status${p.running ? ' busy' : ''}" role="status">${parts.join(' · ')}</p>`;
@@ -307,7 +307,7 @@ export function regattaHtml(s: RegattaSummary, p: RegattaProgress): string {
   const places = regattaPlacesHtml(s);
   const top = s.top.length
     ? `<div class="regatta-patterns">${s.top.map(patternCardHtml).join('')}</div>`
-    : `<p class="muted">${s.withData ? 'Nothing that recurs yet.' : 'Waiting for the races to be analysed.'}</p>`;
+    : `<p class="muted">${s.withData ? 'Nothing that recurs yet.' : 'Waiting for the races to be analyzed.'}</p>`;
   const went = s.withData ? wentWellHtml(s.went.map((w) => ({ text: regattaWentText(w), seconds: w.totalS })), 'No clear gains on the top 3 yet.') : '';
   const rows = s.findings
     .map(

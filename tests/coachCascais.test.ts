@@ -254,12 +254,12 @@ describe('Cascais: the line bias (D16) and thin data', () => {
     const p = d.plus.find((x) => x.detector === 'D16')!;
     expect(p.facts.favoured).toBe('pin');
     expect(p.facts.deg as number).toBeGreaterThanOrEqual(D16_MIN_DEG);
-    expect(wentText(p)).toMatch(/^Start: pin end favoured \d+° \(~\d+ m\) and you started \d+ m toward the pin from the fleet's median start \(≈ \d+ m upwind\)$/);
+    expect(wentText(p)).toMatch(/^Start: pin end favored \d+° \(~\d+ m\) and you started \d+ m toward the pin from the fleet's median start \(≈ \d+ m upwind\)$/);
     const far = r3.a.boats.find((b) => b.start && !b.start.over && b.start.linePosPct > 90 && (b.start.dtlGapS == null || b.start.estDtlM != null))!;
     const c = debriefOf(r3.a, r3.m, far.id)!.found.find((o) => o.kind === 'D16')!;
     expect(c.variant).toBe('unfavoured');
     expect(cardText(rankOpportunities([c], 3)[0] ?? { ...c, score: 0, limit: null }).sentence).toMatch(
-      /^Pin favoured \d+° \(~\d+ m over the line\)\. You started \d+ m toward the committee boat from the fleet's median start: ≈ \d+ m upwind, about \d+ s at the fleet's [\d.]+ kn up the first beat\.$/,
+      /^Pin favored \d+° \(~\d+ m over the line\)\. You started \d+ m toward the committee boat from the fleet's median start: ≈ \d+ m upwind, about \d+ s at the fleet's [\d.]+ kn up the first beat\.$/,
     );
   });
   it('every boat: a card only D16_MATERIAL_S or more beyond the median toward the committee boat; R2 under D16_MIN_DEG has none', () => {

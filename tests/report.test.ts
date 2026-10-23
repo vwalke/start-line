@@ -336,7 +336,7 @@ describe('the regatta version (Coach view Regatta)', () => {
       ['R3', MISSING, MISSING, MISSING],
     ]);
     expect(p.regatta!.rows[1].low).toBe(true);
-    expect(p.regatta!.rows[2].status).toBe('not analysed yet');
+    expect(p.regatta!.rows[2].status).toBe('not analyzed yet');
     expect(p.regatta!.penalties).toEqual(['DPI in 1 of 2 races (R1) · 3 penalty points · ≈ 3 places']);
     const done = buildReport({ ...input('USA 016'), scope: 'regatta', regatta: summarizeRegatta(races.slice(0, 2)) });
     expect(done.state).toBe('ready');
@@ -349,7 +349,7 @@ describe('the regatta version (Coach view Regatta)', () => {
   it('without the Regatta view’s data yet: pending, waiting', () => {
     const p = buildReport({ ...input('USA 016'), scope: 'regatta', regatta: null });
     expect(p.state).toBe('pending');
-    expect(reportHtml(p)).toContain('Waiting for the races to be analysed');
+    expect(reportHtml(p)).toContain('Waiting for the races to be analyzed');
   });
 });
 

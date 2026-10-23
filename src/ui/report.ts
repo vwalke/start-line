@@ -519,7 +519,7 @@ function regattaSection(s: RegattaSummary): ReportRegatta {
         coverage: done ? pct(r.digest?.coverage) : MISSING,
         low: r.low,
         findings: done && r.digest && !r.digest.noData ? `${r.digest.findings.length} · ≈ ${Math.round(atStake)} s` : MISSING,
-        status: r.status === 'done' ? (r.digest?.tracked ? '' : 'no track') : r.status === 'error' ? `couldn't load` : 'not analysed yet',
+        status: r.status === 'done' ? (r.digest?.tracked ? '' : 'no track') : r.status === 'error' ? `couldn't load` : 'not analyzed yet',
       };
     }),
     done: s.done,

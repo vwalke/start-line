@@ -88,15 +88,15 @@ describe('D16 against the fleet’s median start (lineBias.ts biasCall, medianSt
     const facts = { favoured: 'pin', deg: 6, byM: 100, linePosPct: 92, medianPct: 50, share: 0.92, medianShare: 0.5, alongM: 420, givenM: 42, vmg: 4.5 };
     const c = opp({ kind: 'D16', variant: 'unfavoured', seconds: 18, facts });
     expect(cardText({ ...c, score: 0, limit: null } as never).sentence).toBe(
-      "Pin favoured 6° (~100 m over the line). You started 420 m toward the committee boat from the fleet's median start: ≈ 42 m upwind, about 18 s at the fleet's 4.5 kn up the first beat.",
+      "Pin favored 6° (~100 m over the line). You started 420 m toward the committee boat from the fleet's median start: ≈ 42 m upwind, about 18 s at the fleet's 4.5 kn up the first beat.",
     );
     const boat = { ...facts, favoured: 'boat', alongM: 300, givenM: 30 };
     expect(cardText({ ...opp({ kind: 'D16', variant: 'unfavoured', seconds: 13, facts: boat }), score: 0, limit: null } as never).sentence).toMatch(
-      /^Committee boat favoured 6° \(~100 m over the line\)\. You started 300 m toward the pin from the fleet's median start: ≈ 30 m upwind, about 13 s/,
+      /^Committee boat favored 6° \(~100 m over the line\)\. You started 300 m toward the pin from the fleet's median start: ≈ 30 m upwind, about 13 s/,
     );
     const good = { kind: 'plus' as const, detector: 'D16' as const, variant: 'favoured', t0: 0, t1: 1, seconds: 8, facts: { ...facts, alongM: -350, givenM: -35, gainS: 8 } };
-    expect(wentText(good)).toBe("Start: pin end favoured 6° (~100 m) and you started 350 m toward the pin from the fleet's median start (≈ 35 m upwind)");
-    expect(wentText({ ...good, facts: { ...good.facts, alongM: 0.2, givenM: 0.02 } })).toBe("Start: pin end favoured 6° (~100 m) and you started at the fleet's median start");
+    expect(wentText(good)).toBe("Start: pin end favored 6° (~100 m) and you started 350 m toward the pin from the fleet's median start (≈ 35 m upwind)");
+    expect(wentText({ ...good, facts: { ...good.facts, alongM: 0.2, givenM: 0.02 } })).toBe("Start: pin end favored 6° (~100 m) and you started at the fleet's median start");
   });
 });
 

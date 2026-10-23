@@ -894,7 +894,7 @@ export function startApp(): void {
   function renderRegatta(a: RaceAnalysis, sail: string): void {
     if (official.status === 'pending') {
       regattaRunner.want([]);
-      els.coachRegatta.innerHTML = '<p class="regatta-status busy" role="status">Checking for official results before analysing the races…</p>';
+      els.coachRegatta.innerHTML = '<p class="regatta-status busy" role="status">Checking for official results before analyzing the races…</p>';
       return;
     }
     regattaRunner.want(jobsFor(a, sail));

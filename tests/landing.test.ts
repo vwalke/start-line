@@ -191,7 +191,7 @@ describe('the landing page (index.html #landing)', () => {
     expect(PRICE_REGATTA).toBe(PRICE_FROM_DATA);
     expect(PRICE_REGATTA).toBe('$50');
     expect(landingText).toContain('The first race of every regatta is free.');
-    expect(landingText).toContain(`Unlock the whole regatta for ${PRICE_REGATTA}.`);
+    expect(landingText).toContain(`The rest of the regatta is ${PRICE_REGATTA}.`);
     const prices = [...landing.matchAll(/<span data-price="regatta">([^<]*)<\/span>/g)].map((m) => m[1]);
     expect(prices.length).toBeGreaterThan(0);
     for (const p of prices) expect(p).toBe(PRICE_REGATTA);
@@ -237,7 +237,7 @@ describe('the landing page (index.html #landing)', () => {
   });
 
   it('has its SEO and sharing tags', () => {
-    expect(html).toMatch(/<title>Recall — [^<]+<\/title>/);
+    expect(html).toMatch(/<title>Recall \| [^<]+<\/title>/);
     expect(html).toContain('<link rel="canonical" href="https://recall.walkeforward.com/" />');
     for (const p of ['og:type', 'og:url', 'og:title', 'og:description', 'og:image', 'og:site_name']) expect(html).toMatch(new RegExp(`<meta property="${p}" content="[^"]+"`));
     for (const n of ['twitter:card', 'twitter:title', 'twitter:description', 'twitter:image']) expect(html).toMatch(new RegExp(`<meta name="${n}" content="[^"]+"`));

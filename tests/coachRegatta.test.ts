@@ -234,7 +234,7 @@ describe('Regatta runner: lazy, one race at a time, cached (the empty “Weekend
     expect(runner.races().map((r) => r.status)).toEqual(['running', 'pending', 'pending']);
     // Before any race is back, the view lists every race (Weekend used to be a disabled button with no view at all).
     const cold = regattaViewHtml(runner);
-    expect(cold).toContain('Analysing Race 1 (1 of 3)');
+    expect(cold).toContain('Analyzing Race 1 (1 of 3)');
     expect((cold.match(/class="rp /g) ?? []).length).toBe(3);
     w.reply({ id: w.sent[0].id, type: 'progress', message: 'Fetched page 2 (40,000 points)…' });
     expect(runner.progress()).toEqual({ running: 'Race 1', message: 'Fetched page 2 (40,000 points)…', done: 0, total: 3 });
@@ -250,7 +250,7 @@ describe('Regatta runner: lazy, one race at a time, cached (the empty “Weekend
     expect(runner.races().map((r) => r.status)).toEqual(['done', 'error', 'done']);
     expect(runner.progress()).toEqual({ running: null, message: '', done: 3, total: 3 });
     const html = regattaViewHtml(runner);
-    expect(html).toContain('2 of 3 races analysed');
+    expect(html).toContain('2 of 3 races analyzed');
     expect(html).toContain("1 couldn't be loaded");
     expect(html).toContain('Slow at the gun');
     expect(html).toContain('<h4>Top 3 to work on</h4>');
@@ -330,7 +330,7 @@ describe('Regatta summary', () => {
       ['R2', '~7th', '97', 'Race 2: 7th of 97, tracker finish'],
       ['R3', 'DNF', '97', 'Race 3: DNF, official'],
       ['R4', '12th', '97', 'Race 4: 12th of 97, official, no track'],
-      ['R5', '…', null, 'Race 5: not analysed yet'],
+      ['R5', '…', null, 'Race 5: not analyzed yet'],
       ['R6', '!', null, 'Race 6: couldn&#39;t load: HTTP 500'],
     ]);
     expect(s).toMatchObject({ done: 4, withData: 3, total: 6 });
@@ -452,7 +452,7 @@ describe('Regatta on J/105 CBC (linked: official places), through the worker’s
     expect(s.top.length).toBeLessThanOrEqual(3);
     for (const l of s.legs) expect(l.best.deltaS).toBeLessThanOrEqual(l.worst.deltaS);
     const html = regattaHtml(s, { running: null, message: '', done: 3, total: 3 });
-    expect(html).toContain('3 of 3 races analysed');
+    expect(html).toContain('3 of 3 races analyzed');
     expect(html).toContain('<h4>Legs by type</h4>');
   });
 });

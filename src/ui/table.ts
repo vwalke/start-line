@@ -197,7 +197,7 @@ export function dqCell(coverage: number | null | undefined, maxGapS: number | nu
   return `<span class="dq-low" title="${esc(title)}" aria-label="${esc(`Low data: ${title}`)}">⚠ ${pct(coverage)}</span>`;
 }
 
-const HEEL_TITLE = 'average leeward heel, time-weighted; excludes manoeuvres (± 5 s of each tack or gybe). Negative = heeled to windward';
+const HEEL_TITLE = 'average leeward heel, time-weighted; excludes maneuvers (± 5 s of each tack or gybe). Negative = heeled to windward';
 
 /** Mean leeward heel "15.3°"; heel readings for under LOW_COVERAGE of the time flagged ⚠ (class dq-low), as Data %. */
 export function heelCell(heelDeg: number | null | undefined, cover: number | null | undefined, what: string): string {
@@ -296,7 +296,7 @@ export function legsTableKey(a?: RaceAnalysis): KeyLine {
     chips,
     bullets: [
       "TWA / VMG: estimates vs the wind from the fleet's tacks; TWA = steady median.",
-      'Dist: metres sailed; Prog: straight line ÷ Dist. Time: leg, place at mark.',
+      'Dist: meters sailed; Prog: straight line ÷ Dist. Time: leg, place at mark.',
       `Data: share with fixes ≤ ${SPAN_MS / 1000} s apart; ⚠ under ${LOW_PCT}%; ~ bridges a gap.`,
       'Upwind / Downwind: beats or runs summed; partial = a leg missing, no place.',
       'Tacks on beats, gybes on runs (both on reaches); a side held 10 s.',
@@ -530,7 +530,7 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
     {
       key: `${id}.dist`,
       head: 'Dist<br><small>m</small>',
-      title: `${label}: distance sailed, metres. ~ = bridges a telemetry gap over ${SPAN_MS / 1000} s`,
+      title: `${label}: distance sailed, meters. ~ = bridges a telemetry gap over ${SPAN_MS / 1000} s`,
       group,
       sort: (b) => S(b)?.distM,
       first: 'asc',
@@ -650,7 +650,7 @@ function legColumns(a: RaceAnalysis): Col[] {
       {
         key: `L${i}.dist`,
         head: 'Dist<br><small>m</small>',
-        title: `${leg.name}: distance sailed along the GPS track, metres. ~ = bridges a telemetry gap over ${SPAN_MS / 1000} s`,
+        title: `${leg.name}: distance sailed along the GPS track, meters. ~ = bridges a telemetry gap over ${SPAN_MS / 1000} s`,
         group,
         sort: (b) => L(b)?.distM,
         first: 'asc',
@@ -728,7 +728,7 @@ function legColumns(a: RaceAnalysis): Col[] {
     {
       key: 'dist',
       head: 'Dist<br><small>m</small>',
-      title: `Distance sailed gun → finish along the GPS track, metres (the sum of the legs). ~ = some leg bridges a telemetry gap over ${SPAN_MS / 1000} s`,
+      title: `Distance sailed gun → finish along the GPS track, meters (the sum of the legs). ~ = some leg bridges a telemetry gap over ${SPAN_MS / 1000} s`,
       group: race,
       sort: (b) => b.distM,
       first: 'asc',

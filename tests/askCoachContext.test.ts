@@ -96,7 +96,7 @@ describe('Ask Coach context: the Regatta view', () => {
     expect(ctx.view).toBe('regatta');
     expect(ctx.regatta?.places?.map((p) => p.race)).toEqual(['R1', 'R2', 'R3']);
     expect(ctx.regatta?.places?.every((p) => /of \d+/.test(p.place))).toBe(true);
-    expect(ctx.regatta?.status).toMatch(/3 of 3 races analysed/);
+    expect(ctx.regatta?.status).toMatch(/3 of 3 races analyzed/);
     expect(ctx.regatta?.workOn?.length).toBeGreaterThan(0);
     expect(ctx.regatta?.recurring?.length).toBeGreaterThan(0);
     expect(ctx.regatta?.recurring?.[0].races).toMatch(/^\d+ of \d+\*?$/);
@@ -273,7 +273,7 @@ describe('contextText: the penalty is the top impact, the findings are numbered 
       view: 'regatta',
       boat: { sail: 'USA 016' },
       regatta: {
-        status: '8 of 8 races analysed',
+        status: '8 of 8 races analyzed',
         penalties: ['DPI in 8 of 8 races · 24 penalty points · ≈ 24 places'],
         workOn: [{ title: 'Upwind speed', atStakeS: 120, pattern: true }, { title: 'Starts', atStakeS: 60 }],
         recurring: [{ finding: 'Slow upwind', races: '5 of 8' }, { finding: 'Late starts', races: '3 of 8' }],

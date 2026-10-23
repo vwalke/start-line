@@ -114,13 +114,13 @@ export function regattaAskContext(o: RegattaAskInput): AskContext {
   const low = s.rows.filter((r) => r.low).length;
   const errs = s.rows.filter((r) => r.status === 'error').length;
   const status = [
-    `${s.done} of ${s.total} races analysed`,
-    ...(o.progress.running ? [`still analysing ${o.progress.running}`] : []),
+    `${s.done} of ${s.total} races analyzed`,
+    ...(o.progress.running ? [`still analyzing ${o.progress.running}`] : []),
     ...(low ? [`⚠ ${low} with low tracker data (counted less)`] : []),
     ...(errs ? [`${errs} couldn't be loaded`] : []),
   ].join(' · ');
   const notes: string[] = [];
-  if (!s.withData) notes.push('Waiting for the races to be analysed.');
+  if (!s.withData) notes.push('Waiting for the races to be analyzed.');
   if (s.findings.some((f) => f.gated)) notes.push('* of the races with the tracker data to measure it (dirty air needs the boats around you; roundings the zone time or the sparse-data place read; gate choice both gate buoys tracked).');
   return compact({
     view: 'regatta' as const,

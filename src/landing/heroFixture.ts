@@ -18,6 +18,6 @@ export function heroFromFixture(f: HeroFixture, division: string, raceNumber: nu
   const data = buildRaceData(f.regatta, { division, raceNumber }, [f.telemetry], { eventId: f.eventId, kind: 'fixture', wind: f.wind ?? undefined });
   const a = analyzeRace(data);
   return heroSvg(a, {
-    title: `Recall's track map of a real race: ${a.boats.length} boats, wind at the top, tracks coloured by leg, every boat's position mid-race and the leaders labelled by sail number`,
+    title: `Recall's track map of a real race with ${a.boats.length} boats. Wind is at the top, the tracks are colored by leg, each boat is shown at its position mid-race, and the leaders are labeled by sail number.`,
   });
 }

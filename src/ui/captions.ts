@@ -26,7 +26,7 @@ export function startKey(a: RaceAnalysis, o: { scale: { chip: string; info: stri
     bullets: [
       `Bows at the gun (Vakaros timing); trails: the last ${START_TRAIL_MS / 1000} s${o.colour === 'speed' ? ', shaded by speed' : ''}.`,
       o.scale.info,
-      `Bow numbers: metres behind the line (${vakaros ? 'Vakaros DTL' : 'our GPS check'}; ~ = across a gap).`,
+      `Bow numbers: meters behind the line (${vakaros ? 'Vakaros DTL' : 'our GPS check'}; ~ = across a gap).`,
       ...biasBullets(a),
       'Names: Auto skips overlaps (tap a boat for it); All; Off = selected only.',
       ...(away ? ['Boats far from the line at the gun are listed as away from the line and left out of Fit.'] : []),
@@ -91,16 +91,16 @@ export function mapKey(a: RaceAnalysis, o: { highlight?: string | null; colour: 
   if (pickedExcluded(a, o.highlight ?? null)) chips.push({ text: 'not racing', swatch: 'nc' });
   const logged = a.boats.filter((b) => b.log);
   for (const b of logged) chips.push({ text: `${b.sail} from boat log · ${b.log!.rateHz} Hz` });
-  const bullets = ['GPS tracker tracks; the few-metre bow offset is left out.', split.info];
+  const bullets = ['GPS tracker tracks; the few-meter bow offset is left out.', split.info];
   if (logged.length) bullets.push("A boat marked 'from boat log' is drawn from its own uploaded Vakaros log where it covers the race (shared publicly), not the public feed.");
   if (o.colour === 'leg') bullets.push('Pick a leg above to show only that leg.');
   else if (o.colour === 'rank') {
     bullets.push(
       `Rank: elapsed-time rank${o.rankBy === 'overall' ? ' over the race' : ' on each leg'}; yellow, bold = fastest.`,
-      'Top 3 / 10 greys the rest; a picked boat outside them shows its rank.',
+      'Top 3 / 10 grays the rest; a picked boat outside them shows its rank.',
     );
   } else {
-    bullets.push("Boat speed: SOG, 4 s mean; colours span the fleet's 5th–95th percentile.");
+    bullets.push("Boat speed: SOG, 4 s mean; colors span the fleet's 5th–95th percentile.");
     if (o.leg == null) bullets.push("Scale: Per leg uses each leg's own range; Whole race, one range.");
   }
   bullets.push('Hover or tap a track for time, speed, course, heel, place; dashed = no data.');

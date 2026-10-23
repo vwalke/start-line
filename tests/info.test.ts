@@ -106,7 +106,7 @@ describe('start chart key line', () => {
     expect(k.chips.map((c) => c.text)).toEqual([expect.stringMatching(/^Line \d+ m$/), expect.stringMatching(/^Pin fav\. \d+° · \d+ m$/), 'wind est. (high)', 'hulls to scale', 'line extended']);
     expect(k.chips.find((c) => c.swatch === 'ext')?.text).toBe('line extended');
     const info = k.bullets.join(' ');
-    for (const s of ['Bows at the gun', 'metres behind the line', '±5° of wind', 'Names: Auto', 'Hulls to scale (J/70, 6.93 m)', 'pinch']) expect(info).toContain(s);
+    for (const s of ['Bows at the gun', 'meters behind the line', '±5° of wind', 'Names: Auto', 'Hulls to scale (J/70, 6.93 m)', 'pinch']) expect(info).toContain(s);
   });
   it('a picked not-racing boat gets the "not racing" swatch, here and on the map', () => {
     const id = m24.excluded[0].result.id;

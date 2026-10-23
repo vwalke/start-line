@@ -84,7 +84,7 @@ export function placesKey(a: RaceAnalysis, pc: PlaceChanges = placeChanges(a)): 
     bullets: [
       'Start: place among clean starters (OCS or no start figure: no point).',
       marks ? `Marks: rounding order, ${a.legSource === 'fleet' ? 'placed from where the fleet turned' : 'from the leg splits'}.` : 'One leg: Start → Finish only.',
-      ...(marks ? ['Grey dashed: no rounding time there; the others close up.'] : []),
+      ...(marks ? ['Gray dashed: no rounding time there; the others close up.'] : []),
       'Finish: the finish order. A DNF line stops at the last mark reached.',
       'Hover or tap a dot for place and gain; tap a line to select.',
     ],

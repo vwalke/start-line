@@ -1,7 +1,7 @@
 {
   "name": "Recall",
   "short_name": "Recall",
-  "description": "Your race, start to finish. A lean start and leg digest from Vakaros RaceSense public data.",
+  "description": "Replays and debriefs for RaceSense races. Recall reads the public Vakaros RaceSense feeds.",
   "start_url": "/regattas",
   "scope": "/",
   "display": "standalone",

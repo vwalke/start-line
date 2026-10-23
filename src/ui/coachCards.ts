@@ -459,7 +459,7 @@ function gateText(c: Card): CardText {
   const busy = num(f.traffic) >= D13_TRAFFIC_BOATS && f.trafficS != null ? ` The ${f.fav} mark was busy (${r0(f.traffic)} boats just ahead), but they were still ${r0(-num(f.trafficS))} s quicker.` : '';
   const lost = num(f.gained) < 0 ? `you ${placesPhrase(f.gained)}` : `you ${num(f.gained) > 0 ? 'still ' : ''}${placesPhrase(f.gained)}`;
   return {
-    title: `Unfavoured gate mark (${f.side})`,
+    title: `Unfavored gate mark (${f.side})`,
     chips: [
       `${f.side} mark · ${r0(f.deltaM)} m downwind`,
       `${f.fav} side ${r0(f.empS)} s quicker`,
@@ -476,10 +476,10 @@ function gateWent(n: GoodNote): string {
   const where = roundingName(f);
   if (n.variant === 'traffic') {
     const gained = num(f.gained) > 0 ? `; ${placesPhrase(f.gained)}` : '';
-    return `${where}: favoured gate was busy (${r0(f.traffic)} ${s1(num(f.traffic), 'boat', 'boats')} ahead) — the clear one was reasonable${gained}`;
+    return `${where}: favored gate was busy (${r0(f.traffic)} ${s1(num(f.traffic), 'boat', 'boats')} ahead) — the clear one was reasonable${gained}`;
   }
-  if (n.variant === 'net') return `${where}: took the ${f.side} gate (unfavoured by ~${r0(f.deltaM)} m / ${r0(f.beatS)} s), and the ${f.beatSide} paid off up the next beat — ${netPhrase(f.netS)}`;
-  return `${where}: took the favoured ${f.side} mark (${r0(f.deltaM)} m further upwind) and ${placesPhrase(f.gained)}`;
+  if (n.variant === 'net') return `${where}: took the ${f.side} gate (unfavored by ~${r0(f.deltaM)} m / ${r0(f.beatS)} s), and the ${f.beatSide} paid off up the next beat — ${netPhrase(f.netS)}`;
+  return `${where}: took the favored ${f.side} mark (${r0(f.deltaM)} m further upwind) and ${placesPhrase(f.gained)}`;
 }
 
 const capital = (s: Fact): string => String(s).charAt(0).toUpperCase() + String(s).slice(1);
@@ -531,10 +531,10 @@ function medianPhrase(f: Card['facts']): string {
 function biasText(c: Card): CardText {
   const f = c.facts;
   return {
-    title: `${f.favoured === 'pin' ? 'Pin' : 'Boat'} end favoured ${r0(f.deg)}°`,
-    chips: [`${f.favoured === 'pin' ? 'pin' : 'boat'} favoured ${r0(f.deg)}° · ~${r0(f.byM)} m`, `${r0(Math.abs(num(f.alongM)))} m from the fleet's median start`, `~${r0(f.givenM)} m upwind given away`],
-    sentence: `${f.favoured === 'pin' ? 'Pin' : 'Committee boat'} favoured ${r0(f.deg)}° (~${r0(f.byM)} m over the line). You started ${medianPhrase(f)}: ≈ ${r0(f.givenM)} m upwind, about ${r0(c.seconds)} s at the fleet's ${kn(f.vmg)} kn up the first beat.`,
-    tip: 'Check the line bias before the start (sight the line, read the wind); 6° or more off square, start near the favoured end.',
+    title: `${f.favoured === 'pin' ? 'Pin' : 'Boat'} end favored ${r0(f.deg)}°`,
+    chips: [`${f.favoured === 'pin' ? 'pin' : 'boat'} favored ${r0(f.deg)}° · ~${r0(f.byM)} m`, `${r0(Math.abs(num(f.alongM)))} m from the fleet's median start`, `~${r0(f.givenM)} m upwind given away`],
+    sentence: `${f.favoured === 'pin' ? 'Pin' : 'Committee boat'} favored ${r0(f.deg)}° (~${r0(f.byM)} m over the line). You started ${medianPhrase(f)}: ≈ ${r0(f.givenM)} m upwind, about ${r0(c.seconds)} s at the fleet's ${kn(f.vmg)} kn up the first beat.`,
+    tip: 'Check the line bias before the start (sight the line, read the wind); 6° or more off square, start near the favored end.',
   };
 }
 
@@ -584,7 +584,7 @@ function newWent(n: GoodNote): string | null {
   if (n.detector === 'D16') {
     const end = f.favoured === 'pin' ? 'pin' : 'committee boat';
     const up = Math.round(-num(f.givenM));
-    return `Start: ${end} end favoured ${r0(f.deg)}° (~${r0(f.byM)} m) and you started ${medianPhrase(f)}${up > 0 ? ` (≈ ${up} m upwind)` : ''}`;
+    return `Start: ${end} end favored ${r0(f.deg)}° (~${r0(f.byM)} m) and you started ${medianPhrase(f)}${up > 0 ? ` (≈ ${up} m upwind)` : ''}`;
   }
   return null;
 }
@@ -638,7 +638,7 @@ export function cardWarnings(c: Card, a: RaceAnalysis, raceCov?: number | null):
             ? 'wind at the gun est.'
             : c.kind === 'D17'
             ? num(c.facts.measured) < D17_HIGH_MEASURED
-              ? 'few manoeuvres measured'
+              ? 'few maneuvers measured'
               : 'few boats measured'
             : c.kind === 'D14'
             ? 'few boats a third'
