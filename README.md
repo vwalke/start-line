@@ -525,7 +525,8 @@ Switching races keeps the tab.
 - **Map zoom: centering and follow** (the Around the gun map and the track
   map, through `ui/panzoom.ts` and `ui/view.ts`). The 2× / 4× / 8× buttons
   and + / − center on the selected boat where it is at the moment shown
-  (the slider's second, or the scrubber's time); with no boat selected, or
+  (the slider's second, or the scrubber's time), with the follow camera's
+  look-ahead below; with no boat selected, or
   the selected boat not placed then (a tracker gap), on the middle of the
   fleet's positions (their bounding box's center); with nobody placed, on
   the map's center. The track map with no moment (the full race) keeps the
@@ -533,12 +534,23 @@ Switching races keeps the tab.
   and the wheel zoom toward the fingers or the pointer: Ctrl/⌘ + wheel (a
   trackpad pinch) always, a plain wheel only once the map has focus (click
   or tab into it), and never past Fit or 16×, so scrolling the page over a
-  map isn't caught. Zoomed in, scrubbing and play keep the selected boat in
-  frame: the map pans only once the boat leaves the middle 60% of the view,
-  just enough to bring it back to that edge, and never changes the zoom.
-  Moving the map by hand (drag, pinch, wheel, double-tap, arrow keys) stops
-  this until a zoom button, + / −, 0 or Fit is used again; a replay or a
-  Coach card's window framing the track map stops it too.
+  map isn't caught. Zoomed in, scrubbing and play follow the selected boat
+  with a look-ahead camera (`ui/follow.ts`): the view leads along the boat's
+  course (the circular mean over the last 18 s), so upwind (|TWA| ≤ 70°
+  from the map's wind estimate) the boat sits about a third of the way in
+  from the trailing edge, with the boats ahead in view; downwind (|TWA| ≥
+  115°) it sits just forward of center, showing the boats astern (on its
+  wind); reaching, or with no wind estimate, a modest lead. The lead is a
+  share of the view, so it looks the same at 2×, 4× or 8×; it eases in over
+  a steady stretch and back toward center through a tack, gybe or rounding,
+  and the camera eases with a critically damped spring (race time, so the
+  same played or stepped). A slider jump of over 15 s, a newly selected boat
+  or `prefers-reduced-motion` snaps instead. The zoom never changes.
+  Panning by hand (drag, double-tap, arrow keys) stops the follow until a
+  zoom button, + / −, 0 or Fit is used again; a wheel or pinch zoom keeps
+  it; selecting a boat (on any view) starts it; a replay or a Coach card's
+  window framing the track map stops it. Sail numbers sit a few px off
+  their hull, abeam (clear of the boat's own track), at any zoom.
 - **Zoom hint:** "Pinch to zoom · drag to pan · double-tap to zoom in"
   shows under the start chart on touch devices only (`(pointer: coarse)`),
   until it's dismissed with × or by the first pinch, pan or double-tap; the

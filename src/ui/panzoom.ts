@@ -22,13 +22,13 @@ export interface PanZoomOptions {
   /** A touch pinch, pan or double-tap was used (e.g. to retire the gesture hint). */
   onGesture?: () => void;
   /**
-   * What + / − centre on, chart units (view.ts zoomTarget: the selected boat, else the fleet); null: the map's
-   * centre. Without it they zoom about the view's centre.
+   * What + / − centre on at zoom `k`, chart units (the selected boat with the follow camera's look-ahead, else the
+   * fleet: view.ts zoomTarget); null: the map's centre. Without it they zoom about the view's centre.
    */
-  getTarget?: () => readonly [number, number] | null;
+  getTarget?: (k: number) => readonly [number, number] | null;
   /**
-   * The owner's gentle follow: false once the user moves the view by hand (drag, pinch, wheel, double-tap,
-   * arrow keys); true again on + / − / 0, as on the presets.
+   * The owner's follow: false once the user pans by hand (drag, double-tap, arrow keys); true again on + / − / 0,
+   * as on the presets. A wheel or pinch zoom leaves it as it was (follow.ts followAfter).
    */
   follow?: (on: boolean) => void;
 }
@@ -63,8 +63,9 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
   };
   const toChart = (box: Box, v: View, x: number, y: number) => clientToChart(box, v, rect(), x, y);
   const manual = (): void => opts.follow?.(false);
-  const zoomAt = (factor: number, x: number, y: number): void => {
-    manual();
+  /** Zoom toward client point (x, y); a wheel or pinch keeps the follow, a double-tap (`byHand`) is a pan by hand. */
+  const zoomAt = (factor: number, x: number, y: number, byHand = false): void => {
+    if (byHand) manual();
     update((box, v) => {
       const [px, py] = toChart(box, v, x, y);
       return zoomAbout(v, factor, px, py);
@@ -118,7 +119,6 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
       const m0 = { x: (prev.x + o.x) / 2, y: (prev.y + o.y) / 2 };
       const m1 = { x: (cur.x + o.x) / 2, y: (cur.y + o.y) / 2 };
       opts.onGesture?.();
-      manual();
       update((box, v) => {
         const [ax, ay] = toChart(box, v, m0.x, m0.y);
         const z = zoomAbout(v, d0 > 0 && d1 > 0 ? d1 / d0 : 1, ax, ay);
@@ -165,7 +165,7 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
     if (opts.getView().k >= K_MAX - 1e-9) {
       opts.follow?.(true);
       update((box) => fitView(box));
-    } else zoomAt(2, x, y);
+    } else zoomAt(2, x, y, true);
   }
 
   function onDblClick(ev: MouseEvent): void {
@@ -257,7 +257,7 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
       const by = ev.key === '+' || ev.key === '=' ? KEY_ZOOM : 1 / KEY_ZOOM;
       const target = opts.getTarget;
       opts.follow?.(true);
-      update((box, cur) => (target ? zoomPreset(box, cur.k * by, target()) : zoomAbout(cur, by, cur.cx, cur.cy)));
+      update((box, cur) => (target ? zoomPreset(box, cur.k * by, target(cur.k * by)) : zoomAbout(cur, by, cur.cx, cur.cy)));
     } else if (ev.key === '0') {
       opts.follow?.(true);
       update((box) => fitView(box));

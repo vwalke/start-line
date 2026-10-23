@@ -4,11 +4,12 @@
  * full width. A time slider (−90 … 180 s, 1 s steps), ‹ › (∓1 s), ← → (1 s; with Shift LANE_SHIFT_STEP_S),
  * Home / End and a play / pause button move it, clamped at the ends. The map pans and zooms as the track map
  * does (ui/panzoom.ts and the same Fit / 2× / 4× / 8× presets): Fit, the default, is the fixed extent over the
- * whole slider; the presets and + / − centre on the selected boat at the second on show (laneZoomTarget), and
- * zoomed in, scrubbing and play pan gently to keep it in frame (view.ts followView) until the map is moved by
- * hand; they never change the zoom level. Thin: SVG strings from the frames, and the section's
- * wiring (worked out only while open and on show, once per race and selection; the over-early facts asked of the
- * worker once per race; the second picked and the zoom kept for the session; scrubbing redraws just the map).
+ * whole slider; the presets and + / − centre on the selected boat at the second on show with the follow camera's
+ * look-ahead (laneFollowTarget), else the fleet, and zoomed in, scrubbing and play keep it framed with more room
+ * ahead upwind and astern downwind (follow.ts) until the map is panned by hand; they never change the zoom level.
+ * Thin: SVG strings from the frames, and the section's wiring (worked out only while open and on show, once per
+ * race and selection; the over-early facts asked of the worker once per race; the second picked and the zoom kept
+ * for the session; scrubbing redraws just the map).
  *
  * Sizes stay constant on screen whatever the frame's rendered size and zoom: strokes are non-scaling (css px),
  * and text, dots and label offsets are given in view units from the measured css px per unit (lanePxPerUnit,
@@ -21,14 +22,15 @@ import type { Vec } from '../analysis/geo';
 import type { StartReplay } from '../analysis/startReplay';
 import type { RaceAnalysis } from '../analysis/types';
 import type { ClassDims } from '../data/classes';
-import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatShapeOr, hullPathAt } from './boatShape';
+import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatShapeOr, HULL_LABEL_GAP_PX, HULL_LABEL_SIDES, hullLabelBox, hullPathAt } from './boatShape';
 import { boatColor, DOT_LABEL_MAX } from './charts';
 import { esc } from './format';
 import { textWidth, type Rect } from './labels';
 import { laneScrub, laneSecond, LANE_START_S, type LaneBoat, type LaneFrame, type LaneScrub } from './laneSnapshots';
 import { ocsLegend, ocsSvg } from './ocsStyle';
 import { attachPanZoom } from './panzoom';
-import { boatsZoomTarget, clampView, fitView, followView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
+import { FOLLOW_COURSE_S, followAfter, followCam, followStep, followTarget, reducedMotion, resetFollow, type FollowInput } from './follow';
+import { boatsZoomTarget, clampView, fitView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
 
 /** The frame's width when it can't be measured (tests, before layout), css px. */
 export const LANE_DEFAULT_W_PX = 640;
@@ -115,35 +117,51 @@ interface LabelAt {
 
 /**
  * Sail-number labels that don't overlap: the selected boat's first, then its group's, then (nothing selected, a
- * small fleet) everyone's; each beside its boat where it clears the boats and labels and stays in the frame, else
- * left out (its boat's title still names it).
+ * small fleet) everyone's; each beside its boat where it clears the other boats and labels and stays in the frame,
+ * else left out (its boat's title still names it). Beside a hull, HULL_LABEL_GAP_PX off it abeam (clear of its own
+ * track), else off the bow or stern (boatShape.ts hullLabelBox); beside a dot, just right, left, above or below it.
+ * The gaps are css px, so a label stays as close to its boat at every zoom.
  */
-function placeLabels(boats: readonly LaneBoat[], want: (b: LaneBoat) => boolean, u: number, view: Box, reach: (b: LaneBoat) => number): Map<string, LabelAt> {
+function placeLabels(
+  boats: readonly LaneBoat[],
+  want: (b: LaneBoat) => boolean,
+  u: number,
+  view: Box,
+  reach: (b: LaneBoat) => number,
+  hullOf: (b: LaneBoat) => { dir: Vec; dims: ClassDims } | null,
+): Map<string, LabelAt> {
   const out = new Map<string, LabelAt>();
-  // Every boat is in the way of a label (as are the labels placed).
-  const taken: Rect[] = boats
+  // Every other boat is in the way of a label (as are the labels placed); a label is placed clear of its own.
+  const taken: (Rect & { id?: string })[] = boats
     .filter((b) => b.pos)
     .map((b) => {
       const r = reach(b);
-      return { x0: b.pos![0] - r, y0: b.pos![1] - r, x1: b.pos![0] + r, y1: b.pos![1] + r };
+      return { id: b.id, x0: b.pos![0] - r, y0: b.pos![1] - r, x1: b.pos![0] + r, y1: b.pos![1] + r };
     });
-  const hit = (q: Rect): boolean => taken.some((t) => q.x0 < t.x1 && q.x1 > t.x0 && q.y0 < t.y1 && q.y1 > t.y0);
+  const hit = (q: Rect, id: string): boolean => taken.some((t) => t.id !== id && q.x0 < t.x1 && q.x1 > t.x0 && q.y0 < t.y1 && q.y1 > t.y0);
   const order = { me: 0, group: 1, other: 2 } as const;
   for (const b of [...boats].filter((x) => x.pos && want(x)).sort((p, q) => order[p.role] - order[q.role])) {
     const [x, y] = b.pos!;
-    const r = reach(b);
     const fs = (b.role === 'me' ? LABEL_PX.me : LABEL_PX.other) * u;
     const w = textWidth(b.sail, fs);
-    // Right of the boat, left, above, below (the text's baseline at y); inside the frame.
-    const at = (side: 'right' | 'left' | 'above' | 'below'): { box: Rect; label: LabelAt } => {
-      const x0 = side === 'right' ? x + r + 2.5 * u : side === 'left' ? x - r - 2.5 * u - w : x - w / 2;
-      const yb = side === 'above' ? y - r - 3 * u : side === 'below' ? y + r + 0.9 * fs : y - r;
-      return { box: { x0, y0: yb - 0.85 * fs, x1: x0 + w, y1: yb + 0.25 * fs }, label: { x: x0, y: yb, fs } };
-    };
+    // The text's box: its baseline 0.85 of the font size below the top.
+    const label = (box: Rect): { box: Rect; label: LabelAt } => ({ box, label: { x: box.x0, y: box.y0 + 0.85 * fs, fs } });
+    const hull = hullOf(b);
+    let all: { box: Rect; label: LabelAt }[];
+    if (hull) all = HULL_LABEL_SIDES.map((side) => label(hullLabelBox(b.pos!, hull.dir, hull.dims, w, 1.1 * fs, HULL_LABEL_GAP_PX * u, side)));
+    else {
+      // Right of the dot, left, above, below (the text's baseline at y).
+      const r = dotR(b) * u;
+      all = (['right', 'left', 'above', 'below'] as const).map((side) => {
+        const x0 = side === 'right' ? x + r + 2.5 * u : side === 'left' ? x - r - 2.5 * u - w : x - w / 2;
+        const yb = side === 'above' ? y - r - 3 * u : side === 'below' ? y + r + 0.9 * fs : y - r;
+        return { box: { x0, y0: yb - 0.85 * fs, x1: x0 + w, y1: yb + 0.25 * fs }, label: { x: x0, y: yb, fs } };
+      });
+    }
     const inside = (q: Rect): boolean => q.x0 >= view.x0 && q.x1 <= view.x1 && q.y0 >= view.y0 && q.y1 <= view.y1;
-    const cands = (['right', 'left', 'above', 'below'] as const).map(at).filter((c) => inside(c.box));
+    const cands = all.filter((c) => inside(c.box));
     // The selected boat is always labelled: on a clear side, else the first that fits the frame.
-    const pick = cands.find((c) => !hit(c.box)) ?? (b.role === 'me' ? (cands[0] ?? at('right')) : null);
+    const pick = cands.find((c) => !hit(c.box, b.id)) ?? (b.role === 'me' ? (cands[0] ?? all[0]) : null);
     if (!pick) continue;
     taken.push(pick.box);
     out.set(b.id, pick.label);
@@ -202,7 +220,7 @@ function frameHtml(a: RaceAnalysis, L: LaneScrub, f: LaneFrame, ppu: number, zoo
   const sel = L.me != null && f.boats.some((b) => b.id === L.me);
   // The track map's rule: a fleet within the colour slots has every boat labelled, in its own colour.
   const small = fleet <= DOT_LABEL_MAX;
-  const labels = placeLabels(f.boats, (b) => b.role !== 'other' || (!sel && small), u, v, (b) => reachOf(L, b, u));
+  const labels = placeLabels(f.boats, (b) => b.role !== 'other' || (!sel && small), u, v, (b) => reachOf(L, b, u), (b) => laneShape(L, b, 1 / u));
   // A small fleet in the boats' own colours; a big one (the colours run out): the selected boat ink, its group accent.
   const colourOf = (b: LaneBoat): string => {
     const r = byId.get(b.id);
@@ -292,6 +310,30 @@ export function laneScrubHtml(a: RaceAnalysis, L: LaneScrub, groupText?: string,
  */
 export const laneZoomTarget = (f: Pick<LaneFrame, 'boats'>, me: string | null): [number, number] | null => boatsZoomTarget(f.boats, me, (b) => b.pos);
 
+/**
+ * The follow camera's input (follow.ts) for boat `me` at second `s`: its position, its course each second over the
+ * FOLLOW_COURSE_S before (none before the slider's start), and the wind (none when only assumed from the line); null:
+ * not placed at `s`.
+ */
+export function laneFollowInput(L: Pick<LaneScrub, 'frame' | 'start' | 'wind'>, me: string, s: number): FollowInput | null {
+  const pos = L.frame(s).boats.find((b) => b.id === me)?.pos;
+  if (!pos) return null;
+  const dirs: (Vec | null)[] = [];
+  for (let i = 0; i < FOLLOW_COURSE_S; i++) dirs.push(s - i >= L.start ? (L.frame(s - i).boats.find((b) => b.id === me)?.dir ?? null) : null);
+  return { t: s, pos, dirs, down: L.wind && !L.wind.assumed ? L.wind.down : null };
+}
+
+/**
+ * What the presets and + / − centre on at zoom `k`: the selected boat placed at second `s` with the follow camera's
+ * look-ahead for a view that size; else laneZoomTarget (the fleet's middle, or null).
+ */
+export function laneFollowTarget(L: Pick<LaneScrub, 'frame' | 'start' | 'wind' | 'view' | 'me'>, s: number, k: number): [number, number] | null {
+  const input = L.me != null ? laneFollowInput(L, L.me, s) : null;
+  if (!input) return laneZoomTarget(L.frame(s), L.me);
+  const vb = viewBox(L.view, { cx: 0, cy: 0, k: Math.max(1, k) });
+  return followTarget(input.pos, input.dirs, input.down, vb.w, vb.h);
+}
+
 /** The Coach group, as the key line names it. */
 const GROUP_TEXT: Record<Group['kind'], string> = { leaders: 'the top 3 (Coach group)', near: 'the boats near it (Coach group)', fleet: 'the whole fleet', custom: 'its Coach group' };
 
@@ -316,9 +358,9 @@ export interface LaneMount {
   scrub: () => LaneScrub | null;
   /** The map's zoom (the fit box's View; k 1 = Fit). */
   zoom: () => View;
-  /** Set the zoom (clamped), redrawing the map only; as a pan by hand, it ends the gentle follow. */
+  /** Set the zoom (clamped), redrawing the map only; as a pan by hand, it ends the follow. */
   setZoom: (v: View) => void;
-  /** The gentle follow is on (the presets, + / − or Fit used since the map was last moved by hand). */
+  /** The look-ahead follow is on (a preset, + / −, Fit or a boat selected since the map was last panned by hand). */
   following: () => boolean;
   /** Open the section on second `s` (clamped; drawn from the current state), and `play` it from there. */
   cue: (s: number, play: boolean) => void;
@@ -347,9 +389,17 @@ export function mountLaneSnapshots(
   let ppu: number | null = null;
   /** The map's zoom on the fit box (Fit until zoomed; never moved by the slider). */
   let zoom: View = { cx: 0, cy: 0, k: 1 };
-  /** Gentle follow: on from the presets, + / − and Fit; off once the map is moved by hand. */
+  /** The look-ahead follow (follow.ts): on from the presets, + / −, Fit and a boat selected; off once the map is panned by hand. */
   let follow = true;
-  const target = (): [number, number] | null => (last ? laneZoomTarget(last.L.frame(sec), last.L.me) : null);
+  const cam = followCam();
+  /** The boat the follow was last turned on for. */
+  let followFor: string | null = null;
+  const target = (k: number = zoom.k): [number, number] | null => (last ? laneFollowTarget(last.L, sec, k) : null);
+  /** Zoomed in and following: one camera step for the second on show. */
+  const applyFollow = (): void => {
+    const input = follow && zoom.k > 1 && last?.L.me != null ? laneFollowInput(last.L, last.L.me, sec) : null;
+    if (input) zoom = followStep(cam, last!.L.view, zoom, input, reducedMotion());
+  };
   let timer: ReturnType<typeof setInterval> | null = null;
   let say: ReturnType<typeof setTimeout> | null = null;
   /** The stage pan / zoom is attached to (the body's, repainted with it), and its detach. */
@@ -411,9 +461,8 @@ export function mountLaneSnapshots(
   const show = (): void => {
     if (!last) return;
     const f = last.L.frame(sec);
-    // Zoomed in: keep the selected boat in frame, panning only as it nears the edge.
-    const me = follow && zoom.k > 1 && last.L.me != null ? f.boats.find((b) => b.id === last!.L.me)?.pos : null;
-    if (me) zoom = followView(last.L.view, zoom, me);
+    // Zoomed in: the look-ahead camera on the selected boat.
+    applyFollow();
     if (!drawStage()) return;
     const range = q<HTMLInputElement>('.lane-range');
     if (range) {
@@ -497,6 +546,15 @@ export function mountLaneSnapshots(
       zoom = fitView(L.view);
     }
     last = { a, L, groupText: id ? GROUP_TEXT[group.kind] : undefined, key, replays };
+    // A boat selected (here or anywhere): follow it, snapping to it once zoomed in.
+    if (id !== followFor) {
+      followFor = id;
+      if (id != null) {
+        follow = followAfter(follow, 'select');
+        resetFollow(cam);
+        applyFollow();
+      }
+    }
     paint();
     fit();
   };
@@ -510,8 +568,8 @@ export function mountLaneSnapshots(
       // default extent) resets it, as on the track map.
       const z = Number(el.dataset.zoom);
       if (Number.isFinite(z) && z > 0) {
-        follow = true;
-        setZoom(zoomPreset(last.L.view, z, target()));
+        follow = followAfter(follow, 'preset');
+        setZoom(zoomPreset(last.L.view, z, target(z)));
       }
     } else play();
   });
@@ -538,7 +596,7 @@ export function mountLaneSnapshots(
     if (andPlay) play();
   };
   const setZoomByHand = (v: View): void => {
-    follow = false;
+    follow = followAfter(follow, 'pan');
     setZoom(v);
   };
   return { refresh: draw, second: () => sec, playing: () => timer != null, scrub: () => last?.L ?? null, zoom: () => zoom, setZoom: setZoomByHand, following: () => follow, cue };

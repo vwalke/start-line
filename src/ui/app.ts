@@ -75,6 +75,7 @@ import {
   isNarrowStart,
   legLegend,
   mapBox,
+  mapFollowInput,
   startBoatKey,
   startFitBox,
   startFullFrame,
@@ -187,7 +188,8 @@ import {
   writePref,
 } from './speed';
 import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
-import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, followView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
+import { followAfter, followCam, followStep, followTarget, reducedMotion, resetFollow } from './follow';
+import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
 import { createVkxUpload } from './vkxUpload';
 import { createPaywall, lockedRange, startRace } from './paywall';
 import { appPath } from '../landing/route';
@@ -1170,8 +1172,14 @@ export function startApp(): void {
   /** The frame drawn last (for the hover), and its lookup once asked for. */
   let scrubData: ScrubFrame | null = null;
   let scrubPts: { f: ScrubFrame; p: MapPoints } | null = null;
-  /** Gentle follow (drawScrub): on from the presets, + / − and Fit; off once the map is moved by hand, or a replay or card frames it. */
+  /**
+   * The look-ahead follow (drawScrub, follow.ts): on from the presets, + / −, Fit and a boat selected; off once the
+   * map is panned by hand, or a replay or card frames it; a wheel or pinch zoom leaves it as it was.
+   */
   let mapFollow = true;
+  const mapCam = followCam();
+  /** The boat the follow was last turned on (or a replay / card turned it off) for. */
+  let mapFollowFor: string | null = null;
 
   /** A race opens: at the URL's `t=` (gun-relative, clamped to its window), else the full race; playback stops. */
   function openScrub(a: RaceAnalysis): void {
@@ -1256,7 +1264,8 @@ export function startApp(): void {
     scrubT = resume && scrubT != null ? scrubT : clampTime(a.meta.gunMs - REPLAY_PRE_S * 1000, scrubWindow(a));
     fitMap(a);
     if (mapFit) syncMapView(replayView(a, r, mapFit));
-    mapFollow = false;
+    mapFollowFor = r.boat;
+    mapFollow = followAfter(mapFollow, 'frame');
     render();
     setUrl({ ...scrubParams(scrubT, a.meta.gunMs, scrubTrail), [REPLAY_PARAM]: r.boat });
     save();
@@ -1302,7 +1311,8 @@ export function startApp(): void {
     scrubT = clampTime(at?.t ?? focusTime(f), scrubWindow(a));
     fitMap(a);
     if (mapFit) syncMapView(focusView(a, f, mapFit));
-    mapFollow = false;
+    mapFollowFor = f.boat;
+    mapFollow = followAfter(mapFollow, 'frame');
     render();
     setUrl({ ...scrubParams(scrubT, a.meta.gunMs, scrubTrail), ...focusParams(a, f), [REPLAY_PARAM]: null });
     save();
@@ -1382,10 +1392,18 @@ export function startApp(): void {
     trk.innerHTML = f.tracks;
     dots.innerHTML = f.dots;
     scrubData = f;
-    // Zoomed in: keep the selected boat in frame, panning only as it nears the edge (the zoom stays).
-    const me = mapFollow && mapFit && mapView.k > 1 && highlight != null ? f.boats.find((b) => b.id === highlight) : undefined;
-    if (me && mapFit) {
-      const next = followView(mapFit, mapView, [me.mx, me.my]);
+    // A boat selected (here or on another view): follow it, snapping to it once zoomed in.
+    if (highlight !== mapFollowFor) {
+      mapFollowFor = highlight;
+      if (highlight != null) {
+        mapFollow = followAfter(mapFollow, 'select');
+        resetFollow(mapCam);
+      }
+    }
+    // Zoomed in: the look-ahead camera on the selected boat (the zoom stays).
+    const input = mapFollow && mapFit && mapView.k > 1 && highlight != null ? mapFollowInput(a, highlight, scrubT, full) : null;
+    if (input && mapFit) {
+      const next = followStep(mapCam, mapFit, mapView, input, reducedMotion());
       if (next !== mapView) setMapView(next);
     }
   }
@@ -1533,12 +1551,16 @@ export function startApp(): void {
   }
 
   /**
-   * What the presets and + / − centre on: scrubbing, the selected boat at the moment shown, else the middle of
-   * the fleet then, else the map's centre (null); the full race (no moment) keeps the view's centre.
+   * What the presets and + / − centre on at zoom `k`: scrubbing, the selected boat at the moment shown with the
+   * follow camera's look-ahead, else the middle of the fleet then, else the map's centre (null); the full race (no
+   * moment) keeps the view's centre.
    */
-  function mapTarget(): [number, number] | null {
-    if (scrubT == null || !scrubData) return [mapView.cx, mapView.cy];
-    return boatsZoomTarget(scrubData.boats, highlight, (b) => [b.mx, b.my]);
+  function mapTarget(k: number = mapView.k): [number, number] | null {
+    if (scrubT == null || !scrubData || !mapFit || !analysis) return [mapView.cx, mapView.cy];
+    const input = highlight != null ? mapFollowInput(analysis, highlight, scrubT, mapFullRate(analysis)) : null;
+    if (!input) return boatsZoomTarget(scrubData.boats, highlight, (b) => [b.mx, b.my]);
+    const vb = viewBox(mapFit, { cx: 0, cy: 0, k: Math.max(1, k) });
+    return followTarget(input.pos, input.dirs, input.down, vb.w, vb.h);
   }
 
   /** Store the map view; presets and touch-action follow it. */
@@ -1586,8 +1608,8 @@ export function startApp(): void {
       leaveReplay(true);
       leaveFocus(true);
     }
-    mapFollow = true;
-    setMapView(zoomPreset(mapFit, next, mapTarget()));
+    mapFollow = followAfter(mapFollow, 'preset');
+    setMapView(zoomPreset(mapFit, next, mapTarget(next)));
   });
 
   let coachPlace: { model: NonNullable<CoachModel>; base: ProgressBase } | null = null;
