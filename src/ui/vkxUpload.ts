@@ -1,6 +1,7 @@
 /**
  * "Add boat log (.vkx)": a boat's own Vakaros log replaces its gappy public
- * track in a race. One short line of chips under the race header:
+ * track in a race. Under the race header (every tab), while no boat in the race has a log, a card
+ * with VKX_CTA_HEAD, VKX_CTA_LINE and the button; once one has, one short line of chips:
  *
  *   [Add boat log (.vkx)]  USA 833 · from boat log · 10 Hz  remove my upload  ⚠ boat timer Δ +5s  ⓘ
  *
@@ -120,7 +121,14 @@ export function confirmHtml(
   </form>`;
 }
 
-/** The bar's markup (pure: tested). */
+/**
+ * The call to action while no boat in the race has a log (merge.ts: the log's 10 Hz fixes replace the
+ * feed's ~0.2–1 Hz ones; the Coach reads roundings and penalty turns from them at full rate, the start at 5 Hz).
+ */
+export const VKX_CTA_HEAD = 'Sailed with a Vakaros? Add its log (.vkx)';
+export const VKX_CTA_LINE = "10 fixes a second instead of the tracker's 1 or fewer: it fills your boat's gaps and sharpens the Coach's read of your start, mark roundings and penalty turns.";
+
+/** The bar's markup (pure: tested). With no log in the race, a card that says why; with one, the chip line only. */
 export function barHtml(o: {
   avail: Avail;
   flow: Flow;
@@ -128,11 +136,16 @@ export function barHtml(o: {
   open?: boolean;
 }): string {
   const items: string[] = [];
+  let cta = '';
   if (o.avail.kind === 'off') {
     items.push(`<li class="chip muted" title="${esc(o.avail.why)}">uploads unavailable</li>`);
   } else {
     const busy = o.flow.kind === 'busy' || o.avail.kind === 'checking';
-    items.push(`<li><button type="button" class="vkx-add" data-vkx="add"${busy ? ' disabled' : ''}>Add boat log (.vkx)</button></li>`);
+    const add = (cls: string): string => `<button type="button" class="${cls}" data-vkx="add"${busy ? ' disabled' : ''}>Add boat log (.vkx)</button>`;
+    if (o.logs.length) items.push(`<li>${add('vkx-add')}</li>`);
+    else {
+      cta = `<div class="vkx-cta" role="group" aria-labelledby="vkx-cta-h"><div class="vkx-cta-text"><p class="vkx-cta-h" id="vkx-cta-h">${esc(VKX_CTA_HEAD)}</p><p class="vkx-cta-line">${esc(VKX_CTA_LINE)}</p></div>${add('vkx-add vkx-cta-btn')}</div>`;
+    }
   }
   const bullets = [
     "Add your boat's own Vakaros log (.vkx, from Vakaros Connect) to replace its gappy public track with the full-rate one.",
@@ -155,7 +168,7 @@ export function barHtml(o: {
   }
   if (o.avail.kind === 'off') bullets.push(`Uploads are unavailable: ${o.avail.why}. Everything else works as usual.`);
   items.push(`<li class="chip-info">${infoHtml(bullets, { open: o.open })}</li>`);
-  return `<ul class="chips vkx-chips" aria-label="Boat logs">${items.join('')}</ul>`;
+  return `${cta}<ul class="chips vkx-chips" aria-label="Boat logs">${items.join('')}</ul>`;
 }
 
 export function createVkxUpload(host: VkxHost) {

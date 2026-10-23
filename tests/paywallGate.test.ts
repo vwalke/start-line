@@ -105,7 +105,8 @@ describe('flag on: telemetry', () => {
     const b = await signIn(db, 'b@example.com');
     const c = await signIn(db, 'c@example.com');
     await giveRegatta(db, a.user.id);
-    await giveSeason(db, c.user.id, NOW + 86_400_000);
+    // A day past the real clock (the gate reads Date.now()), not the fixed NOW, so it doesn't lapse.
+    await giveSeason(db, c.user.id, Date.now() + 86_400_000);
 
     const first = await proxy(teleUrl(R2), env, a.cookie);
     expect(first.status).toBe(200);

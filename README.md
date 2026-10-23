@@ -28,7 +28,8 @@ are shared by all three.
 - **Coach tab** (on for everyone; the old `?coach=1` is ignored): the boat
   selected in the boat list (or a chart) in the race picked in the Race menu.
   It has no race or boat picker of its own; with no boat selected it asks for
-  one. Two views:
+  one. Two views, picked with the large **Race | Regatta** switch at the top
+  of the tab (full width on a phone):
   - **Race:** its place (official when linked) and the gap to the winner, the
     gap to a group of rivals (Top 3 / boats near me / whole fleet / custom)
     over the race with the fleet's wind under it, the biggest gains as cards
@@ -971,6 +972,11 @@ Benelux Sailing League Act III, J70 race 8
 
 A boat's own Vakaros log (`.vkx`, VKX 1.4, 10 Hz on an Atlas 2) can replace
 its gappy public track in a race. On the race header: **Add boat log (.vkx)**.
+While no boat in the race has a log it is a card saying why ("Sailed with a
+Vakaros? Add its log (.vkx)": 10 fixes a second instead of the tracker's 1 or
+fewer, for the start, mark roundings and penalty turns); once one has, it
+shrinks to the chip line. With uploads unavailable there is no card, only the
+chip.
 
 **Uploads are public.** Anyone viewing the race sees the uploaded boat's
 full-rate track; there is no private option. The confirm dialog says

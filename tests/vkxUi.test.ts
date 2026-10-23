@@ -9,7 +9,10 @@ import { payloadFor } from '../src/data/vkx/plan';
 import { boatList } from '../src/ui/boats';
 import { mapKey } from '../src/ui/captions';
 import { forgetToken, heldTokens, listUploads, postUpload, rememberToken, resetVkxSession } from '../src/data/vkx/api';
-import { barHtml, confirmHtml, eastern, gainText, prettyBoatName } from '../src/ui/vkxUpload';
+import { VKX_CTA_HEAD, VKX_CTA_LINE, barHtml, confirmHtml, eastern, gainText, prettyBoatName } from '../src/ui/vkxUpload';
+import { esc } from '../src/ui/format';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { PlannedRace } from '../src/vkxWorker';
 import { DIV, EVENT, R7_GUN, RO, Z, trimVkx, vkxFeed, vkxRegatta } from './vkxHelpers';
 
@@ -92,8 +95,39 @@ describe('boat-log upload UI', () => {
     expect(withLog).toContain('⚠ </span><span class="vh">Warning: </span>boat timer Δ +5s');
     expect(withLog).toContain('<li>Because.</li>');
     const busy = barHtml({ avail: { kind: 'ok' }, flow: { kind: 'busy', text: 'Uploading R7…' }, logs: [] });
-    expect(busy).toMatch(/class="vkx-add" data-vkx="add" disabled/);
+    expect(busy).toMatch(/class="vkx-add vkx-cta-btn" data-vkx="add" disabled/);
     expect(busy).toContain('role="status">Uploading R7…');
+  });
+
+  it('bar: a call-to-action card with no log in the race; the chip line once one is attached; none when unavailable', () => {
+    for (const avail of [{ kind: 'ok' }, { kind: 'checking' }] as const) {
+      const none = barHtml({ avail, flow: { kind: 'idle' }, logs: [] });
+      expect(none).toContain('<div class="vkx-cta" role="group" aria-labelledby="vkx-cta-h">');
+      expect(none).toContain(`id="vkx-cta-h">${esc(VKX_CTA_HEAD)}</p>`);
+      expect(none).toContain(`<p class="vkx-cta-line">${esc(VKX_CTA_LINE)}</p>`);
+      expect(none.match(/data-vkx="add"/g)).toHaveLength(1);
+      // Still checking the upload service: shown, but its button waits.
+      expect(/vkx-cta-btn" data-vkx="add" disabled/.test(none)).toBe(avail.kind === 'checking');
+    }
+    expect(VKX_CTA_HEAD).toBe('Sailed with a Vakaros? Add its log (.vkx)');
+    expect(VKX_CTA_LINE).toContain('10 fixes a second');
+    const attached = barHtml({ avail: { kind: 'ok' }, flow: { kind: 'idle' }, logs: [{ sail: RO.sail, rateHz: 10, removable: false, sn: RO.sn, warnings: [] }] });
+    expect(attached).not.toContain('vkx-cta');
+    expect(attached).not.toContain(esc(VKX_CTA_LINE));
+    expect(attached).toContain('<li><button type="button" class="vkx-add" data-vkx="add">Add boat log (.vkx)</button></li>');
+    expect(attached).toContain('<li class="chip">USA 833 · from boat log · 10 Hz</li>');
+    for (const logs of [[], [{ sail: RO.sail, rateHz: 10, removable: false, sn: RO.sn, warnings: [] }]]) {
+      const off = barHtml({ avail: { kind: 'off', why: 'offline' }, flow: { kind: 'idle' }, logs });
+      expect(off).not.toContain('vkx-cta');
+      expect(off).not.toContain('data-vkx="add"');
+      expect(off).toContain('uploads unavailable');
+    }
+    // It sits in #digest, so a locked race (the paywall hides #digest for its lock card) shows none of it.
+    const app = readFileSync(fileURLToPath(new URL('../src/ui/app.ts', import.meta.url)), 'utf8');
+    expect(app).toContain('vkx.mount(els.raceHead, a);');
+    const html = readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8');
+    const digest = html.slice(html.indexOf('<main id="digest"'), html.indexOf('</main>'));
+    expect(digest).toContain('<div id="race-head" class="race-head" hidden></div>');
   });
 
   it('marks the uploaded boat in the boat list and the map key', async () => {
