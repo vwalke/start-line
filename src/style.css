@@ -576,7 +576,9 @@ svg text.ocs-lbl { fill: var(--bad); stroke: var(--surface); stroke-linejoin: ro
 .replay-btn[aria-pressed='true'] { background: var(--bad-bg); }
 .replay-links { margin: 4px 0 0; font-size: 0.85rem; color: var(--ink-2); }
 .replay-links .sep { color: var(--ink-3); }
-.replay-link { font-weight: 600; }
+/* "Replay start → USA 017": a button (it plays the start in Around the gun below) that reads as a link. */
+.replay-link { font: inherit; font-weight: 600; padding: 0; border: 0; background: none; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; min-height: 24px; }
+.replay-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 /* A Coach card on the map (Map D): the comparison boats' trails on an ink casing, their dots ringed and labelled; the "vs" line. */
 svg .trk-vs { fill: none; stroke: var(--ink); opacity: 0.3; stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
 svg .dot-vs { fill: none; stroke: var(--ink); pointer-events: none; }
@@ -1114,7 +1116,7 @@ svg .cl-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 .vkx-actions button { font: inherit; min-height: 36px; padding: 4px 14px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
 .vkx-actions .vkx-ok { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 
-/* ---------- Start tab: after the gun, a time slider (ui/laneSnapshotsView.ts) ---------- */
+/* ---------- Start tab: around the gun, a time slider (ui/laneSnapshotsView.ts) ---------- */
 .lane-snapshots { margin: 8px 0 0; }
 .lane-snapshots > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--ink-2); padding: 4px 0; min-height: 28px; }
 .lane-snapshots > summary .muted { font-weight: 500; }
@@ -1141,9 +1143,6 @@ svg .cl-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 .lane-wind-arrow polygon { fill: currentColor; }
 .lane-wind.assumed { color: var(--ink-2); border-style: dashed; }
 .lane-key { font-size: 0.75rem; margin: 6px 0 0; }
-.lane-legend { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; margin-left: 10px; vertical-align: middle; }
-.lane-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.lane-swatch { flex: none; display: block; }
 svg .lane-pin { fill: var(--s4); stroke: var(--ink); }
 svg .lane-rc { fill: var(--ink-2); }
 svg .lane-lbl { fill: var(--ink); stroke: var(--surface); paint-order: stroke; font-weight: 600; }
@@ -1152,7 +1151,13 @@ svg .lane-trail { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 svg .lane-trail.dim { opacity: 0.35; }
 svg .lane-boat.dim { opacity: 0.45; }
 svg .lane-dot:not(.hold) { stroke: var(--surface); }
-svg .lane-over, svg .lane-cleared { fill: none; stroke: var(--bad); }
+svg .lane-hull { stroke-linejoin: round; }
+.lane-zoom { margin: 6px 0 0; }
+.lane-stage.panzoom { display: block; }
+/* Over early (the track map's replay styling, ui/ocsStyle.ts): the key's swatches. */
+.ocs-legend { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; margin-left: 10px; vertical-align: middle; }
+.ocs-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.ocs-swatch { flex: none; display: block; }
 svg .lane-empty { fill: var(--ink-3); }
 @media (max-width: 600px) {
   .lane-range { order: -1; flex-basis: 100%; }

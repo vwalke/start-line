@@ -373,12 +373,13 @@ describe('IC37 R5: the comparison boats drawn while scrubbing', () => {
     for (const id of f.vs) {
       const sail = a.boats.find((b) => b.id === id)!.sail;
       expect(fr.tracks).toContain(`class="trk-vs" data-id="${id}"`);
-      expect(fr.dots).toMatch(new RegExp(`<g class="boat-at vs"><circle class="dot-vs"[^>]*/>(<line[^>]*/>)?<circle class="dot vs" data-id="${id}"`));
+      // A hull or a dot (ui/boatShape.ts), ringed either way.
+      expect(fr.dots).toMatch(new RegExp(`<g class="boat-at vs"><circle class="dot-vs"[^>]*/>(<line[^>]*/>)?<(circle|path) class="dot( hull)? vs" data-id="${id}"`));
       expect(fr.dots).toContain(`class="dot-lbl vs"`);
       expect(fr.dots).toContain(`>${sail}</text>`);
     }
     expect(fr.tracks).not.toContain(`class="trk-vs" data-id="${f.boat}"`);
-    expect(fr.dots).toContain(`class="dot on" data-id="${f.boat}"`);
+    expect(fr.dots).toMatch(new RegExp(`class="dot( hull)? on" data-id="${f.boat}"`));
     expect(fr.dots.match(/class="dot-vs"/g)).toHaveLength(f.vs.length);
     // The casing is under the tracks; the selected boat's dot is drawn last.
     expect(fr.tracks.indexOf('trk-vs')).toBeLessThan(fr.tracks.indexOf('class="trk '));

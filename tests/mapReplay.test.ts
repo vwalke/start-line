@@ -174,11 +174,17 @@ describe('Replay start: the map control and the Start tab links', () => {
     expect(all).toContain('>USA 019</button>');
   });
 
-  it('the Start tab links to the Race tab replaying that boat', () => {
-    const html = startReplayLinks(a, replays, idOf('USA 017'), '?event=e1&race=5');
-    expect(html).toContain('href="?event=e1&amp;race=5&amp;t=-30&amp;trail=all&amp;replay=USA+017#race"');
-    expect(html).toContain('>Replay start → USA 017</a>');
-    expect(startReplayLinks(a, replays, idOf('GBR 015'), '')).toBe('');
+  it('the Start tab’s "Replay start →" plays that boat in Around the gun below (a button, not a link to the Race tab)', () => {
+    const html = startReplayLinks(a, replays, idOf('USA 017'));
+    expect(html).toContain('<button type="button" class="replay-link" data-replay="USA 017" aria-controls="lane-snapshots"');
+    expect(html).toContain('>Replay start → USA 017</button>');
+    expect(html).not.toMatch(/href=|#race|[?&]replay=/);
+    expect(startReplayLinks(a, replays, idOf('GBR 015'))).toBe('');
+    // None selected: one per over-early boat.
+    expect(startReplayLinks(a, replays, null).match(/class="replay-link"/g)).toHaveLength(2);
+    // The track map's own replay and its deep links are unchanged.
+    expect(replayControls(a, replays, idOf('USA 017'), null)).toContain('data-replay="USA 017"');
+    expect(replayLink('?event=e1&race=5', idOf('USA 017'))).toBe('?event=e1&race=5&t=-30&trail=all&replay=USA+017');
   });
 });
 

@@ -476,22 +476,22 @@ describe('the scrubber map', () => {
     expect(svg).toContain('class="startline"');
   });
 
-  it('draws a dot per boat in the colouring, the selected boat last, bigger and labelled', () => {
+  it('draws a boat (its hull, or a dot: ui/boatShape.ts) per boat in the colouring, the selected boat last, bigger and labelled', () => {
     const w = scrubWindow(a);
     const t = gun + 200_000;
     const id = a.boats[2].id;
     const f = scrubFrame(a, id, null, {}, { t, win: trailWindow(t, '120', w) });
-    expect((f.dots.match(/<circle class="dot/g) ?? []).length).toBe(f.boats.length);
+    expect((f.dots.match(/<(circle|path) class="dot/g) ?? []).length).toBe(f.boats.length);
     const last = f.dots.slice(f.dots.lastIndexOf('<g class="boat-at'));
     expect(last).toContain(`data-id="${id}"`);
-    expect(last).toContain('class="dot on"');
+    expect(last).toMatch(/class="dot( hull)? on"/);
     expect(last).toContain(`>${a.boats[2].sail}</text>`);
     // Leg colour of the leg each boat is on.
     const b = f.boats.find((x) => x.id === id)!;
     expect(last).toContain(`fill="var(--s${b.leg + 1})"`);
     // Boat speed: viridis, day and night.
     const sog = scrubFrame(a, null, null, { colour: 'sog' }, { t, win: trailWindow(t, '120', w) });
-    expect(sog.dots).toMatch(/<circle class="dot"[^>]* fill="#[0-9a-f]{6}" style="--cd:#[0-9a-f]{6}"/);
+    expect(sog.dots).toMatch(/<(circle|path) class="dot( hull)?"[^>]* fill="#[0-9a-f]{6}" style="--cd:#[0-9a-f]{6}"/);
     // Rank: plasma (or grey when unranked there).
     expect(scrubFrame(a, null, null, { colour: 'rank' }, { t, win: trailWindow(t, '120', w) }).dots).toMatch(/fill="(#[0-9a-f]{6}|rgb\([^)]+\)|var\(--ink-3\))"/);
   });

@@ -145,7 +145,7 @@ import { boatLabel, esc, f1, gunTimeLine, legCount } from './format';
 import { dismissHint, hintStore, showHint } from './hints';
 import { renderKeepOpen, renderKeyLine } from './info';
 import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
-import { mountLaneSnapshots } from './laneSnapshotsView';
+import { laneCueSecond, mountLaneSnapshots } from './laneSnapshotsView';
 import { attachTopScroll } from './hscroll';
 import { attachPanZoom } from './panzoom';
 import { PLACE_TIP_MOUSE_REACH, PLACE_TIP_TOUCH_REACH, nearestPlaceDot, placesChart, placesKey } from './places';
@@ -1228,7 +1228,7 @@ export function startApp(): void {
     const map = a ? replayControls(a, list, highlight, replayOn?.boat ?? null) : '';
     els.mapReplay.innerHTML = map;
     els.mapReplay.hidden = !map;
-    const start = a ? startReplayLinks(a, list, highlight, location.search) : '';
+    const start = a ? startReplayLinks(a, list, highlight) : '';
     els.startReplay.innerHTML = start;
     els.startReplay.hidden = !start;
   }
@@ -1346,16 +1346,25 @@ export function startApp(): void {
     openReplay(r);
     els.map.focus({ preventScroll: true });
   });
-  // The Start tab's "Replay start →": a real link (it opens in a new tab as a deep link); here, the Race tab and the replay.
+  // The Start tab's "Replay start →": the boat selected and its start played in "Around the gun" just below (the
+  // slider cued a few seconds before it went over: laneCueSecond), paused there with reduced motion; the track
+  // map's replay (#map-replay, `replay=` links) is untouched.
   els.startReplay.addEventListener('click', (ev) => {
-    const me = ev as MouseEvent;
-    if (me.button !== 0 || me.ctrlKey || me.metaKey || me.shiftKey || me.altKey) return;
-    const id = (ev.target as Element).closest('a[data-replay]')?.getAttribute('data-replay');
+    const id = (ev.target as Element).closest('[data-replay]')?.getAttribute('data-replay');
     const r = id != null && replays?.a === analysis ? replays.list.find((x) => x.boat === id) : undefined;
     if (!r) return;
     ev.preventDefault();
-    setTab('race');
-    openReplay(r);
+    if (highlight !== r.boat) {
+      highlight = r.boat;
+      syncCoachBoat(r.boat);
+      render();
+      save();
+    }
+    const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const section = $<HTMLDetailsElement>('lane-snapshots');
+    lanes.cue(laneCueSecond(r), !still);
+    section.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' });
+    section.querySelector<HTMLElement>('.lane-play')?.focus({ preventScroll: true });
   });
 
   /** Draw this moment's trails and boats into the static map's layers. */

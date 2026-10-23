@@ -1,38 +1,45 @@
 /**
- * The Start tab's "After the gun" view: the fleet at any second from the gun to gun +3:00 (a time slider), each
- * boat a dot with its trail back to LANE_TRAIL_FROM_S (gun −30 s), so a coach can see how each boat came off the
- * line and whether it held its lane. Pure: per-second frames → boats, trails, the selected boat's place to
- * windward; ui/laneSnapshotsView.ts draws them. Kept apart from the start chart.
+ * The Start tab's "Around the gun" view: the fleet at any second from gun −1:30 to gun +3:00 (a time slider), each
+ * boat the start chart's hull pointing along its course (or a dot: ui/boatShape.ts) with its trail back to
+ * LANE_TRAIL_FROM_S (the slider's start), so a coach can see how each boat set up, came off the line and whether it
+ * held its lane. Pure: per-second frames → boats, trails, the selected boat's place to windward;
+ * ui/laneSnapshotsView.ts draws them. Kept apart from the start chart.
  *
- * Everything is worked out once per race and selection (laneScrub): each boat's position on the 1 s grid
- * 0 … LANE_END_S and its trail points up to LANE_END_S; a frame (frame(s)) only slices those.
+ * Everything is worked out once per race and selection (laneScrub): each boat's position and course on the 1 s
+ * grid LANE_START_S … LANE_END_S and its trail points up to LANE_END_S; a frame (frame(s)) only slices those.
  *
  * Positions are the scrubber's (mapPieces.ts boatAt): linear between fixes, held hollow for MAP_HOLD_S inside
- * a gap, else none (the boat is missing at that second, never placed). Trails come from the same drawn tracks
+ * a gap, else none (the boat is missing at that second, never placed); its course is the scrubber's too (the step
+ * it is on), none while held or between fixes too close. Trails come from the same drawn tracks
  * (the pre-gun track and the legs), broken wherever consecutive fixes are a gap apart (mapPoints.ts's rule).
  *
  * The view is wind-up (the analysis's wind at the gun, as the start chart) and fixed for the whole slider: fitted
- * once to everything drawn at any second up to the 3-minute point (laneView), so it never rescales while
- * scrubbing; a true-wind badge points downwind, and places are by distance made to windward along the wind. With
- * no wind estimate the view is north up and the wind is assumed square to the line, from the course side. "Over"
- * (a ring on the map only): a boat over early (StartReplay, the worker's startCross facts, as Map C) is over at a
- * second until its clearing (clearedMs; never cleared: still over); from then on it is "cleared", with when.
+ * once to everything drawn at any second of it (laneView), so it never rescales while scrubbing (zooming is the
+ * reader's alone); a true-wind badge points downwind, and places are by distance made to windward along the wind. With
+ * no wind estimate the view is north up and the wind is assumed square to the line, from the course side. "Over":
+ * a boat over early (StartReplay, the worker's startCross facts, as Map C) is over at a second until its clearing
+ * (clearedMs; never cleared: still over); from then on it is "cleared", with when. Its track is drawn as the track
+ * map's replay draws it (ui/ocsStyle.ts: the stretch over the line, the dip back, where it went back and cleared).
  */
 import { dot, len, sub, type Vec } from '../analysis/geo';
 import { windSource } from '../analysis/line';
 import type { StartReplay } from '../analysis/startReplay';
 import type { RaceAnalysis } from '../analysis/types';
+import type { ClassDims } from '../data/classes';
+import { startClass } from './charts';
 import { degLabel } from './format';
 import { boatAt, legRanges, lowerBound, rotator, rotTrack, timeRange, type LegRange } from './mapPieces';
 import { drawingGapMs } from './mapPoints';
+import { ocsStretch, type OcsStretch } from './ocsStyle';
 import { gunRel } from './scrub';
 import type { Box } from './view';
 
-/** The slider's end, s from the gun (it starts at the gun), in steps of LANE_STEP_S. */
+/** The slider's start and end, s from the gun (−1:30 … +3:00), in steps of LANE_STEP_S. */
+export const LANE_START_S = -90;
 export const LANE_END_S = 180;
 export const LANE_STEP_S = 1;
-/** Every frame's trail starts here, s from the gun (or where the data does). */
-export const LANE_TRAIL_FROM_S = -30;
+/** Every frame's trail starts here, s from the gun (or where the data does): the slider's start. */
+export const LANE_TRAIL_FROM_S = LANE_START_S;
 /**
  * The outlier guard (it only ever leaves points out, never pads): points further than max(LANE_GUARD_LINES × the
  * line, LANE_GUARD_MIN_M) from the line's middle don't count toward the view, nor do boats away from the line.
@@ -74,6 +81,10 @@ export interface LaneBoat {
   pos: Vec | null;
   /** In a gap, held at the fix before it (drawn hollow). */
   hold: boolean;
+  /** Its course over ground at the frame's time, unit, map coordinates (the scrubber's); null: none (held, not moving, snapped). */
+  dir: Vec | null;
+  /** SOG at the frame's time, kn (NaN: unknown). */
+  sog: number;
   /** The boat has a track (any fix) in the race; false: never tracked. */
   tracked: boolean;
   /** The trail from LANE_TRAIL_FROM_S to the frame, map coordinates, one polyline per stretch without a gap. */
@@ -83,6 +94,8 @@ export interface LaneBoat {
   over: LaneOver;
   /** The clearing time (ms) when `over` is 'cleared'. */
   clearedMs: number | null;
+  /** Over early: its track over the line and back up to the frame, within the trail (ui/ocsStyle.ts); null otherwise. */
+  ocs: OcsStretch | null;
   /** Distance made to windward from the line's middle, along the (true or assumed) wind axis, m. */
   windwardM: number | null;
   /** 1 = furthest to windward by `windwardM`, of the boats placed at this second (approximate). */
@@ -121,16 +134,19 @@ export interface LaneWind {
 }
 
 export interface LaneScrub {
-  /** The slider's end, s from the gun (LANE_END_S). */
+  /** The slider's start and end, s from the gun (LANE_START_S, LANE_END_S). */
+  start: number;
   end: number;
-  /** The fleet at gun + `s` (to the whole second, clamped to 0 … end), sliced from the precomputed grid. */
+  /** The fleet at gun + `s` (to the whole second, clamped to start … end), sliced from the precomputed grid. */
   frame: (s: number) => LaneFrame;
   /** The start line's pin and RC ends, map coordinates. */
   line: [Vec, Vec];
   /** The true wind (null: no wind estimate and no line to assume it from). */
   wind: LaneWind | null;
-  /** The view, map coordinates: fixed for the whole slider (the 3-minute extent). */
+  /** The view's fit box (zoom 1, the default), map coordinates: fixed for the whole slider (the extent over all of it). */
   view: Box;
+  /** The class's hull dimensions for the boat shapes (null: unknown class: dots). */
+  dims: ClassDims | null;
   /** Some boat was over early (the key's legend for the rings). */
   anyOver: boolean;
   /** Wind at the top (else north-up). */
@@ -262,7 +278,7 @@ function frameCaption(f: Omit<LaneFrame, 'caption' | 'label'>, me: string | null
 
 /**
  * The view: the tight box around the line's ends and every point drawn at any second of the slider (positions and
- * trails from gun −0:30 to the 3-minute point), padded LANE_PAD each side (at least LANE_PAD_M). Points beyond `guard` from the line's middle
+ * trails from gun −1:30 to +3:00), padded LANE_PAD each side (at least LANE_PAD_M). Points beyond `guard` from the line's middle
  * are left out (a stray boat can't blow the view up); nothing else is added (the wind badge sits outside the map).
  */
 export function laneView(line: [Vec, Vec], pts: readonly Vec[], guard: number): Box {
@@ -282,25 +298,28 @@ export function laneView(line: [Vec, Vec], pts: readonly Vec[], guard: number): 
   return { x0: box.x0 - px, y0: box.y0 - py, x1: box.x1 + px, y1: box.y1 + py };
 }
 
-/** A boat's place at one second of the grid: map and east/north coordinates; `ends`: its trail ends here (the scrubber's own position, not held or snapped). */
+/** A boat's place at one second of the grid: map and east/north coordinates, course and SOG; `ends`: its trail ends here (the scrubber's own position, not held or snapped). */
 interface GridPos {
   pos: Vec;
   en: Vec;
   hold: boolean;
   ends: boolean;
+  dir: Vec | null;
+  sog: number;
 }
 
-/** `s` (s from the gun) as a second of the slider: rounded to the step, clamped to 0 … `end`. */
-export const laneSecond = (s: number, end = LANE_END_S): number =>
-  Number.isFinite(s) ? Math.max(0, Math.min(end, Math.round(s / LANE_STEP_S) * LANE_STEP_S)) : 0;
+/** `s` (s from the gun) as a second of the slider: rounded to the step, clamped to `start` … `end` (not a number: the gun). */
+export const laneSecond = (s: number, end = LANE_END_S, start = LANE_START_S): number =>
+  Math.max(start, Math.min(end, Number.isFinite(s) ? Math.round(s / LANE_STEP_S) * LANE_STEP_S : 0)) + 0;
 
 /**
- * The "after the gun" view of race `a` for the selected boat and its group: every boat's position on the 1 s grid
- * 0 … LANE_END_S and its trail points from gun −30 s to the end, worked out once, and the view fitted once to all
+ * The "around the gun" view of race `a` for the selected boat and its group: every boat's position and course on
+ * the 1 s grid LANE_START_S … LANE_END_S and its trail points from the slider's start to its end, worked out once, and the view fitted once to all
  * of them and the line; frame(s) slices them for second `s` (memoised), so scrubbing does no new work.
  */
 export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
   const gun = a.meta.gunMs;
+  const start = LANE_START_S;
   const end = LANE_END_S;
   const windUp = Number.isFinite(a.wind.twdAtGunDeg);
   const twd = windUp ? a.wind.twdAtGunDeg : 0;
@@ -324,15 +343,16 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
     const grid: (GridPos | null)[] = [];
     let pts: TrailPt[] = [];
     let gapMs = Infinity;
+    let ranges: LegRange[] = [];
     if (d) {
-      const ranges = legRanges(d, true);
+      ranges = legRanges(d, true);
       gapMs = drawingGapMs(d);
-      for (let s = 0; s <= end; s += LANE_STEP_S) {
+      for (let s = start; s <= end; s += LANE_STEP_S) {
         const t = gun + s * 1000;
         const at = placeAt(b.id, ranges, t, gapMs, twd);
-        // The trail ends at the boat only where the scrubber itself places it (not held, not snapped to an end fix).
-        const ends = !!at && !at.hold && boatAt(b.id, ranges, t, gapMs, twd) != null;
-        grid.push(at ? { pos: [at.mx, at.my], en: [at.x, at.y], hold: at.hold, ends } : null);
+        // The trail ends at the boat only where the scrubber itself places it (not held, not snapped to an end fix); so does its course.
+        const own = at && !at.hold ? boatAt(b.id, ranges, t, gapMs, twd) : null;
+        grid.push(at ? { pos: [at.mx, at.my], en: [at.x, at.y], hold: at.hold, ends: own != null, dir: own?.dir ?? null, sog: own ? own.sog : NaN } : null);
       }
       pts = trailPts(d, twd, from, gun + end * 1000);
     }
@@ -341,7 +361,7 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
       for (const g of grid) if (g) allPts.push(g.pos);
       for (const q of pts) allPts.push(q.p);
     }
-    return { b, grid, pts, gapMs };
+    return { b, grid, pts, gapMs, ranges };
   });
   const line: [Vec, Vec] = [rot(left), rot(right)];
   // Downwind in map coordinates: the upwind axis turned as the view is, reversed (straight down when wind-up).
@@ -352,8 +372,8 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
 
   const build = (s: number): LaneFrame => {
     const t = gun + s * 1000;
-    const boats: LaneBoat[] = pre.map(({ b, grid, pts, gapMs }) => {
-      const g = grid[s / LANE_STEP_S] ?? null;
+    const boats: LaneBoat[] = pre.map(({ b, grid, pts, gapMs, ranges }) => {
+      const g = grid[(s - start) / LANE_STEP_S] ?? null;
       // Its trail points up to t, then its position at t (as laneTrail), broken at gaps.
       let n = 0;
       while (n < pts.length && pts[n].t <= t) n++;
@@ -370,11 +390,15 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
         sail: b.sail,
         pos: g ? g.pos : null,
         hold: !!g?.hold,
+        dir: g?.dir ?? null,
+        sog: g ? g.sog : NaN,
         tracked: tracked.has(b.id),
         trail: breakAtGaps(upTo, gapMs),
         role: b.id === o.me ? 'me' : group.has(b.id) ? 'group' : 'other',
         over,
         clearedMs: over === 'cleared' ? r!.clearedMs : null,
+        // Its track over the line and back, as far as the frame and within the trail: the track map's replay styling.
+        ocs: r && over ? ocsStretch(r, ranges, gapMs, twd, t, [from, t]) : null,
         windwardM: g && up ? dot(sub(g.en, mid), up) : null,
         rank: null,
       };
@@ -392,7 +416,7 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
   };
   const memo = new Map<number, LaneFrame>();
   const frame = (s: number): LaneFrame => {
-    const k = laneSecond(s, end);
+    const k = laneSecond(s, end, start);
     let f = memo.get(k);
     if (!f) memo.set(k, (f = build(k)));
     return f;
@@ -402,5 +426,5 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
     const r = repOf.get(b.id);
     return !!r && (r.clearedMs == null || r.clearedMs > from);
   });
-  return { end, frame, line, wind, view, windUp, note: words.note, me: o.me, anyOver };
+  return { start, end, frame, line, wind, view, dims: startClass(a)?.dims ?? null, windUp, note: words.note, me: o.me, anyOver };
 }
