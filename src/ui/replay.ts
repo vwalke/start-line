@@ -174,12 +174,17 @@ export function replayControls(a: Pick<RaceAnalysis, 'boats'>, replays: readonly
   return `<span class="replay-lbl">Replay start:</span> ${offer.map((r) => btn(r, sailOf(a, r.boat))).join('<span class="sep" aria-hidden="true"> · </span>')}`;
 }
 
-/** The Start tab's way to it: "Replay start → USA 017" links (deep links to the Race tab) for the boats offered; '' with none. */
-export function startReplayLinks(a: Pick<RaceAnalysis, 'boats'>, replays: readonly StartReplay[], highlight: string | null, search: string): string {
+/**
+ * The Start tab's "Replay start → USA 017" buttons for the boats offered ('' with none): each plays that boat's start
+ * in the "Around the gun" view just below (ui/laneSnapshotsView.ts), the boat selected; the track map's own replay
+ * stays on the Race tab ("Replay start" there, and `replay=` deep links).
+ */
+export function startReplayLinks(a: Pick<RaceAnalysis, 'boats'>, replays: readonly StartReplay[], highlight: string | null): string {
   const offer = replayOffer(replays, highlight);
   if (!offer.length) return '';
   const links = offer.map(
-    (r) => `<a class="replay-link" href="${esc(`${replayLink(search, r.boat)}#race`)}" data-replay="${esc(r.boat)}">Replay start → ${esc(sailOf(a, r.boat))}</a>`,
+    (r) =>
+      `<button type="button" class="replay-link" data-replay="${esc(r.boat)}" aria-controls="lane-snapshots" title="${esc(`${replayTitle(r, sailOf(a, r.boat))}, around the gun below`)}">Replay start → ${esc(sailOf(a, r.boat))}</button>`,
   );
   return `<span class="replay-lbl">Over early:</span> ${links.join('<span class="sep" aria-hidden="true"> · </span>')}`;
 }

@@ -5,14 +5,15 @@
  * direct sail-number labels.
  */
 import { primaryDtlM } from '../analysis/findings';
-import { add, bearingVec, scale, type Vec } from '../analysis/geo';
+import type { Vec } from '../analysis/geo';
 import { awayFromLineThresholdM, lineBias } from '../analysis/line';
 import { PRE_LEG, type BoatDrawing, type BoatResult, type ExcludedBoat, type RaceAnalysis, type TrackSegment } from '../analysis/types';
 import { matchClass, type ClassDims } from '../data/classes';
+import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatShapeOr, hullOutline, hullPathAt, hullPathD } from './boatShape';
 import { esc, f1, f2 } from './format';
 import { placeLabels, textWidth, type LabelReq, type Rect, type StartNames } from './labels';
 import { MAP_GAP_S, drawingGapMs, mapPoints, mapPointsOf, type MapPoints } from './mapPoints';
-import { drawingPieces, rotTrack, rotator, legRanges, boatAt, timeRange, type BoatAt, type FullRateSet, type MapPiece, type PieceOptions } from './mapPieces';
+import { drawingPieces, rotTrack, rotator, legRanges, boatAt, type BoatAt, type FullRateSet, type MapPiece, type PieceOptions } from './mapPieces';
 import {
   addSogTrack,
   emptySogPaths,
@@ -31,7 +32,8 @@ import {
 } from './sog';
 import { casedByDay, speedColor, speedRanking, speedStyle, type RankBy, type SogScale, type SpeedTop, type TrackColour } from './speed';
 import { FAV_GAP_PX, favouredTexts, lineBiasSvg } from './startLine';
-import { replayLabel, replaySpans } from './replay';
+import { ocsStretch, ocsSvg } from './ocsStyle';
+import { replayLabel } from './replay';
 import type { StartReplay } from '../analysis/startReplay';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
 
@@ -49,7 +51,7 @@ export function pickedExcluded(a: RaceAnalysis, highlight: string | null): Exclu
 }
 export const legColor = (i: number): string => `var(--s${(i % SLOTS) + 1})`;
 
-export { rotator };
+export { rotator, hullOutline, hullPathD };
 
 function grow(b: Box, p: Vec): void {
   b.x0 = Math.min(b.x0, p[0]);
@@ -83,68 +85,8 @@ function windArrow(box: Box, unit: number, k: number, label: string): string {
     <text x="${x - 6 * unit}" y="${y + 3 * unit}" font-size="${11 * k}" text-anchor="end">${esc(label)}</text></g>`;
 }
 
-/**
- * Stylized hull in hull coordinates: x across (±0.5 beam), y aft (bow 0,
- * transom 1). Pointed bow, fullest aft of midships, flat transom. Bow first.
- * Control points for a Catmull-Rom along each side; the transom stays straight.
- */
-const HULL: Vec[] = [
-  [0, 0],
-  [0.12, 0.06],
-  [0.24, 0.15],
-  [0.36, 0.28],
-  [0.45, 0.45],
-  [0.5, 0.65],
-  [0.49, 0.85],
-  [0.46, 1],
-  [-0.46, 1],
-  [-0.49, 0.85],
-  [-0.5, 0.65],
-  [-0.45, 0.45],
-  [-0.36, 0.28],
-  [-0.24, 0.15],
-  [-0.12, 0.06],
-];
-
-const fmt = (p: Vec): string => `${p[0].toFixed(2)},${p[1].toFixed(2)}`;
-
-/** Open Catmull-Rom as SVG cubics from pts[0] (already the current point) through pts[n-1]. */
-function crCubics(pts: Vec[]): string {
-  if (pts.length < 2) return '';
-  let d = '';
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[Math.max(0, i - 1)];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[Math.min(pts.length - 1, i + 2)];
-    d += `C${fmt([p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6])} ${fmt([
-      p2[0] - (p3[0] - p1[0]) / 6,
-      p2[1] - (p3[1] - p1[1]) / 6,
-    ])} ${fmt(p2)}`;
-  }
-  return d;
-}
-
-/**
- * Smooth closed hull path: cubic spline along each side, straight transom.
- * `pts` is `hullOutline` order (bow, starboard, transom corners, port).
- */
-export function hullPathD(pts: Vec[]): string {
-  const t = pts.length >> 1;
-  const stbd = pts.slice(0, t + 1);
-  const port = [...pts.slice(t + 1), pts[0]];
-  return `M${fmt(pts[0])}${crCubics(stbd)}L${fmt(pts[t + 1])}${crCubics(port)}Z`;
-}
-
 /** Hulls shorter than this on screen are drawn as the fixed-size marker instead. */
 const MIN_HULL_PX = 6;
-
-/** Hull outline in local metres: bow tip on `bow`, extending aft along `headingDeg`. */
-export function hullOutline(bow: Vec, headingDeg: number, dims: ClassDims): Vec[] {
-  const fwd = bearingVec(headingDeg);
-  const stbd = bearingVec(headingDeg + 90);
-  return HULL.map(([x, y]) => add(bow, add(scale(fwd, -y * dims.loaM), scale(stbd, x * dims.beamM))));
-}
 
 /**
  * The start chart's Fit box: the line, bows and nearby trails, padded, with room for the
@@ -1075,9 +1017,10 @@ function dotColour(a: RaceAnalysis, b: BoatAt, leg: number | null, opts: TrackMa
 }
 
 /**
- * The boats at the scrubber's time as dots: coloured as the map is (the leg the boat is on, its rank there,
- * or its SOG), a short tick along its course; hollow while holding in a gap;
- * the selected boat bigger, on top and labelled (every boat labelled in a small fleet); boats off a leg shown, faint.
+ * The boats at the scrubber's time: coloured as the map is (the leg the boat is on, its rank there, or its SOG),
+ * each the start chart's hull (ui/boatShape.ts: to scale or a fixed-size symbol, along its course over ground) where it can be,
+ * else a dot with a short tick along its course; a dot, hollow, while holding in a gap; the selected boat bigger,
+ * on top and labelled (every boat labelled in a small fleet); boats off a leg shown, faint.
  */
 function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, opts: TrackMapOptions, boats: readonly BoatAt[], sc: MapScale): string {
   const { unit, k } = sc;
@@ -1087,6 +1030,7 @@ function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, 
   if (nc) byId.set(nc.result.id, nc.result);
   const labelAll = a.boats.length <= DOT_LABEL_MAX;
   const vs = new Set(opts.vs ?? []);
+  const dims = startDims(a);
   const out: string[] = [];
   const vsOut: string[] = [];
   let sel = '';
@@ -1095,15 +1039,20 @@ function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, 
     const cmp = !on && vs.has(b.id);
     const { c, cd } = dotColour(a, b, leg, opts, speed, highlight);
     const style = cd ? ` style="--cd:${cd}"` : '';
-    const r = (on ? 6 : 4.2) * unit;
-    const cls = ['dot', b.hold ? 'hold' : '', on ? 'on' : cmp ? 'vs' : highlight ? 'dim' : '', leg != null && b.leg !== leg ? 'off' : ''].filter(Boolean).join(' ');
+    const shape = boatShapeOr({ dir: b.dir, hold: b.hold, sog: b.sog, dims, pxPerM: 1 / unit, minPx: on ? BOAT_SHAPE_ON_PX : BOAT_SHAPE_PX });
+    // A hull's half-length, or the dot's radius: what the label and the comparison ring keep clear of.
+    const r = 'shape' in shape ? Math.max(shape.dims.loaM / 2, (on ? 6 : 4.2) * unit) : (on ? 6 : 4.2) * unit;
+    const cls = ['dot', 'shape' in shape ? 'hull' : '', b.hold ? 'hold' : '', on ? 'on' : cmp ? 'vs' : highlight ? 'dim' : '', leg != null && b.leg !== leg ? 'off' : ''].filter(Boolean).join(' ');
     const [x, y] = [b.mx.toFixed(1), b.my.toFixed(1)];
     const tick =
-      b.dir && !b.hold
+      'dot' in shape && b.dir && !b.hold
         ? `<line class="dot-hdg" x1="${x}" y1="${y}" x2="${(b.mx + b.dir[0] * (r + 6 * unit)).toFixed(1)}" y2="${(b.my + b.dir[1] * (r + 6 * unit)).toFixed(1)}" stroke-width="${((on ? 2 : 1.4) * k).toFixed(2)}"/>`
         : '';
     const fill = b.hold ? `fill="var(--surface)" stroke="${c}"${style}` : `fill="${c}"${style}`;
-    const ring = `<circle class="${cls}" data-id="${esc(b.id)}" cx="${x}" cy="${y}" r="${r.toFixed(2)}" ${fill} stroke-width="${((on ? 1.8 : 1) * k).toFixed(2)}"/>`;
+    const ring =
+      'shape' in shape
+        ? `<path class="${cls}" data-id="${esc(b.id)}" d="${hullPathAt([b.mx, b.my], shape.shape, shape.dims)}" ${fill} stroke-width="${((on ? 1.4 : 0.8) * k).toFixed(2)}"/>`
+        : `<circle class="${cls}" data-id="${esc(b.id)}" cx="${x}" cy="${y}" r="${r.toFixed(2)}" ${fill} stroke-width="${((on ? 1.8 : 1) * k).toFixed(2)}"/>`;
     const vsRing = cmp ? `<circle class="dot-vs" cx="${x}" cy="${y}" r="${(r + 2.6 * unit).toFixed(2)}" stroke-width="${(1.6 * k).toFixed(2)}"/>` : '';
     const who = byId.get(b.id);
     const text =
@@ -1159,48 +1108,8 @@ function replaySvg(a: RaceAnalysis, r: StartReplay, s: ScrubAt, sc: MapScale): {
   const twd = a.wind.twdAtGunDeg;
   const d = a.drawings.find((x) => x.id === r.boat);
   if (!d) return { tracks: '', marks: '', label: '' };
-  const ranges = legRanges(d, true, s.full?.get(d.id));
-  const gapMs = drawingGapMs(d);
-  const at = (t: number): Vec | null => {
-    const b = boatAt(d.id, ranges, t, gapMs, twd);
-    return b && !b.hold ? [b.mx, b.my] : null;
-  };
-  const sw = (width: number): string => `stroke-width="${(width * k).toFixed(2)}"`;
-  /** The drawn track over [from, to] ∩ the trail up to now: its ends cut at those times, broken at gaps. */
-  const stretch = (span: [number, number] | null): Vec[][] => {
-    if (!span) return [];
-    const from = Math.max(span[0], s.win[0]);
-    const to = Math.min(span[1], s.t, s.win[1]);
-    if (!(to > from)) return [];
-    const x: number[] = [];
-    const y: number[] = [];
-    const t: number[] = [];
-    const push = (p: Vec | null, tt: number): void => {
-      if (!p || (t.length && tt <= t[t.length - 1])) return;
-      x.push(p[0]);
-      y.push(p[1]);
-      t.push(tt);
-    };
-    push(at(from), from);
-    for (const g of ranges) {
-      const rot = rotTrack(twd, g.src);
-      const [i0, i1] = timeRange(g.src.t, from, to, g.lo, g.hi);
-      for (let i = i0; i < i1; i++) if (g.src.t[i] > from && g.src.t[i] < to) push([rot.x[i], rot.y[i]], g.src.t[i]);
-    }
-    push(at(to), to);
-    return segRuns(x, y, t, gapMs).runs;
-  };
-  const { over, dip } = replaySpans(r);
-  let tracks = '';
-  for (const run of stretch(over)) tracks += `<polyline class="ocs-case" points="${pts(run)}" ${sw(5.4)}/><polyline class="ocs-over" points="${pts(run)}" ${sw(3.2)}/>`;
-  const dash = `stroke-dasharray="${(5 * k).toFixed(2)} ${(3.5 * k).toFixed(2)}"`;
-  for (const run of stretch(dip)) tracks += `<polyline class="ocs-case" points="${pts(run)}" ${sw(4.6)}/><polyline class="ocs-dip" points="${pts(run)}" ${sw(2.4)} ${dash}/>`;
-  const mark = (cls: string, tMs: number | null): string => {
-    if (tMs == null || tMs > s.t || tMs < s.win[0]) return '';
-    const p = at(tMs);
-    return p ? `<circle class="ocs-mark ${cls}" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${(4.2 * unit).toFixed(2)}" ${sw(1.8)}/>` : '';
-  };
-  const marks = mark('back', r.wentBackMs) + mark('clear', r.clearedMs);
+  // Drawn as the Start tab's "Around the gun" view draws it (ui/ocsStyle.ts), from the source the map draws.
+  const { tracks, marks } = ocsSvg(ocsStretch(r, legRanges(d, true, s.full?.get(d.id)), drawingGapMs(d), twd, s.t, s.win), { unit });
   // The label: off the line's middle on the pre-start side (away from the first mark), inside the view.
   const rot = rotator(twd);
   const L = rot(a.line.left);
