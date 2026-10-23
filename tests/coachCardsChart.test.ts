@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { rivalLadder, type CoachModel } from '../src/analysis/coach';
 import { D9_SHIFT_SECONDS } from '../src/analysis/coach/detectors/rounding';
 import { groupIds } from '../src/analysis/coach/groups';
-import { GAP_STEP_MS, gapCourse, groupGap, timeGapSeries } from '../src/analysis/coach/timeGap';
+import { GAP_STEP_MS, gapCourse, groupGap, progressTrack, timeAtProgress, timeGapSeries, zoneExitMs } from '../src/analysis/coach/timeGap';
+import { legLengths } from '../src/analysis/coach/ladder';
 import { COACH_MAX_SPAN_S } from '../src/analysis/coach/tracks';
-import type { GapReading, GoodNote, Opportunity } from '../src/analysis/coach/opportunity';
+import { confidenceOf, minSeconds, type GapReading, type GoodNote, type Opportunity } from '../src/analysis/coach/opportunity';
 import { median } from '../src/analysis/geo';
 import type { RaceAnalysis } from '../src/analysis/types';
 import { cardText } from '../src/ui/coachCards';
-import { cascaisRace, coachRace, debriefOf, gateRace, j105Race, type CoachRace } from './helpers';
+import { cascaisR3Native, cascaisRace, coachRace, debriefOf, gateRace, j105Race, type CoachRace } from './helpers';
 
 /**
  * The cards read the chart's gap (timeGap.ts groupGap: time at equal course progress, the same points), so a card can
@@ -89,6 +90,15 @@ function checkRace(r: CoachRace, boats = r.a.boats.map((b) => b.id)): { readings
       if (o.kind === 'D1') expect(o.facts.d3S as number).toBeCloseTo(Math.max(0, o.gaps![0].g1 - o.gaps![0].g0), 9);
       else expect(o.seconds).toBeCloseTo(secondsOf(o), 9);
       if (o.kind === 'D5') expect([o.facts.gPeak, o.facts.gTrough]).toEqual([o.gaps![0].g0, o.gaps![0].g1]);
+      if (o.kind === 'D10') {
+        // The last leg from when the boat left the rounding zone (the rounding is D9's): never inside it.
+        const out = zoneExitMs(r.m, boat, r.a.legs.length - 1);
+        if (out != null) expect(o.t0).toBeGreaterThanOrEqual(out);
+        // Each named boat (a: the most lost to, b: the next) is "from behind" when its own line was below 0 at the window's start.
+        const byLoss = [...o.gaps!].sort((x, y) => y.g1 - y.g0 - (x.g1 - x.g0));
+        expect(o.facts.aFromBehind).toBe(byLoss[0].g0 < 0 ? 1 : 0);
+        expect(o.facts.bFromBehind).toBe(byLoss[1] ? (byLoss[1].g0 < 0 ? 1 : 0) : null);
+      }
       if (o.kind === 'D3') expect(o.facts.gapEnd).toBe(o.gaps![0].g1);
     }
     // A card shows the detector's seconds, less what a higher card already claims of the same minutes (rank.ts).
@@ -192,8 +202,21 @@ describe('Cascais (J/70 Worlds) R3, USA 833: its cards against its chart', () =>
     expect(Math.round(c.facts.da as number)).toBe(53);
     expect(Math.round(c.facts.db as number)).toBe(29);
     expect(c.seconds).toBeCloseTo(median(c.gaps!.map((g) => g.g1 - g.g0)), 9);
-    expect(c.facts.fromBehind).toBe(2);
+    expect([c.facts.aFromBehind, c.facts.bFromBehind]).toEqual([1, 1]);
     expect(cardText(c, r.a.meta.tzOffsetMs).sentence).toBe('TUR 442 gained 53 s and SWE 1121 29 s on you over the last 6 tracked minutes, and finished ahead.');
+  });
+
+  it('the last run (D10) phrases each named boat as it was at the window\'s start: behind and passed, or already ahead', () => {
+    const c = d.cards.find((x) => x.kind === 'D10')!;
+    const say = (aFromBehind: number, bFromBehind: number | null, db = c.facts.db) => cardText({ ...c, facts: { ...c.facts, aFromBehind, bFromBehind, db } }, r.a.meta.tzOffsetMs).sentence;
+    expect(say(1, 1)).toBe('TUR 442 gained 53 s and SWE 1121 29 s on you over the last 6 tracked minutes, and finished ahead.');
+    expect(say(0, 0)).toBe('TUR 442 pulled 53 s and SWE 1121 29 s further ahead over the last 6 tracked minutes.');
+    // Mixed: each its own words (a boat already ahead never "gained … and finished ahead"; one that passed never "further ahead").
+    expect(say(1, 0)).toBe('Over the last 6 tracked minutes TUR 442 gained 53 s on you and finished ahead; SWE 1121 pulled 29 s further ahead.');
+    expect(say(0, 1)).toBe('Over the last 6 tracked minutes TUR 442 pulled 53 s further ahead; SWE 1121 gained 29 s on you and finished ahead.');
+    // The second boat not named (under 1 s): the first one's words alone.
+    expect(say(0, 1, 0.4)).toBe('TUR 442 pulled 53 s further ahead over the last 6 tracked minutes.');
+    expect(say(1, 0, 0.4)).toBe('TUR 442 gained 53 s on you over the last 6 tracked minutes, and finished ahead.');
   });
 
   it('at its finish the chart reads TUR 442 and SWE 1121 at their finish margins (1.1 s and 4.2 s), not 17 s and 55 s', () => {
@@ -208,6 +231,83 @@ describe('Cascais (J/70 Worlds) R3, USA 833: its cards against its chart', () =>
     const last = l.points.at(-1)!;
     expect(me.finishMs! - last.tMs).toBeLessThan(GAP_STEP_MS);
     l.group.forEach((id, k) => expect(Math.abs(last.each[k]! - fin(id))).toBeLessThan(1.5));
+  });
+});
+
+describe('the last run (D10) starts where the boat left the rounding zone: the rounding is not read as the run', () => {
+  /** The chart points (`boat`'s thin line against `id`) at the first drawn point at or after `t`. */
+  const thinAt = (r: CoachRace, boat: string, id: string, t: number): number => groupGap(r.m, boat, [id], t).find((p) => p.each[0] != null)!.each[0]!;
+
+  it('J/24 R2 USA 5320: 3 s into its rounding zone the chart read USA 3153 171 s behind, at the zone\'s exit 86 s; the card 138 → 80 s', () => {
+    const r = coachRace(gateRace('j24r2'));
+    const boat = 'USA 5320';
+    const n = r.a.legs.length;
+    const o = debriefOf(r.a, r.m, boat)!.found.find((x) => x.kind === 'D10')!;
+    const out = zoneExitMs(r.m, boat, n - 1)!;
+    const leg = r.m.tracks.get(boat)!.bounds[n - 1]!;
+    // The zone took it 2 min 21 s (the offset mark, the bear-away): inside it the chart is linear in time by construction.
+    expect((out - leg) / 1000).toBeGreaterThan(120);
+    expect(o.t0).toBe(out);
+    const ref = o.gaps!.find((g) => g.boat === 'USA 3153')!;
+    // From the leg's start (the window before): −170.7 s; from the zone's exit: −86.2 s. 84 s of it was the rounding.
+    expect(thinAt(r, boat, 'USA 3153', leg)).toBeCloseTo(-170.7, 1);
+    expect(ref.g0).toBeCloseTo(-86.2, 1);
+    expect(o.seconds).toBeCloseTo(79.7, 1);
+  }, 60_000);
+
+  describe('the full feed\'s Cascais R3 USA 833 (cascaisR3Native: USA 833, TUR 442 and SWE 1121 at their native rate)', () => {
+    const r = coachRace(cascaisR3Native());
+    const [me, tur, swe] = ['USA 833', 'TUR 442', 'SWE 1121'].map((s) => r.a.boats.find((b) => b.sail === s)!);
+    const n = r.a.legs.length;
+    const d = debriefOf(r.a, r.m, me.id)!;
+    const c = d.cards.find((x) => x.kind === 'D10')!;
+
+    it('the card reads the chart from USA 833\'s zone exit to its finish: TUR 442 81 s, SWE 1121 60 s (median 70.7 s)', () => {
+      expect(c.t0).toBe(zoneExitMs(r.m, me.id, n - 1));
+      for (const g of c.gaps!) {
+        const l = rivalLadder(r.m, r.a, me.id, { kind: 'custom', ids: g.ids })!;
+        const at = (t: number) => l.points.find((p) => p.tMs === t)!.each[l.group.indexOf(g.boat!)]!;
+        expect([at(g.t0), at(g.t1)]).toEqual([g.g0, g.g1]);
+      }
+      const [s, t] = [c.gaps!.find((g) => g.boat === swe.id)!, c.gaps!.find((g) => g.boat === tur.id)!];
+      expect(t.g0).toBeCloseTo(-79.3, 1);
+      expect(s.g0).toBeCloseTo(-54.7, 1);
+      expect(t.g1).toBeCloseTo(1.6, 1);
+      expect(s.g1).toBeCloseTo(5.8, 1);
+      expect(c.seconds).toBeCloseTo(70.7, 1);
+      expect(cardText(c, r.a.meta.tzOffsetMs).sentence).toBe('TUR 442 gained 81 s and SWE 1121 60 s on you over the last 15 tracked minutes, and finished ahead.');
+    });
+
+    it('~70 s is the loss on the run, not ~55 s: at equal progress they were 69 s and 62 s behind at the mark, 70 s and 69 s 300 m down the run', () => {
+      // The leg times say 53 s and 54 s (16:14:42 vs 16:15:35 / 16:15:36), but USA 833's is 14 s after it passed the
+      // windward mark (3 m off at 16:14:28; 55 m on, toward the offset mark, at 16:14:42), the rivals' at the mark, where
+      // TUR 442 turned a circle until 16:15:59. Measured at the same place on the course, well clear of the rounding:
+      const { course, lw } = gapCourse(r.m);
+      const s0 = legLengths(course).slice(0, n - 1).reduce((x, y) => x + y, 0);
+      const behind = (b: typeof me, dM: number): number => {
+        const at = (x: typeof me) => timeAtProgress(progressTrack(course, lw, r.m.tracks.get(x.id)!), s0 + dM, 600)!;
+        return (at(b) - at(me)) / 1000;
+      };
+      expect(behind(tur, 0)).toBeCloseTo(69.0, 0);
+      expect(behind(swe, 0)).toBeCloseTo(62.2, 0);
+      expect(behind(tur, 300)).toBeCloseTo(69.7, 0);
+      expect(behind(swe, 300)).toBeCloseTo(68.9, 0);
+      // They finished 1.1 s and 4.2 s ahead: 71 s and 73 s gained from 300 m down the run.
+      const margin = (b: typeof me) => (me.finishMs! - b.finishMs!) / 1000;
+      expect(behind(tur, 300) + margin(tur)).toBeGreaterThan(65);
+      expect(behind(swe, 300) + margin(swe)).toBeGreaterThan(65);
+      // From the leg's start (inside the zone, the window before) the card read 69.9 s: the rule moves it 0.8 s here.
+    });
+
+    it('the windward rounding (D9) is found, 16.3 s, and is no card: under its minimum at its confidence, before any overlap', () => {
+      const w = d.found.find((x) => x.kind === 'D9' && x.variant === 'windward')!;
+      expect(w.seconds).toBeCloseTo(16.3, 1);
+      const level = confidenceOf(w.conf).level;
+      expect(w.seconds).toBeLessThan(minSeconds('D9', level));
+      expect(d.cards.some((x) => x.kind === 'D9' && x.variant === 'windward')).toBe(false);
+      // The last run no longer starts inside its window's rounding zone: they share 28 s (were 58 s).
+      expect((w.t1 - c.t0) / 1000).toBeCloseTo(28, 0);
+    });
   });
 });
 

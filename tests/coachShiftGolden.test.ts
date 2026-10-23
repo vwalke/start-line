@@ -43,7 +43,7 @@ function chartAt(m: CoachModel, a: RaceAnalysis, g: GapReading): [number | null,
   return [at(g.t0), at(g.t1)];
 }
 
-describe('D4 golden: race 2 Beat 1, the wrong side of a 14° left shift (debrief ≈ 85 s; the chart ≈ 60 s)', () => {
+describe('D4 golden: race 2 Beat 1, the wrong side of a 15° left shift (debrief ≈ 85 s; the chart ≈ 60 s)', () => {
   const { a, model, d } = setup(j105Race(2));
   const o = d.found.find((x) => x.kind === 'D4')!;
   const c = d.cards.find((x) => x.kind === 'D4')!;
@@ -64,12 +64,16 @@ describe('D4 golden: race 2 Beat 1, the wrong side of a 14° left shift (debrief
     expect(o.t1).toBeLessThanOrEqual(edt('12:37:00'));
   });
 
-  it('facts: the wind backed 29° → 15°, Good Trade right, headed far more than Mirage', () => {
+  it('facts: the wind backed 30° → 15°, Good Trade right, headed far more than Mirage', () => {
     // The window now starts at 12:26:01 (was 12:26:55: 33° → 19°): the same shift, read from the chart's first point.
+    // The wind is read at the chart points the seconds read, 12:26:01 and 12:34:51: 29.7° → 15.1° (at the window's own
+    // ends, up to 10 s before each point, the chips said "29° → 15°" and the title a 14° shift).
     expect(o.facts.dir).toBe('left');
     expect(o.facts.side).toBe('right');
     expect(o.facts.otherSide).toBe('left');
-    expect(Math.round(o.facts.twd0 as number)).toBe(29);
+    expect(Math.round(o.facts.twd0 as number)).toBe(30);
+    expect(o.facts.twd0).toBe(model.wind.twdAt(o.t0));
+    expect(o.facts.twd1).toBe(model.wind.twdAt(o.t1));
     expect(o.facts.shift as number).toBeGreaterThanOrEqual(12);
     expect(o.facts.ldr).toBe('Mirage');
     // Debrief: 18 % vs 2 % (over the whole race's upwind time on the full-rate data); the window here.
@@ -79,10 +83,10 @@ describe('D4 golden: race 2 Beat 1, the wrong side of a 14° left shift (debrief
 
   it('renders the §6 template; the card is #2, after the start, and keeps what the start card does not claim', () => {
     const t = cardText(c, a.meta.tzOffsetMs);
-    expect(t.title).toBe('Wrong side of a 14° left shift');
-    expect(t.chips[0]).toBe('wind 29° → 15°');
+    expect(t.title).toBe('Wrong side of a 15° left shift');
+    expect(t.chips[0]).toBe('wind 30° → 15°');
     expect(t.chips[1]).toMatch(/^headed \d+% vs Mirage 0%$/);
-    expect(t.sentence).toMatch(/^You went right while the leaders held left; the wind backed 14°/);
+    expect(t.sentence).toMatch(/^You went right while the leaders held left; the wind backed 15°/);
     expect(t.tip).toContain('on a header more than 30 s, tack');
     expect(windowChip(c, a)).toBe('12:26–12:34');
     // The start card (71 s: the crossing's 47 s + the early lane's 24 s, 12:26–12:31) ranks first now, so D4 gives up the

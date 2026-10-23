@@ -43,11 +43,15 @@ are shared by all three.
     linearly in time by every boat, so roundings neither spike nor break the
     lines. The finish is anchored to the finish times: the last leg is
     measured to the line the finishers crossed (fitted through where they
-    were at their finish times, else the feed's; extended past its ends), and
-    the last `FINISH_IN_M` = 30 m are a zone crossed linearly in time up to
-    each boat's finish time, so at your finish each rival reads the finish
-    times' difference (the feed's line can be off: J/70 Worlds race 3's boats
-    crossed it 14–29 s before their finish times). The group's median is bold, over a fixed set of boats: the bold
+    were at their finish times, within `FINISH_FIT_MAX_TURN_DEG` = 35° of the
+    feed's line and across the last leg, else the feed's; extended past its
+    ends), and the last `FINISH_IN_M` = 30 m are a zone crossed linearly in
+    time up to each boat's finish time, so at your finish each rival reads the
+    finish times' difference (the feed's line can be off: J/70 Worlds race 3's
+    boats crossed it 14–29 s before their finish times). Only the zone is
+    filled in: a track that stops short of it reaches the finish only from a
+    fix at most 15 s before it, at a pace the boat was sailing; else its line
+    ends at its last fix. The group's median is bold, over a fixed set of boats: the bold
     line bridges a rival's tracker gap of up to `GROUP_BRIDGE_S` = 10 min in a
     straight line (progress is monotone; the readout counts those boats as
     estimated: "6 boats, 2 estimated"), so the line doesn't jump when boats
@@ -690,7 +694,9 @@ CAP = high ∞, medium ∞, low 60 s                        (IMPACT_CAP_S; LOW_I
   (`timeGap.ts` `groupGap`: time at equal course progress, every 10 s from the
   gun), with the card's boats as the group: the seconds are the chart's change
   between the two points the card names (`Opportunity.gaps`), never another
-  gap. Where a higher card already holds part of its window (below), the card
+  gap. D4's wind chips are the wind at those two points. D10 (the last leg)
+  starts where the boat left the last rounding's zone: the rounding is D9's,
+  and inside the zone the chart is linear in time. Where a higher card already holds part of its window (below), the card
   shows less than that change. Who passed whom at a mark (D9) and the leg table's places
   stay a same-moment ranking: a place is a moment's order, not a time.
 - **Confidence discounts, and caps.** A medium card counts 0.7 of its seconds,
