@@ -456,12 +456,13 @@ Switching races keeps the tab.
   the map focused, and the same Fit / 2× / 4× / 8× buttons). Fit, the
   default and what Fit and 0 reset to, is fixed for the whole slider (it
   never rescales while scrubbing, and scrubbing or play never change the
-  zoom): the line's ends and every position at every second −90 to 180 s
+  zoom level): the line's ends and every position at every second −90 to 180 s
   and every trail point to +3:00, padded 8% each way (at least 10 m).
   Nothing else is added. The only guard leaves points out (it never pads):
   boats away from the line, and points more than 3× the line's length (at
   least 400 m) from its middle, so one stray boat can't blow the view up.
   With the map zoomed in, its arrow keys pan; at Fit they step the slider.
+  See **Map zoom: centering and follow** for where the buttons zoom to.
   The map keeps that extent's aspect, full width, its height capped on a
   desktop (60vh, 560 px; 70vh on a phone) and centered. Text (sail labels
   13 / 12 px), dots and strokes stay the same size on screen at any map
@@ -521,6 +522,23 @@ Switching races keeps the tab.
   means, sensitivity (±5° of wind ≈ ±N m), label meaning, Names modes,
   gestures, and for the start table each boat's start caveats. Full screen
   shows the same key line.
+- **Map zoom: centering and follow** (the Around the gun map and the track
+  map, through `ui/panzoom.ts` and `ui/view.ts`). The 2× / 4× / 8× buttons
+  and + / − center on the selected boat where it is at the moment shown
+  (the slider's second, or the scrubber's time); with no boat selected, or
+  the selected boat not placed then (a tracker gap), on the middle of the
+  fleet's positions (their bounding box's center); with nobody placed, on
+  the map's center. The track map with no moment (the full race) keeps the
+  view's center. Fit and 0 show the whole default extent. Pinch, double-tap
+  and the wheel zoom toward the fingers or the pointer: Ctrl/⌘ + wheel (a
+  trackpad pinch) always, a plain wheel only once the map has focus (click
+  or tab into it), and never past Fit or 16×, so scrolling the page over a
+  map isn't caught. Zoomed in, scrubbing and play keep the selected boat in
+  frame: the map pans only once the boat leaves the middle 60% of the view,
+  just enough to bring it back to that edge, and never changes the zoom.
+  Moving the map by hand (drag, pinch, wheel, double-tap, arrow keys) stops
+  this until a zoom button, + / −, 0 or Fit is used again; a replay or a
+  Coach card's window framing the track map stops it too.
 - **Zoom hint:** "Pinch to zoom · drag to pan · double-tap to zoom in"
   shows under the start chart on touch devices only (`(pointer: coarse)`),
   until it's dismissed with × or by the first pinch, pan or double-tap; the

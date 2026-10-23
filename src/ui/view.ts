@@ -93,3 +93,79 @@ export function presetActive(box: Box, v: View, preset: number): boolean {
   }
   return Math.abs(v.k - preset) < EPS;
 }
+
+type Pt = readonly [number, number];
+
+/**
+ * What the zoom presets and + / − centre on: the selected boat's position at the moment shown, else the middle
+ * of the fleet's positions then (their bounding box's centre, whether or not it fits at the zoom asked for),
+ * else null (nothing placed: the caller falls back to the map's centre).
+ */
+export function zoomTarget(me: Pt | null | undefined, fleet: readonly Pt[]): [number, number] | null {
+  if (me && Number.isFinite(me[0]) && Number.isFinite(me[1])) return [me[0], me[1]];
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const [x, y] of fleet) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    x0 = Math.min(x0, x);
+    y0 = Math.min(y0, y);
+    x1 = Math.max(x1, x);
+    y1 = Math.max(y1, y);
+  }
+  return x0 <= x1 ? [(x0 + x1) / 2, (y0 + y1) / 2] : null;
+}
+
+/** zoomTarget over a list of boats: `me` (an id) among them, `at` a boat's position (null: not placed now). */
+export function boatsZoomTarget<T extends { id: string }>(boats: readonly T[], me: string | null, at: (b: T) => Pt | null): [number, number] | null {
+  const placed: Pt[] = [];
+  let mine: Pt | null = null;
+  for (const b of boats) {
+    const p = at(b);
+    if (!p) continue;
+    placed.push(p);
+    if (me != null && b.id === me) mine = p;
+  }
+  return zoomTarget(mine, placed);
+}
+
+/** Zoom `k` centred on `target` (null: the box's centre), clamped into the box; k ≤ 1 is Fit. */
+export function zoomPreset(box: Box, k: number, target: Pt | null): View {
+  if (k <= 1) return fitView(box);
+  const [cx, cy] = target ?? [(box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2];
+  return clampView(box, { cx, cy, k });
+}
+
+/** Gentle follow keeps the boat inside this middle part of the view (each way), panning only once it leaves. */
+export const FOLLOW_SAFE = 0.6;
+
+/**
+ * Gentle follow: `v` unchanged (the same object) while `p` is inside the view's central safe area (FOLLOW_SAFE
+ * of its width and height); outside it, panned just enough to bring `p` back to the safe area's edge (no
+ * recentring, so a boat sailing on is tracked smoothly), clamped into the box. The zoom never changes; at Fit
+ * (nothing to pan) it is left as it is.
+ */
+export function followView(box: Box, v: View, p: Pt, safe = FOLLOW_SAFE): View {
+  if (v.k <= 1 || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) return v;
+  const vb = viewBox(box, v);
+  const over = (q: number, c: number, half: number): number => (q > c + half ? q - (c + half) : q < c - half ? q - (c - half) : 0);
+  const dx = over(p[0], v.cx, (vb.w * safe) / 2);
+  const dy = over(p[1], v.cy, (vb.h * safe) / 2);
+  if (Math.abs(dx) <= EPS * vb.w && Math.abs(dy) <= EPS * vb.h) return v;
+  const next = clampView(box, pan(v, dx, dy));
+  // Held at the box's edge: no move to make.
+  return Math.abs(next.cx - v.cx) <= EPS * vb.w && Math.abs(next.cy - v.cy) <= EPS * vb.h ? v : next;
+}
+
+/**
+ * A wheel step's zoom factor: a trackpad pinch (Ctrl + wheel, as browsers send it) by exp(−Δ/100), as fine as
+ * the fingers; a mouse wheel by 2^(−Δ/500), about 1.15× a notch (100 px). Lines and pages are made px first;
+ * one step is at most 2× either way.
+ */
+export function wheelFactor(deltaY: number, deltaMode: number, pinch: boolean): number {
+  const px = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 400 : deltaY;
+  if (!Number.isFinite(px)) return 1;
+  const f = pinch ? Math.exp(-px * 0.01) : 2 ** (-px / 500);
+  return clamp(f, 0.5, 2);
+}
