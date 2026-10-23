@@ -32,7 +32,24 @@ are shared by all three.
   of the tab (full width on a phone):
   - **Race:** its place (official when linked) and the gap to the winner, the
     gap to a group of rivals (Top 3 / boats near me / whole fleet / custom)
-    over the race with the fleet's wind under it, the biggest gains as cards
+    over the race with the fleet's wind under it (seconds at equal course
+    progress, `src/analysis/coach/timeGap.ts`: how much earlier or later each
+    rival got as far along the course. On beats and runs "how far" is the
+    share of the leg's wind ladder climbed, along one wind for the whole leg
+    (the fleet's mean on it), scaled to the rhumb length, so a leg skewed to
+    the wind doesn't favour one tack or gybe; on reaches, distance made good
+    along the rhumb line. A rounding is a zone from `ROUNDING_IN_M` = 30 m
+    before the mark to `ROUNDING_OUT_M` = 30 m down the next leg, crossed
+    linearly in time by every boat, so roundings neither spike nor break the
+    lines. The group's median is bold, over a fixed set of boats: a rival in
+    a tracker hole up to `GROUP_BRIDGE_S` = 10 min keeps its place, read in a
+    straight line across the hole (progress is monotone), so the line doesn't
+    jump when boats round or drop out of the data; it is drawn only where at
+    least half the group's gaps rest on holes of `GROUP_DRAW_HOLE_S` = 30 s or
+    less, and breaks for a point if the set changes anyway. Thin lines keep
+    the position rule (fixes at most 15 s apart, read within 5 s of one). No
+    tracker data or a rival never that far is a break; the cards keep the
+    same-moment wind ladder), the biggest gains as cards
     ranked by their impact on the result (see [How the Coach ranks
     cards](#how-the-coach-ranks-cards); at most 3, at most 2 from one detector:
     the next-best from another takes the slot; penalty turns exempt),
