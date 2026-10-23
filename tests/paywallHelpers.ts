@@ -42,8 +42,8 @@ export function paywallEnv(db: MemD1 | undefined, over: Partial<PaywallEnv> = {}
     GOOGLE_CLIENT_SECRET: 'google_secret_test_fake',
     STRIPE_SECRET_KEY: 'sk_test_fake',
     STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET,
+    // No STRIPE_PRICE_SEASON: the Season Pass is no longer sold, and nothing needs it.
     STRIPE_PRICE_REGATTA: 'price_test_regatta',
-    STRIPE_PRICE_SEASON: 'price_test_season',
     ...over,
   };
 }

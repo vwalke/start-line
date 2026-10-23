@@ -1256,9 +1256,14 @@ byte for byte, without touching D1. The page learns the flag from one
 than a well-formed `{"paywall":true,…}`, means off, so it shows no sign-in
 or lock UI and logs nothing.
 
-**Passes.** *Regatta Pass* ($50, one-off): one event id, every division and
-boat. *Season Pass* ($149/yr, subscription): every regatta while it runs.
-*Coach plan* ($499/yr, 6 seats): in the data model only (owner plus the
+**Passes.** Regatta by regatta: race 1 of every regatta is free; unlock the
+rest of a regatta for $50. *Regatta Pass* ($50, one-off, the only pass on
+sale): one event id, every division and boat. *All-regattas pass* (scope
+`season`): every regatta while it runs; no longer sold (checkout refuses
+`season`, and the page offers nothing but the Regatta Pass), but honoured
+everywhere for whoever holds one: an earlier Season Pass subscription
+(still renewed, changed, ended and refunded by the webhook, with Manage
+subscription for its owner) or a gift (below). *Coach plan* ($499/yr, 6 seats): in the data model only (owner plus the
 first `seats` members of `team_members`), no checkout yet. Payments go
 through Stripe Checkout with Stripe Managed Payments (Stripe as merchant of
 record) on the Walkeforward Stripe account; every key and price id comes
@@ -1365,8 +1370,9 @@ address restores everything.
 walkeforward.com page, as for the portal: missing, `null` or cross-site is
 403, and every browser sends `Origin` on the page's fetch POST) creates a
 Checkout Session with `fetch`
-(`mode=payment` + `STRIPE_PRICE_REGATTA`, or `mode=subscription` +
-`STRIPE_PRICE_SEASON`; metadata product / event id / user id;
+(`product: 'regatta'` and an event id only: `mode=payment` +
+`STRIPE_PRICE_REGATTA`; `season` is a 400 `not_available` with no Stripe
+call, and `STRIPE_PRICE_SEASON` is no longer read; metadata product / event id / user id;
 `client_reference_id`; the known customer or `customer_email`; success and
 cancel back to the race with `checkout=success|cancel`). Managed Payments is
 asked for with `managed_payments[enabled]=true` unless
@@ -1377,7 +1383,7 @@ approved**; it lives in `managedPaymentsParams` only. `POST
 /api/billing/webhook` checks `Stripe-Signature` (HMAC-SHA256 of
 `t.body`, any `v1`, constant-time, 5-minute tolerance; 400 otherwise) and
 handles `checkout.session.completed` / `…async_payment_succeeded` (purchase
-and pass), `invoice.paid` (season extended to the line's period end),
+and pass), `invoice.paid` (an existing season subscription extended to the line's period end),
 `customer.subscription.updated` (expiry follows the period end, so a
 subscription cancelled at period end keeps access until then; `canceled`,
 `unpaid`, `incomplete_expired` and `paused` end it now, and a resumed one
@@ -1394,7 +1400,7 @@ Pass* is found by the charge's `metadata` (product, user_id, event_id:
 Checkout puts them on the PaymentIntent through
 `payment_intent_data[metadata]`, and Stripe copies a PaymentIntent's
 metadata onto its charges; **confirm on a test-mode refund that the charge
-shows them**). A *Season Pass* is found by the charge's `invoice`: its
+shows them**). An existing *Season Pass* subscription is found by the charge's `invoice`: its
 subscription when the invoice is expanded, else a renewal recorded as an
 `in_…` purchase names the user, else (the first invoice, the checkout's
 own) the charge's customer, when that user holds exactly one Stripe season
@@ -1419,18 +1425,19 @@ Payments customers use it or Stripe's own management link is to be
 confirmed with the account.
 
 **The page** (`src/ui/paywall.ts`): an account button in the masthead (Sign
-in / Account: passes with expiry, Restore access, Manage subscription, Sign
-out) and, for a race the viewer can't open, a lock card in place of the
-digest: the race header and RaceSense finishes from the free regatta
-document, a blurred placeholder chart (no tracks are fetched), "See the
-start, every leg and Coach's top 3 for every boat in R2–R8", **Unlock this
-regatta — $50**, **Season Pass — $149/yr**, and "Race 1 is free · Already
-bought? Sign in · Restore access". Back from Checkout it re-reads
+in / Account: passes with expiry, e.g. "All-regattas pass · every regatta ·
+until …" for an existing one, Restore access, Manage subscription for an
+existing season subscriber, Sign out) and, for a race the viewer can't
+open, a lock card (`#lock .lock-card`) in place of the digest: the race
+header and RaceSense finishes from the free regatta document, a blurred
+placeholder chart (no tracks are fetched), "See the start, every leg and
+Coach's top 3 for every boat in R2–R8", **Unlock this regatta — $50** (the
+only offer), and "Race 1 of every regatta is free; unlock the rest of a
+regatta for $50 · Already bought? Sign in · Restore access". Back from Checkout it re-reads
 `/api/auth/me` until the pass lands, then unlocks. Only the sign-in methods
 `/api/auth/me` reports (`signIn.email`, `signIn.google`) are shown: with
 email off there is no email form, no Restore access (it sends an email) and
-no "check your email" (the lock card reads "Race 1 is free · Already bought?
-Sign in"); with Google off, no Google button; with neither, "Sign-in is
+no "check your email" (the lock card reads "… · Already bought? Sign in"); with Google off, no Google button; with neither, "Sign-in is
 unavailable right now" instead of buttons.
 
 *Checkout through sign-in.* A signed-out sailor who clicks a pass is asked
@@ -1487,16 +1494,18 @@ Preview each):
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth client (redirect URI `https://recall.walkeforward.com/api/auth/google/callback`) | id no / secret yes |
 | `STRIPE_SECRET_KEY` | `sk_test_…` (then live) | yes |
 | `STRIPE_WEBHOOK_SECRET` | the webhook endpoint's `whsec_…` | yes |
-| `STRIPE_PRICE_REGATTA` / `STRIPE_PRICE_SEASON` | price ids | no |
+| `STRIPE_PRICE_REGATTA` | the Regatta Pass price id | no |
 | `STRIPE_MANAGED_PAYMENTS` | `off` to leave Managed Payments out (default on) | no |
 | `STRIPE_API_VERSION` | sent as `Stripe-Version` when set | no |
 
-Stripe products and prices to create (test mode first): **Recall Regatta
-Pass**, one-time $50 → `STRIPE_PRICE_REGATTA`; **Recall Season Pass**,
-recurring yearly $149 → `STRIPE_PRICE_SEASON`; **Coach plan**, $499/yr for 6
-seats, optional for now (no checkout yet). What is charged comes from those
-price ids only; the prices on the page (`PRICE_REGATTA` / `PRICE_SEASON` in
-`src/ui/paywall.ts`) are copy and must be kept in step by hand.
+Stripe products and prices (test mode first): **Recall Regatta Pass**,
+one-time $50 → `STRIPE_PRICE_REGATTA`; **Coach plan**, $499/yr for 6 seats,
+optional for now (no checkout yet). The **Recall Season Pass** price is no
+longer used (`STRIPE_PRICE_SEASON` may stay set or be removed; nothing reads
+it); keep its product in Stripe while any subscription on it runs, so the
+existing subscribers renew and can manage it in the portal. What is charged
+comes from the price id only; the price on the page (`PRICE_REGATTA` in
+`src/ui/paywall.ts`) is copy and must be kept in step by hand.
 
 Webhook endpoint: `https://recall.walkeforward.com/api/billing/webhook`,
 events `checkout.session.completed`,
@@ -1506,36 +1515,37 @@ events `checkout.session.completed`,
 
 ### Admin: gift passes
 
-A free pass locked to an email address: a Season Pass, or a Regatta Pass for
-one event id, with an optional expiry (default none). No codes and no public
+A free pass locked to an email address: an all-regattas pass (scope `all`,
+or `season`, its stored name: every regatta), or a Regatta Pass for one event
+id, with an optional expiry (default none). No codes and no public
 endpoint: `scripts/grant-gift.mjs` (node, no dependencies) builds the SQL and
 runs it with `npx wrangler d1 execute <db> --remote --command …` (`--local`
 for a local D1, `--print` to show the SQL and run nothing; `--db` defaults to
 `recall-auth`). These change production data: run them by hand, never from CI.
 
 ```sh
-# Season Pass for an address (no expiry):
-node scripts/grant-gift.mjs grant season --email sailor@example.com
-# … through 31 Oct 2027 (UTC), with a note (shown in the output only):
-node scripts/grant-gift.mjs grant season --email sailor@example.com --expires 2027-10-31 --note "race committee"
+# All-regattas pass for an address (no expiry):
+node scripts/grant-gift.mjs grant all --email sailor@example.com
+# … for a year: through 31 Oct 2027 (UTC), with a note (shown in the output only):
+node scripts/grant-gift.mjs grant all --email sailor@example.com --expires 2027-10-31 --note "race committee"
 # Regatta Pass for one event:
 node scripts/grant-gift.mjs grant regatta --event fDHdPcEOM6mcMRkdXNnj --email sailor@example.com
 # Revoke (signed in yet or not; the pass stops unlocking at once):
-node scripts/grant-gift.mjs revoke season --email sailor@example.com
+node scripts/grant-gift.mjs revoke all --email sailor@example.com
 node scripts/grant-gift.mjs revoke regatta --event fDHdPcEOM6mcMRkdXNnj --email sailor@example.com
 node scripts/grant-gift.mjs revoke --id gift_0123456789abcdef01234567
 # Every gift (or one address's): id, email, scope, event, starts, expires, revoked, signed_in
 node scripts/grant-gift.mjs list
 node scripts/grant-gift.mjs list --email sailor@example.com
 # Show the SQL only:
-node scripts/grant-gift.mjs grant season --email sailor@example.com --print
+node scripts/grant-gift.mjs grant all --email sailor@example.com --print
 ```
 
 How it works (no migration: the tables of `migrations/0001_paywall.sql`
 only): a gift is a `purchases` row (`provider 'gift'`, `provider_ref
 'gift:<key>'`, amount 0, status `gift`) and its entitlement, both with the id
 `gift_<key>`, where the key comes from the email (lower-cased, trimmed), the
-scope and the event id. They belong to the user with that email, created if
+scope and the event id (`all` and `season` are the same gift). They belong to the user with that email, created if
 new (as a Stripe webhook does for a buyer with no account), so the pass
 unlocks nothing until someone signs in as that very address: a magic link
 proves it, Google only with a verified email (and links by it), and every
@@ -1544,7 +1554,7 @@ request. Granting the same gift again changes nothing but its expiry (and
 lifts a revocation); revoking twice keeps the first revocation's time.
 Inputs are checked strictly (the server's email and event-id patterns; dates
 as YYYY-MM-DD, not past) and quoted as SQL strings; wrangler runs without a
-shell. The page lists it as "Season Pass (gift)", with no Manage
+shell. The page lists it as "All-regattas pass (gift)", with no Manage
 subscription; refunds never touch it; Restore access sends that address a
 link. Caveats: the note isn't stored (no column for it); a gift for an
 address other than the one a Google-linked account was made with is a

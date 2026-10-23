@@ -40,7 +40,6 @@ export interface PaywallEnv {
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   STRIPE_PRICE_REGATTA?: string;
-  STRIPE_PRICE_SEASON?: string;
   STRIPE_MANAGED_PAYMENTS?: string;
   STRIPE_API_VERSION?: string;
 }
@@ -226,7 +225,7 @@ export const SIGN_IN_REQUIRED = 'sign_in_required';
 
 export function denied(signedIn: boolean, eventId: string | null, race: number | string | null): Response {
   return signedIn
-    ? jsonOut(402, { error: PAYMENT_REQUIRED, eventId, race, message: 'Race 1 is free. Unlock this regatta (or get a Season Pass) to see the rest.' })
+    ? jsonOut(402, { error: PAYMENT_REQUIRED, eventId, race, message: 'Race 1 is free. Unlock the rest of this regatta for $50.' })
     : jsonOut(401, { error: SIGN_IN_REQUIRED, eventId, race, message: 'Race 1 is free. Sign in and unlock this regatta to see the rest.' });
 }
 

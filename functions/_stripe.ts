@@ -3,15 +3,17 @@
  * so tests call it directly). Stripe's REST API with plain `fetch` (form-encoded), no SDK; the
  * webhook's signature is checked with WebCrypto.
  *
- *   POST /api/billing/checkout  { product: 'regatta' | 'season', eventId?, returnTo } → { url } (a Checkout Session); an
+ *   POST /api/billing/checkout  { product: 'regatta', eventId, returnTo } → { url } (a Checkout Session); an
  *                               Origin header from this site (or https walkeforward.com) is required, as for the portal
  *   POST /api/billing/webhook   Stripe's events (signed): purchases and entitlements, idempotently; a full refund revokes
  *   POST /api/billing/portal    → { url } of Stripe's Billing Portal for the signed-in customer (Manage
  *                               subscription); an Origin header from this site (or https walkeforward.com) is required
  *
- * Products: a Regatta Pass (STRIPE_PRICE_REGATTA, one-off, mode=payment) unlocks one event id; a
- * Season Pass (STRIPE_PRICE_SEASON, yearly, mode=subscription) unlocks every regatta while it runs.
- * The Coach plan exists in the data model only (no checkout yet). Stripe Managed Payments (Stripe
+ * Product: the Regatta Pass (STRIPE_PRICE_REGATTA, one-off, mode=payment) unlocks one event id, the
+ * only thing on sale. The Season Pass (a yearly subscription, every regatta) is no longer sold: checkout
+ * refuses it and STRIPE_PRICE_SEASON is unused, but existing subscriptions keep working here (their
+ * webhooks: renewals, updates, cancellation, refunds) and in the portal. The Coach plan exists in the
+ * data model only (no checkout yet). Stripe Managed Payments (Stripe
  * as merchant of record) is asked for on every session unless STRIPE_MANAGED_PAYMENTS is off (see
  * managedPaymentsParams). STRIPE_API_VERSION, when set, goes out as the Stripe-Version header.
  *
@@ -110,7 +112,7 @@ export const managedPaymentsParams = (on: boolean): Record<string, string> => (o
 /** STRIPE_MANAGED_PAYMENTS: on unless "0", "false" or "off". */
 export const managedOn = (raw: string | undefined): boolean => !/^(0|false|off)$/i.test((raw ?? '').trim());
 
-export type Product = Extract<Scope, 'regatta' | 'season'>;
+export type Product = Extract<Scope, 'regatta'>;
 
 export interface CheckoutInput {
   product: Product;
@@ -125,7 +127,7 @@ export interface CheckoutInput {
 /** The Checkout Session's form body. */
 export function checkoutForm(c: CheckoutInput): URLSearchParams {
   const f = new URLSearchParams();
-  f.set('mode', c.product === 'regatta' ? 'payment' : 'subscription');
+  f.set('mode', 'payment');
   f.set('line_items[0][price]', c.price);
   f.set('line_items[0][quantity]', '1');
   f.set('success_url', c.successUrl);
@@ -135,8 +137,7 @@ export function checkoutForm(c: CheckoutInput): URLSearchParams {
   else f.set('customer_email', c.user.email);
   const meta: Record<string, string> = { product: c.product, user_id: c.user.id, ...(c.eventId ? { event_id: c.eventId } : {}) };
   for (const [k, v] of Object.entries(meta)) f.set(`metadata[${k}]`, v);
-  if (c.product === 'season') for (const [k, v] of Object.entries(meta)) f.set(`subscription_data[metadata][${k}]`, v);
-  else for (const [k, v] of Object.entries(meta)) f.set(`payment_intent_data[metadata][${k}]`, v);
+  for (const [k, v] of Object.entries(meta)) f.set(`payment_intent_data[metadata][${k}]`, v);
   for (const [k, v] of Object.entries(managedPaymentsParams(c.managed))) f.set(k, v);
   return f;
 }
@@ -167,20 +168,21 @@ async function checkout(ctx: BillingCtx, deps: PaywallDeps): Promise<Response> {
   }
   const product = body?.product;
   if (product === 'coach') return jsonOut(400, { error: 'not_available', message: 'The Coach plan is not on sale yet.' });
-  if (product !== 'regatta' && product !== 'season') return jsonOut(400, { error: 'bad_product' });
+  if (product === 'season') return jsonOut(400, { error: 'not_available', message: 'The Season Pass is no longer sold: race 1 of every regatta is free, and you can unlock the rest of a regatta for $50.' });
+  if (product !== 'regatta') return jsonOut(400, { error: 'bad_product' });
   const eventId = typeof body.eventId === 'string' && EVENT_ID_RE.test(body.eventId) ? body.eventId : null;
-  if (product === 'regatta' && !eventId) return jsonOut(400, { error: 'bad_event' });
+  if (!eventId) return jsonOut(400, { error: 'bad_event' });
   // The page's automatic checkout after sign-in sends the server's signed marker: it must be this user's,
   // unexpired, for this very product and event (a stale or forged one starts nothing).
   if (body.intent !== undefined) {
     const b = await readBuy(env.AUTH_SECRET?.trim() ?? '', body.intent, v.user.id, now);
-    if (!b || b.product !== product || b.eventId !== (product === 'regatta' ? eventId : null)) return jsonOut(400, { error: 'bad_intent' });
+    if (!b || b.product !== product || b.eventId !== eventId) return jsonOut(400, { error: 'bad_intent' });
   }
-  const price = (product === 'regatta' ? env.STRIPE_PRICE_REGATTA : env.STRIPE_PRICE_SEASON)?.trim();
+  const price = env.STRIPE_PRICE_REGATTA?.trim();
   if (!env.STRIPE_SECRET_KEY?.trim() || !price) return jsonOut(503, { error: 'not_configured', message: 'Payments are not set up on this site yet.' });
   const user = v.user;
   const has = intentHeld(v.entitlements, user.id, { product, eventId }, now);
-  if (has) return jsonOut(409, { error: 'already_entitled', message: product === 'season' ? 'You already have a pass that covers every regatta.' : 'This regatta is already unlocked for you.' });
+  if (has) return jsonOut(409, { error: 'already_entitled', message: 'This regatta is already unlocked for you.' });
   const origin = new URL(req.url).origin;
   const back = new URL(safeReturnTo(body.returnTo, origin), origin).href;
   const form = checkoutForm({
@@ -225,7 +227,7 @@ async function portal(ctx: BillingCtx, deps: PaywallDeps): Promise<Response> {
   return jsonOut(200, { url: out.url });
 }
 
-// ---- webhook
+// ---- webhook (Season Pass subscriptions are no longer sold, but existing ones still renew, change, end and refund here)
 
 type Obj = Record<string, unknown>;
 const obj = (x: unknown): Obj => (x && typeof x === 'object' && !Array.isArray(x) ? (x as Obj) : {});

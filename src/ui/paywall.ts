@@ -2,9 +2,10 @@
  * The paywall on the page (only when /api/auth/me says it is on; otherwise none of this shows):
  *   - the lock card, in place of the digest for a race the viewer can't open (race 2+ without a
  *     pass, or a data request answered 401 / 402): the race header from the free regatta document,
- *     its RaceSense finishes, a blurred placeholder chart (no tracks are loaded), and the two passes;
+ *     its RaceSense finishes, a blurred placeholder chart (no tracks are loaded), and the Regatta Pass
+ *     (the only pass on sale: race 1 of every regatta is free, the rest of a regatta is $50);
  *   - an account button in the masthead opening a sheet: sign in (email link or Google), the
- *     passes held, Restore access, Manage subscription, Sign out.
+ *     passes held, Restore access, Manage subscription (an existing Season Pass subscriber only), Sign out.
  * Decisions and markup are pure functions (tested in node); createPaywall wires them to the DOM.
  */
 import { passesUnlock, type PassView } from '../../functions/_entitlements';
@@ -30,9 +31,8 @@ import { pickRace } from './lastView';
 import { duration, esc, gunTimeLine } from './format';
 import { raceName, raceTitleHtml, shortRaceName } from './races';
 
-/** Displayed prices (copy only: what is charged comes from the Stripe price ids, STRIPE_PRICE_REGATTA / STRIPE_PRICE_SEASON). */
+/** The displayed price (copy only: what is charged comes from the Stripe price id, STRIPE_PRICE_REGATTA). */
 export const PRICE_REGATTA = '$50';
-export const PRICE_SEASON = '$149/yr';
 
 // ---- decisions
 
@@ -77,12 +77,12 @@ export function lockedRange(races: readonly ListedRace[], free: FreeRaces, divis
 
 export const valueLine = (range: string): string => `See the start, every leg and Coach's top 3 for every boat in ${range || 'every race after race 1'}.`;
 
-/** A pass, in a line: "Regatta Pass · this regatta", "Season Pass · until 21 Oct 2027". */
+/** A pass, in a line: "Regatta Pass · this regatta", "All-regattas pass · every regatta · until 21 Oct 2027" (a Season Pass, no longer sold, or a gift). */
 export function passLine(p: PassView, eventTitle: (id: string) => string): string {
   const until = p.expiresAt != null ? ` · until ${new Date(p.expiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : '';
   const gift = p.gift ? ' (gift)' : '';
   if (p.scope === 'regatta') return `Regatta Pass${gift} · ${p.eventId ? eventTitle(p.eventId) : 'one regatta'}${until}`;
-  if (p.scope === 'season') return `Season Pass${gift} · every regatta${until}`;
+  if (p.scope === 'season') return `All-regattas pass${gift} · every regatta${until}`;
   return `Coach plan${p.owner ? '' : ' (team seat)'} · every regatta${until}`;
 }
 
@@ -164,10 +164,9 @@ export function lockCardHtml(v: LockView): string {
       <h3 id="lock-title">${esc(valueLine(v.range))}</h3>
       <div class="lock-buy">
         <button type="button" class="lock-primary" data-pw="buy-regatta"${v.canBuy ? '' : ' disabled'}>Unlock this regatta — ${PRICE_REGATTA}</button>
-        <button type="button" class="lock-secondary" data-pw="buy-season"${v.canBuy ? '' : ' disabled'}>Season Pass — ${PRICE_SEASON}</button>
       </div>
       ${v.message ? `<p class="lock-msg" role="status">${esc(v.message)}</p>` : ''}
-      <p class="lock-small">Race 1 is free · ${who}</p>
+      <p class="lock-small">Race 1 of every regatta is free; unlock the rest of a regatta for ${PRICE_REGATTA} · ${who}</p>
       ${results}
     </section>`;
 }
@@ -210,6 +209,7 @@ export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => str
     const passes = me.entitlements.length
       ? `<ul class="account-passes">${me.entitlements.map((p) => `<li>${esc(passLine(p, eventTitle))}</li>`).join('')}</ul>`
       : '<p class="muted">No passes yet. Race 1 of every regatta is free.</p>';
+    // Manage subscription: for an existing Season Pass subscriber (no longer sold; never a gift).
     const manage = me.entitlements.some((p) => p.scope === 'season' && p.owner && !p.gift) ? `<button type="button" class="lock-secondary" data-pw="portal"${s.busy ? ' disabled' : ''}>Manage subscription</button>` : '';
     return `${head('Your account')}${note}<p>Signed in as <strong>${esc(me.user.email)}</strong></p>
       <h3 class="account-sub">Passes</h3>${passes}
@@ -253,7 +253,7 @@ export function autoCheckout(me: Me, search: string, now: number): (BuyIntent & 
   if (!me.paywall || !me.user) return null;
   const token = new URLSearchParams(search).get(BUY_PARAM);
   const b = peekBuy(token);
-  if (!b || passesUnlock(me.entitlements, b.product === 'season' ? null : b.eventId, now)) return null;
+  if (!b || passesUnlock(me.entitlements, b.eventId, now)) return null;
   return { ...b, intent: token! };
 }
 
@@ -326,16 +326,18 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     return true;
   }
 
-  async function buy(product: 'regatta' | 'season'): Promise<void> {
+  /** Unlock this regatta (the Regatta Pass, the only pass on sale). */
+  async function buy(): Promise<void> {
     if (!me.paywall) return;
+    const eventId = target?.eventId;
     if (!me.user) {
-      pendingBuy = { product, eventId: product === 'regatta' ? (target?.eventId ?? null) : null };
-      if (pendingBuy.product === 'regatta' && !pendingBuy.eventId) pendingBuy = null;
+      pendingBuy = eventId ? { product: 'regatta', eventId } : null;
       return openSheet({ mode: 'signin', note: 'Sign in first: checkout opens right after.' });
     }
+    if (!eventId) return;
     lockMsg = 'Opening the payment page…';
     renderLock();
-    const r = await startCheckout(product, product === 'regatta' ? (target?.eventId ?? null) : null, hereWithout(location.href));
+    const r = await startCheckout(eventId, hereWithout(location.href));
     if (r.ok && typeof r.body.url === 'string') {
       location.assign(r.body.url);
       return;
@@ -380,8 +382,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     if (a === 'google') {
       ev.preventDefault();
       location.assign(googleStartUrl(hereWithout(location.href), pendingBuy));
-    } else if (a === 'buy-regatta') void buy('regatta');
-    else if (a === 'buy-season') void buy('season');
+    } else if (a === 'buy-regatta') void buy();
     else if (a === 'signin') {
       pendingBuy = null;
       openSheet({ mode: 'signin' });
@@ -447,7 +448,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     if (auto && !autoStarted) {
       autoStarted = true;
       o.notice('Opening the payment page…');
-      const r = await startCheckout(auto.product, auto.eventId, hereWithout(location.href), undefined, auto.intent);
+      const r = await startCheckout(auto.eventId, hereWithout(location.href), undefined, auto.intent);
       if (r.ok && typeof r.body.url === 'string') {
         location.assign(r.body.url);
         return;
