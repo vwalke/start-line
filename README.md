@@ -523,7 +523,8 @@ Switching races keeps the tab.
   gestures, and for the start table each boat's start caveats. Full screen
   shows the same key line.
 - **Map zoom: centering and follow** (the Around the gun map and the track
-  map, through `ui/panzoom.ts` and `ui/view.ts`). The 2× / 4× / 8× buttons
+  map: gestures in `ui/panzoom.ts`, views in `ui/view.ts`, the follow camera
+  in `ui/follow.ts`). The 2× / 4× / 8× buttons
   and + / − center on the selected boat where it is at the moment shown
   (the slider's second, or the scrubber's time), with the follow camera's
   look-ahead below; with no boat selected, or
@@ -547,9 +548,15 @@ Switching races keeps the tab.
   same played or stepped). A slider jump of over 15 s, a newly selected boat
   or `prefers-reduced-motion` snaps instead. The zoom never changes.
   Panning by hand (drag, double-tap, arrow keys) stops the follow until a
-  zoom button, + / −, 0 or Fit is used again; a wheel or pinch zoom keeps
+  zoom button, + / −, 0 or Fit is used again (a double-tap at 16× goes back
+  to Fit, still with the follow off); a wheel or pinch zoom keeps
   it; selecting a boat (on any view) starts it; a replay or a Coach card's
-  window framing the track map stops it. Sail numbers sit a few px off
+  window framing the track map stops it. A boat selected at Fit is snapped
+  to on the first zoom in. On the track map the camera's pans move only the
+  SVG's viewBox (with the scale bar and wind arrow), never a full redraw
+  per frame: line widths and text follow the zoom level alone, so the map
+  is redrawn only when the zoom changes, and once after a pause
+  (`ui/mapPaint.ts`). Sail numbers sit a few px off
   their hull, abeam (clear of the boat's own track), at any zoom.
 - **Zoom hint:** "Pinch to zoom · drag to pan · double-tap to zoom in"
   shows under the start chart on touch devices only (`(pointer: coarse)`),

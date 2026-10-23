@@ -27,19 +27,19 @@ import { laneScrub } from '../src/ui/laneSnapshots';
 import { laneFollowInput, laneFollowTarget, lanePxPerUnit, laneScrubHtml, laneShape, mountLaneSnapshots } from '../src/ui/laneSnapshotsView';
 import { attachPanZoom } from '../src/ui/panzoom';
 import { scrubWindow, trailWindow } from '../src/ui/scrub';
-import { clampView, fitView, viewBox, zoomPreset, type Box, type ClientRect, type View } from '../src/ui/view';
+import { K_MAX, clampView, fitView, viewBox, zoomPreset, type Box, type ClientRect, type View } from '../src/ui/view';
 import { j105Race } from './helpers';
 
 /**
- * The maps' look-ahead follow camera (follow.ts): more room ahead upwind, centred (a little astern) downwind, eased
- * in on a steady course and out through a manoeuvre, screen-relative; the spring that eases it; what turns it on and
+ * The maps' look-ahead follow camera (follow.ts): more room ahead upwind, centered (a little astern) downwind, eased
+ * in on a steady course and out through a maneuver, screen-relative; the spring that eases it; what turns it on and
  * off; and the sail-number labels kept a few px off their hull at any zoom (both maps).
  */
 const UP: Vec = [0, -1];
 const DOWN_WIND: Vec = [0, 1]; // the wind blows down the map: wind-up, as both maps draw it
 const steady = (d: Vec, n = FOLLOW_COURSE_S): Vec[] => Array.from({ length: n }, () => d);
 const dirOf = (deg: number): Vec => [Math.sin((deg * Math.PI) / 180), -Math.cos((deg * Math.PI) / 180)]; // 0 = up the map
-/** Where the boat sits along its course, as a share of the view's span from the trailing edge (0.5: the centre). */
+/** Where the boat sits along its course, as a share of the view's span from the trailing edge (0.5: the center). */
 function fromTrailing(pos: Vec, dir: Vec, c: [number, number], w: number, h: number): number {
   const span = Math.min(Math.abs(dir[0]) > 1e-12 ? w / Math.abs(dir[0]) : Infinity, Math.abs(dir[1]) > 1e-12 ? h / Math.abs(dir[1]) : Infinity);
   const along = (pos[0] - c[0]) * dir[0] + (pos[1] - c[1]) * dir[1];
@@ -61,7 +61,7 @@ describe('look-ahead target', () => {
     expect(0.5 - FOLLOW_LEAD.upwind).toBeCloseTo(0.33, 9);
   });
 
-  it('downwind: little or no lead, the boat near the centre (a little forward of it), showing the boats astern', () => {
+  it('downwind: little or no lead, the boat near the center (a little forward of it), showing the boats astern', () => {
     for (const deg of [180, 150, -140]) {
       const d = dirOf(deg);
       expect(sailMode(d, DOWN_WIND)).toBe('downwind');
@@ -121,7 +121,7 @@ describe('look-ahead target', () => {
     expect(courseStats(gybe).steady).toBeGreaterThan(0.9);
   });
 
-  it('eases out through a manoeuvre and back in after a steady stretch', () => {
+  it('eases out through a maneuver and back in after a steady stretch', () => {
     // Port tack (−45°) until second 0, a 6 s tack, then starboard (45°): the lead's size each second.
     const course = (s: number): Vec => (s <= 0 ? dirOf(-45) : s >= 6 ? dirOf(45) : dirOf(-45 + (90 * s) / 6));
     const lead = (s: number): number => {
@@ -131,7 +131,7 @@ describe('look-ahead target', () => {
     };
     const full = lead(0);
     expect(full).toBeGreaterThan(0);
-    // Through the tack it falls away to (nearly) nothing: the boat back toward the centre.
+    // Through the tack it falls away to (nearly) nothing: the boat back toward the center.
     expect(lead(4)).toBeLessThan(full);
     expect(Math.min(...[6, 8, 10, 12].map(lead))).toBeLessThan(0.2 * full);
     // Then back in gradually as the new board fills the window, full once it has.
@@ -177,7 +177,7 @@ describe('the smoothing step: a critically damped spring', () => {
     let v: View = { cx: 0, cy: 0, k: 8 };
     const vb = viewBox(box, v);
     const want = followTarget([0, 0], steady(UP), DOWN_WIND, vb.w, vb.h);
-    // From centred on the boat (as a preset would leave it, or a wheel zoom): no jump, then in toward the lead.
+    // From centered on the boat (as a preset would leave it, or a wheel zoom): no jump, then in toward the lead.
     v = followStep(cam, box, v, input(0, [0, 0]));
     expect([v.cx, v.cy]).toEqual([0, 0]);
     let gap = Math.abs(want[1]);
@@ -224,6 +224,20 @@ describe('the smoothing step: a critically damped spring', () => {
     resetFollow(sel);
     const s2 = followStep(sel, box, { cx: 0, cy: 0, k: 4 }, input(1, [600, 600]));
     expect([s2.cx, s2.cy]).toEqual(want([600, 600]));
+  });
+
+  it('a boat selected at Fit keeps the snap pending: the first step zoomed in (a wheel zoom) snaps to it', () => {
+    const cam = followCam();
+    followStep(cam, box, { cx: 0, cy: 0, k: 4 }, input(0, [0, 0]));
+    resetFollow(cam);
+    const fit = fitView(box);
+    expect(followStep(cam, box, fit, input(0.5, [600, 600]))).toBe(fit);
+    expect(cam.snap).toBe(true);
+    // A wheel zoom somewhere else, a moment later: straight onto the selected boat's look-ahead, no easing.
+    const v = followStep(cam, box, { cx: -900, cy: -900, k: 4 }, input(1, [600, 600]));
+    const vb = viewBox(box, v);
+    expect([v.cx, v.cy]).toEqual(followTarget([600, 600], steady(UP), DOWN_WIND, vb.w, vb.h));
+    expect(cam.snap).toBe(false);
   });
 
   it('at Fit, the view as it is; clamped into the map at its edge', () => {
@@ -325,7 +339,32 @@ describe('follow state: a wheel or pinch zoom keeps it, a pan by hand stops it, 
     expect(h.following()).toBe(false);
   });
 
-  it('+ / − centre on the target at the new zoom (the look-ahead is a share of that view)', () => {
+  it('a double-tap at 16× goes back to Fit and never resumes the follow', () => {
+    const h = harness(box, () => [500, 250]);
+    const dbl = () => {
+      h.ptr('pointerdown', 1, 400, 300);
+      h.ptr('pointerup', 1, 400, 300);
+      h.ptr('pointerdown', 1, 401, 300);
+      h.ptr('pointerup', 1, 401, 300);
+    };
+    // + up to the maximum, following.
+    for (let i = 0; i < 12; i++) h.key('+');
+    expect(h.view().k).toBe(K_MAX);
+    expect(h.following()).toBe(true);
+    dbl();
+    expect(h.view().k).toBe(1);
+    expect(h.following()).toBe(false);
+    // Off already (an arrow-key pan at 16×): Fit, still off.
+    for (let i = 0; i < 16; i++) h.key('+');
+    expect(h.view().k).toBe(K_MAX);
+    h.key('ArrowUp');
+    expect(h.following()).toBe(false);
+    dbl();
+    expect(h.view().k).toBe(1);
+    expect(h.following()).toBe(false);
+  });
+
+  it('+ / − center on the target at the new zoom (the look-ahead is a share of that view)', () => {
     const asked: number[] = [];
     const h = harness(box, (k) => {
       asked.push(k);
@@ -407,7 +446,7 @@ describe('around the gun and the track map on J/105 R1 (USA 527): follow wiring'
     expect(lanes.following()).toBe(true);
   });
 
-  it('the track map: upwind leads, downwind sits just forward of the centre (USA 527 at +8:00 and +28:00)', () => {
+  it('the track map: upwind leads, downwind sits just forward of the center (USA 527 at +8:00 and +28:00)', () => {
     const fit = mapBox(a, null);
     const at = (s: number) => {
       const input = mapFollowInput(a, ME, a.meta.gunMs + s * 1000)!;

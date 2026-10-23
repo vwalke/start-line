@@ -22,8 +22,8 @@ export interface PanZoomOptions {
   /** A touch pinch, pan or double-tap was used (e.g. to retire the gesture hint). */
   onGesture?: () => void;
   /**
-   * What + / − centre on at zoom `k`, chart units (the selected boat with the follow camera's look-ahead, else the
-   * fleet: view.ts zoomTarget); null: the map's centre. Without it they zoom about the view's centre.
+   * What + / − center on at zoom `k`, chart units (the selected boat with the follow camera's look-ahead, else the
+   * fleet: view.ts zoomTarget); null: the map's center. Without it they zoom about the view's center.
    */
   getTarget?: (k: number) => readonly [number, number] | null;
   /**
@@ -161,9 +161,10 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
     opts.onTap?.(ev);
   }
 
+  /** 2× toward the finger, or back to Fit from the maximum: a pan by hand either way (it never resumes the follow). */
   function doubleTap(x: number, y: number): void {
     if (opts.getView().k >= K_MAX - 1e-9) {
-      opts.follow?.(true);
+      manual();
       update((box) => fitView(box));
     } else zoomAt(2, x, y, true);
   }

@@ -723,7 +723,11 @@ export function trackPoints(a: RaceAnalysis, leg: number | null): MapPoints {
   return mapPoints(a, leg, (seg) => rotSeg(a.wind.twdAtGunDeg, seg));
 }
 
-/** The track map's fit box for leg `leg` (or all), and the rectangle its viewBox shows for `v` (default Fit). */
+/**
+ * The track map's fit box for leg `leg` (or all), and the rectangle its viewBox shows for `v` (default Fit). Sizes
+ * (mapScale) follow only the rectangle's size, i.e. the zoom level: a pan at the same zoom moves just the viewBox,
+ * with the wind arrow and scale bar (`g.map-hud`, in the view's corners) shifted along (ui/mapPaint.ts).
+ */
 export function trackMapView(a: RaceAnalysis, leg: number | null, v?: View): { box: Box; view: Box; k: number } {
   const box = mapBox(a, leg);
   const cv = clampView(box, v ?? fitView(box));
@@ -967,7 +971,7 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map${opts.scrub ? ' scrub' : ''}" role="img" aria-label="${esc(opts.scrub ? `${label}; boats at the scrubber's time` : label)}">
     ${tracks}
     <line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>${finish}${marks}${top}
-    ${windArrow(box, unit, k, 'wind (est.)')}${scaleBar(box, unit, k)}</svg>`;
+    <g class="map-hud">${windArrow(box, unit, k, 'wind (est.)')}${scaleBar(box, unit, k)}</g></svg>`;
 }
 
 // ---- race-time scrubber (Map B) ---------------------------------------------------

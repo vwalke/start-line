@@ -4,7 +4,7 @@
  * full width. A time slider (−90 … 180 s, 1 s steps), ‹ › (∓1 s), ← → (1 s; with Shift LANE_SHIFT_STEP_S),
  * Home / End and a play / pause button move it, clamped at the ends. The map pans and zooms as the track map
  * does (ui/panzoom.ts and the same Fit / 2× / 4× / 8× presets): Fit, the default, is the fixed extent over the
- * whole slider; the presets and + / − centre on the selected boat at the second on show with the follow camera's
+ * whole slider; the presets and + / − center on the selected boat at the second on show with the follow camera's
  * look-ahead (laneFollowTarget), else the fleet, and zoomed in, scrubbing and play keep it framed with more room
  * ahead upwind and astern downwind (follow.ts) until the map is panned by hand; they never change the zoom level.
  * Thin: SVG strings from the frames, and the section's wiring (worked out only while open and on show, once per
@@ -324,7 +324,7 @@ export function laneFollowInput(L: Pick<LaneScrub, 'frame' | 'start' | 'wind'>, 
 }
 
 /**
- * What the presets and + / − centre on at zoom `k`: the selected boat placed at second `s` with the follow camera's
+ * What the presets and + / − center on at zoom `k`: the selected boat placed at second `s` with the follow camera's
  * look-ahead for a view that size; else laneZoomTarget (the fleet's middle, or null).
  */
 export function laneFollowTarget(L: Pick<LaneScrub, 'frame' | 'start' | 'wind' | 'view' | 'me'>, s: number, k: number): [number, number] | null {

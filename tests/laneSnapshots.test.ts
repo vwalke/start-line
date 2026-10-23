@@ -1292,7 +1292,7 @@ describe('around the gun: "Replay start →" cues the slider', () => {
   });
 });
 
-describe('around the gun: zoom centres on the selected boat (with the look-ahead) or the fleet, and follows it', () => {
+describe('around the gun: zoom centers on the selected boat (with the look-ahead) or the fleet, and follows it', () => {
   /** A mount on a stand-in body whose parts are kept (the stage updated in place, as in the page). */
   function mountOn(a: RaceAnalysis, me: string | null) {
     const el = () => {
@@ -1328,7 +1328,7 @@ describe('around the gun: zoom centres on the selected boat (with the look-ahead
     expect(laneZoomTarget({ boats: f.boats.map((b) => ({ ...b, pos: null })) }, 'B')).toBeNull();
   });
 
-  it('a preset centres on the selected boat with the look-ahead (clamped at the map’s edge); without one, the fleet; Fit is the default extent', () => {
+  it('a preset centers on the selected boat with the look-ahead (clamped at the map’s edge); without one, the fleet; Fit is the default extent', () => {
     const { on, lanes } = mountOn(a, 'B');
     const L = lanes.scrub()!;
     const B = boatIn(L.frame(0), 'B').pos!;
@@ -1337,7 +1337,7 @@ describe('around the gun: zoom centres on the selected boat (with the look-ahead
     const vb = viewBox(L.view, lanes.zoom());
     expect(B[0]).toBeGreaterThan(vb.x0);
     expect(B[0]).toBeLessThan(vb.x0 + vb.w);
-    // Sailing up the map (upwind): the view leads, the boat below its centre.
+    // Sailing up the map (upwind): the view leads, the boat below its center.
     expect(B[1]).toBeGreaterThan(lanes.zoom().cy);
     expect(B[1]).toBeLessThan(vb.y0 + vb.h);
     expect(lanes.following()).toBe(true);
@@ -1385,7 +1385,7 @@ describe('around the gun: zoom centres on the selected boat (with the look-ahead
       on.click(btn({}));
       vi.advanceTimersByTime(LANE_PLAY_MS * 40);
       expect(lanes.zoom()).toEqual(held);
-      // A preset again: centred on the boat's look-ahead and following.
+      // A preset again: centered on the boat's look-ahead and following.
       on.click(btn({ zoom: '4' }));
       expect(lanes.following()).toBe(true);
       expect(lanes.zoom()).toEqual(zoomPreset(L.view, 4, laneFollowTarget(L, lanes.second(), 4)));

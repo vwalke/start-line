@@ -1,15 +1,15 @@
 /**
  * The maps' look-ahead follow camera (Around the gun and the track map), as pure math plus one small stepper.
  *
- * Zoomed in on a selected boat, the view's centre is the boat's position plus a lead along its smoothed course
+ * Zoomed in on a selected boat, the view's center is the boat's position plus a lead along its smoothed course
  * (the circular mean of its course over the last FOLLOW_COURSE_S seconds), so more of the view lies where the boat
  * is going: upwind the boat sits about a third of the way in from the trailing edge; downwind it sits a little
- * forward of the centre, to show the boats astern (on its wind); reaching, or with no wind, a modest lead. The lead
+ * forward of the center, to show the boats astern (on its wind); reaching, or with no wind, a modest lead. The lead
  * is a fraction of the view's own size along the course (the same on screen at any zoom), scaled by how steady the
  * course has been, so it eases in after a steady stretch and back out through a tack, gybe or rounding.
  *
  * The camera eases toward that framing with a critically damped spring (no overshoot) in the boat's own frame:
- * the boat is always exactly at centre + offset, only the offset is smoothed, so a moving boat never lags or
+ * the boat is always exactly at center + offset, only the offset is smoothed, so a moving boat never lags or
  * jitters. Time is race time (seconds), so the easing is the same whether played, stepped or scrubbed; a jump
  * past FOLLOW_SNAP_S (a slider drag), reduced motion, or a newly selected boat snaps instead.
  */
@@ -28,7 +28,7 @@ export type SailMode = 'upwind' | 'reach' | 'downwind' | 'unknown';
 /**
  * The lead by sailing mode, as a share of the view's span along the course: the boat sits 0.5 − lead of the way
  * in from the trailing edge after a steady stretch (upwind 0.33, reaching or no wind 0.40, downwind 0.54: a
- * little forward of centre, showing the boats astern).
+ * little forward of center, showing the boats astern).
  */
 export const FOLLOW_LEAD: Record<SailMode, number> = { upwind: 0.17, reach: 0.1, downwind: -0.04, unknown: 0.1 };
 
@@ -84,7 +84,7 @@ export function sailMode(dir: Vec | null, down: Vec | null): SailMode {
   return twa <= FOLLOW_UPWIND_MAX_DEG ? 'upwind' : twa >= FOLLOW_DOWNWIND_MIN_DEG ? 'downwind' : 'reach';
 }
 
-/** The view's span through its centre along unit direction `d`, for a view `w` × `h`. */
+/** The view's span through its center along unit direction `d`, for a view `w` × `h`. */
 export function spanAlong(d: Vec, w: number, h: number): number {
   const sx = Math.abs(d[0]) > 1e-12 ? w / Math.abs(d[0]) : Infinity;
   const sy = Math.abs(d[1]) > 1e-12 ? h / Math.abs(d[1]) : Infinity;
@@ -92,7 +92,7 @@ export function spanAlong(d: Vec, w: number, h: number): number {
 }
 
 /**
- * Where the camera wants the view's centre for the boat at `pos` in a view `w` × `h` (chart units): the boat plus
+ * Where the camera wants the view's center for the boat at `pos` in a view `w` × `h` (chart units): the boat plus
  * the look-ahead lead, FOLLOW_LEAD for the mode × the course's steadiness × the view's span along the course
  * (screen-relative: the same share at any zoom). No course: the boat itself.
  */
@@ -119,7 +119,7 @@ export function springStep(x: number, v: number, target: number, dt: number, tau
 
 /** The camera's state between steps (followStep). */
 export interface FollowCam {
-  /** The view centre's offset from the boat as shares of the view (x of width, y of height); null: not yet tracking. */
+  /** The view center's offset from the boat as shares of the view (x of width, y of height); null: not yet tracking. */
   off: Vec | null;
   vel: Vec;
   /** The race time of the last step, s. */
@@ -151,7 +151,7 @@ export interface FollowInput {
 const near = (a: View, b: View, w: number): boolean => Math.abs(a.k - b.k) < 1e-9 && Math.abs(a.cx - b.cx) <= 1e-9 * w && Math.abs(a.cy - b.cy) <= 1e-9 * w;
 
 /**
- * One camera step for the view `v` on fit box `box`: the view centred so the boat sits at the eased look-ahead
+ * One camera step for the view `v` on fit box `box`: the view centered so the boat sits at the eased look-ahead
  * offset, clamped into the box; the zoom never changes. At Fit, or with no position, `v` as it is. A view
  * changed since the last step (a wheel or pinch zoom, a preset) is taken as it is and eased from; `still`
  * (reduced motion), a newly selected boat or a jump over FOLLOW_SNAP_S snap. Returns `v` itself when nothing moves.
@@ -161,8 +161,7 @@ export function followStep(cam: FollowCam, box: Box, v: View, input: FollowInput
   if (v.k <= 1 || !Number.isFinite(pos[0]) || !Number.isFinite(pos[1]) || !Number.isFinite(t)) {
     cam.off = null;
     cam.out = null;
-    // At Fit there is nothing to snap: a zoom in afterwards (a preset, the wheel) is eased from as it is.
-    if (v.k <= 1) cam.snap = false;
+    // A snap still pending (a boat selected at Fit) waits for the first step zoomed in (a preset, the wheel).
     return v;
   }
   const vb = viewBox(box, v);

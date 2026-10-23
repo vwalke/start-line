@@ -157,7 +157,7 @@ export type HullSide = 'abeam' | 'abeam-other' | 'bow' | 'stern';
 export const HULL_LABEL_SIDES: readonly HullSide[] = ['abeam', 'abeam-other', 'bow', 'stern'];
 
 /**
- * A `w` × `h` label box (map units) beside the hull centred on `at`, pointing along `dir`, drawn `dims` (metres =
+ * A `w` × `h` label box (map units) beside the hull centered on `at`, pointing along `dir`, drawn `dims` (meters =
  * map units): `gap` off the hull on `side`, its near edge or corner facing the hull. Abeam (perpendicular to the
  * heading, so clear of the boat's own track astern) is preferred; 'abeam' is the side facing up the screen (to
  * the right when exactly up or down). The box never overlaps the hull: it lies past the hull's extent along the
