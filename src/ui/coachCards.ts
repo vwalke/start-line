@@ -270,15 +270,24 @@ export function cardText(c: Card, tz = 0): CardText {
       };
     }
     case 'D10': {
-      const b = f.b != null && num(f.db) >= 1 ? ` and ${f.b} ${r0(f.db)} s` : '';
+      const showB = f.b != null && num(f.db) >= 1;
       const places = num(f.placeLo) === num(f.placeHi) ? ordinal(num(f.placeLo)) : `${ordinal(num(f.placeLo))}/${ordinal(num(f.placeHi))}`;
       const ahead = r0(f.aheadLo) === r0(f.aheadHi) ? `${r0(f.aheadLo)} s` : `${r0(f.aheadLo)}–${r0(f.aheadHi)} s`;
       const chips = [...(f.sog != null && f.ldrSog != null ? [`${kn(f.sog)} vs ${kn(f.ldrSog)} kn`] : []), `${places} ${ahead} ahead`];
-      // A boat that was behind at the start caught up and passed: it gained on you, not "further ahead".
-      const sentence =
-        num(f.fromBehind) > 0
-          ? `${f.a} gained ${r0(f.da)} s${b} on you over the last ${r0(f.mins)} tracked minutes, and finished ahead.`
-          : `${f.a} pulled ${r0(f.da)} s${b} further ahead over the last ${r0(f.mins)} tracked minutes.`;
+      // Each boat as it was at the window's start: one that was behind caught up and passed (it gained on you and finished
+      // ahead), one already ahead pulled further ahead.
+      const over = `over the last ${r0(f.mins)} tracked minutes`;
+      const aBehind = num(f.aFromBehind) === 1;
+      const bBehind = num(f.bFromBehind) === 1;
+      const sentence = !showB
+        ? aBehind
+          ? `${f.a} gained ${r0(f.da)} s on you ${over}, and finished ahead.`
+          : `${f.a} pulled ${r0(f.da)} s further ahead ${over}.`
+        : aBehind === bBehind
+          ? aBehind
+            ? `${f.a} gained ${r0(f.da)} s and ${f.b} ${r0(f.db)} s on you ${over}, and finished ahead.`
+            : `${f.a} pulled ${r0(f.da)} s and ${f.b} ${r0(f.db)} s further ahead ${over}.`
+          : `Over the last ${r0(f.mins)} tracked minutes ${aBehind ? `${f.a} gained ${r0(f.da)} s on you and finished ahead` : `${f.a} pulled ${r0(f.da)} s further ahead`}; ${bBehind ? `${f.b} gained ${r0(f.db)} s on you and finished ahead` : `${f.b} pulled ${r0(f.db)} s further ahead`}.`;
       return c.variant === 'beat'
         ? { title: 'Last beat, lost to the boats ahead', chips, sentence, tip: 'Sail the lifted tack and stay between the boats just ahead and the finish.' }
         : { title: 'Last run, short of pressure', chips, sentence, tip: 'Keep someone calling pressure and gybe into the puffs.' };

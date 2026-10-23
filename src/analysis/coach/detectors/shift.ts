@@ -168,7 +168,7 @@ export interface ShiftWindow {
   leg: number;
   t0: number;
   t1: number;
-  /** Wind change over the window, ° (+ = veered). */
+  /** Wind change between t0 and t1 (the chart points the seconds read), ° (+ = veered); twd0 / twd1 the wind there. */
   dTwd: number;
   twd0: number;
   twd1: number;
@@ -243,8 +243,11 @@ export function detectShift(ctx: CoachCtx): ShiftResult {
         if (!g) continue;
         const dgap = g.g1 - g.g0;
         if (dgap <= 0 || (top.best && dgap <= top.best.win.dgap)) continue;
+        // The wind chips at the chart points the seconds read (g.t0, g.t1), not the window's ends.
+        const w0 = w.twdAt(g.t0);
+        const w1 = w.twdAt(g.t1);
         top.best = {
-          win: { leg: k, t0: g.t0, t1: g.t1, dTwd, twd0, twd1, refs, seps, dgap, g0: g.g0, g1: g.g1 },
+          win: { leg: k, t0: g.t0, t1: g.t1, dTwd: wrap180(w1 - w0), twd0: w0, twd1: w1, refs, seps, dgap, g0: g.g0, g1: g.g1 },
           headed: me.share,
           ldrHeaded: ldr.map((x) => ({ id: x.id, share: x.h!.share })),
         };

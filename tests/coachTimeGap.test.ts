@@ -3,6 +3,8 @@ import { rivalLadder } from '../src/analysis/coach';
 import { groupIds } from '../src/analysis/coach/groups';
 import { gapSeries, GROUP_MIN_SHARE, type Course, type GapPoint } from '../src/analysis/coach/ladder';
 import {
+  FINISH_FIT_MAX_TURN_DEG,
+  FINISH_FIT_MIN_ACROSS_DEG,
   FINISH_IN_M,
   GROUP_BRIDGE_S,
   GROUP_DRAW_HOLE_S,
@@ -18,7 +20,9 @@ import {
   timeAtProgress,
   timeGapSeries,
   type LegWind,
+  type ProgressTrack,
 } from '../src/analysis/coach/timeGap';
+import type { Vec } from '../src/analysis/geo';
 import { COACH_NEAR_FIX_S, posAt, type CoachTrack } from '../src/analysis/coach/tracks';
 import { boatsCount, ladderTipHtml } from '../src/ui/coach';
 import { median } from '../src/analysis/geo';
@@ -577,5 +581,66 @@ describe('the finish: anchored to the finish times, measured to the line the fin
     expect(pt.p.filter((p) => p >= total)).toHaveLength(1);
     expect(pt.t.at(-1)).toBe(fin);
     expect(pt.p.at(-2)).toBe(total - FINISH_IN_M);
+  });
+
+  it('only the finish zone is filled in: from a last fix far short of it the line ends there (a gap), not a straight line to the finish', () => {
+    const c = { ...course, finish: finishLine(course, all.map((b) => b.tr)) };
+    const a = rivals[0];
+    const run = (s: number): [number, number, number] => [s, -40, s <= 500 ? 2 * s : 1000 - 3 * (s - 500)];
+    const finS = a.fin / 1000;
+    // Its fixes to `untilS` before the finish (3 m/s down the run), then `stall`: [the last fix's s before the finish,
+    // its speed from `untilS` on].
+    const cut = (untilS: number, stall?: [number, number]): ProgressTrack => {
+      const pts: [number, number, number][] = [];
+      for (let s = 0; s <= finS - untilS; s++) pts.push(run(s));
+      if (stall) {
+        const [lastS, v] = stall;
+        const [s0, x0, y0] = pts[pts.length - 1];
+        for (let s = s0 + 1; s <= finS - lastS; s++) pts.push([s, x0, y0 - v * (s - s0)]);
+      }
+      return progressTrack(c, NORTH, track('a', pts, a.tr.bounds));
+    };
+    const anchored = (pt: ProgressTrack): boolean => pt.t.at(-1) === a.fin && pt.p.at(-1) === total;
+    // 12 s short (36 m of water, ~34 m of progress: just outside the zone), at the pace it was sailing: carried to its finish.
+    const near = cut(12);
+    expect(total - FINISH_IN_M - near.p[near.atFix.lastIndexOf(true)]).toBeGreaterThan(0);
+    expect(anchored(near)).toBe(true);
+    // 60 s short (~170 m): over the span rule, its line ends at its last fix, even across holes the bold line bridges.
+    const far = cut(60);
+    expect(anchored(far)).toBe(false);
+    expect(far.t.at(-1)).toBe(Math.floor(finS - 60) * 1000);
+    expect(progressAt(far, a.fin - 30_000, GROUP_BRIDGE_S)).toBeNull();
+    // A fix 5 s before the finish time but ~190 m short (a stall at 0.2 m/s on the tracker from 70 s out): reaching the
+    // line would take ~38 m/s, no pace it sailed. Not carried (it was: ~190 m in its last 5 s).
+    const stalled = cut(70, [5, 0.2]);
+    expect(stalled.t.at(-1)).toBe(Math.floor(finS - 5) * 1000);
+    expect(total - stalled.p.at(-1)!).toBeGreaterThan(180);
+    expect(anchored(stalled)).toBe(false);
+    // Inside the zone it is always carried, however long the last stretch took (linear in time by construction).
+    expect(anchored(cut(3))).toBe(true);
+  });
+
+  it('finishLine: a fit turned from the feed\'s line, or along the last leg, is not the finish (the feed\'s line is used)', () => {
+    // Five finishers on a line through (0, −60) at `deg` from the feed's (east–west) line, a fix at their finish time.
+    const at = (deg: number, k: number): Vec => [20 * (k - 2) * Math.cos((deg * Math.PI) / 180), -60 + 20 * (k - 2) * Math.sin((deg * Math.PI) / 180)];
+    const finishers = (p: (k: number) => Vec): CoachTrack[] =>
+      [0, 1, 2, 3, 4].map((k) => {
+        const [x, y] = p(k);
+        return track(`f${k}`, [[598, x, y + 6], [599, x, y + 3], [600, x, y]], [0, 300_000, 600_000]);
+      });
+    const fit = (c: Course, deg: number) => finishLine(c, finishers((k) => at(deg, k)));
+    // Within FINISH_FIT_MAX_TURN_DEG of the feed's angle: fitted (through y = −60 at that angle).
+    const ok = fit(course, FINISH_FIT_MAX_TURN_DEG - 10)!;
+    expect(ok).not.toBe(course.finish);
+    expect((ok.left[1] + ok.right[1]) / 2).toBeCloseTo(-60, 6);
+    expect((Math.atan2(ok.right[1] - ok.left[1], ok.right[0] - ok.left[0]) * 180) / Math.PI).toBeCloseTo(FINISH_FIT_MAX_TURN_DEG - 10, 6);
+    // Turned more: the feed's.
+    expect(fit(course, FINISH_FIT_MAX_TURN_DEG + 10)).toBe(course.finish);
+    // With no feed line: across the last leg, fitted; along it (the run's rhumb line, 81° from east–west), none.
+    const noFeed: Course = { ...course, finish: null };
+    const rhumb = (Math.atan2(0 - 1000, 150 - 0) * 180) / Math.PI;
+    expect(fit(noFeed, rhumb + 90)).not.toBeNull();
+    expect(fit(noFeed, rhumb + FINISH_FIT_MIN_ACROSS_DEG - 10)).toBeNull();
+    expect(fit(noFeed, rhumb)).toBeNull();
   });
 });

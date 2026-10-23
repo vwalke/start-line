@@ -21,7 +21,8 @@
  *   it linearly in time, from when it got FINISH_IN_M from the line to its finish time, where its progress
  *   is the course's length. So at the chosen boat's finish its gap to each finisher is the difference of
  *   their finish times (the same gun: elapsed), and a fix at or past the line before the finish time can't
- *   end the course early.
+ *   end the course early. Only the zone is filled in: a boat whose last fix is short of it is carried to its
+ *   finish only from a fix close in time, at a pace it was sailing (reachesFinish); else its line ends there.
  * - Each boat's progress over time is read from its records (a fix, or a zone edge, further on than
  *   any before), linearly in time between them: monotone, so a tack is spread over the stretch it
  *   took. A rounding timed inside a hole (the leg bounds) is a point at the mark, so a straight line
@@ -134,6 +135,29 @@ const FINISH_FIT_SHARE = 2 / 3;
 const FINISH_FIT_SPREAD_M = 20;
 /** The first fit leaves out positions further than this from the finishers' median one, m (J/70 Worlds race 3: two tracks end ~2 km off). */
 const FINISH_FIT_NEAR_M = 1000;
+/**
+ * A fitted line is the finish only within this of the feed's line's angle, ° (the fixtures: 0–24°, Melges 24 race 5 the
+ * most): the feed's line can be out of place, but a committee doesn't lay it at another angle; a fit turned further is a
+ * line through something else (boats strung out along the course), and the feed's is used.
+ */
+export const FINISH_FIT_MAX_TURN_DEG = 35;
+/** …and only across the last leg: at least this from its rhumb line, ° (the fixtures: 82–90°; a fit along it is the boats' approach, not a line they crossed). */
+export const FINISH_FIT_MIN_ACROSS_DEG = 45;
+/**
+ * The finish zone is crossed linearly in time from the last record. From a last fix short of the zone the stretch to it
+ * is no zone: the boat is carried to its finish only from a fix at most COACH_MAX_SPAN_S before it (the thin lines' span
+ * rule), at no more than FINISH_PACE_X × its pace over the FINISH_PACE_S before (the fixtures: up to 1.6× from outside
+ * the zone, a boat surfing its last 50 m). Else its progress ends at that fix, a gap rather than a straight line from far
+ * off (J/105 CBC race 2: Good Trade's track ends 40 s and 113 m short of the line, in a hole).
+ */
+const FINISH_PACE_X = 2;
+const FINISH_PACE_S = 60;
+
+/** The angle between two lines' directions, 0–90°. */
+function lineAngleDeg(d: Vec, e: Vec): number {
+  const a = Math.abs(Math.atan2(d[0] * e[1] - d[1] * e[0], dot(d, e))) * (180 / Math.PI);
+  return Math.min(a, 180 - a);
+}
 
 /** Where a boat was at its finish time, m: between the fixes around it, else its last fix carried on at the speed from the fix before (fixes ≤ COACH_MAX_SPAN_S apart). */
 function finishPos(tr: CoachTrack, fin: number): Vec | null {
@@ -164,7 +188,8 @@ function fitLine(ps: Vec[]): { c: Vec; u: Vec } {
 /**
  * The finish line the chart measures the last leg to: the line through where the finishers were at their finish times
  * (tracks' last bound), fitted when at least FINISH_FIT_MIN of them lie on one (FINISH_FIT_SHARE within FINISH_FIT_OUT_M,
- * FINISH_FIT_SPREAD_M along it); else the feed's. The feed's line can be elsewhere: on the fixtures the finishers lie on a
+ * FINISH_FIT_SPREAD_M along it), within FINISH_FIT_MAX_TURN_DEG of the feed's angle and across the last leg
+ * (FINISH_FIT_MIN_ACROSS_DEG); else the feed's. The feed's line can be elsewhere: on the fixtures the finishers lie on a
  * line within ~1–4 m rms, 4–12 m from the feed's where it holds (J/105, J/24, Benelux), 77–384 m from it on J/70 Worlds
  * races 2 and 3, Melges 24 race 5 and Viper race 2.
  */
@@ -190,6 +215,10 @@ export function finishLine(c: Course, tracks: Iterable<CoachTrack>): Course['fin
   const lo = Math.min(...s);
   const hi = Math.max(...s);
   if (hi - lo < FINISH_FIT_SPREAD_M) return c.finish ?? null;
+  // Implausible: turned from the feed's line, or along the last leg rather than across it.
+  if (c.finish && lineAngleDeg(u, sub(c.finish.right, c.finish.left)) > FINISH_FIT_MAX_TURN_DEG) return c.finish;
+  const axis = sub(c.pts[n], c.pts[n - 1]);
+  if (len(axis) > 0 && lineAngleDeg(u, axis) < FINISH_FIT_MIN_ACROSS_DEG) return c.finish ?? null;
   return { left: [o[0] + lo * u[0], o[1] + lo * u[1]], right: [o[0] + hi * u[0], o[1] + hi * u[1]] };
 }
 
@@ -292,14 +321,46 @@ export function progressTrack(c: Course, lw: readonly LegWind[], tr: CoachTrack)
     step(t, leg, start[leg] + legAlong(c, lw, leg, [tr.x[i], tr.y[i]]), gap, false);
   }
   // The finish: the course's length at the finish time, from the last fix on the last leg (or a rounding into it timed
-  // in the hole before), through the finish zone's edge if that fix was short of it.
+  // in the hole before), through the finish zone's edge if that fix was short of it and near enough (reachesFinish).
   const total = start[n - 1] + lens[n - 1];
-  if (fin != null && prev && prev.t < fin && prev.leg === n - 1) {
+  if (fin != null && prev && prev.t < fin && prev.leg === n - 1 && reachesFinish(out, prev.t, fin, total)) {
     const gap = (fin - prev.t) / 1000;
     step(fin, n - 1, total, gap, true);
     push(fin, total, Math.max(hole, gap), 0, false);
   }
   return out;
+}
+
+/**
+ * Whether a boat whose records are `out` (last fix at `fixT`) is carried on to the course's length `total` at its finish
+ * time `fin`: from inside the finish zone always (the zone is linear in time by construction); from short of it only
+ * across at most COACH_MAX_SPAN_S, at no more than FINISH_PACE_X × its pace over the FINISH_PACE_S before.
+ */
+function reachesFinish(out: ProgressTrack, fixT: number, fin: number, total: number): boolean {
+  const m = out.t.length;
+  if (!m) return false;
+  const p = out.p[m - 1];
+  if (p >= total - FINISH_IN_M) return true;
+  if (fin - fixT > COACH_MAX_SPAN_S * 1000) return false;
+  let k = m - 1;
+  while (k > 0 && out.t[k - 1] >= out.t[m - 1] - FINISH_PACE_S * 1000) k--;
+  const span = out.t[m - 1] - out.t[k];
+  if (!(span > 0)) return false;
+  const pace = (p - out.p[k]) / span;
+  return (total - p) / (fin - out.t[m - 1]) <= FINISH_PACE_X * pace;
+}
+
+/** When the boat left leg `leg`'s rounding zone on the chart's course (ROUNDING_OUT_M down it: its record there), ms; null for the first leg, a leg that is all zone, or a boat that never got there. */
+export function zoneExitMs(m: GapModel, boat: string, leg: number): number | null {
+  const tr = m.tracks.get(boat);
+  if (!tr || leg < 1) return null;
+  const c = gapCache(m);
+  const lens = legLengths(c.course);
+  if (leg >= lens.length || ROUNDING_OUT_M > lens[leg] - (leg === lens.length - 1 ? 0 : ROUNDING_IN_M)) return null;
+  const pt = progressOf(c, tr);
+  const at = legStarts(lens)[leg] + ROUNDING_OUT_M;
+  const i = pt.p.indexOf(at);
+  return i >= 0 ? pt.t[i] : null;
 }
 
 /** The leg a course progress is on; a rounding zone counts to the leg it ends. */
@@ -423,6 +484,13 @@ function gapCache(m: GapModel): GapCache {
   return cache;
 }
 
+/** A boat's progress records on the chart's course, worked out once per model. */
+function progressOf(c: GapCache, tr: CoachTrack): ProgressTrack {
+  let pt = c.pts.get(tr.id);
+  if (!pt) c.pts.set(tr.id, (pt = progressTrack(c.course, c.lw, tr)));
+  return pt;
+}
+
 /** The course and leg winds the chart measures progress on: the model's, with the finish line where its finishers crossed it (finishLine). */
 export function gapCourse(m: GapModel): { course: Course; lw: LegWind[] } {
   const { course, lw } = gapCache(m);
@@ -439,11 +507,7 @@ export function groupGap(m: GapModel, boat: string, ids: readonly string[], from
   const me = m.tracks.get(boat);
   if (!me) return [];
   const c = gapCache(m);
-  const ptOf = (tr: CoachTrack): ProgressTrack => {
-    let pt = c.pts.get(tr.id);
-    if (!pt) c.pts.set(tr.id, (pt = progressTrack(c.course, c.lw, tr)));
-    return pt;
-  };
+  const ptOf = (tr: CoachTrack): ProgressTrack => progressOf(c, tr);
   const group = ids.map((id) => m.tracks.get(id)).filter((x): x is CoachTrack => !!x);
   const key = [boat, ...group.map((r) => r.id)].join('\n');
   let all = c.series.get(key);

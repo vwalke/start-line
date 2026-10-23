@@ -1,6 +1,7 @@
 /**
- * D10 · Last-leg pressure (spec §3). On the last leg — or, when the finish
- * falls in a hole, the last D10_TRACKED_MS of track on it — the change in gap
+ * D10 · Last-leg pressure (spec §3). On the last leg from when the boat left the last rounding's zone (timeGap.ts
+ * zoneExitMs: the rounding is D9's, and inside the zone the chart is linear in time by construction) — or, when the
+ * finish falls in a hole, the last D10_TRACKED_MS of track on it — the change in gap
  * to the boats that finished 1–2 places ahead, and the boat's speed against
  * the leaders'. Fires when some of them pulled D10_GAP_S or more further ahead
  * and finished under D10_AHEAD_S ahead. Seconds: the median over those boats,
@@ -10,6 +11,7 @@ import { MS_TO_KN, median } from '../../geo';
 import { finishRank } from '../../result';
 import { COVERAGE_GAP_S } from '../../coverage';
 import { COACH_MAX_SPAN_S, trackLegAt, type CoachTrack } from '../tracks';
+import { zoneExitMs } from '../timeGap';
 import { NOISE_BASE_S, coachCoverage, gapChange, reading, refCoverage, windOkShare, type GapReading, type Opportunity } from '../opportunity';
 import type { CoachCtx } from './context';
 
@@ -47,8 +49,11 @@ export function detectLastLeg(ctx: CoachCtx): Opportunity | null {
   const fin = ctx.me.finishMs;
   const tr = ctx.tr;
   if (p == null || fin == null || n < 1 || !tr.t.length) return null;
-  const from = legStart(tr, last);
-  if (from == null) return null;
+  const legFrom = legStart(tr, last);
+  if (legFrom == null) return null;
+  // Past the rounding zone: the leg, not the rounding (its record ROUNDING_OUT_M down the leg on the chart).
+  const out = zoneExitMs(ctx.m, ctx.boat, last);
+  const from = out != null && out > legFrom ? out : legFrom;
   const lastFix = tr.t[tr.t.length - 1];
   const inGap = fin - Math.min(lastFix, fin) > COVERAGE_GAP_S * 1000;
   const end = Math.min(lastFix, fin);
@@ -96,8 +101,9 @@ export function detectLastLeg(ctx: CoachCtx): Opportunity | null {
       da: byLoss[0].d,
       b: byLoss[1] ? ctx.nameOf(byLoss[1].id) : null,
       db: byLoss[1]?.d ?? null,
-      // How many of those two were behind the boat when the window starts (they caught up and passed: not "further ahead").
-      fromBehind: byLoss.slice(0, 2).filter((e) => e.behindAtStart).length,
+      // Each of those two: behind the boat when the window starts (it caught up and passed: not "further ahead"), 1 / 0.
+      aFromBehind: byLoss[0].behindAtStart ? 1 : 0,
+      bFromBehind: byLoss[1] ? (byLoss[1].behindAtStart ? 1 : 0) : null,
       mins: (t1 - t0) / 60_000,
       sog: meanSogKn(tr, t0, t1),
       ldrSog: ldrSogs.length ? median(ldrSogs) : null,

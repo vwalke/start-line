@@ -188,10 +188,11 @@ describe('Melges 24 R5 and J/24 R2: one side-of-course card a race, material lin
       }
       return { found, card, good };
     };
-    // M24 R5: 10 top-3 cards before (the unfavoured third); now found on 8 boats, 6 in their top 3 (5 before the finish was
-    // anchored to the finish times: 829's last-run card, 21 s, no longer fires and its D16 takes the slot). Went well: 17
+    // M24 R5: 10 top-3 cards before (the unfavoured third); now found on 8 boats, 5 in their top 3 (6 after the finish was
+    // anchored to the finish times: 829's last-run card, 21 s, no longer fired and its D16 took the slot; 5 since the last
+    // run starts at the rounding zone's exit: 613's last-run card, 18 → 23 s, takes its D16's, 14 s). Went well: 17
     // lines (14 before the cards read the chart's gap: 4 fewer legs "gained on the top 3" leave room for 3 more of these).
-    expect(tally(m24)).toEqual({ found: 8, card: 6, good: 17 });
+    expect(tally(m24)).toEqual({ found: 8, card: 5, good: 17 });
     // J/24 R2: none in PR #46's start-window wind (pin 1.5°); Beat 1's, RC 6.7°: found on 4, 2 in their top 3.
     expect(tally(j24)).toEqual({ found: 4, card: 2, good: 13 });
     for (const r of [m24, j24]) for (const b of r.a.boats) for (const c of debriefOf(r.a, r.m, b.id)!.cards) if (c.kind === 'D16') expect(c.seconds).toBeGreaterThanOrEqual(MIN_SECONDS[c.confidence]);

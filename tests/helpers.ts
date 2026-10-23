@@ -124,6 +124,22 @@ export const CASCAIS_RACES = {
 } as const;
 export const cascaisRace = (key: keyof typeof CASCAIS_RACES): RaceData => trimmedRace(`./fixtures/cascais_${key}.json`, CASCAIS_RACES[key].division, CASCAIS_RACES[key].raceNumber);
 
+/**
+ * Cascais race 3 with USA 833, TUR 442 and SWE 1121 at their native rate for the whole race, as the full feed has them
+ * (tests/fixtures/cascais_r3_native.json in place of their rows in cascais_r3.json): the full feed's USA 833 last-run case.
+ */
+export function cascaisR3Native(): RaceData {
+  const f = JSON.parse(readFileSync(here('./fixtures/cascais_r3.json'), 'utf8')) as Fixture;
+  const add = JSON.parse(readFileSync(here('./fixtures/cascais_r3_native.json'), 'utf8')) as { sails: string[]; telemetry: TelemetryPage };
+  const F = f.telemetry.Fields!;
+  const sail = F.indexOf('sail_number');
+  const ts = F.indexOf('ts');
+  const rows = [...f.telemetry.Rows!.filter((r) => !add.sails.includes(r[sail] as string)), ...add.telemetry.Rows!.map((r) => F.map((k) => r[add.telemetry.Fields!.indexOf(k)]))];
+  rows.sort((p, q) => (p[ts] as number) - (q[ts] as number));
+  const { division, raceNumber } = CASCAIS_RACES.r3;
+  return buildRaceData(f.regatta, { division, raceNumber }, [{ Fields: F, Rows: rows }], { eventId: f.eventId, kind: 'fixture', wind: f.wind ?? undefined });
+}
+
 /** A race through the app path: the analysis and the Coach's model. */
 export interface CoachRace {
   a: RaceAnalysis;

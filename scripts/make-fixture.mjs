@@ -231,6 +231,16 @@ const cascais = (race, pages) => ({
 });
 PRESETS['cascais-r2'] = cascais(2, ['tele_oRkxbTpSZPbSkrmKrbj2_Open_1788868971000_1788874882671.json', 'tele_oRkxbTpSZPbSkrmKrbj2_Open_1788872452599_1788874882671.json', 'tele_oRkxbTpSZPbSkrmKrbj2_Open_1788874799899_1788874882671.json']);
 PRESETS['cascais-r3'] = cascais(3, ['tele_oRkxbTpSZPbSkrmKrbj2_Open_1788875571000_1788881614727.json', 'tele_oRkxbTpSZPbSkrmKrbj2_Open_1788878734099_1788881614727.json', 'tele_oRkxbTpSZPbSkrmKrbj2_Open_1788881257899_1788881614727.json']);
+// The full feed's USA 833 race 3 case (the last-run card): those three boats at their native rate for the whole race, the
+// telemetry only; tests/helpers.ts cascaisR3Native puts them in place of their rows in cascais_r3.json.
+PRESETS['cascais-r3-native'] = {
+  ...PRESETS['cascais-r3'],
+  sails: ['USA 833', 'TUR 442', 'SWE 1121'],
+  keep: ['USA 833', 'TUR 442', 'SWE 1121'],
+  out: 'tests/fixtures/cascais_r3_native.json',
+  note: 'Trimmed from public RaceSense data: 2026 J/70 World Championship (Cascais), Open, race 3: USA 833, TUR 442 and SWE 1121 at their native rate for the whole race (telemetry only, no marks; tests/helpers.ts cascaisR3Native puts them in cascais_r3.json). See scripts/make-fixture.mjs --preset cascais-r3-native.',
+  teleOnly: true,
+};
 
 const args = process.argv.slice(2);
 const pi = args.indexOf('--preset');
@@ -397,6 +407,7 @@ for (const r of rows) {
   const isMark = r[idx.role] === 'mark';
   if (preset.sails && !isMark && !preset.sails.includes(r[idx.sail_number])) continue;
   if (isMark && courseSns && !courseSns.has(r[idx.sn])) continue;
+  if (isMark && preset.teleOnly) continue;
   const near = Math.abs(ts - gun) <= 60_000;
   const sail = r[idx.sail_number];
   // `dense`: stretches of race (ms from the gun) kept at a finer step for every boat (the first that holds `ts`).
@@ -428,7 +439,7 @@ for (const r of rows) {
   outRows.push(keep.map((f) => (preset.round && DP[f] != null && typeof r[idx[f]] === 'number' ? Number(r[idx[f]].toFixed(DP[f])) : r[idx[f]])));
 }
 
-const fixture = {
+const fixture = preset.teleOnly ? { note: preset.note, eventId: EVENT, sails: preset.sails, telemetry: { Fields: keep, Rows: outRows } } : {
   note: preset.note,
   eventId: EVENT,
   event: { eventId: EVENT, title: doc.name, ...preset.event_(doc) },
