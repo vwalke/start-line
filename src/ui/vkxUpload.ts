@@ -151,7 +151,7 @@ export function barHtml(o: {
     "Add your boat's own Vakaros log (.vkx, from Vakaros Connect) to replace its gappy public track with the full-rate one.",
     'Shared publicly: everyone viewing this race sees the uploaded track.',
     "The log is matched to its boat by following that boat's public track (median within 5 m), checked here and again on the server; a log that follows no boat is refused.",
-    'Analysed at 5 Hz around the start and 1 Hz elsewhere, so one dense log never outweighs the fleet; kept at the full rate.',
+    'Analyzed at 5 Hz around the start and 1 Hz elsewhere, so one dense log never outweighs the fleet; kept at the full rate.',
   ];
   for (const l of o.logs) {
     items.push(chipLi({ text: `${l.sail} · from boat log · ${l.rateHz} Hz` }));

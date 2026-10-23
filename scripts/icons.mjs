@@ -146,8 +146,9 @@ function ico(images) {
 const manifest = {
   name: 'Recall',
   short_name: 'Recall',
-  description: `${subTitle} A lean start and leg digest from Vakaros RaceSense public data.`,
-  start_url: '/',
+  description: `${subTitle} Recall reads the public Vakaros RaceSense feeds.`,
+  // The app (the landing page is `/`): a home-screen launch reopens the last race (src/landing/route.ts).
+  start_url: '/regattas',
   scope: '/',
   display: 'standalone',
   theme_color: CARBON,
@@ -186,7 +187,7 @@ if (check) {
   mkdirSync(join(publicDir, 'apps'), { recursive: true });
   for (const [name, data] of files) writeFileSync(join(publicDir, name), data);
   console.log(
-    `Maskable: artwork centred on ${cx.toFixed(1)},${cy.toFixed(1)}, reach ${reach.toFixed(1)} px, ` +
+    `Maskable: artwork centered on ${cx.toFixed(1)},${cy.toFixed(1)}, reach ${reach.toFixed(1)} px, ` +
       `scale ${MASKABLE_SCALE} -> ${maskableReach.toFixed(1)} px of 204.8`,
   );
   console.log(`Wrote ${files.length} files:\n  ${files.map(([name]) => `public/${name}`).join('\n  ')}`);

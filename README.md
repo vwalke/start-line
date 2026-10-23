@@ -9,9 +9,25 @@ what decided the race.
 A [Walke Forward](https://walkeforward.com) project, sibling to
 [Rail Math](https://railmath.walkeforward.com).
 
+## Pages
+
+- **`/`** with no app parameters: the landing page (static HTML in `index.html`, `#landing`; what Recall
+  does, pricing, where the data comes from, the other Walke Forward apps). It loads none of the app and
+  fetches nothing from RaceSense; with a race viewed before, it offers "Continue: <event · race>" (to
+  `/regattas`). The hero, `public/landing-hero.svg`, is a real race drawn by `node scripts/landing-hero.mjs`
+  from `tests/fixtures/j105_r3.json` (sail numbers only); a test fails when it is stale.
+- **`/regattas`**: the app's event picker, as `/` used to be (reopens the last race viewed, else the latest).
+  The installed web app starts here.
+- **Every other URL** is the app, unchanged: any `/` link with an app parameter (`event`, `div`, `race`,
+  `nc`, `ys`, `ysc`, `boat`, `grp`, `cview`, `t`, `trail`, `report`, `buy`, `checkout`, `signin`, …: anything
+  but `utm_*`-style tagging) or hash (`#start`, `#race`, `#coach`, `#report`). The rule is
+  `src/landing/route.ts` `routeOf`, mirrored by an inline script in `index.html` so the right page shows
+  before first paint. Cloudflare Pages serves `index.html` for `/regattas` (no `404.html`: single-page
+  fallback), so there is no `_redirects`.
+
 ## What it shows
 
-The masthead's sub-title, "Your race, start to finish.", is written once, in
+The masthead's sub-title, "Replays and debriefs for RaceSense races.", is written once, in
 `index.html` (`<p class="tag">`); `npm run icons` copies it into the web
 manifest's description. Under the race title one line gives the gun on the
 venue's clock, marked `(local)` (and your own clock when it differs), the
@@ -37,7 +53,7 @@ are shared by all three.
     rival got as far along the course. On beats and runs "how far" is the
     share of the leg's wind ladder climbed, along one wind for the whole leg
     (the fleet's mean on it), scaled to the rhumb length, so a leg skewed to
-    the wind doesn't favour one tack or gybe; on reaches, distance made good
+    the wind doesn't favor one tack or gybe; on reaches, distance made good
     along the rhumb line. A rounding is a zone from `ROUNDING_IN_M` = 30 m
     before the mark to `ROUNDING_OUT_M` = 30 m down the next leg, crossed
     linearly in time by every boat, so roundings neither spike nor break the
@@ -80,7 +96,7 @@ are shared by all three.
     (best R2 Beat 2, 55 s)"); the ranked table of recurring findings; best
     and worst legs by type against the fleet's median leg time. All by fixed
     rules (no AI). A race with tracker coverage under 80 % is shown and marked
-    ⚠, its seconds weighted down in proportion. The races are analysed on
+    ⚠, its seconds weighted down in proportion. The races are analyzed on
     first opening, one at a time on a second worker (`src/ui/coachRegatta.ts`,
     `src/analysis/coach/regatta.ts`) with progress, and cached for the visit;
     the race on screen is never held up.
@@ -136,7 +152,7 @@ are shared by all three.
     early-lane card (D3), or a card of its own when the gap to the top 3 grew
     15 s or more over the shadowed stretches.
   - **D11 heel** (`heel.ts`): the boat's leeward heel (the tracker's roll,
-    manoeuvres blanked, as the Heel column) against the top 3's in matched
+    maneuvers blanked, as the Heel column) against the top 3's in matched
     2-minute windows on the same leg (same minutes, same breeze); the boats
     just ahead when the top 3 give fewer than 3 windows (medium at most, "no
     leader heel data"). A window needs 8+ heel fixes and roll over half of it
@@ -169,7 +185,7 @@ are shared by all three.
     heading change integrated one way round, never across a hole (> 6 s) or an
     ambiguous step (> 135°); a run ends when the boat turns back 20° or pauses
     10 s, and splits wherever 8 s of it changes course under 20° (a tack and a
-    gybe with straight sailing between are two manoeuvres). 300° within 60 s is
+    gybe with straight sailing between are two maneuvers). 300° within 60 s is
     a 360, 660° within 120 s a 720; 6 heading samples per turn, ≥ 1.5 kn, never
     within 130 m of a mark, only from the boat's start crossing (never before the
     gun) to its finish. Seconds lost: its speed (mean over 30 s before) and course
@@ -185,19 +201,19 @@ are shared by all three.
     the geometry (never the feed's gateLeft/gateRight: those are looking
     downwind): the nearer at its closest approach, when clearly nearer (≤ 0.6 of
     the other) with fixes ≤ 6 s apart around it. The wind at the gate is the
-    fleet's tack bisector on the beat after it; the upper buoy is favoured when it
+    fleet's tack bisector on the beat after it; the upper buoy is favored when it
     is ≥ max(10 m, 1.5 lengths) higher and worth ≥ 6 s (beat + run VMG), and
     confirmed when the boats rounding it were quicker from 150 m above the gate on
-    the run to 300 m up the beat, by ≥ half that. The unfavoured buoy, ≥ 5 s slower
+    the run to 300 m up the beat, by ≥ half that. The unfavored buoy, ≥ 5 s slower
     than the other side's boats rounding within 3 min, is a card ("Leeward gate:
     took the left mark (looking upwind) — 17 m further downwind, about 9 s on the
     beat. Boats rounding the right mark at the same time were 46 s quicker 300 m up
     the beat; you lost 10 places."); seconds = the side difference, high / medium
     (under 5 boats a side) / low (the wind moved 10°+ around the rounding). No card
-    when the favoured buoy was busy (3+ boats in the 20 s before, and they were no
+    when the favored buoy was busy (3+ boats in the 20 s before, and they were no
     quicker), for a stop (1.6× the median passage) or a penalty turn in the
     passage; the next beat's side paying nets the cost ("net −12 s", or a ➕).
-    The favoured buoy and 2+ places gained is a Went well line. D9's sparse-data
+    The favored buoy and 2+ places gained is a Went well line. D9's sparse-data
     places at the same rounding ride on the card. "Gate L/R" on the legs table and
     the leg story; a gate-choice subtheme of the leeward roundings in the Regatta
     view. J/24 Nationals R2/R5 fire; J/111, IC37 and Melges 24 gates don't.
@@ -222,69 +238,69 @@ are shared by all three.
     dense and sparse tracks compare like for like: SOG = distance ÷ time read, VMG =
     progress along the wind ÷ time read. A card when the boat was at least as fast
     as the fleet's median but 5 %+ lower in VMG, sailing 5 %+ more distance per
-    metre made good, with half its leg read and 8+ boats to compare ("Fast but not
+    meter made good, with half its leg read and 8+ boats to compare ("Fast but not
     climbing on Beat 2: 5.9 vs 5.7 kn, VMG 4.1 vs 4.4 kn, 44° vs fleet 40°");
     seconds = the VMG deficit × the leg time, like D6. As fast and 8 %+ better VMG
     on no longer a path is a Went well line. D6 / D7's ✓ leaves out a leg where
     the VMG and the path say the boat went nowhere, so "pointing" is never called
     fine against the distance sailed.
   - **D16 line bias** (`lineBias.ts`): with the start line 6°+ off square to the
-    wind at the gun (at 6° the favoured end is about a tenth of the line further
+    wind at the gun (at 6° the favored end is about a tenth of the line further
     upwind), each start is measured against the fleet's median start along the
     line (5+ boats with a position at the gun, not over early). The
-    distance beyond the median toward the unfavoured end × sin(bias) is the
+    distance beyond the median toward the unfavored end × sin(bias) is the
     ground given away on the fleet, ÷ the fleet's VMG on Beat 1 the seconds.
-    Beyond the median with 10 s or more given away: a start card ("Pin favoured
+    Beyond the median with 10 s or more given away: a start card ("Pin favored
     6° (~100 m over the line). You started 420 m toward the committee boat from
     the fleet's median start: ≈ 40 m upwind, about 18 s"), its confidence the
-    wind's at the gun (so a medium-confidence wind needs 20 s); in the favoured third and at or toward the favoured end
-    of the median: a Went well line ("Start: pin end favoured 7° (~120 m) and
+    wind's at the gun (so a medium-confidence wind needs 20 s); in the favored third and at or toward the favored end
+    of the median: a Went well line ("Start: pin end favored 7° (~120 m) and
     you started 300 m toward the pin from the fleet's median start (≈ 36 m
     upwind)", seconds gained on the median); anywhere else, nothing. A fleet
-    that mostly started at the unfavoured end gives few cards: only boats well
+    that mostly started at the unfavored end gives few cards: only boats well
     beyond it. Needs the boat's position at the gun (read, or estimated across
     a short hole); not for a boat over early. The Report's start section shows
     the line bias too.
-  - **D17 manoeuvre cost** (`manoeuvreCost.ts`): each tack on a beat and gybe
+  - **D17 maneuver cost** (`manoeuvreCost.ts`): each tack on a beat and gybe
     on a run (the legs table's detection) against the boat's own steady
     sailing just before it: the VMG over up to 25 s (at least 15 s) ending
     8 s before the head-to-wind (dead-downwind) crossing is the baseline; from
     there to 30 s after the crossing (40 s for a gybe) the ground it would
-    have made at that VMG less what it made is the metres lost, ÷ the VMG the
+    have made at that VMG less what it made is the meters lost, ÷ the VMG the
     seconds. Only on dense fixes: no gap over 10 s across the whole stretch
     and a fix within 5 s of each end (a turn across a 5–10 s gap is measured;
     it only leaves the leg's count untrusted). The steady window starts 20 s
-    after the previous manoeuvre and 30 s into the leg (back to full speed:
+    after the previous maneuver and 30 s into the leg (back to full speed:
     the median tack is at 99% of its VMG 15–20 s after the crossing, the
     median beat level 30 s after a leeward rounding), with no other
-    manoeuvre before the recovery's end, at a baseline VMG of 0.5 m/s or
+    maneuver before the recovery's end, at a baseline VMG of 0.5 m/s or
     more, ending 15 s before the next rounding. A run's gybe-set is the
     rounding's (the leg story's window: up to 30 s after first sailing
     downwind, past an offset mark), never counted or measured as a gybe of
     the run, for any boat. Per leg the boat's measured turns (3+, or 2
     against 10+ other boats measured, each of the two then judged) against
-    the fleet's: one median per other boat (5+ boats, 10+ manoeuvres), the
+    the fleet's: one median per other boat (5+ boats, 10+ maneuvers), the
     fleet's figure the median of those; and its count against the fleet's
     median count where both counts are trusted (80 %+ of the leg tracked,
-    none across a gap). Only what was measured is charged: extra metres =
-    the sum over the measured turns of (metres − the fleet's) + (with many
-    more turns than the fleet) the extra count × the fleet's metres a turn.
+    none across a gap). Only what was measured is charged: extra meters =
+    the sum over the measured turns of (meters − the fleet's) + (with many
+    more turns than the fleet) the extra count × the fleet's meters a turn.
     A card when that is 25 m or 10 s or more and the median is costly (1.3×
-    the fleet's, 4 m more, and 2 standard errors more: one manoeuvre's metres
+    the fleet's, 4 m more, and 2 standard errors more: one maneuver's meters
     swing with the puffs, so the difference is judged against the boat's
     turn-to-turn spread over its measured and the spread of the boats'
     medians over the boats) or the count is well above the fleet's (2 more
     and 1.5×) ("Costly tacks on Beat 2: your tacks cost ~17 m each (~7 s),
     the fleet's ~5 m: ~36 m lost on the fleet over the 3 of 6 measured"; a
     count says "You tacked 9 times, the fleet 5 times: 4 extra × the fleet's
-    ~5 m a tack = ~20 m"). Seconds = extra metres ÷ the boat's VMG; the
+    ~5 m a tack = ~20 m"). Seconds = extra meters ÷ the boat's VMG; the
     card's window is the measured turns' own stretches, so a rate finding on
     the leg (D6, D15) gives up only those. Confidence: the coverage of those
     stretches (and the leg's, for a count), the fleet's boats with 3+
     measured, the wind; medium under 5 measured, which needs 10 s (not 20 s:
     measured turn by turn, its own test stands for the noise). The ⚠ chip
-    says "few manoeuvres measured" or "few boats measured". One card a race
-    per kind of manoeuvre (the leg that cost the most, the others on it as
+    says "few maneuvers measured" or "few boats measured". One card a race
+    per kind of maneuver (the leg that cost the most, the others on it as
     "Also on …"). A median 0.7× the fleet's or better (4 m and 2 standard
     errors less) worth 10 s or more over the measured is a Went well line
     ("Beat 2: tacks ~0 m each vs fleet ~14 m (3 measured)"). The Report's
@@ -295,7 +311,7 @@ are shared by all three.
     Cascais J/70 R2, the whole feed, 282 turns are measured fleet-wide but
     no leg has a costly enough one, so no card; on the committed fixtures
     one finding (J/24 R2) and two Went well lines. An uploaded log measures
-    every manoeuvre.
+    every maneuver.
   - **Regatta view, Penalties:** a row above the pattern cards, one line per code
     ("DPI in 8 of 8 races · 24 penalty points · ≈ 24 places", "UFD in 1 of 8 races
     (R3) · 16 points; result lost") and penalty turns ("Penalty turns in 2 of 8
@@ -348,7 +364,7 @@ are shared by all three.
   the estimated place at the gun when the start place is unranked, the line bias, line position, place over the line and front row, over early and when it
   cleared, the start card), leg by leg (places in → out of the fixed fleet, time
   against the Coach's group, SOG and VMG against the group's median, tacks /
-  gybes with D17's measured cost a manoeuvre, side, gate buoy, data), roundings and gates (D9 / D13), penalties (the
+  gybes with D17's measured cost a maneuver, side, gate buoy, data), roundings and gates (D9 / D13), penalties (the
   code, penalty turns), and the Coach's penalty card, ranked findings (its order
   and seconds), Went well and the cards' tips as things to work on; a small track
   map. Only figures Recall already works out: what the data lacks is `—` with a
@@ -370,28 +386,28 @@ Switching races keeps the tab.
 - **Start at the gun:** each boat's bow (GPS tracker + class bow offset)
   against the line with a 60 s trail (`START_TRAIL_MS`) shifted so it ends on
   that bow, arrows along course over ground, plus the line length and bias and
-  which end was favoured. Wind bearings display as 0° rather than 360°.
+  which end was favored. Wind bearings display as 0° rather than 360°.
   Hulls are drawn to scale when the class is known (division `boatClass`,
   then division name, then the event's class label; e.g. Cape 31 = C31,
   9.55 m); otherwise the key line says `hulls not to scale` (and the ⓘ why).
-  The line continues dashed past each end, and the favoured end is labelled
-  with its bias in degrees and metres (and boat lengths when the class is
-  known), e.g. `Pin favoured 7° · 18 m (1.9 lengths)`, or `Square line`
-  within 2 m. The label is small text running along the favoured end's
+  The line continues dashed past each end, and the favored end is labeled
+  with its bias in degrees and meters (and boat lengths when the class is
+  known), e.g. `Pin favored 7° · 18 m (1.9 lengths)`, or `Square line`
+  within 2 m. The label is small text running along the favored end's
   dashed extension, starting a clear gap past the pin or RC mark and sitting
   just above the line: "above" is screen-up once the text is turned upright
   (it flips 180° rather than read upside down), which with the wind at the
   top is the course side, away from the boats. It scales with the view like
   the boat names, so it reads the same at every zoom. It always takes the
-  longest wording that fits on the extension and keeps the metres:
-  `Pin favoured 7° · 18 m (1.9 lengths)`, then `Pin favoured 7° · 18 m`,
+  longest wording that fits on the extension and keeps the meters:
+  `Pin favored 7° · 18 m (1.9 lengths)`, then `Pin favored 7° · 18 m`,
   `Pin fav. 7° · 18 m`, `Pin 7° · 18 m`. The Fit view leaves room past the
-  favoured end for one of those: `Pin favoured 7° · 18 m` on a wide chart
+  favored end for one of those: `Pin favored 7° · 18 m` on a wide chart
   (the frame grows up to 25%), and on a chart under 480 px wide, where the
   text is larger, the longest that fits with the frame grown up to 35% (that
   frame changes only when the chart crosses 480 px). The lengths join when
   zoomed in. Only if none fits does the label run along the line inward from
-  that end (as `Pin 7°` at worst). `Square line` sits centred along the line.
+  that end (as `Pin 7°` at worst). `Square line` sits centered along the line.
   The wind chip (`wind est. (medium)`) and the label's tooltip give the wind
   source (the fleet's tacks 0:30–3:30 after the gun or on the first
   beat, the weather model, or first leg assumed upwind) and a
@@ -425,10 +441,10 @@ Switching races keeps the tab.
   pads): boats away from the line, and points more than 3× the line's length
   (at least 400 m) from its middle, so one stray boat can't blow the view
   up. The map keeps that extent's aspect, full width, its height capped on
-  a desktop (60vh, 560 px; 70vh on a phone) and centred. Text (sail labels
+  a desktop (60vh, 560 px; 70vh on a phone) and centered. Text (sail labels
   13 / 12 px), dots and strokes stay the same size on screen at any map
   size: strokes are non-scaling, and text and dots are sized from the map's
-  measured px per metre (re-measured on resize). The true wind is a small
+  measured px per meter (re-measured on resize). The true wind is a small
   badge over the map's top-right corner, outside the map: an arrow pointing
   downwind and the TWD with its source (`TWD ~18° est.` from the fleet's
   tacks, `TWD 18° (model)`, `TWD ~18° assumed` from the course). The wind
@@ -436,7 +452,7 @@ Switching races keeps the tab.
   arrow points straight down. With no wind estimate the view is north up
   and the wind is assumed square to the line, blowing from the course side
   (`Wind assumed ⟂ line`, a dashed arrow turned that way). No mark is drawn. The selected boat and its Coach group (Top 3 by
-  default) are highlighted and labelled, the rest faded. Positions are the
+  default) are highlighted and labeled, the rest faded. Positions are the
   track map scrubber's: interpolated across short steps, held hollow for up
   to 5 s in a gap, else the boat is missing at that second (never placed);
   trails break at gaps. A boat within 1 s of a fix where the scrubber has
@@ -481,8 +497,8 @@ Switching races keeps the tab.
 - **Full screen** (`ui/fullscreen.ts`): the expand button at the top right
   of the start chart, the track map and the place changes cards opens that
   chart over the whole viewport, with its own controls in a compact top bar
-  (start chart: Fit / 2× / 4× / 8×, Colour, Names; map: the leg picker and
-  Colour) and its key (the speed scale, or each boat's colour for a fleet of
+  (start chart: Fit / 2× / 4× / 8×, Color, Names; map: the leg picker and
+  Color) and its key (the speed scale, or each boat's color for a fleet of
   up to eight) with the card's key line and ⓘ, as inline. Pinch, pan and tap-to-select
   work as inline, and the selected boat, zoom and Names are shared with the
   page, so they carry in and back out. The overlay is a fixed layer
@@ -498,13 +514,13 @@ Switching races keeps the tab.
   scroll position is restored), Tab stays inside, and focus returns to the
   expand button on close. In full screen the start chart's Fit
   (`startFullFrame`) frames the line and the bows at the gun with margins
-  for the names and the favoured-end label, then grows to the screen's own
+  for the names and the favored-end label, then grows to the screen's own
   aspect, so the fleet fills the width. The spare height always goes below
   the line, to the trails (the line sits near the top under just its margin
   for names, PIN/RC and the wind arrow). Text stays ~10 px at any size, so a
   big screen draws the hulls to scale. Inline, Fit also takes in every trail
   near the line and the chart keeps that frame's aspect, so a long line on a
-  phone is a thin strip (a 500 m line is ~0.5 px per metre at 390 px); in
+  phone is a thin strip (a 500 m line is ~0.5 px per meter at 390 px); in
   landscape full screen the same start is drawn about 2.5× larger. In
   portrait, a wide start shows a dismissible "Rotate to landscape for a
   bigger view" (the orientation is never forced); the chart is redrawn on
@@ -516,7 +532,7 @@ Switching races keeps the tab.
   (Chrome resets both on its way out), and again on the next frame.
 - **Speed through the start** (Start tab, after the start chart;
   `analysis/startSog.ts`, `ui/startSog.ts`): each racing boat's speed over
-  ground (the same 4 s mean the speed-coloured tracks use) against seconds
+  ground (the same 4 s mean the speed-colored tracks use) against seconds
   from the gun, with the gun as a dashed line. `Window: 30 s | 60 s | 120 s`
   sets how far before the gun it starts (it always runs to +20 s; remembered
   in `recall.startSogWindow`, default 60). The analysis keeps every fix from
@@ -524,7 +540,7 @@ Switching races keeps the tab.
   before the gun to allow for it; if no boat's track goes back as far as the
   window, the chart starts at the earliest data and a ⚠ chip says so.
   A line breaks wherever a boat's fixes are more than 5 s apart (the same
-  threshold as the distance `~` and Data %), with a grey dashed join, so a
+  threshold as the distance `~` and Data %), with a gray dashed join, so a
   hole is never drawn as a speed; hovering inside one shows nothing. A dot
   marks where each boat crossed the line (the start table's Late) and its
   speed then ("crossed +2.6 s at 5.3 kn"). Hover or tap for the speed under
@@ -536,11 +552,11 @@ Switching races keeps the tab.
   speed at the gun, TWA at the gun and heel at the gun, with each boat's start
   caveats listed under it.
 - **Legs by boat** (Race tab, a table after the map, place changes and race findings): finish place,
-  start place, then per leg VMG, SOG, TWA, heel, distance sailed (metres), leg time
+  start place, then per leg VMG, SOG, TWA, heel, distance sailed (meters), leg time
   with the place at the mark, tacks (on beats) or gybes (on runs; both on
   reaches) and Data %; then the same for **Upwind** and **Downwind**, then the
   race: distance, race and finish time, average SOG, tacks, gybes and Data %.
-  Distances are whole metres with a thin-space thousands separator
+  Distances are whole meters with a thin-space thousands separator
   (`12 345`). Distance sums the GPS track point to point; where fixes are
   more than 5 s apart it's shown as `~` (approximate), and so is a tack or
   gybe count where one bridges a gap, and a leg time whose rounding falls in
@@ -556,11 +572,11 @@ Switching races keeps the tab.
   with a time there, with equal times kept in the legs table's order; Finish
   is the finish order. A boat with no rounding time at a mark (a telemetry
   gap) is left out of that mark's order, so the others close up, and its line
-  is dashed grey across it; nothing is guessed. A DNF's line stops at the
-  last mark reached and is labelled "DNF" there. Boats set aside as not
+  is dashed gray across it; nothing is guessed. A DNF's line stops at the
+  last mark reached and is labeled "DNF" there. Boats set aside as not
   racing are not drawn. When the legs come from where the fleet turned (no
   mark trackers) the marks are those turns; a one-leg race is Start → Finish.
-  Lines use the boat colours (past eight boats the colours repeat; the
+  Lines use the boat colors (past eight boats the colors repeat; the
   labels at the right, "1 Savasana", name them). Hover or tap a dot for
   "#GER42 · Gate: 3rd (+2)": the place there and the places gained (+) or
   lost (−) since the boat's last place. Tap a line, dot or name to select the
@@ -577,7 +593,7 @@ Switching races keeps the tab.
   time, VMG, |TWA| and coverage weighted by leg time, heel time-weighted over
   every fix it rests on across those legs, tacks and gybes summed,
   and a place by total time among boats that sailed every leg of that kind
-  (ties share a place). A boat missing one gets a partial sum, shown in grey
+  (ties share a place). A boat missing one gets a partial sum, shown in gray
   italics as "partial 1/2", and no place.
 - **Tacks and gybes** (`analysis/manoeuvres.ts`): from the GPS track gun →
   finish (plus 30 s before the gun, to know the side held at the start).
@@ -588,7 +604,7 @@ Switching races keeps the tab.
   GPS jitter and drifting never count. A change of side is a tack if the TWA
   went through head-to-wind and a gybe if it went through dead downwind; a
   full circle back to the same side (a penalty turn) is neither. Bearing away
-  or rounding up at a mark on the same side is not a manoeuvre; a gybe-set or
+  or rounding up at a mark on the same side is not a maneuver; a gybe-set or
   a tack around a mark is, and within 15 s of the rounding it is counted on
   the leg it belongs to (a gybe on the run, a tack on the beat). A side change
   across a telemetry hole (> 5 s) is counted but marked approximate (`~`).
@@ -611,7 +627,7 @@ Switching races keeps the tab.
   is read and averaged per leg but not shown: it carries each tracker's own
   mounting angle (boats in one fleet sit 13° apart on every leg), so it
   doesn't compare between boats.
-  With no fixes for minutes at a time, manoeuvres inside the hole can't be
+  With no fixes for minutes at a time, maneuvers inside the hole can't be
   seen at all; the coverage figure says when that is likely.
 - **Data coverage:** the share of each leg (and of the race) where the boat's
   fixes are at most 5 s apart, and the longest interval between fixes. Below
@@ -628,29 +644,29 @@ Switching races keeps the tab.
   sorted column in short ("Up VMG", "B1 SOG", "Race Time"). In finish
   order (no sort) it is hidden: Fin already gives that order, and a phone
   keeps the width.
-- **Tracks by leg:** a map in local metres (no map tiles), rotated so the wind
+- **Tracks by leg:** a map in local meters (no map tiles), rotated so the wind
   comes from the top. The legend picks one leg and zooms the map to it.
-- **Colour tracks:** `Colour: Leg | Rank | Boat speed` beside the legend.
+- **Color tracks:** `Color: Leg | Rank | Boat speed` beside the legend.
   Rank is the elapsed-time scale (reversed plasma: yellow = fastest, through
   orange and magenta to purple = slowest). Rank also sets opacity and width:
   the top 3 bold and on top, the rest of the top quartile strong, the slower
-  half faint; grey dashed = didn't complete. On one leg it ranks that leg; on
+  half faint; gray dashed = didn't complete. On one leg it ranks that leg; on
   the whole race it ranks each leg's segment on that leg, or the whole track
-  by race time (`Rank by: Overall`). `Highlight: Top 3 / Top 10` greys out
-  everyone else and spreads the colours over just those. Boat speed shades
+  by race time (`Rank by: Overall`). `Highlight: Top 3 / Top 10` grays out
+  everyone else and spreads the colors over just those. Boat speed shades
   every stretch of track by that boat's own speed over ground (4 s mean,
-  viridis: dark purple slow, through teal, to yellow-green fast; grey dashed
+  viridis: dark purple slow, through teal, to yellow-green fast; gray dashed
   = telemetry gap). The scale is the fleet's 5th–95th percentile. On the
-  whole race, `Scale: Per leg` (the default) stretches colours over each
+  whole race, `Scale: Per leg` (the default) stretches colors over each
   leg's own spread so beats aren't all dark next to planing runs; `Whole
   race` uses one knot range for every leg. Hover a track for the boat, local
-  time, SOG and leg. The start chart has its own `Colour: Boat | Speed`:
+  time, SOG and leg. The start chart has its own `Color: Boat | Speed`:
   Speed paints the 60 s trails and the hulls (SOG at the gun). Selecting a
-  boat draws it bold. A picked coach or spare stays grey and dashed and is
+  boat draws it bold. A picked coach or spare stays gray and dashed and is
   left out of the scale. The choices (and the start chart's `Names`) are
   remembered in this browser.
 - **Findings:** plain-English notes, split in two. **Start findings** sit
-  under the start chart: the favoured end (in degrees and metres), the best
+  under the start chart: the favored end (in degrees and meters), the best
   start beside the worst, and boats over the line or that race control
   couldn't check. Best and worst are the first and last clean starters by
   start place (one boat each, no ties); boats over early or away from the line
@@ -723,7 +739,7 @@ CAP = high ∞, medium ∞, low 60 s                        (IMPACT_CAP_S; LOW_I
 - **The top 3**: at most 2 from one detector (MAX_PER_KIND; penalty turns
   exempt): a third is passed over before it claims any seconds and the next
   card of another detector takes the slot. The side of the course (D14) is one
-  card a race, D17 one a kind of manoeuvre, before ranking. Shown in impact
+  card a race, D17 one a kind of maneuver, before ranking. Shown in impact
   order: a penalty turn is taken first but shows where its impact puts it. An
   official code (OCS, DPI, …) is the penalty card, pinned above the ranked
   ones. The Regatta view ranks the same way, uncapped.
@@ -734,7 +750,7 @@ CAP = high ∞, medium ∞, low 60 s                        (IMPACT_CAP_S; LOW_I
 |---|---|---|
 | `racesense.vakaros.com/api/landing` | event list | via our `/api` proxy (no CORS upstream) |
 | `racesense.vakaros.com/api/regatta?event=` | divisions, entries, course & mark trackers, gun time, start line at the gun, OCS, race-control DTL, finishes | via `/api` proxy |
-| `racesense.vakaros.com/api/wind?v=3&…` | modelled wind, used only to cross-check | via `/api` proxy |
+| `racesense.vakaros.com/api/wind?v=3&…` | modeled wind, used only to cross-check | via `/api` proxy |
 | `teleapi.regatta.app/telemetry/event/{id}` | ~5 Hz GPS tracks for boats and marks, with heel (`roll`) and trim (`pitch`), and each device's `race_number` / `race_stage` | via `/api/telemetry/event/{id}` (same-origin proxy; one race window, paginated with `after`) |
 | `api.yachtscoring.com/v1/public/…` | official race numbers, places, codes and (if plausible) finish times | via `/api/ys/…` (allowlisted, owner/crew fields stripped, edge-cached) |
 
@@ -760,7 +776,7 @@ CAP = high ∞, medium ∞, low 60 s                        (IMPACT_CAP_S; LOW_I
   say which was used. If there isn't enough
   upwind data, the app falls back to the weather model, or failing that,
   assumes the first leg is dead upwind, and says so. Every TWA and VMG figure
-  is therefore an estimate and is labelled that way.
+  is therefore an estimate and is labeled that way.
 - **Legs** are split at each boat's closest approach to the mark trackers,
   using a 90 s window that opens when the boat first comes within 45 m. Mark
   positions are followed over time, because committees re-lay marks between
@@ -854,7 +870,7 @@ next class. An automatically matched event must also beat the next candidate by
   RET, OCS, TLE, NSC, DNS, DNC, DNE, and DSQ / UFD / BFD without a finish time,
   score as not finishing. Where the app orders boats by how they sailed (the boat
   order, the places chart's finish, the leg story's finish column, the Coach's
-  groups, D5 / D10's boats ahead) a penalised finisher sits at its on-water place
+  groups, D5 / D10's boats ahead) a penalized finisher sits at its on-water place
   (`finishRank`, `src/analysis/result.ts`); where it shows the result (header
   chip, Fin column, boat list, Regatta places) it shows the code with its points
   ("DPI 15", "12th on the water" in the title). Findings text and the winner use
@@ -884,7 +900,7 @@ next class. An automatically matched event must also beat the next candidate by
   DNC that sat 4.9 km off.
 - **Start Fit:** boats whose |DTL| is over ~300 m (or 4× the fleet's 80th
   percentile) are listed as away from the line and left out of Fit and start
-  places, so one late boat kilometres out cannot collapse the chart.
+  places, so one late boat kilometers out cannot collapse the chart.
 
 **Rebuilt races**, `src/data/orphans.ts`: races the tracks show but RaceSense
 doesn't list.
@@ -958,7 +974,7 @@ so each is checked before it's used (`src/data/racesense/adapter.ts`,
 - **Gaps in our check.** The public track is about 2 Hz but loses points near
   the gun. Our figure is interpolated across the gap if the nearest real point
   is more than 2 s from our sample, or if the hole bracketing the sample is
-  longer than 5 s (even when a neighbour is within 2 s). It is shown greyed
+  longer than 5 s (even when a neighbor is within 2 s). It is shown grayed
   with a `~`, never ranked, and has no Late (s).
 - **Disagreement.** If both figures are valid and differ by more than 3 m,
   the Vakaros value gets a ⚠. If Vakaros has no usable fix and our figure is
@@ -1100,7 +1116,7 @@ with them:
 | Route | |
 | --- | --- |
 | `POST /api/vkx/upload` | body = one gzipped payload, `content-type: application/octet-stream`, ≤ 2 MB (413; 415 for another type). It is decoded with the client's code (12 MB unpacked cap) and validated: ids (400), then the samples (422). Timestamps must strictly increase, positions be in range, SOG ≤ 25 m/s, at most 0.1% of steps faster than 25 m/s (+10 m slack), rate ≤ 20 Hz, span 1 min–5 h, gun inside the window, and the header must agree with the body. Then the **anti-fake check**: the same 8 × 50 s windows of the device's feed are fetched from teleapi.regatta.app (same host and UA as the proxy, at most 8 GETs, stopping once 30 fixes agree), and the median must be < 5 m (422 `mismatch` / `too-few`), and that device must sail under the payload's sail number in the feed (422 `sail`: the client merges by sail). If teleapi can't be reached, 503 and nothing is stored. Newest wins per event/division/race/boat; the one replaced is kept as `.prev` (one level), unless the same uploader replaces their own (`x-replace-token`). Returns the delete token once. |
-| `GET /api/vkx/list?event&div[&race]` | the current uploads (boat, race, rate, counts, span, uploadedAt, size, sha, data URL). `cache-control: public, max-age=60`, and 60 s in the edge cache, purged (awaited) on upload/delete in that data centre. `&fresh=1` (the uploader's own re-read) skips the edge copy and refreshes it. |
+| `GET /api/vkx/list?event&div[&race]` | the current uploads (boat, race, rate, counts, span, uploadedAt, size, sha, data URL). `cache-control: public, max-age=60`, and 60 s in the edge cache, purged (awaited) on upload/delete in that data center. `&fresh=1` (the uploader's own re-read) skips the edge copy and refreshes it. |
 | `GET /api/vkx/data?event&div&race&sn&h` | the payload. `h` is its SHA-256, so the URL is content-addressed: `public, max-age=31536000, immutable` for browsers. It is deliberately not kept in the edge cache, so a removed upload stops being served (one R2 read per uncached fetch). A stale `h` (replaced upload) gives 404. |
 | `POST /api/vkx/delete` `{event, div, race, sn, token}` | removes the current upload and brings back the `.prev` one, if any. A token of an upload since replaced removes that `.prev`. Wrong token 403. |
 
@@ -1118,7 +1134,7 @@ with them:
   they are compared in constant time.
 - **Rate limit:** 20 uploads per 10 min per client, in memory per isolate,
   keyed by a salted hash of the IP that never leaves the isolate. It is
-  best-effort: isolates and data centres don't share it.
+  best-effort: isolates and data centers don't share it.
 - **Logging:** nothing identifying (no IPs, no user agents).
 - **Route precedence:** Pages serves the most specific route first, so
   `functions/api/vkx/*.ts` (static paths) win over the catch-all
@@ -1260,7 +1276,7 @@ or lock UI and logs nothing.
 rest of a regatta for $50. *Regatta Pass* ($50, one-off, the only pass on
 sale): one event id, every division and boat. *All-regattas pass* (scope
 `season`): every regatta while it runs; no longer sold (checkout refuses
-`season`, and the page offers nothing but the Regatta Pass), but honoured
+`season`, and the page offers nothing but the Regatta Pass), but honored
 everywhere for whoever holds one: an earlier Season Pass subscription
 (still renewed, changed, ended and refunded by the webhook, with Manage
 subscription for its owner) or a gift (below). *Coach plan* ($499/yr, 6 seats): in the data model only (owner plus the
@@ -1332,7 +1348,7 @@ from the environment (test mode first).
   never fetches Vakaros, regatta.app or Yachtscoring directly), so the gate
   covers everything Recall serves. The tracks themselves also come from
   public Vakaros feeds that anyone can read: the gate covers Recall's
-  proxied and analysed data, not the raw source. The pitch is "unlock the
+  proxied and analyzed data, not the raw source. The pitch is "unlock the
   analysis".
 
 **Sign-in** (`functions/_auth.ts`): email magic link (32 random bytes,
@@ -1385,7 +1401,7 @@ approved**; it lives in `managedPaymentsParams` only. `POST
 handles `checkout.session.completed` / `…async_payment_succeeded` (purchase
 and pass), `invoice.paid` (an existing season subscription extended to the line's period end),
 `customer.subscription.updated` (expiry follows the period end, so a
-subscription cancelled at period end keeps access until then; `canceled`,
+subscription canceled at period end keeps access until then; `canceled`,
 `unpaid`, `incomplete_expired` and `paused` end it now, and a resumed one
 runs to its period end again), `customer.subscription.deleted` (ends at
 `ended_at`) and `charge.refunded` (below); anything else is 200 and
@@ -1699,7 +1715,7 @@ intentionally not a dependency; `npm run dev:vkx` covers the same round trip).
   rounded as one, reaching starts) may need manual review.
 - Wind is assumed uniform across the course at any moment. Shifts are only
   interpolated between beats.
-- Fleets of more than 8 boats fall back to neutral boat colours, with sail
+- Fleets of more than 8 boats fall back to neutral boat colors, with sail
   numbers as direct labels.
 - Official results come from Yachtscoring only. Sailti (e.g. the J/70 Worlds)
   is a test golden, not a provider. One-design results often carry

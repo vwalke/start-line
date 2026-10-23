@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  DEFAULT_RETURN_TO,
   EMAIL_RATE_MAX,
   checkClaims,
   emailProvider,
@@ -373,10 +374,19 @@ describe('returnTo', () => {
       '',
       42,
       null,
+      undefined,
+      '//evil',
     ]) {
-      expect(safeReturnTo(bad, o), String(bad)).toBe('/');
+      expect(safeReturnTo(bad, o), String(bad)).toBe('/regattas');
     }
     expect(safeReturnTo('http://localhost:5173/?race=2', 'http://localhost:5173')).toBe('/?race=2');
+  });
+
+  it('falls back to the regatta list, not the landing page, and leaves a valid deep link alone', () => {
+    expect(DEFAULT_RETURN_TO).toBe('/regattas');
+    expect(safeReturnTo(undefined, ORIGIN)).toBe('/regattas');
+    expect(safeReturnTo('/?event=x&race=3', ORIGIN)).toBe('/?event=x&race=3');
+    expect(safeReturnTo('/regattas', ORIGIN)).toBe('/regattas');
   });
 
   it('trusted origins (the portal POST): this site and https walkeforward.com pages only', () => {

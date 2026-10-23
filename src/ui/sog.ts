@@ -421,7 +421,7 @@ export function startColourControls(colour: StartColour): string {
   )
     .map(([v, text]) => `<button type="button" data-start-colour="${v}" aria-pressed="${v === colour}">${text}</button>`)
     .join('');
-  return `<div class="seg" role="group" aria-label="Colour start trails by"><span class="seg-lbl" aria-hidden="true">Colour</span>${btns}</div>`;
+  return `<div class="seg" role="group" aria-label="Color start trails by"><span class="seg-lbl" aria-hidden="true">Color</span>${btns}</div>`;
 }
 
 const gradient = (scheme: 'light' | 'dark'): string =>
@@ -438,7 +438,7 @@ const gapNote = (gaps: boolean, title = SOG_GAP_TITLE): string => (gaps ? keySwa
 
 /** "4.0 kn [bar] 8.0 kn", "SOG · what it spans", and the "no data" swatch when the drawing has gaps (the method is in the ⓘ). */
 export function sogKey(r: SogRange | null, what: string, gaps = false, gapTitle?: string): string {
-  if (!r) return `<span class="muted">No speed data to colour by.</span>`;
+  if (!r) return `<span class="muted">No speed data to color by.</span>`;
   return `${bar(`${f1(r.lo)} kn`, `${f1(r.hi)} kn`)}
     <span class="muted">SOG · ${esc(what)}</span>${gapNote(gaps, gapTitle)}`;
 }
@@ -451,7 +451,7 @@ export function sogKey(r: SogRange | null, what: string, gaps = false, gapTitle?
  */
 export function sogLegKey(a: RaceAnalysis, gaps = false, gapTitle?: string): string {
   const list = legRangeList(a);
-  if (!list) return `<span class="muted">No speed data to colour by.</span>`;
+  if (!list) return `<span class="muted">No speed data to color by.</span>`;
   return `${bar('slow', 'fast')}
     <span>slow → fast within each leg</span>${gapNote(gaps, gapTitle)}<span class="sog-legs">${esc(list)}</span>`;
 }

@@ -113,7 +113,7 @@ export function startSogKey(s: StartSogSeries, w: StartSogWindow): KeyLine {
       `Speed over ground (${SOG_SMOOTH_MS / 1000} s mean) around the gun.`,
       ...(s.clamped ? [`The tracks only go back to ${secsLabel(s.t0)} here, so the ${w} s window starts there.`] : []),
       "Dot: where the boat crossed the line (the table's Late), and its speed.",
-      'Grey dashed: fixes over 5 s apart; no speed drawn.',
+      'Gray dashed: fixes over 5 s apart; no speed drawn.',
       'Hover or tap to read a speed; tap a line to select the boat.',
     ],
   };

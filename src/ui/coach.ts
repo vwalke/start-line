@@ -143,7 +143,7 @@ export const COACH_BULLETS: readonly string[] = [
   "How far along: on beats and runs, how far up (or down) the leg's wind ladder, one wind direction for the whole leg, so both tacks and gybes count alike; on reaches, distance made good along the line between the marks. A rounding counts from 30 m before the mark to 30 m down the next leg, so the lines run on through it.",
   `Bold: the median of the group, always over the same boats. Where a boat's tracker has a gap of up to ${GROUP_BRIDGE_S / 60} min, the bold line bridges it in a straight line (the readout counts that boat as estimated). Thin: each group boat as tracked; its line is not filled in across gaps.`,
   "Wind (strip below) comes from the fleet's tacks, minute by minute, not a sensor; dotted where estimated between minutes.",
-  `Breaks: a thin line breaks where that boat's or your fixes are over ${COACH_MAX_SPAN_S} s apart; the bold line (and a grey band) where yours or most of the group's are over ${GROUP_DRAW_HOLE_S} s apart, or the group never got that far.`,
+  `Breaks: a thin line breaks where that boat's or your fixes are over ${COACH_MAX_SPAN_S} s apart; the bold line (and a gray band) where yours or most of the group's are over ${GROUP_DRAW_HOLE_S} s apart, or the group never got that far.`,
 ];
 
 /** The header's chip line with the ⓘ. */
@@ -542,7 +542,7 @@ export function ladderChips(a: RaceAnalysis, ladder: RivalLadder, g: Group, each
     chips.push({
       text: 'no data',
       swatch: 'band',
-      title: `A hole in the tracks: a thin line breaks where that boat's or your fixes are over ${COACH_MAX_SPAN_S} s apart; the bold line (grey band) where yours or most of the group's are over ${GROUP_DRAW_HOLE_S} s apart, or the group never got that far`,
+      title: `A hole in the tracks: a thin line breaks where that boat's or your fixes are over ${COACH_MAX_SPAN_S} s apart; the bold line (gray band) where yours or most of the group's are over ${GROUP_DRAW_HOLE_S} s apart, or the group never got that far`,
     });
   }
   return chips;

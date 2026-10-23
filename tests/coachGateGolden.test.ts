@@ -103,7 +103,7 @@ describe('D13 golden: J/24 Nationals R2 (favoured right, confirmed; the wind vee
     expect(d.card).not.toBeNull();
     expect(d.card!.confidence).toBe('low');
     const t = cardText(d.card!);
-    expect(t.title).toBe('Unfavoured gate mark (left)');
+    expect(t.title).toBe('Unfavored gate mark (left)');
     expect(t.sentence).toMatch(/^Leeward gate: took the left mark \(looking upwind\) — 17 m further downwind, about 9 s on the beat\. Boats rounding the right mark at the same time were 4[5-8] s quicker 300 m up the beat; you lost (9|10) places\./);
     // Four boats rounded the right buoy just ahead of it, and were still ~40 s quicker: no traffic excuse.
     expect(d.card!.facts.traffic).toBe(4);
@@ -123,9 +123,9 @@ describe('D13 golden: J/24 Nationals R2 (favoured right, confirmed; the wind vee
       ['USA 4103', 8],
     ] as const) {
       expect(plus(s).map((p) => p.variant)).toEqual(['fav']);
-      expect(wentText(plus(s)[0])).toBe(`Leeward gate: took the favoured right mark (17 m further upwind) and gained ${n} places`);
+      expect(wentText(plus(s)[0])).toBe(`Leeward gate: took the favored right mark (17 m further upwind) and gained ${n} places`);
     }
-    expect(wentText(plus('USA 2246')[0])).toBe('Leeward gate: favoured gate was busy (5 boats ahead) — the clear one was reasonable; gained 1 place');
+    expect(wentText(plus('USA 2246')[0])).toBe('Leeward gate: favored gate was busy (5 boats ahead) — the clear one was reasonable; gained 1 place');
   });
 
   it('the legs table marks every boat’s buoy on Run 1 (looking upwind), and the leg story says it', () => {
@@ -187,19 +187,19 @@ describe('D13 golden: J/24 Nationals R5 (favoured left, confirmed, steady wind)'
   it('➕ for the left-buoy gainers (USA 3361 +8, USA 2246 +5); USA 2736 took the clear right buoy in traffic and gained', () => {
     const all = fleetD13('j24r5');
     const plus = (s: string) => all.find((b) => b.sail === s)!.plus;
-    expect(wentText(plus('USA 3361')[0])).toBe('Leeward gate: took the favoured left mark (34 m further upwind) and gained 8 places');
-    expect(wentText(plus('USA 2246')[0])).toBe('Leeward gate: took the favoured left mark (34 m further upwind) and gained 5 places');
+    expect(wentText(plus('USA 3361')[0])).toBe('Leeward gate: took the favored left mark (34 m further upwind) and gained 8 places');
+    expect(wentText(plus('USA 2246')[0])).toBe('Leeward gate: took the favored left mark (34 m further upwind) and gained 5 places');
     expect(plus('USA 2736').map((p) => p.variant)).toEqual(['traffic']);
     // USA 2918: the clear buoy in traffic, places gained but slower than the left's contemporaries: ✓, not ➕.
     const ok = all.find((b) => b.sail === 'USA 2918')!.ok;
-    expect(ok.flatMap(goodTexts)).toEqual(['Leeward gate: favoured gate was busy (3 boats ahead) — the clear one was reasonable; gained 4 places']);
+    expect(ok.flatMap(goodTexts)).toEqual(['Leeward gate: favored gate was busy (3 boats ahead) — the clear one was reasonable; gained 4 places']);
   });
 
   it('Ask Coach carries the D13 card like any other', () => {
     const { a } = race('j24r5');
     const deb = debOf('j24r5', 'USA 5208');
     const f = askFinding(d13(deb).card!, a, deb.raceCov);
-    expect(f.title).toBe('Unfavoured gate mark (right)');
+    expect(f.title).toBe('Unfavored gate mark (right)');
     expect(f.what).toContain('took the right mark (looking upwind)');
     expect(f.confidence).toBe('high');
   });

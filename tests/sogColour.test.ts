@@ -232,15 +232,15 @@ describe('batched SOG paths', () => {
       expect(new Set(bins).size).toBe(bins.length); // one path per bin
     }
     expect(svg).toMatch(/<path class="sog" data-bin="\d+" d="M[^"]+" stroke="#[0-9a-f]{6}" style="--cd:#[0-9a-f]{6}"\/>/);
-    expect(svg).toContain('aria-label="Tracks coloured by boat speed (SOG)');
+    expect(svg).toContain('aria-label="Tracks colored by boat speed (SOG)');
   });
 
   it('fits a single leg and labels it', () => {
     const a = analyzeRace(fixtureRace());
     const svg = trackMap(a, null, 1, { colour: 'sog' });
     const r1 = trackSogRange(a, 1)!;
-    expect(svg).toContain(`coloured by boat speed (SOG), ${r1.lo.toFixed(1)} to ${r1.hi.toFixed(1)} kn`);
-    expect(svg).toMatch(/aria-label="Tracks on [^"]+, coloured by boat speed/);
+    expect(svg).toContain(`colored by boat speed (SOG), ${r1.lo.toFixed(1)} to ${r1.hi.toFixed(1)} kn`);
+    expect(svg).toMatch(/aria-label="Tracks on [^"]+, colored by boat speed/);
     expect(sogKey(r1, 'Beat 2', hasGaps(segmentTimes(a, 1)))).toContain(`${r1.lo.toFixed(1)} kn`);
   });
 
@@ -317,7 +317,7 @@ describe('start chart in Speed', () => {
   it('fits the range to the 60 s window', () => {
     const vals = a.drawings.flatMap((d) => [...d.trail.sog]).filter(Number.isFinite);
     expect(r).toEqual(sogRange(vals));
-    expect(svg).toContain(`coloured by speed over ground, ${r.lo.toFixed(1)} to ${r.hi.toFixed(1)} kn`);
+    expect(svg).toContain(`colored by speed over ground, ${r.lo.toFixed(1)} to ${r.hi.toFixed(1)} kn`);
   });
 
   it('shows a fast boat at the gun clearly apart from a slow one', () => {
@@ -345,7 +345,7 @@ describe('start chart in Speed', () => {
   it('renders the toggle and parses its stored value', () => {
     expect(startColourControls('boat')).toContain('data-start-colour="boat" aria-pressed="true"');
     expect(startColourControls('speed')).toContain('data-start-colour="speed" aria-pressed="true"');
-    expect(startColourControls('speed')).toMatch(/role="group" aria-label="Colour start trails by"/);
+    expect(startColourControls('speed')).toMatch(/role="group" aria-label="Color start trails by"/);
     expect(parseStartColour('speed')).toBe('speed');
     for (const bad of [null, undefined, '', 'Speed', 'sog']) expect(parseStartColour(bad)).toBe('boat');
   });
@@ -406,11 +406,11 @@ describe('whole race in Boat speed, scaled per leg', () => {
   it('describes the scaling in the map label', () => {
     const perLeg = trackMap(a, null, null, { colour: 'sog' });
     const first = legs[0].range!;
-    expect(perLeg).toContain(`aria-label="Tracks coloured by boat speed (SOG), scaled within each leg (${a.legs[0].name} ${first.lo.toFixed(1)}–${first.hi.toFixed(1)}`);
+    expect(perLeg).toContain(`aria-label="Tracks colored by boat speed (SOG), scaled within each leg (${a.legs[0].name} ${first.lo.toFixed(1)}–${first.hi.toFixed(1)}`);
     expect(perLeg).toContain('dark purple slowest on that leg');
     const all = trackSogRange(a, null)!;
     expect(trackMap(a, null, null, { colour: 'sog', sogScale: 'race' })).toContain(
-      `aria-label="Tracks coloured by boat speed (SOG), ${all.lo.toFixed(1)} to ${all.hi.toFixed(1)} kn`,
+      `aria-label="Tracks colored by boat speed (SOG), ${all.lo.toFixed(1)} to ${all.hi.toFixed(1)} kn`,
     );
   });
 
@@ -448,7 +448,7 @@ describe('whole race in Boat speed, scaled per leg', () => {
 
   it('offers Scale only in Boat speed with all legs, and keys Per leg with each leg’s range', () => {
     const c = colourControls('sog', 'leg', null, 'all', 'leg');
-    expect(c).toMatch(/<div class="seg" role="group" aria-label="Scale boat speed colours"><span class="seg-lbl" aria-hidden="true">Scale<\/span>/);
+    expect(c).toMatch(/<div class="seg" role="group" aria-label="Scale boat speed colors"><span class="seg-lbl" aria-hidden="true">Scale<\/span>/);
     expect(c).toContain('<button type="button" data-sog-scale="leg" aria-pressed="true">Per leg</button>');
     expect(c).toContain('<button type="button" data-sog-scale="race" aria-pressed="false">Whole race</button>');
     expect(colourControls('sog', 'leg', null, 'all', 'race')).toContain('data-sog-scale="race" aria-pressed="true"');

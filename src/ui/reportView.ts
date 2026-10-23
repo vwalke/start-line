@@ -96,7 +96,7 @@ export function reportThumb(a: RaceAnalysis, boat: string): string {
 
 function regattaHtml(m: ReportModel): string {
   const r = m.regatta;
-  if (!r) return '<p class="rp-muted">Waiting for the races to be analysed…</p>';
+  if (!r) return '<p class="rp-muted">Waiting for the races to be analyzed…</p>';
   const rows = r.rows
     .map(
       (x) =>
@@ -104,7 +104,7 @@ function regattaHtml(m: ReportModel): string {
     )
     .join('');
   const table = `<table class="rp-table rp-regatta-t"><thead><tr><th scope="col">Race</th><th scope="col">Place</th><th scope="col">Of</th><th scope="col">On the water</th><th scope="col">Tracker</th><th scope="col">Findings · at stake</th><th scope="col"></th></tr></thead><tbody>${rows}</tbody></table>`;
-  const status = `<p class="rp-key">${r.done} of ${r.total} races analysed${r.done < r.total ? ' (the rest are still being worked out)' : ''}. ⚠ low tracker data: counted less.</p>`;
+  const status = `<p class="rp-key">${r.done} of ${r.total} races analyzed${r.done < r.total ? ' (the rest are still being worked out)' : ''}. ⚠ low tracker data: counted less.</p>`;
   const pens = r.penalties.length ? `<h4>Penalties</h4><ul class="rp-lines">${r.penalties.map((p) => `<li class="rp-line warn"><span class="rp-g" aria-hidden="true">⚠</span> ${esc(p)}</li>`).join('')}</ul>` : '';
   const work = r.workOn.length
     ? `<ol class="rp-work">${r.workOn.map((w) => `<li><b>${esc(w.title)}</b>${w.score ? ` <b class="rp-sec">${esc(w.score)}</b>` : ''}<br><span class="rp-sent">${esc(w.why)}.</span>${w.tip ? ` <span class="rp-tip"><b>Tip</b> ${esc(w.tip)}</span>` : ''}</li>`).join('')}</ol>`

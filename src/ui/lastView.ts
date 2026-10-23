@@ -1,7 +1,8 @@
 /**
  * The last race viewed and how it was viewed (leg, picked boat, table sorts, tab),
  * kept in localStorage so a home-screen launch, an evicted-and-relaunched
- * web app or a bare `/` link comes back to it. An explicit `?event=` wins.
+ * web app or a bare `/regattas` link comes back to it (bare `/` is the landing
+ * page, which offers it as "Continue"). An explicit `?event=` wins.
  */
 import type { RaceAnalysis } from '../analysis/types';
 import type { RaceListItem } from '../data/racesense/adapter';
@@ -35,6 +36,9 @@ export interface LastView extends ViewState {
   /** The official-results link set by hand (`ys=`, 0: off) and its class (`ysc=`); absent: automatic. */
   ys?: number;
   ysc?: string;
+  /** The event's and the race's names as the picker showed them, for the landing page's "Continue" link (absent in older records). */
+  eventTitle?: string;
+  raceName?: string;
   savedAt: number;
 }
 
@@ -45,6 +49,12 @@ function parseSort(x: unknown): SortState | null | undefined {
   if (!isObj(x) || typeof x.key !== 'string' || !x.key || (x.dir !== 'asc' && x.dir !== 'desc')) return undefined;
   return { key: x.key, dir: x.dir };
 }
+
+/** A display name worth keeping: printable, trimmed, at most 120 characters. */
+const labelText = (x: unknown): string | undefined => {
+  const s = typeof x === 'string' ? x.trim() : '';
+  return s && s.length <= 120 && !/[<>\p{Cc}]/u.test(s) ? s : undefined;
+};
 
 /** A stored record, or null for anything malformed, of another version or naming an event the proxy would refuse. */
 export function parseLastView(raw: string | null | undefined): LastView | null {
@@ -80,11 +90,16 @@ export function parseLastView(raw: string | null | undefined): LastView | null {
     const ysc = x.ys ? parseYscParam(typeof x.ysc === 'string' ? x.ysc : null) : undefined;
     if (ysc) out.ysc = ysc;
   }
+  // Added with the landing page: optional, and a malformed one is just dropped.
+  const eventTitle = labelText(x.eventTitle);
+  if (eventTitle) out.eventTitle = eventTitle;
+  const raceName = labelText(x.raceName);
+  if (raceName) out.raceName = raceName;
   return out;
 }
 
 export function serializeLastView(r: LastView): string {
-  const { v, eventId, division, raceNumber, allCompetitors, leg, boat, sort, startSort, tab, ys, ysc, savedAt } = r;
+  const { v, eventId, division, raceNumber, allCompetitors, leg, boat, sort, startSort, tab, ys, ysc, eventTitle, raceName, savedAt } = r;
   return JSON.stringify({
     v,
     eventId,
@@ -98,6 +113,8 @@ export function serializeLastView(r: LastView): string {
     ...(tab ? { tab } : {}),
     ...(ys !== undefined ? { ys } : {}),
     ...(ys && ysc ? { ysc } : {}),
+    ...(eventTitle ? { eventTitle } : {}),
+    ...(raceName ? { raceName } : {}),
     savedAt,
   });
 }

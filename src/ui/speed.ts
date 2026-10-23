@@ -261,7 +261,7 @@ export function colourControls(
   top: SpeedTop = 'all',
   sogScale: SogScale = 'leg',
 ): string {
-  const c = seg('Colour tracks by', 'Colour', 'data-colour', colour, [
+  const c = seg('Color tracks by', 'Color', 'data-colour', colour, [
     ['leg', 'Leg'],
     ['rank', 'Rank'],
     ['sog', 'Boat speed'],
@@ -269,7 +269,7 @@ export function colourControls(
   if (colour === 'sog') {
     return leg == null
       ? c +
-          seg('Scale boat speed colours', 'Scale', 'data-sog-scale', sogScale, [
+          seg('Scale boat speed colors', 'Scale', 'data-sog-scale', sogScale, [
             ['leg', 'Per leg'],
             ['race', 'Whole race'],
           ])
@@ -353,7 +353,7 @@ export function speedKey(a: RaceAnalysis, leg: number | null, rankBy: RankBy, to
   }
   const end = out ? `#${top}` : 'slowest';
   const what = leg == null && !r.overall ? `fastest → ${end} on each leg` : r.overall ? `fastest → ${end} race time` : `fastest → ${end} on this leg`;
-  const others = out ? ` · <span class="spd-out" aria-hidden="true"></span> others grey` : '';
+  const others = out ? ` · <span class="spd-out" aria-hidden="true"></span> others gray` : '';
   const none = unranked ? ` · <span class="spd-none" aria-hidden="true"></span> ${r.overall ? "didn't finish" : 'no leg time'}` : '';
   const ties = [...cut]
     .sort(([x], [y]) => x - y)

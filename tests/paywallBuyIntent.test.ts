@@ -114,8 +114,8 @@ describe('sign-in carries the intent to a one-time marker', () => {
       const res = await google(new MemD1(), { returnTo: '/?race=3', ...q });
       expect(markerOf(res), JSON.stringify(q)).toBeNull();
     }
-    // Never an open redirect: an outside returnTo is still "/".
-    expect((await google(new MemD1(), { returnTo: 'https://evil.example/x', buy: 'regatta', event: EVENT })).headers.get('location')).toMatch(/^\/\?buy=/);
+    // Never an open redirect: an outside returnTo is the regatta list.
+    expect((await google(new MemD1(), { returnTo: 'https://evil.example/x', buy: 'regatta', event: EVENT })).headers.get('location')).toMatch(/^\/regattas\?buy=/);
   });
 
   it('already entitled after sign-in (bought earlier, or a gift that just attached): no marker, the race just opens', async () => {

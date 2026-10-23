@@ -190,6 +190,7 @@ import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type 
 import { carryView, clampView, clientToChart, fitView, presetActive, viewBox, type Box, type View } from './view';
 import { createVkxUpload } from './vkxUpload';
 import { createPaywall, lockedRange, startRace } from './paywall';
+import { appPath } from '../landing/route';
 import { freeRacesOf, type FreeRaces } from '../data/freeRace';
 import { isPaywallError } from '../data/paywall';
 
@@ -456,6 +457,9 @@ export function startApp(): void {
     // A load that has swapped `analysis` but not yet `current` (or the reverse) must not mix them.
     if (analysis.meta.division !== current.division || analysis.meta.raceNumber !== current.raceNumber) return;
     if (analysis.meta.eventId != null && analysis.meta.eventId !== current.eventId) return;
+    // Names for the landing page's "Continue" link (the event's id is all a record needs).
+    const title = titleOf(current.eventId);
+    const listed = current.eventId === eventId ? listedOf(current.division, current.raceNumber) : undefined;
     writeLastView({
       v: 1,
       ...current,
@@ -467,6 +471,8 @@ export function startApp(): void {
       tab,
       ...(ysParam !== undefined ? { ys: ysParam } : {}),
       ...(ysParam && yscParam ? { ysc: yscParam } : {}),
+      ...(title !== current.eventId ? { eventTitle: title } : {}),
+      ...(listed ? { raceName: raceName(listed) } : {}),
       savedAt: Date.now(),
     });
   }
@@ -506,7 +512,8 @@ export function startApp(): void {
     }
     // Keep the current state (the full-screen marker, if any) so a race-load URL
     // update while the overlay is open doesn't leave a stuck history entry.
-    history.replaceState(history.state, '', u);
+    // Never the landing page's URL (all parameters dropped at `/`): the app stays on /regattas.
+    history.replaceState(history.state, '', appPath(u.href));
   }
 
   /** The race header's chips and ⓘ (official link, numbering, finishes, feed check); kept open across redraws. */
@@ -887,7 +894,7 @@ export function startApp(): void {
   function renderRegatta(a: RaceAnalysis, sail: string): void {
     if (official.status === 'pending') {
       regattaRunner.want([]);
-      els.coachRegatta.innerHTML = '<p class="regatta-status busy" role="status">Checking for official results before analysing the races…</p>';
+      els.coachRegatta.innerHTML = '<p class="regatta-status busy" role="status">Checking for official results before analyzing the races…</p>';
       return;
     }
     regattaRunner.want(jobsFor(a, sail));

@@ -170,7 +170,7 @@ describe('heel columns', () => {
     expect(startTable(a, null)).toContain('data-sort="s.heel"');
     expect(sortTable(a, 'up.heel')).toBe('legs');
     expect(sortTable(a, 's.heel')).toBe('start');
-    expect(legs).toContain('average leeward heel, time-weighted; excludes manoeuvres');
+    expect(legs).toContain('average leeward heel, time-weighted; excludes maneuvers');
     // Most heel first; null last.
     const sorted = legsTable(a, null, { key: 'up.heel', dir: 'desc' });
     const ids = [...sorted.matchAll(/<tr data-id="([^"]+)"/g)].map((m) => m[1]);

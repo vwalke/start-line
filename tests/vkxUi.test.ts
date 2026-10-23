@@ -126,7 +126,7 @@ describe('boat-log upload UI', () => {
     const app = readFileSync(fileURLToPath(new URL('../src/ui/app.ts', import.meta.url)), 'utf8');
     expect(app).toContain('vkx.mount(els.raceHead, a);');
     const html = readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8');
-    const digest = html.slice(html.indexOf('<main id="digest"'), html.indexOf('</main>'));
+    const digest = html.slice(html.indexOf('<main id="digest"'), html.indexOf('</main>', html.indexOf('<main id="digest"')));
     expect(digest).toContain('<div id="race-head" class="race-head" hidden></div>');
   });
 

@@ -512,13 +512,13 @@ describe('track map in Rank', () => {
     expect(third).toContain(`stroke="${speedColor(1)}"`);
     // out-of-N drawn under the coloured ones
     expect(ps.findIndex((p) => !p.includes(' out'))).toBeGreaterThanOrEqual(out.length);
-    expect(speedKey(a, 1, 'leg', 3)).toMatch(/fastest → #3 on this leg.*\d+:\d\d → \d+:\d\d.*others grey/s);
+    expect(speedKey(a, 1, 'leg', 3)).toMatch(/fastest → #3 on this leg.*\d+:\d\d → \d+:\d\d.*others gray/s);
   });
 
   it('treats Top N ≥ fleet as All', () => {
     expect(trackMap(a, null, 1, { colour: 'rank', top: 10 })).toBe(trackMap(a, null, 1, { colour: 'rank' }));
     expect(speedKey(a, 1, 'leg', 10)).toBe(speedKey(a, 1, 'leg'));
-    expect(speedKey(a, 1, 'leg')).not.toContain('others grey');
+    expect(speedKey(a, 1, 'leg')).not.toContain('others gray');
   });
 
   it('applies Top N per leg in Each leg mode, by overall rank in Overall', () => {

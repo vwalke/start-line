@@ -234,7 +234,7 @@ describe('gift passes, end to end', () => {
       return handleAuth(ctx(new Request(`${ORIGIN}/api/auth/google/callback?code=c&state=${loc.searchParams.get('state')}`, { headers: { cookie } }), env, 'google/callback'), { ...mailbox(), fetch: tokenEndpoint });
     };
     const refused = await google(false);
-    expect(refused.headers.get('location')).toBe('/?signin=failed');
+    expect(refused.headers.get('location')).toBe('/regattas?signin=failed');
     expect(db.rows('sessions')).toEqual([]);
     const ok = await google(true);
     const session = ok.headers.get('set-cookie')!.split(';')[0];

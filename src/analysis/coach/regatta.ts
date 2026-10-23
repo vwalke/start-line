@@ -127,7 +127,7 @@ export function wentOf(a: Pick<RaceAnalysis, 'legs'>, n: GoodNote): WentDigest {
   if (n.detector === 'D9') return { family: `round:${n.variant}`, label: String(f.mark ?? 'Mark'), seconds };
   if (n.detector === 'D13') return { family: 'round:gate', label: String(f.mark ?? 'Leeward gate'), seconds };
   if (n.detector === 'D1' || n.detector === 'D3') return { family: 'start', label: n.detector === 'D1' ? 'Start' : 'First minutes', seconds };
-  if (n.detector === 'D16') return { family: 'start', label: 'Start: favoured end', seconds };
+  if (n.detector === 'D16') return { family: 'start', label: 'Start: favored end', seconds };
   if (n.detector === 'D14') return { family: 'side', label: String(f.leg ?? 'Leg'), seconds };
   if (n.detector === 'D17') return { family: 'manoeuvres', label: String(f.leg ?? 'Leg'), seconds };
   if (n.detector === 'D11') return { family: `heel:${f.legKind === 'downwind' ? 'downwind' : 'upwind'}`, label: String(f.leg ?? 'Leg'), seconds };
@@ -265,7 +265,7 @@ export const THEMES: Record<string, Theme> = {
   'dirty-air': { label: 'Dirty air early on the beats', phrase: 'in dirty air early on the beats', pattern: 'You sailed in dirty air early on the beats' },
   'round-windward': { label: 'Windward mark roundings', phrase: 'slow or wide at the windward mark', pattern: 'Windward roundings cost you time' },
   'round-leeward': { label: 'Leeward mark roundings', phrase: 'slow or wide at the leeward mark', pattern: 'Leeward roundings cost you time' },
-  [GATE_THEME]: { label: 'Leeward roundings: gate choice', phrase: 'rounding the unfavoured gate mark', pattern: 'The unfavoured gate mark cost you time' },
+  [GATE_THEME]: { label: 'Leeward roundings: gate choice', phrase: 'rounding the unfavored gate mark', pattern: 'The unfavored gate mark cost you time' },
   'round-offset': { label: 'Offset mark roundings', phrase: 'slow or wide at the offset mark', pattern: 'Offset-mark roundings cost you time' },
   'round-reach': { label: 'Reach mark roundings', phrase: 'slow or wide at the reach marks', pattern: 'Reach-mark roundings cost you time' },
   'heel-over': { label: 'Over-heeled upwind', phrase: 'over-heeled and slower upwind', pattern: 'Over-heeled upwind' },
@@ -273,7 +273,7 @@ export const THEMES: Record<string, Theme> = {
   'heel-down': { label: 'Heel on the runs', phrase: 'heeled to windward or rolling on the runs', pattern: 'Heeled to windward or rolling on the runs' },
   side: { label: 'Side of the course', phrase: 'on the side of the course that didn’t pay', pattern: 'The side you sailed didn’t pay' },
   distance: { label: 'Fast but not making progress', phrase: 'fast but sailing extra distance', pattern: 'Fast, but sailing extra distance for the ground made' },
-  'line-end': { label: 'Starting at the unfavoured end', phrase: 'starting away from the favoured end of a biased line', pattern: 'You started away from the favoured end of the line' },
+  'line-end': { label: 'Starting at the unfavored end', phrase: 'starting away from the favored end of a biased line', pattern: 'You started away from the favored end of the line' },
   manoeuvres: { label: 'Tacks and gybes', phrase: 'losing more ground in tacks or gybes than the fleet', pattern: 'Your tacks and gybes cost more than the fleet’s' },
 };
 
@@ -354,7 +354,7 @@ const TIPS: Record<string, string> = {
   D14: 'Before each leg, look for the side with more pressure or the coming shift and sail toward it, the fleet on your hip.',
   'D15:upwind': 'Sail the angle of the boats making the most ground upwind: speed only pays in the right direction.',
   'D15:downwind': 'Soak with the boats making the most ground downwind: speed only pays in the right direction.',
-  D16: 'Check the line bias before the start and, when it is 6° or more off square, start near the favoured end.',
+  D16: 'Check the line bias before the start and, when it is 6° or more off square, start near the favored end.',
   'D17:tack': 'Smooth tacks: build full speed first, steer one steady arc and ease to accelerate; tack less when it isn’t for a shift or a lane.',
   'D17:gybe': 'Smooth gybes: turn in a puff with speed on, keep the kite full and settle the new angle fast; gybe less when it isn’t for pressure.',
 };

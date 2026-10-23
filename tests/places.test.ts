@@ -169,7 +169,7 @@ describe('placeChanges (synthetic)', () => {
     expect(one.boats.map((b) => b.gains[1])).toEqual([1, -1]);
     const a = { ...races.j70, legs: [def(0, 'Finish')], legSource: 'none' } as RaceAnalysis;
     expect(placesKey(a).bullets).toContain('One leg: Start → Finish only.');
-    expect(placesKey(a).bullets.join(' ')).not.toContain('Grey dashed');
+    expect(placesKey(a).bullets.join(' ')).not.toContain('Gray dashed');
   });
 
   it('tips: boat, mark, place and gain', () => {

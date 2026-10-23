@@ -68,7 +68,7 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
   } else {
     const end = line.favored === 'left' ? 'pin (left)' : 'RC (right)';
     const deg = biasAngle(lineBias(line, wind.twdAtGunDeg));
-    let text = `The ${end} end was favoured by ${r0(deg)}° ≈ ${r0(line.favoredByM)} m against the ${est} wind of ${rDeg(wind.twdAtGunDeg)}°.`;
+    let text = `The ${end} end was favored by ${r0(deg)}° ≈ ${r0(line.favoredByM)} m against the ${est} wind of ${rDeg(wind.twdAtGunDeg)}°.`;
     let boatIds: string[] | undefined;
     if (winner?.start) {
       boatIds = [winner.id];

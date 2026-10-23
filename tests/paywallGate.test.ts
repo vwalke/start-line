@@ -324,7 +324,7 @@ describe('flag on: Ask Coach', () => {
     expect(await refused.json()).toMatchObject({ error: 'payment_required', eventId: EVENT, race: '2' });
     await giveRegatta(db, a.user.id);
     expect((await ask(race('2'), env, a.cookie, raceContext({}, { name: 'Race 2', header: [`gun ${hm(gun2)}`] }))).status).toBe(200);
-    expect((await ask(race('1', 'regatta'), env, a.cookie, { view: 'regatta', boat: { sail: 'NED 1' }, regatta: { status: '9 of 9 races analysed' } })).status).toBe(200);
+    expect((await ask(race('1', 'regatta'), env, a.cookie, { view: 'regatta', boat: { sail: 'NED 1' }, regatta: { status: '9 of 9 races analyzed' } })).status).toBe(200);
   });
 
   it('race 1’s label is not enough: the server checks the context against race 1 in the document it fetched', async () => {
@@ -342,7 +342,7 @@ describe('flag on: Ask Coach', () => {
       ['another division', raceContext({ division: 'J80' })],
       ['no division', raceContext({ division: undefined })],
       ['another event’s name', raceContext({ event: 'Some Other Regatta' })],
-      ['a regatta section', raceContext({ regatta: { status: '9 of 9 races analysed', places: [{ race: 'R2', place: '1st of 10' }] } })],
+      ['a regatta section', raceContext({ regatta: { status: '9 of 9 races analyzed', places: [{ race: 'R2', place: '1st of 10' }] } })],
       ['the Regatta view’s context under race ids', raceContext({ view: 'regatta' })],
     ];
     for (const [what, context] of smuggled) {

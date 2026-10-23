@@ -220,7 +220,7 @@ describe('the wording', () => {
 
   it('the design’s card: the buoy looking upwind, metres, seconds on the beat, the other side’s seconds, places', () => {
     const t = cardText(card(facts));
-    expect(t.title).toBe('Unfavoured gate mark (left)');
+    expect(t.title).toBe('Unfavored gate mark (left)');
     expect(t.sentence).toBe(
       'Leeward gate: took the left mark (looking upwind) — 17 m further downwind, about 9 s on the beat. Boats rounding the right mark at the same time were 46 s quicker 300 m up the beat; you lost 10 places.',
     );
@@ -236,10 +236,10 @@ describe('the wording', () => {
   it('the ➕ and ✓ lines', () => {
     const note = (variant: string, kind: GoodNote['kind'], f: Record<string, number | string | null>): GoodNote => ({ kind, detector: 'D13', variant, facts: { ...facts, ...f }, t0: 0, t1: 1, seconds: 4 });
     expect(wentText(note('net', 'plus', { netS: 4, beatSide: 'left', deltaM: 18, beatS: 6 }))).toBe(
-      'Leeward gate: took the left gate (unfavoured by ~18 m / 6 s), and the left paid off up the next beat — net +4 s',
+      'Leeward gate: took the left gate (unfavored by ~18 m / 6 s), and the left paid off up the next beat — net +4 s',
     );
-    expect(goodTexts(note('traffic', 'ok', { traffic: 4, gained: 0 }))).toEqual(['Leeward gate: favoured gate was busy (4 boats ahead) — the clear one was reasonable']);
-    expect(wentText(note('fav', 'plus', { side: 'right', gained: 9 }))).toBe('Leeward gate: took the favoured right mark (17 m further upwind) and gained 9 places');
+    expect(goodTexts(note('traffic', 'ok', { traffic: 4, gained: 0 }))).toEqual(['Leeward gate: favored gate was busy (4 boats ahead) — the clear one was reasonable']);
+    expect(wentText(note('fav', 'plus', { side: 'right', gained: 9 }))).toBe('Leeward gate: took the favored right mark (17 m further upwind) and gained 9 places');
   });
 });
 
