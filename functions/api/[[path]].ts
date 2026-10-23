@@ -13,6 +13,10 @@
  * *.pages.dev (credentials:* + ACAO * is a brittle combo). Both go through
  * this same-origin proxy. Yachtscoring does allow CORS; it comes through here
  * for the edge cache and so personal fields never reach the browser.
+ *
+ * Paywall (PAYWALL_ENABLED, off by default; functions/_paywall.ts): telemetry beyond race 1's
+ * window needs a session and an entitlement (401 / 402), and is never edge-cached. With the flag off
+ * nothing here changes.
  */
 import {
   MAX_UPSTREAM_BYTES,
@@ -33,10 +37,12 @@ import {
   ysTtl,
   type YsResource,
 } from '../_lib';
+import { paywallOn, privately, telemetryGate, type PaywallEnv } from '../_paywall';
 
 interface Ctx {
   request: Request;
   params: { path?: string | string[] };
+  env?: PaywallEnv;
   waitUntil(p: Promise<unknown>): void;
 }
 
@@ -54,9 +60,9 @@ async function cachedUpstream(
   cacheKey: Request,
   upstream: string,
   ttl: number,
-  opts: { buffer: boolean },
+  opts: { buffer: boolean; cache?: Cache | null },
 ): Promise<Response> {
-  const cache = edgeCache();
+  const cache = opts.cache === undefined ? edgeCache() : opts.cache;
   if (cache) {
     try {
       const hit = await cache.match(cacheKey);
@@ -158,13 +164,23 @@ export const onRequestGet = async (ctx: Ctx): Promise<Response> => {
     const q = buildTelemetryQuery(url.searchParams);
     if (!q.ok) return jsonError(q.status, q.error);
     const suffix = `?${q.qs}`;
-    return cachedUpstream(
-      ctx,
-      new Request(`${url.origin}/api/${path}${suffix}`),
-      `${TELE_UPSTREAM}${route.eventId}${suffix}`,
-      telemetryTtl(q.qs),
-      { buffer: false },
-    );
+    const serve = (cache?: null): Promise<Response> =>
+      cachedUpstream(
+        ctx,
+        new Request(`${url.origin}/api/${path}${suffix}`),
+        `${TELE_UPSTREAM}${route.eventId}${suffix}`,
+        telemetryTtl(q.qs),
+        { buffer: false, cache },
+      );
+    if (!paywallOn(ctx.env)) return serve();
+    // Paywall: decided before the shared edge cache is read. Race 1 (free) keeps today's caching;
+    // gated data never touches the shared cache (not read, not written under the public URL): it
+    // comes from upstream and goes out private.
+    const g = await telemetryGate(ctx.request, ctx.env!, route.eventId, q.qs, { cache: edgeCache() });
+    if (g.kind === 'deny') return g.response;
+    if (g.kind === 'free') return serve();
+    const res = await serve(null);
+    return res.ok ? privately(res) : res;
   }
 
   const q = buildQuery(route.path, url.searchParams);

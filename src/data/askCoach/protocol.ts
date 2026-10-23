@@ -68,7 +68,9 @@ export type AskErrorCode =
   | 'resting'
   | 'busy'
   | 'upstream'
-  | 'timeout';
+  | 'timeout'
+  /** Paywall: a question about races 2+ (or the Regatta view) without a pass. */
+  | 'locked';
 
 export interface AskFailure {
   ok: false;
@@ -100,4 +102,5 @@ export const ASK_MESSAGES: Record<AskErrorCode, string> = {
   busy: 'Coach is busy right now. Try again in a minute.',
   upstream: "Coach couldn't answer just now. Try again in a minute.",
   timeout: 'Coach took too long to answer. Try again.',
+  locked: 'Race 1 is free: unlock this regatta to ask Coach about the rest.',
 };

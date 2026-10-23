@@ -56,7 +56,7 @@ export async function askCoach(req: AskRequest, h: AskHandlers, opts: { signal?:
     } catch {
       /* not JSON */
     }
-    const code = codeOf(body.error, res.status === 404 || res.status === 503 ? 'not-configured' : res.status === 429 ? 'rate-limited-daily' : 'upstream');
+    const code = codeOf(body.error, res.status === 404 || res.status === 503 ? 'not-configured' : res.status === 401 || res.status === 402 ? 'locked' : res.status === 429 ? 'rate-limited-daily' : 'upstream');
     h.onError(code, ASK_MESSAGES[code]);
     return;
   }

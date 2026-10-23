@@ -1,0 +1,9 @@
+{
+  "id": "evt_test_CustomerCreated1",
+  "object": "event",
+  "api_version": "2025-09-30.clover",
+  "created": 1792670000,
+  "livemode": false,
+  "type": "customer.created",
+  "data": { "object": { "id": "cus_test_Season0001", "object": "customer", "email": "crew@example.com" } }
+}

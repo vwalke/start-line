@@ -943,7 +943,13 @@ functions/api/[[path]].ts    Cloudflare Pages Function: cached proxy for landing
 functions/api/vkx/*.ts       boat-log upload routes (upload, list, data, delete)
 functions/_lib.ts            allowlist, query validation and cache TTL (not a route)
 functions/_vkx.ts            boat-log handlers, validation, feed check, R2 layout (not a route)
-tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1–r3, ic37_r5, gate_*, cascais_r2, cascais_r3, vkx/); tests/setup.ts yields to the event loop after each test (a long run of synchronous tests otherwise times out vitest's worker RPC, 'Timeout calling "onTaskUpdate"')
+functions/api/auth/, billing/  paywall routes (off unless PAYWALL_ENABLED): sign-in, Stripe Checkout, webhook, portal
+functions/_paywall.ts        paywall flag, session cookie, the gate the data routes call
+functions/_auth.ts, _stripe.ts, _authDb.ts, _entitlements.ts  sign-in, payments, D1 queries, who may see what
+src/data/freeRace.ts         race 1 and its free telemetry window (shared by the gate and the page)
+src/ui/paywall.ts            lock card and account sheet (only when /api/auth/me says the paywall is on)
+migrations/0001_paywall.sql  D1 schema for the paywall (not applied: see Paywall)
+tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1–r3, ic37_r5, gate_*, cascais_r2, cascais_r3, vkx/, stripe/: fake webhook events); tests/d1mem.ts runs the paywall's SQL against the migration's schema in memory; tests/setup.ts yields to the event loop after each test (a long run of synchronous tests otherwise times out vitest's worker RPC, 'Timeout calling "onTaskUpdate"')
 scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88|j105|j105r1|j105r3|ic37|gate-*|cascais-r2|cascais-r3)
 scripts/make-recovery-fixtures.ts  records tests/fixtures/recovery (Yachtscoring, probes, finishing bands; network once)
 scripts/make-vkx-fixture.mjs builds tests/fixtures/vkx from a boat log + regatta doc
@@ -1186,6 +1192,195 @@ mistakes."
 
 `npm run dev` has no Ask Coach route (the panel stays hidden).
 
+## Paywall (phase 1, behind PAYWALL_ENABLED)
+
+Race 1 of every regatta stays free; races 2+ need a pass. **Off by default:**
+with `PAYWALL_ENABLED` unset (only `1`, `true` or `on`, any case, turn it
+on) every existing route answers exactly as before, and every
+`/api/auth/*` and `/api/billing/*` route (`/api/auth/me` and the Stripe
+webhook included) answers the proxy's own `404 {"error":"Unknown endpoint"}`,
+byte for byte, without touching D1. The page learns the flag from one
+`GET /api/auth/me` at load (never from the build): a 404, or any other answer
+than a well-formed `{"paywall":true,…}`, means off, so it shows no sign-in
+or lock UI and logs nothing.
+
+**Passes.** *Regatta Pass* ($50, one-off): one event id, every division and
+boat. *Season Pass* ($149/yr, subscription): every regatta while it runs.
+*Coach plan* ($499/yr, 6 seats): in the data model only (owner plus the
+first `seats` members of `team_members`), no checkout yet. Payments go
+through Stripe Checkout with Stripe Managed Payments (Stripe as merchant of
+record) on the Walkeforward Stripe account; every key and price id comes
+from the environment (test mode first).
+
+**What is gated** (`functions/_paywall.ts`; race 1 per `src/data/freeRace.ts`):
+
+- *Race 1* is each division's earliest non-practice race in the race list
+  built from the RaceSense document alone (a gun, a start line, inside the
+  event's dates; no official link, no rebuilt races), so the server and the
+  page always agree. Rebuilt races (`race=YYYYMMDDHHMM`) are never race 1:
+  they are found in the browser only and lie outside race 1's window.
+- `/api/telemetry/event/ID?after&before[&division]` is free when the whole
+  window lies inside race 1's free window: what Recall fetches for race 1
+  (`telemetryWindow`: gun − 130 s to the last finish + 30 s, or to the next
+  gun − 1 min with no finishes) widened by 5 min before and 2 min after,
+  never back into an earlier race's window nor past the next gun − 1 min.
+  Race 1's pages all share its `before` and start inside, so they are all
+  free; a window reaching past it (a later race, a chunk of one, or one
+  spanning races 1 and 2) needs a pass. With `division` (a division the
+  document has), that division's window counts; without one the response
+  can carry every division, so it must lie inside every division's race 1
+  window (in a multi-division event the unfiltered mark top-up of race 1 may
+  then be refused: the worker carries on without those marks).
+- `/api/vkx/data` (boat logs): race 1's are free, others need a pass.
+- `/api/coach/ask`: free only when the server can tell the question is
+  about race 1 alone, from the regatta document it fetches itself rather
+  than the page's labels: the Race view with no regatta section, ids naming
+  the division's race 1, and a context whose division, event name and race
+  name agree, whose header shows race 1's gun on the venue clock (±1 min),
+  and whose header and card windows hold only clock times inside race 1's
+  free window. Anything else (another race, the Regatta view, a context
+  naming another race's gun or times, or one it can't check) needs a pass
+  for the event. **Residual risk:** the question, earlier turns and the
+  cards' wording are free text that can't be policed; what the check holds
+  is that a request labelled race 1 must carry race 1's own identity and
+  times, so Recall's analysis of races 2+ isn't answered for free by simply
+  relabelling it.
+- Not gated: `/api/landing`, `/api/regatta` (the lock card shows the race
+  header and RaceSense finishes from it), `/api/wind`, `/api/ys/*`,
+  `/api/vkx/list`.
+- A refused request is `401 {"error":"sign_in_required",…}` with no session
+  and `402 {"error":"payment_required","eventId","race",…}` without a pass
+  (`no-store`). The check runs **before** the shared edge cache is read.
+  Gated (entitled) responses never touch the shared edge cache, neither read
+  nor written, so nothing paid is ever stored under a public URL: they come
+  from upstream every time and go to the browser as
+  `Cache-Control: private, max-age=300` with `Vary: Cookie`. Race 1 keeps its
+  usual public caching. Sessions and passes are read from D1 on every gated
+  request (the session by its primary key, then the user's entitlements by
+  their index), never cached, so a purchase, an ended subscription or a
+  sign-out counts from the very next request. With D1 down, race 1 still
+  works and later races answer 503.
+- All of Recall's race data reaches the browser through `/api` (the page
+  never fetches Vakaros, regatta.app or Yachtscoring directly), so the gate
+  covers everything Recall serves. The tracks themselves also come from
+  public Vakaros feeds that anyone can read: the gate covers Recall's
+  proxied and analysed data, not the raw source. The pitch is "unlock the
+  analysis".
+
+**Sign-in** (`functions/_auth.ts`): email magic link (32 random bytes,
+only its SHA-256 stored, 15 min, single use; at most 5 links per address and
+20 per IP per hour; the same answer whether or not the address is known).
+The emailed link (`GET /api/auth/verify?token=`) opens a small confirm page
+(`no-store`, `Referrer-Policy: no-referrer`, a strict CSP, no external
+assets) and uses nothing, so a mail scanner that prefetches links can't spend
+it; its **Sign in to Recall** button POSTs the token to the same URL, which
+accepts only a same-origin POST (`Origin` of this site, or, as the page's
+no-referrer policy makes browsers send `Origin: null`, `Sec-Fetch-Site:
+same-origin`), uses the token once, sets the session cookie and redirects
+(303) to `returnTo`. **The sign-in rate limits are per isolate**, in memory:
+each Workers isolate counts on its own, so the effective limit grows with the
+number of isolates serving the site. A later step could keep the counts in D1
+or use Cloudflare's Rate Limiting binding. Google (state, nonce and PKCE in a signed 10-minute cookie;
+the ID token from Google's token endpoint is trusted over TLS, its claims
+checked: issuer, audience, expiry, verified email, nonce; linked by email).
+Sessions: a random token in the `wf_session` cookie
+(`Domain=.walkeforward.com; Path=/; Secure; HttpOnly; SameSite=Lax`, 30
+days; no `Domain` on localhost, `*.pages.dev` or any other host), its
+SHA-256 in D1, at most 3 per user (the oldest goes). `returnTo` is a path on
+this site or an https page on walkeforward.com or a subdomain, else `/`.
+Email goes out through `EMAIL_PROVIDER`: `resend`, `cloudflare` (a
+`send_email` binding named `EMAIL`; the message shape lives in
+`cloudflareMessage`, confirm it against Cloudflare's Email Sending docs) or
+`log` (the default on localhost only; anywhere else an unset provider is a
+503, never a logged link). *Restore access* sends a link only to an address
+with purchases (same answer either way); passes follow the email, so a
+webhook for an unknown address creates its user and signing in with that
+address restores everything.
+
+**Payments** (`functions/_stripe.ts`): `POST /api/billing/checkout`
+(signed in, else 401) creates a Checkout Session with `fetch`
+(`mode=payment` + `STRIPE_PRICE_REGATTA`, or `mode=subscription` +
+`STRIPE_PRICE_SEASON`; metadata product / event id / user id;
+`client_reference_id`; the known customer or `customer_email`; success and
+cancel back to the race with `checkout=success|cancel`). Managed Payments is
+asked for with `managed_payments[enabled]=true` unless
+`STRIPE_MANAGED_PAYMENTS` is `0`/`false`/`off`: **confirm that parameter
+name (and whether a preview `Stripe-Version` is needed, via
+`STRIPE_API_VERSION`) against the Managed Payments docs once the account is
+approved**; it lives in `managedPaymentsParams` only. `POST
+/api/billing/webhook` checks `Stripe-Signature` (HMAC-SHA256 of
+`t.body`, any `v1`, constant-time, 5-minute tolerance; 400 otherwise) and
+handles `checkout.session.completed` / `…async_payment_succeeded` (purchase
+and pass), `invoice.paid` (season extended to the line's period end),
+`customer.subscription.updated` (expiry follows the period end, so a
+subscription cancelled at period end keeps access until then) and
+`customer.subscription.deleted` (ends at `ended_at`); anything else is 200
+and ignored. Idempotent twice over: handled event ids (`stripe_events`) and
+unique keys (`purchases.provider_ref`, `entitlements.purchase_id`,
+`entitlements.subscription_id`). With the flag off the webhook is the
+proxy's 404 like every other billing route and writes nothing, so try
+test-mode purchases end to end on a Preview deployment with the flag on.
+`POST /api/billing/portal` (Manage subscription) answers `{url}` of
+Stripe's Billing Portal for a customer, and the page then goes there. It is
+POST only (`GET` is 405) and needs an `Origin` header from this site or an
+https walkeforward.com page (missing or cross-site: 403). Whether Managed
+Payments customers use it or Stripe's own management link is to be
+confirmed with the account.
+
+**The page** (`src/ui/paywall.ts`): an account button in the masthead (Sign
+in / Account: passes with expiry, Restore access, Manage subscription, Sign
+out) and, for a race the viewer can't open, a lock card in place of the
+digest: the race header and RaceSense finishes from the free regatta
+document, a blurred placeholder chart (no tracks are fetched), "See the
+start, every leg and Coach's top 3 for every boat in R2–R8", **Unlock this
+regatta — $50**, **Season Pass — $149/yr**, and "Race 1 is free · Already
+bought? Sign in · Restore access". Back from Checkout it re-reads
+`/api/auth/me` until the pass lands, then unlocks.
+
+**Database.** D1 bound as `AUTH_DB`; schema in
+`migrations/0001_paywall.sql` (users, sessions, login_tokens, purchases,
+entitlements, team_members, stripe_events). **Applying it needs Vann's OK —
+do not run these without it:**
+
+```sh
+# DO NOT RUN WITHOUT VANN'S OK
+npx wrangler d1 create recall-auth
+# then bind it to the Pages project as AUTH_DB (Settings → Bindings → D1 database), Production and Preview
+npx wrangler d1 migrations apply recall-auth --remote
+```
+
+**Environment** (Pages → Settings → Variables and Secrets; Production and
+Preview each):
+
+| Name | Purpose | Secret |
+| --- | --- | --- |
+| `PAYWALL_ENABLED` | `true` turns the paywall on (default off) | no |
+| `AUTH_DB` | D1 binding (not a variable) | — |
+| `AUTH_COOKIE_DOMAIN` | cookie domain, default `.walkeforward.com` | no |
+| `AUTH_SECRET` | signs the Google sign-in cookie (32+ random bytes) | yes |
+| `EMAIL_PROVIDER` | `resend`, `cloudflare` or `log` | no |
+| `EMAIL_FROM` | sender address, e.g. `recall@walkeforward.com` | no |
+| `RESEND_API_KEY` | Resend API key (`resend`) | yes |
+| `EMAIL` | `send_email` binding (`cloudflare`) | — |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth client (redirect URI `https://recall.walkeforward.com/api/auth/google/callback`) | id no / secret yes |
+| `STRIPE_SECRET_KEY` | `sk_test_…` (then live) | yes |
+| `STRIPE_WEBHOOK_SECRET` | the webhook endpoint's `whsec_…` | yes |
+| `STRIPE_PRICE_REGATTA` / `STRIPE_PRICE_SEASON` | price ids | no |
+| `STRIPE_MANAGED_PAYMENTS` | `off` to leave Managed Payments out (default on) | no |
+| `STRIPE_API_VERSION` | sent as `Stripe-Version` when set | no |
+
+Stripe products and prices to create (test mode first): **Recall Regatta
+Pass**, one-time $50 → `STRIPE_PRICE_REGATTA`; **Recall Season Pass**,
+recurring yearly $149 → `STRIPE_PRICE_SEASON`; **Coach plan**, $499/yr for 6
+seats, optional for now (no checkout yet). What is charged comes from those
+price ids only; the prices on the page (`PRICE_REGATTA` / `PRICE_SEASON` in
+`src/ui/paywall.ts`) are copy and must be kept in step by hand.
+
+Webhook endpoint: `https://recall.walkeforward.com/api/billing/webhook`,
+events `checkout.session.completed`,
+`checkout.session.async_payment_succeeded`, `invoice.paid`,
+`customer.subscription.updated`, `customer.subscription.deleted`.
+
 ## Local development
 
 Requires Node 20.19+ (CI uses Node 22).
@@ -1222,7 +1417,8 @@ usual plus the real `/api/vkx/*` handlers over an in-memory R2 bucket
 | `--fake-finish="USA 833@2026-09-11T13:32:30Z"` | **dev only:** patches the regatta document so J/70 Worlds R7 (no finishes in RaceSense) is listed, for screenshots. Clear localhost's site data afterwards: the patched document sits in Cache Storage. |
 
 `npm run dev` alone has no upload routes, so the button shows "uploads
-unavailable".
+unavailable". It has no paywall routes either: `/api/auth/me` doesn't answer
+`{"paywall":true}` there, so the page reads the paywall as off.
 
 The boat-log fixtures in `tests/fixtures/vkx/` come from
 `node scripts/make-vkx-fixture.mjs <log.vkx> <regatta.json> [--ro-feed rows.json]`
@@ -1271,7 +1467,9 @@ position columns, except the J/105 ones.
    stripping and a single origin, not for CORS. No settings change is needed.
 4. **No secrets or environment variables are needed** for the app itself.
    The optional Ask Coach chat needs one secret; see
-   [Ask Coach (optional)](#ask-coach-optional).
+   [Ask Coach (optional)](#ask-coach-optional). The paywall stays off until
+   `PAYWALL_ENABLED` is set; see
+   [Paywall](#paywall-phase-1-behind-paywall_enabled).
 5. Custom domain: `recall.walkeforward.com`.
 6. **Boat-log uploads: one R2 bucket, bound as `VKX_BUCKET`** (one-time).
    Until it is bound, uploads show "⚠ uploads unavailable" and nothing else
