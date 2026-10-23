@@ -187,7 +187,7 @@ import {
   writePref,
 } from './speed';
 import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
-import { carryView, clampView, clientToChart, fitView, presetActive, viewBox, type Box, type View } from './view';
+import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, followView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
 import { createVkxUpload } from './vkxUpload';
 import { createPaywall, lockedRange, startRace } from './paywall';
 import { appPath } from '../landing/route';
@@ -1170,6 +1170,8 @@ export function startApp(): void {
   /** The frame drawn last (for the hover), and its lookup once asked for. */
   let scrubData: ScrubFrame | null = null;
   let scrubPts: { f: ScrubFrame; p: MapPoints } | null = null;
+  /** Gentle follow (drawScrub): on from the presets, + / − and Fit; off once the map is moved by hand, or a replay or card frames it. */
+  let mapFollow = true;
 
   /** A race opens: at the URL's `t=` (gun-relative, clamped to its window), else the full race; playback stops. */
   function openScrub(a: RaceAnalysis): void {
@@ -1254,6 +1256,7 @@ export function startApp(): void {
     scrubT = resume && scrubT != null ? scrubT : clampTime(a.meta.gunMs - REPLAY_PRE_S * 1000, scrubWindow(a));
     fitMap(a);
     if (mapFit) syncMapView(replayView(a, r, mapFit));
+    mapFollow = false;
     render();
     setUrl({ ...scrubParams(scrubT, a.meta.gunMs, scrubTrail), [REPLAY_PARAM]: r.boat });
     save();
@@ -1299,6 +1302,7 @@ export function startApp(): void {
     scrubT = clampTime(at?.t ?? focusTime(f), scrubWindow(a));
     fitMap(a);
     if (mapFit) syncMapView(focusView(a, f, mapFit));
+    mapFollow = false;
     render();
     setUrl({ ...scrubParams(scrubT, a.meta.gunMs, scrubTrail), ...focusParams(a, f), [REPLAY_PARAM]: null });
     save();
@@ -1378,6 +1382,12 @@ export function startApp(): void {
     trk.innerHTML = f.tracks;
     dots.innerHTML = f.dots;
     scrubData = f;
+    // Zoomed in: keep the selected boat in frame, panning only as it nears the edge (the zoom stays).
+    const me = mapFollow && mapFit && mapView.k > 1 && highlight != null ? f.boats.find((b) => b.id === highlight) : undefined;
+    if (me && mapFit) {
+      const next = followView(mapFit, mapView, [me.mx, me.my]);
+      if (next !== mapView) setMapView(next);
+    }
   }
 
   /** The URL's `t=` / `trail=` for the scrubber now (replaceState; on a pause or the end of a drag, never per frame). */
@@ -1522,6 +1532,15 @@ export function startApp(): void {
     syncMapView(fitView(mapFit));
   }
 
+  /**
+   * What the presets and + / − centre on: scrubbing, the selected boat at the moment shown, else the middle of
+   * the fleet then, else the map's centre (null); the full race (no moment) keeps the view's centre.
+   */
+  function mapTarget(): [number, number] | null {
+    if (scrubT == null || !scrubData) return [mapView.cx, mapView.cy];
+    return boatsZoomTarget(scrubData.boats, highlight, (b) => [b.mx, b.my]);
+  }
+
   /** Store the map view; presets and touch-action follow it. */
   function syncMapView(v: View): void {
     if (!mapFit) return;
@@ -1561,12 +1580,14 @@ export function startApp(): void {
     if (!btn || !mapFit) return;
     const next = Number(btn.getAttribute('data-zoom'));
     if (!Number.isFinite(next) || next <= 0) return;
-    // Presets zoom about the current centre; Fit goes back to the leg selection's frame (and leaves a replay or a card's window).
+    // Presets centre on the selected boat (else the fleet) at the moment shown and follow it; Fit goes back to
+    // the leg selection's frame (and leaves a replay or a card's window).
     if (next === 1) {
       leaveReplay(true);
       leaveFocus(true);
     }
-    setMapView(next === 1 ? fitView(mapFit) : { ...mapView, k: next });
+    mapFollow = true;
+    setMapView(zoomPreset(mapFit, next, mapTarget()));
   });
 
   let coachPlace: { model: NonNullable<CoachModel>; base: ProgressBase } | null = null;
@@ -1666,6 +1687,8 @@ export function startApp(): void {
     getRect: () => (els.map.querySelector('svg') ?? els.map).getBoundingClientRect(),
     onTap: (ev) => showMapTip(ev, ev.pointerType !== 'mouse'),
     onGesture: retireHint,
+    getTarget: mapTarget,
+    follow: (on) => (mapFollow = on),
   });
 
   // Names are sized for the chart's width: redraw when it changes (rotation, window resize).

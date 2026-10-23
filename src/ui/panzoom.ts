@@ -2,10 +2,14 @@
  * Direct manipulation for a chart drawn from a `View` (see view.ts): pinch,
  * drag, double-tap, Ctrl/⌘ + wheel (trackpad pinch), Safari gesture events
  * and keys. Attach to a container that outlives re-renders; the owner keeps
- * the view and re-renders in `setView`. Plain wheel and one-finger vertical
- * swipes are left to the page (the owner sets `touch-action` by zoom).
+ * the view and re-renders in `setView`. Pinch, wheel and double-tap zoom
+ * toward the fingers / pointer. A plain wheel zooms only while the chart has
+ * focus (clicked or tabbed into), and not past Fit or the maximum, so scrolling
+ * past the page never gets caught; unfocused, it and one-finger vertical swipes
+ * are left to the page (the owner sets `touch-action` by zoom). + / − zoom on
+ * the owner's `getTarget` (the presets' subject), 0 is Fit.
  */
-import { clampView, clientToChart, fitView, K_MAX, pan, zoomAbout, type Box, type ClientRect, type View } from './view';
+import { clampView, clientToChart, fitView, K_MAX, K_MIN, pan, wheelFactor, zoomAbout, zoomPreset, type Box, type ClientRect, type View } from './view';
 
 export interface PanZoomOptions {
   getBox: () => Box | null;
@@ -17,6 +21,16 @@ export interface PanZoomOptions {
   onTap?: (ev: PointerEvent) => void;
   /** A touch pinch, pan or double-tap was used (e.g. to retire the gesture hint). */
   onGesture?: () => void;
+  /**
+   * What + / − centre on, chart units (view.ts zoomTarget: the selected boat, else the fleet); null: the map's
+   * centre. Without it they zoom about the view's centre.
+   */
+  getTarget?: () => readonly [number, number] | null;
+  /**
+   * The owner's gentle follow: false once the user moves the view by hand (drag, pinch, wheel, double-tap,
+   * arrow keys); true again on + / − / 0, as on the presets.
+   */
+  follow?: (on: boolean) => void;
 }
 
 const TAP_SLOP_PX = 6;
@@ -48,11 +62,14 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
     if (box) opts.setView(clampView(box, f(box, opts.getView())));
   };
   const toChart = (box: Box, v: View, x: number, y: number) => clientToChart(box, v, rect(), x, y);
-  const zoomAt = (factor: number, x: number, y: number): void =>
+  const manual = (): void => opts.follow?.(false);
+  const zoomAt = (factor: number, x: number, y: number): void => {
+    manual();
     update((box, v) => {
       const [px, py] = toChart(box, v, x, y);
       return zoomAbout(v, factor, px, py);
     });
+  };
 
   function onDown(ev: PointerEvent): void {
     if (ev.pointerType === 'mouse' && ev.button !== 0) return;
@@ -101,6 +118,7 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
       const m0 = { x: (prev.x + o.x) / 2, y: (prev.y + o.y) / 2 };
       const m1 = { x: (cur.x + o.x) / 2, y: (cur.y + o.y) / 2 };
       opts.onGesture?.();
+      manual();
       update((box, v) => {
         const [ax, ay] = toChart(box, v, m0.x, m0.y);
         const z = zoomAbout(v, d0 > 0 && d1 > 0 ? d1 / d0 : 1, ax, ay);
@@ -109,6 +127,7 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
       });
     } else if (opts.getView().k > 1) {
       if (ev.pointerType !== 'mouse') opts.onGesture?.();
+      manual();
       update((box, v) => {
         const [ax, ay] = toChart(box, v, prev.x, prev.y);
         const [bx, by] = toChart(box, v, cur.x, cur.y);
@@ -143,8 +162,10 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
   }
 
   function doubleTap(x: number, y: number): void {
-    if (opts.getView().k >= K_MAX - 1e-9) update((box) => fitView(box));
-    else zoomAt(2, x, y);
+    if (opts.getView().k >= K_MAX - 1e-9) {
+      opts.follow?.(true);
+      update((box) => fitView(box));
+    } else zoomAt(2, x, y);
   }
 
   function onDblClick(ev: MouseEvent): void {
@@ -174,11 +195,18 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
   }
 
   function onWheel(ev: WheelEvent): void {
-    if (!ev.ctrlKey && !ev.metaKey) return; // plain wheel scrolls the page
+    const pinch = ev.ctrlKey || ev.metaKey;
+    const factor = wheelFactor(ev.deltaY, ev.deltaMode, pinch);
+    if (!pinch) {
+      // Plain wheel: the page scrolls unless the chart has focus and can still zoom that way.
+      const focus = typeof document !== 'undefined' ? document.activeElement : null;
+      if (!focus || !(focus === el || el.contains(focus))) return;
+      const k = opts.getView().k;
+      if (factor === 1 || (factor < 1 && k <= K_MIN + 1e-9) || (factor > 1 && k >= K_MAX - 1e-9)) return;
+    }
     ev.preventDefault();
-    lastCtrlWheel = performance.now();
-    const dy = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaMode === 2 ? ev.deltaY * 400 : ev.deltaY;
-    zoomAt(Math.exp(-dy * 0.01), ev.clientX, ev.clientY);
+    if (pinch) lastCtrlWheel = performance.now();
+    zoomAt(factor, ev.clientX, ev.clientY);
   }
 
   // Safari (desktop) trackpad pinch: non-standard GestureEvent with a cumulative scale.
@@ -219,15 +247,21 @@ export function attachPanZoom(el: HTMLElement, opts: PanZoomOptions): () => void
     const dir = arrows[ev.key];
     if (dir) {
       if (v.k <= 1) return; // nothing to pan at Fit; let the page scroll
+      manual();
       update((box, cur) => {
         const w = (box.x1 - box.x0) / cur.k;
         const h = (box.y1 - box.y0) / cur.k;
         return pan(cur, dir[0] * KEY_PAN * w, dir[1] * KEY_PAN * h);
       });
-    } else if (ev.key === '+' || ev.key === '=') update((_box, cur) => zoomAbout(cur, KEY_ZOOM, cur.cx, cur.cy));
-    else if (ev.key === '-' || ev.key === '_') update((_box, cur) => zoomAbout(cur, 1 / KEY_ZOOM, cur.cx, cur.cy));
-    else if (ev.key === '0') update((box) => fitView(box));
-    else return;
+    } else if (ev.key === '+' || ev.key === '=' || ev.key === '-' || ev.key === '_') {
+      const by = ev.key === '+' || ev.key === '=' ? KEY_ZOOM : 1 / KEY_ZOOM;
+      const target = opts.getTarget;
+      opts.follow?.(true);
+      update((box, cur) => (target ? zoomPreset(box, cur.k * by, target()) : zoomAbout(cur, by, cur.cx, cur.cy)));
+    } else if (ev.key === '0') {
+      opts.follow?.(true);
+      update((box) => fitView(box));
+    } else return;
     ev.preventDefault();
   }
 

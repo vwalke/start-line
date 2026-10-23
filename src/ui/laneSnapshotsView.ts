@@ -4,7 +4,9 @@
  * full width. A time slider (−90 … 180 s, 1 s steps), ‹ › (∓1 s), ← → (1 s; with Shift LANE_SHIFT_STEP_S),
  * Home / End and a play / pause button move it, clamped at the ends. The map pans and zooms as the track map
  * does (ui/panzoom.ts and the same Fit / 2× / 4× / 8× presets): Fit, the default, is the fixed extent over the
- * whole slider; scrubbing and play never touch the zoom. Thin: SVG strings from the frames, and the section's
+ * whole slider; the presets and + / − centre on the selected boat at the second on show (laneZoomTarget), and
+ * zoomed in, scrubbing and play pan gently to keep it in frame (view.ts followView) until the map is moved by
+ * hand; they never change the zoom level. Thin: SVG strings from the frames, and the section's
  * wiring (worked out only while open and on show, once per race and selection; the over-early facts asked of the
  * worker once per race; the second picked and the zoom kept for the session; scrubbing redraws just the map).
  *
@@ -26,7 +28,7 @@ import { textWidth, type Rect } from './labels';
 import { laneScrub, laneSecond, LANE_START_S, type LaneBoat, type LaneFrame, type LaneScrub } from './laneSnapshots';
 import { ocsLegend, ocsSvg } from './ocsStyle';
 import { attachPanZoom } from './panzoom';
-import { clampView, fitView, presetActive, viewBox, type Box, type View } from './view';
+import { boatsZoomTarget, clampView, fitView, followView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
 
 /** The frame's width when it can't be measured (tests, before layout), css px. */
 export const LANE_DEFAULT_W_PX = 640;
@@ -284,6 +286,12 @@ export function laneScrubHtml(a: RaceAnalysis, L: LaneScrub, groupText?: string,
   );
 }
 
+/**
+ * What the presets and + / − centre on at frame `f`: the selected boat where it is placed, else the middle of
+ * the placed fleet, else null (the map's centre).
+ */
+export const laneZoomTarget = (f: Pick<LaneFrame, 'boats'>, me: string | null): [number, number] | null => boatsZoomTarget(f.boats, me, (b) => b.pos);
+
 /** The Coach group, as the key line names it. */
 const GROUP_TEXT: Record<Group['kind'], string> = { leaders: 'the top 3 (Coach group)', near: 'the boats near it (Coach group)', fleet: 'the whole fleet', custom: 'its Coach group' };
 
@@ -308,8 +316,10 @@ export interface LaneMount {
   scrub: () => LaneScrub | null;
   /** The map's zoom (the fit box's View; k 1 = Fit). */
   zoom: () => View;
-  /** Set the zoom (clamped), redrawing the map only. */
+  /** Set the zoom (clamped), redrawing the map only; as a pan by hand, it ends the gentle follow. */
   setZoom: (v: View) => void;
+  /** The gentle follow is on (the presets, + / − or Fit used since the map was last moved by hand). */
+  following: () => boolean;
   /** Open the section on second `s` (clamped; drawn from the current state), and `play` it from there. */
   cue: (s: number, play: boolean) => void;
 }
@@ -320,7 +330,8 @@ export interface LaneMount {
  * asked once per analysis. The per-second frames are worked out once per race, selection and replays (a refresh
  * with none of those changed reuses them). The second on show (the gun at first) is kept across redraws for the
  * session, as is the zoom (back to Fit for another race); the slider, ‹ ›, the keys and play move the second,
- * redrawing just the map (and the controls' state); pinch, drag, Ctrl + wheel, + / − / 0 and the presets zoom it.
+ * redrawing just the map (and the controls' state); pinch, drag, the wheel (Ctrl / ⌘, or plain with the map focused),
+ * + / − / 0 and the presets zoom it.
  */
 export function mountLaneSnapshots(
   root: HTMLDetailsElement,
@@ -336,6 +347,9 @@ export function mountLaneSnapshots(
   let ppu: number | null = null;
   /** The map's zoom on the fit box (Fit until zoomed; never moved by the slider). */
   let zoom: View = { cx: 0, cy: 0, k: 1 };
+  /** Gentle follow: on from the presets, + / − and Fit; off once the map is moved by hand. */
+  let follow = true;
+  const target = (): [number, number] | null => (last ? laneZoomTarget(last.L.frame(sec), last.L.me) : null);
   let timer: ReturnType<typeof setInterval> | null = null;
   let say: ReturnType<typeof setTimeout> | null = null;
   /** The stage pan / zoom is attached to (the body's, repainted with it), and its detach. */
@@ -354,6 +368,8 @@ export function mountLaneSnapshots(
         getView: () => zoom,
         setView: setZoom,
         getRect: () => (el.querySelector('svg') ?? el).getBoundingClientRect(),
+        getTarget: target,
+        follow: (on) => (follow = on),
       }),
     };
   };
@@ -393,8 +409,12 @@ export function mountLaneSnapshots(
   };
   /** The frame at the second on show: the map, the slider and the ‹ › state. */
   const show = (): void => {
-    if (!last || !drawStage()) return;
+    if (!last) return;
     const f = last.L.frame(sec);
+    // Zoomed in: keep the selected boat in frame, panning only as it nears the edge.
+    const me = follow && zoom.k > 1 && last.L.me != null ? f.boats.find((b) => b.id === last!.L.me)?.pos : null;
+    if (me) zoom = followView(last.L.view, zoom, me);
+    if (!drawStage()) return;
     const range = q<HTMLInputElement>('.lane-range');
     if (range) {
       range.value = String(sec);
@@ -486,9 +506,13 @@ export function mountLaneSnapshots(
     if (!el || !last) return;
     if (el.dataset.laneStep != null) go(sec + Number(el.dataset.laneStep));
     else if (el.dataset.zoom != null) {
-      // The presets zoom about the current centre; Fit (the default extent) resets it, as on the track map.
+      // The presets centre on the selected boat (else the fleet) at the second on show and follow it; Fit (the
+      // default extent) resets it, as on the track map.
       const z = Number(el.dataset.zoom);
-      if (Number.isFinite(z) && z > 0) setZoom(z === 1 ? fitView(last.L.view) : { ...zoom, k: z });
+      if (Number.isFinite(z) && z > 0) {
+        follow = true;
+        setZoom(zoomPreset(last.L.view, z, target()));
+      }
     } else play();
   });
   root.addEventListener('input', (ev) => {
@@ -513,5 +537,9 @@ export function mountLaneSnapshots(
     show();
     if (andPlay) play();
   };
-  return { refresh: draw, second: () => sec, playing: () => timer != null, scrub: () => last?.L ?? null, zoom: () => zoom, setZoom, cue };
+  const setZoomByHand = (v: View): void => {
+    follow = false;
+    setZoom(v);
+  };
+  return { refresh: draw, second: () => sec, playing: () => timer != null, scrub: () => last?.L ?? null, zoom: () => zoom, setZoom: setZoomByHand, following: () => follow, cue };
 }
