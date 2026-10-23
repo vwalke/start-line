@@ -147,7 +147,8 @@ const manifest = {
   name: 'Recall',
   short_name: 'Recall',
   description: `${subTitle} A lean start and leg digest from Vakaros RaceSense public data.`,
-  start_url: '/',
+  // The app (the landing page is `/`): a home-screen launch reopens the last race (src/landing/route.ts).
+  start_url: '/regattas',
   scope: '/',
   display: 'standalone',
   theme_color: CARBON,

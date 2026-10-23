@@ -9,6 +9,22 @@ what decided the race.
 A [Walke Forward](https://walkeforward.com) project, sibling to
 [Rail Math](https://railmath.walkeforward.com).
 
+## Pages
+
+- **`/`** with no app parameters: the landing page (static HTML in `index.html`, `#landing`; what Recall
+  does, pricing, where the data comes from, the other Walke Forward apps). It loads none of the app and
+  fetches nothing from RaceSense; with a race viewed before, it offers "Continue: <event · race>" (to
+  `/regattas`). The hero, `public/landing-hero.svg`, is a real race drawn by `node scripts/landing-hero.mjs`
+  from `tests/fixtures/j105_r3.json` (sail numbers only); a test fails when it is stale.
+- **`/regattas`**: the app's event picker, as `/` used to be (reopens the last race viewed, else the latest).
+  The installed web app starts here.
+- **Every other URL** is the app, unchanged: any `/` link with an app parameter (`event`, `div`, `race`,
+  `nc`, `ys`, `ysc`, `boat`, `grp`, `cview`, `t`, `trail`, `report`, `buy`, `checkout`, `signin`, …: anything
+  but `utm_*`-style tagging) or hash (`#start`, `#race`, `#coach`, `#report`). The rule is
+  `src/landing/route.ts` `routeOf`, mirrored by an inline script in `index.html` so the right page shows
+  before first paint. Cloudflare Pages serves `index.html` for `/regattas` (no `404.html`: single-page
+  fallback), so there is no `_redirects`.
+
 ## What it shows
 
 The masthead's sub-title, "Your race, start to finish.", is written once, in

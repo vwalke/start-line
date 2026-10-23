@@ -3,15 +3,39 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="description" content="Recall: a lean start + leg digest for a sailboat race, from Vakaros RaceSense public data." />
+    <meta name="description" content="Replay and analyse sailboat races tracked with Vakaros RaceSense: the whole fleet on the course map, the start up close, every leg boat by boat, and a coach's debrief for your boat. The first race of every regatta is free." />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#16181c" />
+    <link rel="canonical" href="https://recall.walkeforward.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Walke Forward" />
+    <meta property="og:url" content="https://recall.walkeforward.com/" />
+    <meta property="og:title" content="Recall — replay and analyse your RaceSense races" />
+    <meta property="og:description" content="The whole fleet on the course map, the start up close, every leg boat by boat, and a coach's debrief for your boat. The first race of every regatta is free." />
+    <meta property="og:image" content="https://recall.walkeforward.com/icon-512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:image:alt" content="The Recall icon" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Recall — replay and analyse your RaceSense races" />
+    <meta name="twitter:description" content="The whole fleet on the course map, the start up close, every leg boat by boat, and a coach's debrief for your boat. The first race of every regatta is free." />
+    <meta name="twitter:image" content="https://recall.walkeforward.com/icon-512.png" />
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <title>Recall — race start &amp; leg digest</title>
+    <title>Recall — replay and analyse your sailboat races</title>
+    <!-- Landing page or app, before first paint (src/landing/route.ts routeOf; tests/landing.test.ts keeps the two in step). -->
+    <script data-route-script>
+      (function (l) {
+        var app = !/^\/(index\.html)?$/.test(l.pathname) || /^#(start|race|coach|report)$/.test(l.hash);
+        new URLSearchParams(l.search).forEach(function (v, k) {
+          if (!/^(utm_[a-z_]+|fbclid|gclid|msclkid|mc_cid|mc_eid)$/i.test(k)) app = true;
+        });
+        document.documentElement.setAttribute('data-route', app ? 'app' : 'landing');
+      })(location);
+    </script>
   </head>
   <body>
     <header class="masthead">
@@ -31,6 +55,98 @@
         </div>
       </div>
     </header>
+
+    <!-- The landing page (`/` with no app parameters: src/landing/route.ts). Static, so it shows (and is crawlable) without
+         waiting on a script or a RaceSense fetch; src/landing/landing.ts only fills in the price and "Continue". -->
+    <main id="landing" class="landing" aria-labelledby="landing-title">
+      <section class="land-hero">
+        <div class="land-hero-copy">
+          <p class="land-eyebrow">For races tracked with Vakaros RaceSense</p>
+          <h2 id="landing-title" class="land-title">Replay and analyse your races, start to finish.</h2>
+          <p class="land-lede">Recall turns a regatta's public RaceSense tracking into a replay of the whole fleet, a close look at the start, every leg boat by boat, and a coach's debrief for your boat.</p>
+          <p class="land-ctas">
+            <a class="land-btn" href="/regattas">Browse regattas</a>
+            <a id="landing-continue" class="land-btn land-btn-2" href="/regattas" hidden>Continue your last race</a>
+          </p>
+          <p class="land-free"><strong>The first race of every regatta is free.</strong> Unlock the whole regatta for <span data-price="regatta">$50</span>.</p>
+        </div>
+        <figure class="land-hero-fig">
+          <img src="/landing-hero.svg" width="640" height="703" alt="Recall's track map of a real J/105 race: the fleet's tracks, coloured by leg, with every boat's position mid-race and the leaders labelled by sail number." fetchpriority="high" />
+          <figcaption>A real race, drawn by Recall: 18 J/105s, wind at the top, tracks coloured by leg.</figcaption>
+        </figure>
+      </section>
+
+      <section class="land-section" aria-labelledby="land-features-title">
+        <h2 id="land-features-title">What Recall shows</h2>
+        <ul class="land-cards">
+          <li class="land-card">
+            <h3>Replay the race</h3>
+            <p>Play or scrub the whole fleet on the course map at 1×, 4× or 16×, with a short trail or the full track. Zoom in, or open it full screen.</p>
+          </li>
+          <li class="land-card">
+            <h3>Tracks by leg, rank or speed</h3>
+            <p>Colour the tracks by leg, by speed rank, or by each boat's own speed over ground, and show one leg at a time.</p>
+          </li>
+          <li class="land-card">
+            <h3>The start, up close</h3>
+            <p>Where every boat was at the gun on the start chart, speed through the start, a start table by boat and the start findings. Over early? Replay it on the map.</p>
+          </li>
+          <li class="land-card">
+            <h3>After the gun</h3>
+            <p>See the first minutes after the gun: how each boat came off the line and whether it held its lane.</p>
+          </li>
+          <li class="land-card">
+            <h3>Every leg, every boat</h3>
+            <p>VMG, speed, wind angle, distance, time and tacks or gybes on each leg, upwind and downwind totals, and race findings. Sort by any column.</p>
+          </li>
+          <li class="land-card">
+            <h3>Place changes</h3>
+            <p>Each boat's place at the start, every mark and the finish, in one chart.</p>
+          </li>
+          <li class="land-card">
+            <h3>Coach: your race</h3>
+            <p>Pick your boat: the gap to the top 3, the boats near you or the whole fleet through the race, your biggest gains to work on, what went well, and a story for each leg.</p>
+          </li>
+          <li class="land-card">
+            <h3>Coach: your regatta</h3>
+            <p>All your races together: your places, what cost you time in more than one race, what went well, and your best and worst legs.</p>
+          </li>
+          <li class="land-card">
+            <h3>One-page boat report</h3>
+            <p>Your start, legs, roundings, penalties and the Coach's findings on one page, to print or save as a PDF.</p>
+          </li>
+          <li class="land-card">
+            <h3>Official results</h3>
+            <p>When the regatta is on Yachtscoring, Recall links its official results: official places and race numbers.</p>
+          </li>
+        </ul>
+      </section>
+
+      <div class="land-split">
+        <section class="land-panel" aria-labelledby="land-price-title">
+          <h2 id="land-price-title">Pricing</h2>
+          <p class="land-price"><strong>The first race of every regatta is free.</strong> Unlock the whole regatta for <span data-price="regatta">$50</span>.</p>
+          <p>One Regatta Pass per regatta, paid once: no subscription. Sign in with Google to keep your passes with your account.</p>
+        </section>
+        <section class="land-panel" aria-labelledby="land-data-title">
+          <h2 id="land-data-title">Where the races come from</h2>
+          <p>Regattas appear here when Vakaros publishes them on their site. Recall reads the public RaceSense feeds: race control and the boats' GPS tracks.</p>
+          <p>Have your boat's own Vakaros log? Open the race and add your <strong>.vkx</strong> file: it replaces your boat's public track with your log's full-rate data. Uploads are public.</p>
+        </section>
+      </div>
+
+      <section class="land-section" aria-labelledby="land-apps-title">
+        <h2 id="land-apps-title">More Walke Forward racing apps</h2>
+        <ul class="land-apps">
+          <li><a class="land-app" href="https://railmath.walkeforward.com/"><img src="/apps/railmath.svg" width="40" height="40" alt="" /><span><span class="land-app-name">Rail Math</span><span class="land-app-desc">Time-on-time deltas</span></span></a></li>
+          <li><a class="land-app" href="https://legwork.walkeforward.com/"><img src="/apps/legwork.svg" width="40" height="40" alt="" /><span><span class="land-app-name">Leg Work</span><span class="land-app-desc">Range &amp; bearing to every mark</span></span></a></li>
+          <li><a class="land-app" href="https://vanncast.walkeforward.com/"><img src="/apps/vanncast.svg" width="40" height="40" alt="" /><span><span class="land-app-name">VannCast</span><span class="land-app-desc">Annapolis racing weather</span></span></a></li>
+        </ul>
+        <p class="land-studio">Recall is made by <a href="https://walkeforward.com/">Walke Forward</a>.</p>
+      </section>
+
+      <p class="land-foot">Unofficial. Data: public Vakaros RaceSense feeds. Not affiliated with Vakaros.</p>
+    </main>
 
     <div class="wrap">
 
@@ -181,7 +297,7 @@
 
       <footer>
         Unofficial. Data: public Vakaros RaceSense feeds (race control + 5 Hz GPS), fetched per race and cached.
-        Not affiliated with Vakaros. A <a href="https://walkeforward.com">Walke Forward</a> project.
+        Not affiliated with Vakaros. A <a href="https://walkeforward.com">Walke Forward</a> project. <a href="/">About Recall</a>
       </footer>
     </div>
     <!-- Full screen for a chart (ui/fullscreen.ts): the card's chart and controls move in here while it's open. -->

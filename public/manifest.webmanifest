@@ -2,7 +2,7 @@
   "name": "Recall",
   "short_name": "Recall",
   "description": "Your race, start to finish. A lean start and leg digest from Vakaros RaceSense public data.",
-  "start_url": "/",
+  "start_url": "/regattas",
   "scope": "/",
   "display": "standalone",
   "theme_color": "#16181c",

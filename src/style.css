@@ -1315,3 +1315,85 @@ body.report-on .content > :not(#report) { display: none !important; }
   body.report-on .rp-sec-notes ul, body.report-on .rp-key, body.report-on .rp-f dd small { font-size: 6.5pt; }
   body.report-on .report section, body.report-on .rp-penalty, body.report-on .rp-findings > li { break-inside: avoid; }
 }
+
+/* ---------- landing page (`/` with no app parameters: src/landing/route.ts) ---------- */
+
+/* index.html's inline script sets data-route before first paint; with no script at all the landing page shows. */
+html:not([data-route='app']) .wrap { display: none; }
+html[data-route='app'] #landing { display: none; }
+
+.landing {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 20px max(16px, env(safe-area-inset-right, 0px)) 40px max(16px, env(safe-area-inset-left, 0px));
+}
+.landing h2 { font-family: var(--sans-display); font-weight: 800; font-stretch: 112%; font-variation-settings: 'wdth' 112; margin: 0 0 10px; font-size: 1.25rem; line-height: 1.2; }
+.landing p { margin: 0 0 10px; }
+.land-hero { display: grid; gap: 20px; align-items: center; }
+.land-eyebrow { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
+.landing .land-title { font-size: clamp(1.7rem, 6.5vw, 2.6rem); font-weight: 850; line-height: 1.08; margin-bottom: 12px; }
+.land-lede { font-size: 1.05rem; color: var(--ink-2); max-width: 36em; }
+.land-ctas { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 14px; }
+.land-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 10px 20px;
+  border-radius: 10px;
+  border: 1px solid #1f6bc4;
+  /* The Day accent in both schemes: white on it is 5.3:1. */
+  background: #1f6bc4;
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.05rem;
+  text-decoration: none;
+}
+.land-btn:hover { filter: brightness(1.1); }
+.land-btn-2 { background: var(--surface); color: var(--ink); border-color: var(--rule-strong); font-weight: 600; font-size: 0.95rem; }
+.land-btn-2:hover { border-color: var(--ink); filter: none; }
+.land-btn[hidden] { display: none; }
+.land-free { color: var(--ink-2); }
+.land-free strong, .land-price strong { color: var(--ink); }
+.land-hero-fig { margin: 0; background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 12px; padding: 10px; }
+.land-hero-fig img { display: block; width: 100%; height: auto; max-height: 72vh; object-fit: contain; }
+.land-hero-fig figcaption { font-size: 0.8rem; color: var(--ink-3); margin-top: 6px; }
+
+.land-section { margin-top: 36px; }
+.land-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+.land-card { background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 10px; padding: 12px 14px; }
+.land-card h3 { font-size: 1rem; margin: 0 0 4px; }
+.land-card p { margin: 0; color: var(--ink-2); font-size: 0.92rem; }
+
+.land-split { display: grid; gap: 12px; margin-top: 36px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.land-panel { background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 10px; padding: 14px 16px; }
+.land-panel p:last-child { margin-bottom: 0; }
+.land-price { font-size: 1.1rem; }
+
+.land-apps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); }
+.land-app {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+}
+.land-app:hover { border-color: var(--ink); }
+.land-app img { flex: none; border-radius: 9px; }
+.land-app-name { display: block; font-weight: 700; }
+.land-app-desc { display: block; font-size: 0.85rem; color: var(--ink-2); }
+.land-studio { margin-top: 14px; }
+.land-foot { margin-top: 32px; font-size: 0.75rem; color: var(--ink-3); }
+
+@media (min-width: 820px) {
+  .landing { padding-top: 36px; }
+  .land-hero { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 36px; }
+  .land-hero-fig img { max-height: 560px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .land-btn, .land-app { transition: filter 0.15s, border-color 0.15s; }
+}

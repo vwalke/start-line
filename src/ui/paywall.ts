@@ -10,6 +10,8 @@
  */
 import { passesUnlock, type PassView } from '../../functions/_entitlements';
 import { isFreeRace, type FreeRaces } from '../data/freeRace';
+import { PRICE_REGATTA } from '../data/price';
+import { appPath } from '../landing/route';
 import {
   BUY_PARAM,
   PAYWALL_OFF,
@@ -31,8 +33,7 @@ import { pickRace } from './lastView';
 import { duration, esc, gunTimeLine } from './format';
 import { raceName, raceTitleHtml, shortRaceName } from './races';
 
-/** The displayed price (copy only: what is charged comes from the Stripe price id, STRIPE_PRICE_REGATTA). */
-export const PRICE_REGATTA = '$50';
+export { PRICE_REGATTA };
 
 // ---- decisions
 
@@ -235,13 +236,13 @@ export function returnParam(search: string): ReturnParam {
   return null;
 }
 
-/** This page, to come back to after sign-in or checkout (without those markers). */
+/** This page, to come back to after sign-in or checkout (without those markers; in the app, never the landing page: landing/route.ts appPath). */
 export function hereWithout(href: string): string {
   const u = new URL(href);
   u.searchParams.delete('checkout');
   u.searchParams.delete('signin');
   u.searchParams.delete(BUY_PARAM);
-  return `${u.pathname}${u.search}${u.hash}`;
+  return appPath(`${u.pathname}${u.search}${u.hash}`);
 }
 
 /**
