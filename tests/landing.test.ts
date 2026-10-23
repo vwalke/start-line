@@ -206,9 +206,11 @@ describe('the landing page (index.html #landing)', () => {
     for (const m of landingText.matchAll(/sign[- ]?in[^.]*/gi)) expect(m[0]).toMatch(/Google/);
   });
 
-  it('describes the post-start view generically and leaves out features that are switched per site', () => {
-    expect(landingText).toContain('the first minutes after the gun');
-    expect(landingText).not.toMatch(/\b(60|120|180) ?s\b|\+[123]:00|slider/i);
+  it('describes the After the gun slider in plain words and leaves out features that are switched per site', () => {
+    expect(landingText).toContain('After the gun');
+    expect(landingText).toContain('Drag the slider from the gun to three minutes after, or press play');
+    expect(landingText).not.toMatch(/snapshot/i);
+    expect(landingText).not.toMatch(/\b(60|120|180) ?s\b|\+[123]:00/i);
     expect(landingText).not.toMatch(/Ask Coach|\bAI\b/);
   });
 
