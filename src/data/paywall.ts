@@ -14,11 +14,18 @@ export const BILLING_BASE = '/api/billing';
 /** Why this browser was signed out from elsewhere: the 3-device cap, another device, or the admin. */
 export type SignedOutReason = 'device_limit' | 'remote' | 'admin';
 
+/** How a session signed in (functions/_authDb.ts SignInMethod); null for older rows. */
+export type SignInMethod = 'email' | 'google' | 'microsoft' | 'apple';
+const METHODS: readonly SignInMethod[] = ['email', 'google', 'microsoft', 'apple'];
+
+/** The sign-in providers with a start route (functions/_auth.ts OAuthProvider). */
+export type OAuthProvider = 'google' | 'microsoft' | 'apple';
+
 /** One signed-in device of the account (`id` is the session's public id; never a token). */
 export interface DeviceView {
   id: string;
   label: string;
-  method: 'email' | 'google' | null;
+  method: SignInMethod | null;
   createdAt: number;
   lastSeenAt: number;
   current: boolean;
@@ -36,8 +43,8 @@ export type Me =
       paywall: true;
       user: { email: string } | null;
       entitlements: PassView[];
-      /** turnstileSiteKey: the email forms' Turnstile widget (null or absent: none). */
-      signIn: { email: boolean; google: boolean; turnstileSiteKey?: string | null };
+      /** turnstileSiteKey: the email forms' Turnstile widget (null or absent: none). microsoft / apple: absent reads as off. */
+      signIn: { email: boolean; google: boolean; microsoft?: boolean; apple?: boolean; turnstileSiteKey?: string | null };
       signedOutReason?: SignedOutReason;
       devices?: { max: number; list: DeviceView[] };
       bumped?: BumpedView[];
@@ -56,7 +63,7 @@ function parseDevices(raw: unknown): { max: number; list: DeviceView[] } | undef
     .map((x): DeviceView => ({
       id: x.id as string,
       label: x.label as string,
-      method: x.method === 'email' || x.method === 'google' ? x.method : null,
+      method: METHODS.includes(x.method as SignInMethod) ? (x.method as SignInMethod) : null,
       createdAt: x.createdAt as number,
       lastSeenAt: x.lastSeenAt as number,
       current: x.current === true,
@@ -70,7 +77,7 @@ export function parseMe(body: unknown): Me {
   if (b.paywall !== true) return PAYWALL_OFF;
   const u = b.user as { email?: unknown } | null | undefined;
   const ents = Array.isArray(b.entitlements) ? (b.entitlements as PassView[]).filter((e) => e && typeof e === 'object' && typeof e.scope === 'string') : [];
-  const s = (b.signIn ?? {}) as { email?: unknown; google?: unknown; turnstileSiteKey?: unknown };
+  const s = (b.signIn ?? {}) as { email?: unknown; google?: unknown; microsoft?: unknown; apple?: unknown; turnstileSiteKey?: unknown };
   const user = u && typeof u.email === 'string' ? { email: u.email } : null;
   const devices = user ? parseDevices(b.devices) : undefined;
   const bumped = user && Array.isArray(b.bumped) ? (b.bumped as Record<string, unknown>[]).filter((x) => x && typeof x.label === 'string' && isNum(x.lastSeenAt)).map((x) => ({ label: x.label as string, lastSeenAt: x.lastSeenAt as number })) : [];
@@ -79,7 +86,13 @@ export function parseMe(body: unknown): Me {
     paywall: true,
     user,
     entitlements: ents,
-    signIn: { email: s.email === true, google: s.google === true, turnstileSiteKey: typeof s.turnstileSiteKey === 'string' && s.turnstileSiteKey ? s.turnstileSiteKey : null },
+    signIn: {
+      email: s.email === true,
+      google: s.google === true,
+      microsoft: s.microsoft === true,
+      apple: s.apple === true,
+      turnstileSiteKey: typeof s.turnstileSiteKey === 'string' && s.turnstileSiteKey ? s.turnstileSiteKey : null,
+    },
     ...(reason ? { signedOutReason: reason } : {}),
     ...(devices ? { devices } : {}),
     ...(bumped.length ? { bumped } : {}),
@@ -131,8 +144,12 @@ export const revokeOtherDevices = (f?: typeof fetch): Promise<PostResult> => pos
 export const startCheckout = (eventId: string, returnTo: string, f?: typeof fetch, intent?: string): Promise<PostResult> =>
   post(`${BILLING_BASE}/checkout`, { product: 'regatta', eventId, returnTo, ...(intent ? { intent } : {}) }, f);
 
-export const googleStartUrl = (returnTo: string, buy?: BuyIntent | null): string =>
-  `${AUTH_BASE}/google/start?${new URLSearchParams({ returnTo, ...(buy ? { buy: buy.product, event: buy.eventId } : {}) })}`;
+/** A provider's start route, with where to come back to and the pass being bought (if any). */
+export const oauthStartUrl = (provider: OAuthProvider, returnTo: string, buy?: BuyIntent | null): string =>
+  `${AUTH_BASE}/${provider}/start?${new URLSearchParams({ returnTo, ...(buy ? { buy: buy.product, event: buy.eventId } : {}) })}`;
+export const googleStartUrl = (returnTo: string, buy?: BuyIntent | null): string => oauthStartUrl('google', returnTo, buy);
+export const microsoftStartUrl = (returnTo: string, buy?: BuyIntent | null): string => oauthStartUrl('microsoft', returnTo, buy);
+export const appleStartUrl = (returnTo: string, buy?: BuyIntent | null): string => oauthStartUrl('apple', returnTo, buy);
 
 /** The one-time marker the server adds after a sign-in that carried an intent (functions/_auth.ts BUY_PARAM). */
 export const BUY_PARAM = 'buy';

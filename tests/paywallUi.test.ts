@@ -26,7 +26,7 @@ describe('paywall flag on the page', () => {
       paywall: true,
       user: { email: 'a@example.com' },
       entitlements: [pass('regatta', EVENT)],
-      signIn: { email: false, google: true, turnstileSiteKey: null },
+      signIn: { email: false, google: true, microsoft: false, apple: false, turnstileSiteKey: null },
     });
     const html = (async () => new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } })) as unknown as typeof fetch;
     expect(await fetchMe(html)).toEqual(PAYWALL_OFF);

@@ -1,7 +1,7 @@
 /**
  * An in-memory stand-in for a Workers D1 database, for the paywall tests. It loads the tables of
  * every migration in migrations/, in order (columns, NOT NULL, PRIMARY KEY and UNIQUE, single or
- * composite; ALTER TABLE … ADD COLUMN; CREATE UNIQUE INDEX) and runs the small SQL subset
+ * composite; a column's literal DEFAULT; ALTER TABLE … ADD COLUMN; CREATE UNIQUE INDEX) and runs the small SQL subset
  * functions/_authDb.ts keeps to: single-table SELECT / INSERT [OR IGNORE] / UPDATE / DELETE, WHERE
  * of ANDed comparisons (= != < > <= >=), IS [NOT] NULL and IN (…), one ORDER BY column, LIMIT; and
  * the one upsert of the sign-in rate limits (INSERT … ON CONFLICT (key) DO UPDATE SET … RETURNING,
@@ -20,6 +20,8 @@ interface Table {
   cols: string[];
   notNull: Set<string>;
   unique: string[][];
+  /** Literal DEFAULTs, for an INSERT that leaves the column out. */
+  defaults: Map<string, unknown>;
   rows: Row[];
 }
 
@@ -71,7 +73,7 @@ export function parseSchema(sql: string): Map<string, Table> {
     }
     const m = /CREATE TABLE (\w+) \(([\s\S]*)\)\s*$/i.exec(stmt.trim());
     if (!m) continue;
-    const t: Table = { cols: [], notNull: new Set(), unique: [], rows: [] };
+    const t: Table = { cols: [], notNull: new Set(), unique: [], defaults: new Map(), rows: [] };
     for (const part of splitTop(m[2])) {
       const key = /^(PRIMARY KEY|UNIQUE)\s*\(([^)]+)\)/i.exec(part);
       if (key) {
@@ -87,6 +89,8 @@ export function parseSchema(sql: string): Map<string, Table> {
         t.notNull.add(name);
       } else if (/\bUNIQUE\b/i.test(part)) t.unique.push([name]);
       if (/NOT NULL/i.test(part)) t.notNull.add(name);
+      const def = /\bDEFAULT\s+(-?\d+|'[^']*')/i.exec(part);
+      if (def) t.defaults.set(name, (lit(def[1]) as { lit: unknown }).lit);
     }
     tables.set(m[1], t);
   }
@@ -283,7 +287,7 @@ export class MemD1 implements D1Like {
       return { rows: rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? null]))), changes: 0 };
     }
     const insert = (t: Table, cols: string[], vals: unknown[], orIgnore: boolean): number => {
-      const row: Row = Object.fromEntries(t.cols.map((c) => [c, null]));
+      const row: Row = Object.fromEntries(t.cols.map((c) => [c, t.defaults.has(c) ? t.defaults.get(c) : null]));
       cols.forEach((c, i) => {
         if (!t.cols.includes(c)) throw new Error(`d1mem: no column ${c}`);
         row[c] = vals[i];

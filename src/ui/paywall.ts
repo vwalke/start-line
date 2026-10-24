@@ -4,9 +4,10 @@
  *     pass, or a data request answered 401 / 402): the race header from the free regatta document,
  *     its RaceSense finishes, a blurred placeholder chart (no tracks are loaded), and the Regatta Pass
  *     (the only pass on sale: race 1 of every regatta is free, the rest of a regatta is $50);
- *   - an account button in the masthead opening a sheet: sign in (email link, behind Turnstile when
- *     the site has a key, or Google), the passes held, the signed-in devices (sign out any other one,
- *     or all of them), Restore access, Manage subscription (an existing Season Pass subscriber only), Sign out;
+ *   - an account button in the masthead opening a sheet: sign in (Google, Apple or Microsoft, each only
+ *     when set up, then an email link, behind Turnstile when the site has a key), the passes held,
+ *     the signed-in devices (with how each signed in; sign out any other one, or all of them),
+ *     Restore access, Manage subscription (an existing Season Pass subscriber only), Sign out;
  *   - a browser signed out from elsewhere (the 3-device cap, another device, the admin) gets the
  *     sign-in sheet once, saying why; a sign-in that signed out another device says which, once;
  *   - back from a sign-in (`signin=ok`): a "You're signed in." toast that hides itself after 5 seconds.
@@ -20,7 +21,7 @@ import {
   BUY_PARAM,
   PAYWALL_OFF,
   fetchMe,
-  googleStartUrl,
+  oauthStartUrl,
   openPortal,
   revokeDevice,
   revokeOtherDevices,
@@ -33,6 +34,8 @@ import {
   type BuyIntent,
   type DeviceView,
   type Me,
+  type OAuthProvider,
+  type SignInMethod,
   type SignedOutReason,
 } from '../data/paywall';
 import { createTurnstile, type Turnstile } from './turnstile';
@@ -114,9 +117,11 @@ export interface LockView {
   range: string;
   signedIn: string | null;
   canBuy: boolean;
-  /** The sign-in methods set up here (/api/auth/me signIn): email links (and so Restore access), Google. */
+  /** The sign-in methods set up here (/api/auth/me signIn): email links (and so Restore access), Google, Microsoft, Apple. */
   signInEmail?: boolean;
   signInGoogle?: boolean;
+  signInMicrosoft?: boolean;
+  signInApple?: boolean;
   message?: string;
 }
 
@@ -141,6 +146,8 @@ export function lockView(doc: RegattaDoc, o: { division: string; raceNumber: num
     canBuy: o.me.paywall,
     signInEmail: o.me.paywall && o.me.signIn.email,
     signInGoogle: o.me.paywall && o.me.signIn.google,
+    signInMicrosoft: o.me.paywall && !!o.me.signIn.microsoft,
+    signInApple: o.me.paywall && !!o.me.signIn.apple,
   };
 }
 
@@ -166,7 +173,7 @@ export function lockCardHtml(v: LockView): string {
   const restore = v.signInEmail ? ' · <button type="button" class="linkish" data-pw="restore">Restore access</button>' : '';
   const who = v.signedIn
     ? `Signed in as ${esc(v.signedIn)}${restore}`
-    : v.signInEmail || v.signInGoogle
+    : v.signInEmail || v.signInGoogle || v.signInMicrosoft || v.signInApple
       ? `Already bought? <button type="button" class="linkish" data-pw="signin">Sign in</button>${restore}`
       : 'Sign-in is unavailable right now';
   return `<div id="lock-summary">${v.titleHtml}<p>${[esc(v.gunLine), `${v.boats} boats`].filter(Boolean).join(' · ')}</p></div>
@@ -216,19 +223,42 @@ export function bumpedNote(bumped: readonly BumpedView[], now = Date.now()): str
   return `Signing in here signed out ${list}.`;
 }
 
-/** The account sheet's Devices section: how many of the cap, one row per device, Sign out for the others. */
+/** How a device signed in, after its name: "Chrome on Mac · Google"; nothing for an older session. */
+export const METHOD_TEXT: Record<SignInMethod, string> = { email: 'Email link', google: 'Google', microsoft: 'Microsoft', apple: 'Apple' };
+
+/** The account sheet's Devices section: how many of the cap, one row per device (with how it signed in), Sign out for the others. */
 export function devicesHtml(devices: { max: number; list: readonly DeviceView[] } | undefined, busy = false, now = Date.now()): string {
   if (!devices || !devices.list.length) return '';
   const dis = busy ? ' disabled' : '';
   const rows = devices.list
     .map(
-      (d) => `<li class="account-device"><span class="account-device-name">${esc(d.label)}</span>
+      (d) => `<li class="account-device"><span class="account-device-name">${esc(d.label)}${d.method ? ` · ${METHOD_TEXT[d.method]}` : ''}</span>
         <span class="account-device-when muted">${d.current ? 'This device' : `Last used ${esc(shortDate(d.lastSeenAt, now))}`}</span>
         ${d.current ? '' : `<button type="button" class="lock-secondary" data-pw="revoke" data-id="${esc(d.id)}"${dis}>Sign out</button>`}</li>`,
     )
     .join('');
   const others = devices.list.length > 1 ? `<p class="account-actions"><button type="button" class="lock-secondary" data-pw="revoke-others"${dis}>Sign out all other devices</button></p>` : '';
   return `<h3 class="account-sub">Devices</h3><p>Signed in on ${devices.list.length} of ${devices.max} devices.</p><ul class="account-devices">${rows}</ul>${others}`;
+}
+
+/** Apple's logo glyph (white on the black button, black on the white one in dark mode: it takes the text color). */
+export const APPLE_LOGO =
+  '<svg class="signin-logo" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>';
+/** Microsoft's four squares, 1px apart, in its colors. */
+export const MICROSOFT_LOGO =
+  '<svg class="signin-logo" viewBox="0 0 21 21" width="18" height="18" aria-hidden="true" focusable="false"><rect x="1" y="1" width="9" height="9" fill="#F25022"/><rect x="11" y="1" width="9" height="9" fill="#7FBA00"/><rect x="1" y="11" width="9" height="9" fill="#00A4EF"/><rect x="11" y="11" width="9" height="9" fill="#FFB900"/></svg>';
+/** Google's standard-color "G". */
+export const GOOGLE_LOGO =
+  '<svg class="signin-logo" viewBox="0 0 48 48" width="18" height="18" aria-hidden="true" focusable="false"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>';
+
+/** The provider buttons set up here, in this order: Google, Apple, Microsoft ('' for none). */
+export function providerButtonsHtml(signIn: { google: boolean; microsoft?: boolean; apple?: boolean }): string {
+  const buttons = [
+    signIn.google ? `<p><a class="lock-secondary signin-google" data-pw="google" href="#">${GOOGLE_LOGO}<span>Continue with Google</span></a></p>` : '',
+    signIn.apple ? `<p><a class="lock-secondary signin-apple" data-pw="apple" href="#">${APPLE_LOGO}<span>Continue with Apple</span></a></p>` : '',
+    signIn.microsoft ? `<p><a class="lock-secondary signin-microsoft" data-pw="microsoft" href="#">${MICROSOFT_LOGO}<span>Continue with Microsoft</span></a></p>` : '',
+  ].join('');
+  return buttons ? `<div class="account-providers">${buttons}</div>` : '';
 }
 
 export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => string): string {
@@ -244,7 +274,6 @@ export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => str
       ${slot(action)}<button type="submit" class="lock-primary"${s.busy ? ' disabled' : ''}>${esc(label)}</button>
     </form>`;
   const email = me.signIn.email;
-  const google = me.signIn.google;
   // With email sign-in off there is no email UI at all (no link form, Restore access or "check your email").
   if (!email && (s.mode === 'sent' || s.mode === 'restore-sent' || s.mode === 'restore')) s = { ...s, mode: me.user ? 'account' : 'signin' };
   if (s.mode === 'sent' || s.mode === 'restore-sent') {
@@ -266,25 +295,50 @@ export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => str
       ${devicesHtml(me.devices, s.busy)}
       <p class="account-actions">${manage}${email ? '<button type="button" class="lock-secondary" data-pw="restore">Restore access</button>' : ''}<button type="button" class="lock-secondary" data-pw="signout"${s.busy ? ' disabled' : ''}>Sign out</button></p>`;
   }
-  if (!email && !google) return `${head('Sign in')}${note}<p class="muted">Sign-in is unavailable right now. Race 1 of every regatta is free.</p>`;
-  const googleBtn = google ? `<p><a class="lock-secondary google" data-pw="google" href="#">Continue with Google</a></p>` : '';
-  if (!email) return `${head('Sign in')}${note}<p>Your passes are kept with your account.</p>${googleBtn}`;
-  return `${head('Sign in')}${note}<p>Your passes are kept with your email address.</p>${emailForm('signin', 'Email me a sign-in link')}${googleBtn}
+  const providers = providerButtonsHtml(me.signIn);
+  if (!email && !providers) return `${head('Sign in')}${note}<p class="muted">Sign-in is unavailable right now. Race 1 of every regatta is free.</p>`;
+  if (!email) return `${head('Sign in')}${note}<p>Your passes are kept with your account.</p>${providers}`;
+  // The providers first, then the email link (its form, Turnstile and Restore access).
+  const kept = providers ? 'Your passes are kept with your account and its email address.' : 'Your passes are kept with your email address.';
+  return `${head('Sign in')}${note}<p>${kept}</p>${providers}${providers ? '<p class="account-or">or</p>' : ''}${emailForm('signin', 'Email me a sign-in link')}
     <p class="lock-small"><button type="button" class="linkish" data-pw="restore">Restore access</button></p>`;
 }
 
 // ---- return trips (Stripe, the email link, Google)
 
-export type ReturnParam = { kind: 'checkout'; value: 'success' | 'cancel' } | { kind: 'signin'; value: 'ok' | 'expired' | 'failed' } | null;
+export type ReturnParam =
+  | { kind: 'checkout'; value: 'success' | 'cancel' }
+  | { kind: 'signin'; value: 'ok' | 'expired' | 'failed'; via?: OAuthProvider; reason?: string }
+  | null;
 
-/** `signin=ok` (the server's marker on a fresh sign-in, functions/_auth.ts SIGNED_IN_PARAM), `expired`, `failed`; `checkout=`. */
+const PROVIDERS: readonly OAuthProvider[] = ['google', 'microsoft', 'apple'];
+
+/**
+ * `signin=ok` (the server's marker on a fresh sign-in, functions/_auth.ts SIGNED_IN_PARAM), `expired`,
+ * `failed` (with `via`, the provider, and `reason` when there is more to say); `checkout=`.
+ */
 export function returnParam(search: string): ReturnParam {
   const q = new URLSearchParams(search);
   const c = q.get('checkout');
   if (c === 'success' || c === 'cancel') return { kind: 'checkout', value: c };
   const s = q.get('signin');
-  if (s === 'ok' || s === 'expired' || s === 'failed') return { kind: 'signin', value: s };
-  return null;
+  if (s === 'ok' || s === 'expired') return { kind: 'signin', value: s };
+  if (s !== 'failed') return null;
+  const via = q.get('via') as OAuthProvider | null;
+  const reason = q.get('reason');
+  return { kind: 'signin', value: s, ...(via && PROVIDERS.includes(via) ? { via } : {}), ...(reason && /^[a-z_]{1,40}$/.test(reason) ? { reason } : {}) };
+}
+
+export const PROVIDER_NAMES: Record<OAuthProvider, string> = { google: 'Google', microsoft: 'Microsoft', apple: 'Apple' };
+export const MICROSOFT_EMAIL_NOTE = "Your Microsoft account didn't share a verified email address, so it can't be used to sign in here. Try Google, Apple or an email link.";
+export const APPLE_EMAIL_NOTE = "Apple didn't share a verified email address, so we couldn't sign you in. Try again, or use Google, Microsoft or an email link.";
+
+/** What the page says after a failed provider sign-in ('' for a sign-in the sailor cancelled at Apple); no `via` is Google's (older links). */
+export function failedNote(via?: OAuthProvider, reason?: string): string {
+  if (reason === 'cancelled') return '';
+  if (reason === 'microsoft_email') return MICROSOFT_EMAIL_NOTE;
+  if (reason === 'apple_email') return APPLE_EMAIL_NOTE;
+  return `Couldn't sign you in with ${PROVIDER_NAMES[via ?? 'google']}. Try again, or use an email link.`;
 }
 
 export const EXPIRED_NOTE = 'That sign-in link has expired or was already used. Ask for a new one below.';
@@ -338,6 +392,8 @@ export function hereWithout(href: string): string {
   const u = new URL(href);
   u.searchParams.delete('checkout');
   u.searchParams.delete('signin');
+  u.searchParams.delete('via');
+  u.searchParams.delete('reason');
   u.searchParams.delete(BUY_PARAM);
   return appPath(`${u.pathname}${u.search}${u.hash}`);
 }
@@ -652,9 +708,9 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     const el = (ev.target as HTMLElement).closest<HTMLElement>('[data-pw]');
     if (!el) return;
     const a = el.dataset.pw;
-    if (a === 'google') {
+    if (a === 'google' || a === 'microsoft' || a === 'apple') {
       ev.preventDefault();
-      location.assign(googleStartUrl(hereWithout(location.href), pendingBuy));
+      location.assign(oauthStartUrl(a, hereWithout(location.href), pendingBuy));
     } else if (a === 'buy-regatta') void buy();
     else if (a === 'signin') {
       pendingBuy = null;
@@ -716,7 +772,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     renderButton();
   }
 
-  /** Back from Stripe, Google or an email link: say so, tidy the URL, and wait for the pass to land. */
+  /** Back from Stripe, Google, Microsoft, Apple or an email link: say so, tidy the URL, and wait for the pass to land. */
   async function arrive(): Promise<void> {
     // Read once: the markers leave the URL below.
     const search = location.search;
@@ -747,7 +803,11 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
       if (p.value === 'ok') welcome();
       // An expired link: the sign-in sheet, to ask for a new one (a note instead when signed in already, or without email sign-in here).
       else if (p.value === 'expired' && me.paywall && !me.user && me.signIn.email) openSheet({ mode: 'signin', note: EXPIRED_NOTE });
-      else o.notice(p.value === 'expired' ? 'That sign-in link has expired or was already used. Ask for a new one.' : "Couldn't sign you in with Google. Try again, or use an email link.");
+      else if (p.value === 'expired') o.notice('That sign-in link has expired or was already used. Ask for a new one.');
+      else if (p.value === 'failed') {
+        const n = failedNote(p.via, p.reason);
+        if (n) o.notice(n);
+      }
       return;
     }
     if (p.value !== 'success') return;

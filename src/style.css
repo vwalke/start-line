@@ -1306,6 +1306,31 @@ body.report-on .content > :not(#report) { display: none !important; }
 .account-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .account-turnstile:empty { display: none; }
 .account-notice::before { content: none; }
+/* Sign-in providers (paywall.ts providerButtonsHtml): one column as wide as the widest button; full width on a phone. */
+.account-providers { display: grid; grid-template-columns: minmax(0, max-content); gap: 8px; margin: 12px 0; }
+.account-providers p { margin: 0; }
+.account-providers .lock-secondary { width: 100%; box-sizing: border-box; justify-content: center; gap: 10px; padding: 0 20px; }
+.signin-logo { flex: none; width: 18px; height: 18px; }
+/* Brand buttons. Google and Microsoft stay light in dark mode; Apple flips to white. */
+/* Google's guidelines (light theme): white, #747775 border, #1F1F1F text, the standard-color G.
+   Roboto isn't loaded here, so it keeps the app font at Apple and Microsoft's weight. */
+.account-providers .signin-google { background: #fff; border-color: #747775; color: #1f1f1f; font-weight: 600; }
+.account-providers .signin-google:hover { border-color: #1f1f1f; background: #f2f2f2; }
+/* Apple's guidelines: black, white logo and text (white with black in dark mode). */
+.account-providers .signin-apple { background: #000; border-color: #000; color: #fff; font-weight: 600; }
+.account-providers .signin-apple:hover { border-color: #000; background: #1d1d1f; }
+/* Microsoft's branding: a light button, gray border, dark gray text, weight 600. */
+.account-providers .signin-microsoft { background: #fff; border-color: #8c8c8c; color: #5e5e5e; font-weight: 600; }
+.account-providers .signin-microsoft:hover { border-color: #5e5e5e; }
+@media (prefers-color-scheme: dark) {
+  .account-providers .signin-apple { background: #fff; border-color: #fff; color: #000; }
+  .account-providers .signin-apple:hover { background: #e8e8ed; border-color: #e8e8ed; }
+}
+@media (max-width: 560px) {
+  .account-providers { grid-template-columns: 1fr; }
+}
+.account-or { display: flex; align-items: center; gap: 10px; margin: 4px 0 0; font-size: 0.85rem; color: var(--ink-3); }
+.account-or::before, .account-or::after { content: ''; flex: 1 1 auto; border-top: 1px solid var(--rule); }
 .account-devices { list-style: none; margin: 0; padding: 0; }
 .account-device { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
 .account-device-name { font-weight: 600; }

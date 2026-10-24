@@ -79,7 +79,7 @@ describe('flag', () => {
 describe('me', () => {
   it('signed out: paywall on, no user, the sign-in options configured', async () => {
     const res = await handleAuth(ctx(new Request(`${ORIGIN}/api/auth/me`), paywallEnv(new MemD1()), 'me'), mailbox());
-    expect(await json(res)).toEqual({ paywall: true, user: null, entitlements: [], signIn: { email: true, google: true, turnstileSiteKey: 'turnstile_site_test_fake' } });
+    expect(await json(res)).toEqual({ paywall: true, user: null, entitlements: [], signIn: { email: true, google: true, microsoft: false, apple: false, turnstileSiteKey: 'turnstile_site_test_fake' } });
   });
 
   it('signed in: the email and the active passes', async () => {
@@ -94,7 +94,7 @@ describe('me', () => {
 
   it('with the flag on but no D1 bound: signed out, nothing to sign in with', async () => {
     const res = await handleAuth(ctx(new Request(`${ORIGIN}/api/auth/me`), paywallEnv(undefined), 'me'), mailbox());
-    expect(await json(res)).toEqual({ paywall: true, user: null, entitlements: [], signIn: { email: false, google: false, turnstileSiteKey: 'turnstile_site_test_fake' } });
+    expect(await json(res)).toEqual({ paywall: true, user: null, entitlements: [], signIn: { email: false, google: false, microsoft: false, apple: false, turnstileSiteKey: 'turnstile_site_test_fake' } });
   });
 });
 
@@ -545,10 +545,10 @@ describe('Google', () => {
     const good = { iss: 'accounts.google.com', aud: 'google-client-id-test-fake.apps.example', exp: NOW / 1000 + 600, sub: 'g-1', email: 'a@example.com', email_verified: true, nonce };
     const run = (claims: Record<string, unknown>, s = state): Promise<Response> =>
       handleAuth(ctx(new Request(`${ORIGIN}/api/auth/google/callback?code=c&state=${s}`, { headers: { cookie } }), env(db), 'google/callback'), { ...mailbox(), fetch: tokenEndpoint(claims) });
-    expect((await run(good, 'other-state')).headers.get('location')).toBe('/?signin=failed');
+    expect((await run(good, 'other-state')).headers.get('location')).toBe('/?signin=failed&via=google');
     for (const bad of [{ aud: 'someone-else' }, { nonce: 'x' }, { email_verified: false }, { iss: 'https://evil.example' }, { exp: NOW / 1000 - 1 }]) {
       const res = await run({ ...good, ...bad });
-      expect(res.headers.get('location'), JSON.stringify(bad)).toBe('/?race=3&signin=failed');
+      expect(res.headers.get('location'), JSON.stringify(bad)).toBe('/?race=3&signin=failed&via=google');
     }
     expect(db.rows('sessions')).toEqual([]);
     expect(checkClaims(good, 'google-client-id-test-fake.apps.example', nonce, NOW)).toEqual({ sub: 'g-1', email: 'a@example.com' });

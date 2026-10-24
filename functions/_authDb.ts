@@ -1,6 +1,6 @@
 /**
- * The paywall's D1 queries (database bound as AUTH_DB; schema in migrations/0001_paywall.sql and
- * 0002_signin_phase1.sql).
+ * The paywall's D1 queries (database bound as AUTH_DB; schema in migrations/0001_paywall.sql,
+ * 0002_signin_phase1.sql and 0003_identities.sql).
  *
  * The SQL keeps to a small subset on purpose (single-table SELECT / INSERT [OR IGNORE] / UPDATE /
  * DELETE; WHERE of ANDed comparisons, IS [NOT] NULL and IN; ORDER BY one column; LIMIT; the one
@@ -89,13 +89,47 @@ export async function ensureUser(db: D1Like, email: string, now: number): Promis
 export const setGoogleSub = (db: D1Like, userId: string, sub: string): Promise<unknown> =>
   db.prepare('UPDATE users SET google_sub = ? WHERE id = ? AND google_sub IS NULL').bind(sub, userId).run();
 
+// ---- identities (migrations/0003_identities.sql): the provider accounts that sign a user in
+
+export type IdentityProvider = 'google' | 'microsoft' | 'apple';
+
+export interface IdentityInput {
+  provider: IdentityProvider;
+  subject: string;
+  email: string | null;
+  emailVerified: boolean;
+  tenant?: string | null;
+  isPrivateRelay?: boolean;
+}
+
+/** The user an identity signs in, noting its use; null when there is no such identity (or its user is gone). */
+export async function userByIdentity(db: D1Like, provider: IdentityProvider, subject: string, now: number): Promise<UserRow | null> {
+  const row = await db.prepare('SELECT user_id FROM identities WHERE provider = ? AND subject = ?').bind(provider, subject).first<{ user_id: string }>();
+  if (!row) return null;
+  await db.prepare('UPDATE identities SET last_used_at = ? WHERE provider = ? AND subject = ?').bind(now, provider, subject).run();
+  return userById(db, row.user_id);
+}
+
+/**
+ * Record that this identity signs in `userId` (INSERT OR IGNORE), then read back whom it signs in:
+ * of two first sign-ins racing, the first row stands and both get its user.
+ */
+export async function linkIdentity(db: D1Like, i: IdentityInput, userId: string, now: number): Promise<UserRow | null> {
+  await db
+    .prepare('INSERT OR IGNORE INTO identities (provider, subject, user_id, email, email_verified, tenant, is_private_relay, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(i.provider, i.subject, userId, i.email ? normEmail(i.email) : null, i.emailVerified ? 1 : 0, i.tenant ?? null, i.isPrivateRelay ? 1 : 0, now, now)
+    .run();
+  return userByIdentity(db, i.provider, i.subject, now);
+}
+
 /** Remember the user's Stripe customer (the first one seen is kept). */
 export const setStripeCustomer = (db: D1Like, userId: string, customer: string): Promise<unknown> =>
   db.prepare('UPDATE users SET stripe_customer_id = ? WHERE id = ? AND stripe_customer_id IS NULL').bind(customer, userId).run();
 
 // ---- sessions
 
-export type SignInMethod = 'email' | 'google';
+export type SignInMethod = 'email' | 'google' | 'microsoft' | 'apple';
+export const SIGN_IN_METHODS: readonly SignInMethod[] = ['email', 'google', 'microsoft', 'apple'];
 export type RevokedReason = 'device_limit' | 'remote' | 'admin';
 export const REVOKED_REASONS: readonly RevokedReason[] = ['device_limit', 'remote', 'admin'];
 
