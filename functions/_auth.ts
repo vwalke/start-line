@@ -388,34 +388,8 @@ export function signInMail(to: string, link: string, kind: 'signin' | 'restore' 
   const text = `${hello}\n\n${intro}\n\n${link}\n\n${once}\n\n${ignore}\n\nRecall\n${origin}\n`;
   const href = escHtml(link);
   const c = MAIL;
-  const p = `margin:0 0 16px;font-family:${c.font};font-size:16px;line-height:24px;color:${c.ink}`;
-  const small = `margin:0 0 12px;font-family:${c.font};font-size:14px;line-height:21px;color:${c.ink3}`;
-  // Zero-width fillers after the preheader, so the inbox preview doesn't run on into the body text.
-  const filler = '&#847;&zwnj;&nbsp;'.repeat(40);
-  const html = `<!doctype html>
-<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="X-UA-Compatible" content="IE=edge">
-<meta name="x-apple-disable-message-reformatting">
-<meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no">
-<meta name="color-scheme" content="light dark">
-<meta name="supported-color-schemes" content="light dark">
-<title>${escHtml(SIGN_IN_SUBJECT)}</title>
-</head>
-<body style="margin:0;padding:0;width:100%;background:${c.page};-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
-<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:${c.page}">${escHtml(preheader)}${filler}</div>
-<table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="${c.page}" style="background:${c.page}">
-<tr><td align="center" style="padding:24px 12px">
-<!--[if mso]><table role="presentation" width="560" border="0" cellspacing="0" cellpadding="0" align="center"><tr><td><![endif]-->
-<table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:560px;border-collapse:separate">
-<tr><td bgcolor="${c.carbon}" style="background:${c.carbon};padding:20px 28px 18px;border-radius:10px 10px 0 0;border-bottom:4px solid ${c.gold}">
-<p style="margin:0;font-family:${c.display};font-size:24px;line-height:28px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:${c.onCarbon}">Recall</p>
-<p style="margin:4px 0 0;font-family:${c.font};font-size:13px;line-height:18px;color:${c.onCarbonMuted}">Replays and debriefs for RaceSense races.</p>
-</td></tr>
-<tr><td bgcolor="${c.surface}" style="background:${c.surface};padding:28px 28px 20px;border:1px solid ${c.rule};border-top:0;border-radius:0 0 10px 10px">
-<p style="${p}">${escHtml(hello)}</p>
+  const { p, small } = MAIL_TEXT;
+  const body = `<p style="${p}">${escHtml(hello)}</p>
 <p style="${p}">${escHtml(intro)}</p>
 <table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:8px 0 24px">
 <tr><td align="center" bgcolor="${c.accent}" style="background:${c.accent};border-radius:8px">
@@ -432,11 +406,53 @@ export function signInMail(to: string, link: string, kind: 'signin' | 'restore' 
 </table>
 <p style="${small};margin-bottom:4px">${escHtml(paste)}</p>
 <p style="${small};margin-bottom:20px;word-break:break-all"><a href="${href}" target="_blank" style="color:${c.accent};text-decoration:underline">${href}</a></p>
-<p style="${small}">${escHtml(once)}</p>
+<p style="${small}">${escHtml(once)}</p>`;
+  return { to, subject: SIGN_IN_SUBJECT, text, html: brandedHtml({ title: SIGN_IN_SUBJECT, preheader, body, origin, footer: ignore }) };
+}
+
+/** The body text styles of the branded email: a paragraph, and the smaller muted one. */
+const MAIL_TEXT = {
+  p: `margin:0 0 16px;font-family:${MAIL.font};font-size:16px;line-height:24px;color:${MAIL.ink}`,
+  small: `margin:0 0 12px;font-family:${MAIL.font};font-size:14px;line-height:21px;color:${MAIL.ink3}`,
+};
+
+/**
+ * The branded email around `body` (HTML, already escaped): the masthead, the white card, and the
+ * footer (the site's name linking to `origin`, then `footer` if given). Every other value is escaped.
+ */
+function brandedHtml(o: { title: string; preheader: string; body: string; origin: string; footer?: string }): string {
+  const c = MAIL;
+  const { small } = MAIL_TEXT;
+  // Zero-width fillers after the preheader, so the inbox preview doesn't run on into the body text.
+  const filler = '&#847;&zwnj;&nbsp;'.repeat(40);
+  const footer = o.footer ? `\n<p style="${small};margin:0">${escHtml(o.footer)}</p>` : '';
+  return `<!doctype html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>${escHtml(o.title)}</title>
+</head>
+<body style="margin:0;padding:0;width:100%;background:${c.page};-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:${c.page}">${escHtml(o.preheader)}${filler}</div>
+<table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="${c.page}" style="background:${c.page}">
+<tr><td align="center" style="padding:24px 12px">
+<!--[if mso]><table role="presentation" width="560" border="0" cellspacing="0" cellpadding="0" align="center"><tr><td><![endif]-->
+<table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:560px;border-collapse:separate">
+<tr><td bgcolor="${c.carbon}" style="background:${c.carbon};padding:20px 28px 18px;border-radius:10px 10px 0 0;border-bottom:4px solid ${c.gold}">
+<p style="margin:0;font-family:${c.display};font-size:24px;line-height:28px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:${c.onCarbon}">Recall</p>
+<p style="margin:4px 0 0;font-family:${c.font};font-size:13px;line-height:18px;color:${c.onCarbonMuted}">Replays and debriefs for RaceSense races.</p>
+</td></tr>
+<tr><td bgcolor="${c.surface}" style="background:${c.surface};padding:28px 28px 20px;border:1px solid ${c.rule};border-top:0;border-radius:0 0 10px 10px">
+${o.body}
 </td></tr>
 <tr><td align="center" style="padding:18px 28px 8px">
-<p style="${small};margin-bottom:6px"><a href="${escHtml(origin)}" target="_blank" style="color:${c.ink3};text-decoration:underline">${SITE_NAME}</a></p>
-<p style="${small};margin:0">${escHtml(ignore)}</p>
+<p style="${small};margin-bottom:${o.footer ? '6px' : '0'}"><a href="${escHtml(o.origin)}" target="_blank" style="color:${c.ink3};text-decoration:underline">${SITE_NAME}</a></p>${footer}
 </td></tr>
 </table>
 <!--[if mso]></td></tr></table><![endif]-->
@@ -444,7 +460,49 @@ export function signInMail(to: string, link: string, kind: 'signin' | 'restore' 
 </table>
 </body>
 </html>`;
-  return { to, subject: SIGN_IN_SUBJECT, text, html };
+}
+
+const PROVIDER_NAMES = { microsoft: 'Microsoft', apple: 'Apple' } as const;
+
+/**
+ * The notice to an account's address when a Microsoft or Apple sign-in was just linked to it: the
+ * branded email with no button, no sign-in link and no token, and nothing inviting a reply (the
+ * sender has no inbox). `origin` is the site it happened on, for the footer.
+ */
+export function linkNoticeMail(to: string, provider: 'microsoft' | 'apple', origin: string): Mail {
+  const name = PROVIDER_NAMES[provider];
+  const subject = `${name} sign-in was added to your Recall account`;
+  const added = `You can now sign in to Recall with ${name}. If you did this, there's nothing else to do.`;
+  const notYou = "If it wasn't you, open Recall, go to Account, and use Sign out all other devices. Then sign in again with your email.";
+  const why = 'We send this whenever a sign-in method is added to your account.';
+  const site = originOf(origin);
+  const text = `${added}\n\n${notYou}\n\nRecall\n${site}\n${why}\n`;
+  const { p } = MAIL_TEXT;
+  const body = `<p style="${p}">${escHtml(added)}</p>
+<p style="${p};margin-bottom:0">${escHtml(notYou)}</p>`;
+  return { to, subject, text, html: brandedHtml({ title: subject, preheader: added, body, origin: site, footer: why }) };
+}
+
+/**
+ * Send linkNoticeMail, best effort: it never holds up or fails the sign-in (it runs in waitUntil when
+ * there is one), it is skipped when no email provider is set up, and a failure is logged without the
+ * address.
+ */
+async function sendLinkNotice(ctx: AuthCtx, user: UserRow, provider: 'microsoft' | 'apple', deps: AuthDeps): Promise<void> {
+  try {
+    const url = new URL(ctx.request.url);
+    if (!emailProvider(ctx.env, url.host)) return;
+    const sent = sendEmail(ctx.env, url.host, linkNoticeMail(user.email, provider, url.origin), deps).then(
+      (r) => {
+        if (!r.ok) console.error(`[recall auth] ${provider} link notice not sent: ${r.status}`);
+      },
+      (e: unknown) => console.error(`[recall auth] ${provider} link notice threw: ${e instanceof Error ? e.name : 'error'}`),
+    );
+    if (ctx.waitUntil) ctx.waitUntil(sent);
+    else await sent;
+  } catch {
+    console.error(`[recall auth] ${provider} link notice failed`);
+  }
 }
 
 // ---- Turnstile (the email forms)
@@ -922,16 +980,22 @@ const splitLinkReturnTo = (stored: string): { returnTo: string; buy: BuyIntent |
   return { returnTo: abs ? u.href : `${u.pathname}${u.search}${u.hash}`, buy: parseIntent(product, eventId) };
 };
 
-/** `payload.signature`, both base64url; the signature is an HMAC-SHA256 under AUTH_SECRET. */
+/**
+ * The state signature's purpose prefix, distinct from the buy marker's (`recall-buy:`), so neither
+ * signed value can be passed off as the other. States signed before it (10 minutes) stop working.
+ */
+const STATE_PURPOSE = 'oauth-state.v1.';
+
+/** `payload.signature`, both base64url; the signature is an HMAC-SHA256 under AUTH_SECRET of STATE_PURPOSE + payload. */
 export async function signState(secret: string, s: OAuthState): Promise<string> {
   const payload = b64url(new TextEncoder().encode(JSON.stringify(s)));
-  return `${payload}.${await hmac(secret, payload)}`;
+  return `${payload}.${await hmac(secret, `${STATE_PURPOSE}${payload}`)}`;
 }
 
 /** The signed state, if it is ours, unexpired and `provider`'s. */
 export async function readState(secret: string, raw: string | null, now: number, provider: OAuthProvider = 'google'): Promise<OAuthState | null> {
   const [payload, sig] = (raw ?? '').split('.');
-  if (!payload || !sig || !sameText(sig, await hmac(secret, payload))) return null;
+  if (!payload || !sig || !sameText(sig, await hmac(secret, `${STATE_PURPOSE}${payload}`))) return null;
   try {
     const s = JSON.parse(fromB64url(payload)) as OAuthState;
     if ((s.provider ?? 'google') !== provider) return null;
@@ -1021,14 +1085,23 @@ async function finishOAuth(ctx: AuthCtx, db: D1Like, user: UserRow, method: Sign
  * signs in, whatever the email says now; else, only with a trusted email, the user with that address
  * (created if new: same verified email, same account) with the identity recorded; else nobody (null).
  * An account keyed to an address nobody proved could later collect what the real owner of that
- * address buys, so an unverified address never creates or links anything.
+ * address buys, so an unverified address never creates or links anything. `addedToExisting`: this
+ * sign-in linked a new identity to a user who was there before it (the account is told by email).
  */
-async function identityUser(db: D1Like, i: IdentityInput, trusted: boolean, now: number): Promise<UserRow | null> {
+async function identityUser(db: D1Like, i: IdentityInput, trusted: boolean, now: number): Promise<{ user: UserRow; addedToExisting: boolean } | null> {
   const known = await userByIdentity(db, i.provider, i.subject, now);
-  if (known) return known;
+  if (known) return { user: known, addedToExisting: false };
   if (!trusted || !i.email) return null;
-  const user = await ensureUser(db, i.email, now);
-  return linkIdentity(db, i, user.id, now);
+  const existing = await userByEmail(db, i.email);
+  const user = await linkIdentity(db, i, (existing ?? (await ensureUser(db, i.email, now))).id, now);
+  return user ? { user, addedToExisting: !!existing && user.id === existing.id } : null;
+}
+
+/** finishOAuth, then the new-link notice when the identity was just added to an existing account. */
+async function finishIdentity(ctx: AuthCtx, db: D1Like, found: { user: UserRow; addedToExisting: boolean }, method: 'microsoft' | 'apple', s: OAuthState, now: number, clear: string, deps: AuthDeps, status = 302): Promise<Response> {
+  const res = await finishOAuth(ctx, db, found.user, method, s, now, clear, status);
+  if (found.addedToExisting) await sendLinkNotice(ctx, found.user, method, deps);
+  return res;
 }
 
 const emailClaim = (c: Claims): string | null => {
@@ -1145,14 +1218,16 @@ export const microsoftIssuerOk = (iss: unknown, c: Claims): boolean => typeof c.
  *  (b) a work or school account's token carries the optional claim `xms_edov` true: the tenant has
  *      verified that it owns the email's domain.
  * Any other work or school address is just what a tenant admin typed into a directory, so it may not
- * be the person's at all: it never creates or links an account (identityUser).
+ * be the person's at all: it never creates or links an account (identityUser). An `email_verified`
+ * claim that is there and false (false or "false") overrides both: the email is not trusted.
  */
 export function microsoftIdentity(c: Claims): { identity: IdentityInput; trusted: boolean } | null {
   if (!subjectOk(c.sub) || typeof c.tid !== 'string' || !GUID_RE.test(c.tid)) return null;
   const email = emailClaim(c);
   const edov = c.xms_edov === true || c.xms_edov === 'true' || c.xms_edov === '1';
+  const unverified = c.email_verified === false || c.email_verified === 'false';
   const tenant = c.tid.toLowerCase();
-  const trusted = !!email && (tenant === MICROSOFT_PERSONAL_TENANT || edov);
+  const trusted = !!email && !unverified && (tenant === MICROSOFT_PERSONAL_TENANT || edov);
   return { identity: { provider: 'microsoft', subject: c.sub, email, emailVerified: trusted, tenant }, trusted };
 }
 
@@ -1199,9 +1274,9 @@ async function microsoftCallback(ctx: AuthCtx, deps: AuthDeps): Promise<Response
   const who = claims ? microsoftIdentity(claims) : null;
   if (!who) return failed();
   const db = env.AUTH_DB!;
-  const user = await identityUser(db, who.identity, who.trusted, now);
-  if (!user) return failed('microsoft_email');
-  return finishOAuth(ctx, db, user, 'microsoft', s, now, clear);
+  const found = await identityUser(db, who.identity, who.trusted, now);
+  if (!found) return failed('microsoft_email');
+  return finishIdentity(ctx, db, found, 'microsoft', s, now, clear, deps);
 }
 
 // ---- Apple (Sign in with Apple on the web, no Apple JS)
@@ -1246,10 +1321,18 @@ async function appleStart(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   return toProvider(env, 'apple', APPLE_AUTH_URL, q, s);
 }
 
+/** The only Origin Apple's form post may carry (when it carries one). */
+export const APPLE_ORIGIN = 'https://appleid.apple.com';
+
 /**
  * Apple's form post comes from https://appleid.apple.com, so there is no same-origin check here: the
- * signed SameSite=None cookie, and the posted state matching it, stand in for one. Every answer is a
- * 303 (on to a GET) and clears the cookie.
+ * signed SameSite=None cookie, and the posted state matching it, stand in for one. An Origin other
+ * than Apple's (ours included) is refused before anything is read. A missing Origin, or `null`, is
+ * accepted: browsers send `Origin: null` on a cross-site form POST when the sending page's referrer
+ * policy is no-referrer, and some privacy tools strip it, so refusing those would lock out real
+ * users; CSRF is already prevented by the posted state having to match the HMAC-signed, host-only,
+ * path-scoped cookie, which an attacker can neither read nor set. Every answer is a 303 (on to a
+ * GET) and clears the cookie.
  */
 async function appleCallback(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   const env = ctx.env;
@@ -1257,6 +1340,8 @@ async function appleCallback(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   const req = ctx.request;
   const now = (deps.now ?? Date.now)();
   const clear = oauthCookie('apple', '', 0);
+  const origin = req.headers.get('origin');
+  if (origin !== null && origin !== 'null' && origin !== APPLE_ORIGIN) return redirect(failedAt('/', 'apple'), [clear], 303);
   const s = await readState(env.AUTH_SECRET!, readCookie(req, APPLE_OAUTH_COOKIE), now, 'apple');
   const raw = /^application\/x-www-form-urlencoded\b/i.test(req.headers.get('content-type') ?? '') ? await readCapped(req, MAX_BODY_BYTES) : null;
   // The posted `user` field (the name, on a first sign-in) is never read.
@@ -1281,9 +1366,9 @@ async function appleCallback(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   const who = claims ? appleIdentity(claims) : null;
   if (!who) return failed();
   const db = env.AUTH_DB!;
-  const user = await identityUser(db, who.identity, who.trusted, now);
-  if (!user) return failed('apple_email');
-  return finishOAuth(ctx, db, user, 'apple', s, now, clear, 303);
+  const found = await identityUser(db, who.identity, who.trusted, now);
+  if (!found) return failed('apple_email');
+  return finishIdentity(ctx, db, found, 'apple', s, now, clear, deps, 303);
 }
 
 // ---- the router

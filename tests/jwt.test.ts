@@ -78,7 +78,7 @@ describe('verifyIdToken (RS256 against a JWKS)', () => {
     expect(await run({ nbf: NOW / 1000 - 5 })).not.toBeNull();
     expect(await run({ iss: 'https://evil.example' })).toBeNull();
     expect(await run({ aud: 'someone-else' })).toBeNull();
-    expect(await run({ aud: ['someone-else', 'client-test-fake'] })).not.toBeNull();
+    expect(await run({ aud: ['someone-else', 'client-test-fake'], azp: 'client-test-fake' })).not.toBeNull();
     expect(await run({ nonce: 'nonce-test-other' })).toBeNull();
     expect(await run({ nonce: undefined })).toBeNull();
     expect(await run({}, { nonce: '' })).toBeNull();
@@ -131,6 +131,35 @@ describe('verifyIdToken (RS256 against a JWKS)', () => {
     expect(await verifyIdToken(t, RULES, { fetch: thrown, now: () => NOW })).toBeNull();
     clearJwksCache();
     expect(await verifyIdToken(t, RULES, { fetch: jwks(() => [{ kty: 'EC', kid: 'kid-1' } as JsonWebKey]), now: () => NOW })).toBeNull();
+  });
+
+  it('several audiences need azp to be ours; one audience (a string or a one-entry array) needs none', async () => {
+    const f = jwks(() => [k1.jwk]);
+    const deps = { fetch: f, now: () => NOW };
+    const run = async (over: Record<string, unknown>) => verifyIdToken(await signRs256(k1, claims(over)), RULES, deps);
+    expect(await run({ aud: ['other-app', 'client-test-fake'] })).toBeNull();
+    expect(await run({ aud: ['other-app', 'client-test-fake'], azp: 'other-app' })).toBeNull();
+    expect(await run({ aud: ['other-app', 'client-test-fake'], azp: 'client-test-fake' })).not.toBeNull();
+    expect(await run({ aud: ['client-test-fake'] })).not.toBeNull();
+    expect(await run({ aud: 'client-test-fake' })).not.toBeNull();
+    expect(await run({ aud: 'client-test-fake', azp: 'other-app' })).not.toBeNull();
+  });
+
+  it('JWKS: only RSA keys for signing with RS256 (use and alg, when given, are "sig" and "RS256")', async () => {
+    const t = await signRs256(k1, claims());
+    const withKey = async (over: Record<string, unknown>): Promise<unknown> => {
+      clearJwksCache();
+      return verifyIdToken(t, RULES, { fetch: jwks(() => [{ ...k1.jwk, ...over } as JsonWebKey]), now: () => NOW });
+    };
+    expect(await withKey({})).not.toBeNull();
+    expect(await withKey({ use: undefined, alg: undefined })).not.toBeNull();
+    expect(await withKey({ use: 'enc' })).toBeNull();
+    expect(await withKey({ alg: 'RS512' })).toBeNull();
+    expect(await withKey({ alg: 'RSA-OAEP' })).toBeNull();
+    expect(await withKey({ kty: 'EC' })).toBeNull();
+    // An encryption key sharing the kid doesn't shadow the signing key.
+    clearJwksCache();
+    expect(await verifyIdToken(t, RULES, { fetch: jwks(() => [{ ...k2.jwk, kid: 'kid-1', use: 'enc' } as JsonWebKey, k1.jwk]), now: () => NOW })).not.toBeNull();
   });
 
   it('decodeJwt reads the parts without trusting them', async () => {

@@ -1,9 +1,11 @@
 /**
  * ID tokens and client-secret JWTs for Microsoft and Apple sign-in (functions/_auth.ts), with WebCrypto
  * only (no dependencies):
- *   - verifyIdToken: an RS256 token checked against the provider's JWKS (the key by `kid`; alg RS256
- *     only, so `none`, HS* and the rest fail), then its claims: exp (5 minutes of skew), iat / nbf when
- *     present, iss, aud, nonce (constant-time). Null on any failure; tokens are never logged.
+ *   - verifyIdToken: an RS256 token checked against the provider's JWKS (the key by `kid`, among RSA
+ *     keys whose `use` and `alg`, when given, are "sig" and "RS256"; alg RS256 only, so `none`, HS* and
+ *     the rest fail), then its claims: exp (5 minutes of skew), iat / nbf when present, iss, aud (with
+ *     several audiences, `azp` must be ours), nonce (constant-time). Null on any failure; tokens are
+ *     never logged.
  *   - The JWKS is cached per isolate for an hour; a `kid` it doesn't hold refetches it, at most once
  *     every 5 minutes per URL (a key rotation), and otherwise fails.
  *   - signEs256: an ES256 JWT (Apple's client secret) from a PKCS#8 PEM, its key imported once per isolate.
@@ -85,7 +87,10 @@ async function fetchJwks(url: string, deps: JwtDeps, now: number): Promise<JwksE
     const res = await (deps.fetch ?? fetch)(url, { headers: { accept: 'application/json' } });
     if (!res.ok) return null;
     const body = (await res.json()) as { keys?: unknown };
-    const keys = Array.isArray(body?.keys) ? (body.keys as Jwk[]).filter((k) => k && typeof k === 'object' && k.kty === 'RSA' && typeof k.kid === 'string') : [];
+    // Signing keys for RS256 only: `use` absent or "sig", `alg` absent or "RS256", `kty` RSA.
+    const keys = Array.isArray(body?.keys)
+      ? (body.keys as Jwk[]).filter((k) => k && typeof k === 'object' && k.kty === 'RSA' && typeof k.kid === 'string' && (k.use === undefined || k.use === 'sig') && (k.alg === undefined || k.alg === 'RS256'))
+      : [];
     const entry: JwksEntry = { at: now, keys, imported: new Map() };
     jwksCache.set(url, entry);
     return entry;
@@ -135,6 +140,8 @@ export function claimsOk(c: Claims, r: Omit<IdTokenRules, 'jwksUrl'>, now: numbe
   if (c.nbf !== undefined && (typeof c.nbf !== 'number' || c.nbf - CLOCK_SKEW_S > t)) return false;
   if (typeof r.iss === 'string' ? c.iss !== r.iss : !r.iss(c.iss, c)) return false;
   if (!audOk(c.aud, r.aud)) return false;
+  // Several audiences: the token must say it was issued to us (OpenID Connect Core 3.1.3.7).
+  if (Array.isArray(c.aud) && c.aud.length > 1 && c.azp !== r.aud) return false;
   return typeof c.nonce === 'string' && !!r.nonce && sameText(c.nonce, r.nonce);
 }
 

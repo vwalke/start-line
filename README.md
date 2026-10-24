@@ -1482,12 +1482,17 @@ https page on walkeforward.com or a subdomain, else `/regattas`.
 /api/auth/apple/callback`; the redirect URI is this origin plus the callback
 path, as for Google). The start routes take the same `returnTo` and buy
 intent (`buy`, `event`) as Google's, and their state is signed the same way
-(HMAC with `AUTH_SECRET`, 10 minutes) with the provider's name inside, so one
-provider's state is refused on another's callback. Both ID tokens are
-verified with WebCrypto against the provider's JWKS (`functions/_jwt.ts`:
-RS256 only, the key by `kid`, the keys cached an hour per isolate and fetched
-again at most every 5 minutes for an unknown `kid`; then expiry with 5
-minutes of skew, `iat`/`nbf`, issuer, audience and nonce, constant-time).
+(HMAC with `AUTH_SECRET` over `oauth-state.v1.` plus the payload, a purpose
+of its own so a checkout marker, signed over `recall-buy:` plus its payload,
+can't pass as a state or the other way round; 10 minutes) with the
+provider's name inside, so one provider's state is refused on another's
+callback. Both ID tokens are verified with WebCrypto against the provider's
+JWKS (`functions/_jwt.ts`: RS256 only, the key by `kid` among the RSA keys
+whose `use` and `alg`, when given, are `sig` and `RS256`, the keys cached an
+hour per isolate and fetched again at most every 5 minutes for an unknown
+`kid`; then expiry with 5 minutes of skew, `iat`/`nbf`, issuer, audience
+(with more than one audience, `azp` must be our client id) and nonce,
+constant-time).
 Any failure goes back to `returnTo` with `signin=failed&via=<provider>`; the
 page says "Couldn't sign you in with Microsoft. Try again, or use an email
 link." (Apple, Google likewise). A success runs exactly Google's tail: a
@@ -1514,7 +1519,13 @@ intent, and `signin=ok`.
   `wf_oauth_apple` (`HttpOnly; Secure; SameSite=None;
   Path=/api/auth/apple; Max-Age=600`, host-only), cleared on every outcome.
   That route alone skips the same-origin check; instead it needs that signed
-  cookie and the posted `state` matching it (constant-time). `GET` is 405.
+  cookie and the posted `state` matching it (constant-time). An `Origin`
+  other than exactly `https://appleid.apple.com` (this site's included) is
+  refused before anything is read. A missing `Origin`, or `null`, is
+  accepted: browsers send `Origin: null` on a cross-site form post from a
+  no-referrer page and some privacy tools strip it, and the state check
+  already stops CSRF, since an attacker can neither read nor set that
+  signed, host-only cookie. `GET` is 405.
   A cancel at Apple (`error=user_cancelled_authorize`) goes back quietly
   (`reason=cancelled`, no notice). Every answer is a 303 (on to a GET);
   the session cookie (SameSite=Lax) set on it is sent with that GET. The
@@ -1535,7 +1546,9 @@ what the real owner of the address buys.
   `9188040d-6c67-4c5b-b112-36a304b66dad`) and has an email, or (b) a work or
   school account's token carries the optional claim `xms_edov` true (the
   tenant has verified that it owns the email's domain). Any other work or
-  school address is only what a directory admin typed in.
+  school address is only what a directory admin typed in. An
+  `email_verified` claim that is there and false (`false` or `"false"`)
+  overrides both: that email is not trusted.
 - *Apple:* `email_verified` must be true. A private relay address
   (`is_private_email`, or `@privaterelay.appleid.com`) is verified and unique
   to this app: it gets its own account, and matches only a user who already
@@ -1546,8 +1559,15 @@ signs its user in whatever the email says now (Apple often leaves the email
 out after the first sign-in). Otherwise a trusted email links to (or
 creates) the user with that address and records the identity
 (`INSERT OR IGNORE`, then read back, so two first sign-ins at once end on one
-user). Otherwise nothing is created or linked and the sign-in is refused
-with `reason=microsoft_email` ("Your Microsoft account didn't share a
+user). When that links a new identity to a user who existed before this
+sign-in, the account's address gets a short notice, best effort (in
+`waitUntil`, never holding up or failing the sign-in; skipped with no email
+provider; a failure logged without the address): "Apple sign-in was added
+to your Recall account" (or Microsoft), saying that if it wasn't them, open
+Recall, go to Account, use Sign out all other devices and sign in again
+with their email. It has no button, sign-in link or token, and doesn't
+invite replies. Google sends none. Otherwise nothing is created or linked
+and the sign-in is refused with `reason=microsoft_email` ("Your Microsoft account didn't share a
 verified email address, so it can't be used to sign in here. Try Google,
 Apple or an email link.") or `reason=apple_email` ("Apple didn't share a
 verified email address, so we couldn't sign you in. Try again, or use Google,
