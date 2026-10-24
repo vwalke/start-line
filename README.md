@@ -15,7 +15,10 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   does, pricing, where the data comes from, the other Walke Forward apps). It loads none of the app and
   fetches nothing from RaceSense; with a race viewed before, it offers "Continue: <event · race>" (to
   `/regattas`). The hero, `public/landing-hero.svg`, is a real race drawn by `node scripts/landing-hero.mjs`
-  from `tests/fixtures/j105_r3.json` (sail numbers only); a test fails when it is stale.
+  from `tests/fixtures/j105_r3.json` (sail numbers only); a test fails when it is stale. Each feature card
+  has a thumbnail (lazy, 320×200 with a 2x file) that opens a full-size image in a native `<dialog>`
+  (`src/landing/lightbox.ts`); only the thumbnails load with the page. The images in `public/landing/` are
+  screenshots of the running app on public demo races, made by `scripts/landing-thumbs.mjs` (below).
 - **`/regattas`**: the app's event picker, as `/` used to be (reopens the last race viewed, else the latest).
   The installed web app starts here.
 - **Every other URL** is the app, unchanged: any `/` link with an app parameter (`event`, `div`, `race`,
@@ -24,6 +27,31 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   `src/landing/route.ts` `routeOf`, mirrored by an inline script in `index.html` so the right page shows
   before first paint. Cloudflare Pages serves `index.html` for `/regattas` (no `404.html`: single-page
   fallback), so there is no `_redirects`.
+
+**Landing thumbnails.** `scripts/landing-thumbs.mjs` drives headless Chrome with Playwright against a running
+Recall server and writes `public/landing/<slug>-thumb.webp`, `<slug>-thumb@2x.webp` and `<slug>.webp` for each
+card (slugs: `replay`, `track-colors`, `start`, `around-the-gun`, `legs`, `places`, `debrief`, `regatta`,
+`report`, `official-results`). Playwright isn't a dependency: point `PLAYWRIGHT_CORE` at an installed
+`playwright-core/index.js` (else the bare import is tried) and `CHROME` at Chrome (default
+`/usr/bin/google-chrome`). The PNGs are re-encoded to WebP in the same Chrome (canvas `toBlob`), with the
+quality stepped down until a thumbnail is at most 60 KB and a full image at most 250 KB.
+
+```sh
+npx vite --port 5173 --strictPort &
+PLAYWRIGHT_CORE=/path/to/playwright-core/index.js node scripts/landing-thumbs.mjs --base http://localhost:5173
+#   --only replay,start   some shots only      --png-dir /tmp/png   keep the raw captures (a failed shot's too)
+```
+
+Use a port Node's `fetch` accepts: undici refuses its "bad ports" (4190 is one), and the script checks the server
+with `fetch` first.
+
+The races are the J/70 Worlds in Cascais (Open, `race=4`, USA 833 for the start and regatta views; the replay is
+`race=3` at the windward mark, a moment picked from `tests/fixtures/cascais_r3.json` where nearly every boat near
+USA 833 has fresh fixes) and the J/105 CBC (`race=1`, linked to Yachtscoring 50575; the debrief and report are
+`race=3` for USA 343, which covers 85% of that race on its fixture, against USA 833's thin Cascais tracks). Sail numbers only: the script removes boat names and Yachtscoring's
+owner and crew fields from the responses before the page sees them, hides `.bname` / `.rp-name`, and fails a
+shot if any removed name is still in the captured element (whole words, case as written; one-word names that are
+also the app's own words, `NOT_NAMES` such as "Mark", are skipped). Look over every image before committing it anyway.
 
 ## What it shows
 
@@ -1110,6 +1138,7 @@ tests/                       vitest; offline, using tests/fixtures (benelux_r8, 
 scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88|j105|j105r1|j105r3|ic37|gate-*|cascais-r2|cascais-r3)
 scripts/make-recovery-fixtures.ts  records tests/fixtures/recovery (Yachtscoring, probes, finishing bands; network once)
 scripts/make-vkx-fixture.mjs builds tests/fixtures/vkx from a boat log + regatta doc
+scripts/landing-thumbs.mjs   the landing cards' screenshots (public/landing/*.webp) from a running server; Playwright from PLAYWRIGHT_CORE
 scripts/vkx-dev.mjs          `npm run dev:vkx`: Vite + the upload routes over an in-memory R2
 ```
 
