@@ -13,8 +13,9 @@
  *
  * Sizes stay constant on screen whatever the frame's rendered size and zoom: strokes are non-scaling (css px),
  * and text, dots and label offsets are given in view units from the measured css px per unit (lanePxPerUnit,
- * × the zoom). Boats are the start chart's hull (to scale, or at least BOAT_SHAPE_PX long) where they can be
- * (ui/boatShape.ts), else dots; a boat over early is drawn as the track map's replay draws it (ui/ocsStyle.ts).
+ * × the zoom). Boats are the start chart's hull (to scale, or at least BOAT_SHAPE_PX long) along their course or
+ * last heading, filled or hollow, by the track map's rule (ui/boatShape.ts boatMark), else dots, with its fading
+ * trail (ui/trail.ts); a boat over early is drawn as the track map's replay draws it (ui/ocsStyle.ts).
  * The true wind is a small badge over the map's top-right corner (HTML, outside the map's extent).
  */
 import { groupIds, type Group } from '../analysis/coach/groups';
@@ -22,12 +23,13 @@ import type { Vec } from '../analysis/geo';
 import type { StartReplay } from '../analysis/startReplay';
 import type { RaceAnalysis } from '../analysis/types';
 import type { ClassDims } from '../data/classes';
-import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatShapeOr, HULL_LABEL_GAP_PX, HULL_LABEL_SIDES, hullLabelBox, hullPathAt } from './boatShape';
+import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, HULL_LABEL_GAP_PX, HULL_LABEL_SIDES, hullLabelBox, hullPathAt } from './boatShape';
 import { boatColor, DOT_LABEL_MAX } from './charts';
 import { esc } from './format';
 import { textWidth, type Rect } from './labels';
 import { laneScrub, laneSecond, LANE_START_S, type LaneBoat, type LaneFrame, type LaneScrub } from './laneSnapshots';
 import { ocsLegend, ocsSvg } from './ocsStyle';
+import { TRAIL_FADE } from './trail';
 import { attachPanZoom } from './panzoom';
 import { FOLLOW_COURSE_S, followAfter, followCam, followStep, followTarget, reducedMotion, resetFollow, type FollowInput } from './follow';
 import { boatsZoomTarget, clampView, fitView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
@@ -63,8 +65,6 @@ export function laneVisible(box: Box, zoom?: View): Box {
 /** Label sizes, css px. */
 const LABEL_PX = { me: 13, other: 12 } as const;
 
-const xy = (p: Vec): string => `${p[0].toFixed(1)},${p[1].toFixed(1)}`;
-
 /** The line and its ends (`u`: view units per css px; strokes in css px, non-scaling). */
 function lineSvg(L: LaneScrub, u: number): string {
   const [p, r] = L.line;
@@ -94,11 +94,16 @@ export function windBadgeHtml(L: Pick<LaneScrub, 'wind'>): string {
 const dotR = (b: LaneBoat): number => (b.role === 'me' ? 5 : b.role === 'group' ? 4 : 3.2);
 
 /**
- * Boat `b` at `ppu` css px per metre as the hull (its direction, and its size to draw, metres: to scale, or at
- * least BOAT_SHAPE_PX long, the selected boat BOAT_SHAPE_ON_PX), or null: a dot (ui/boatShape.ts's rule).
+ * Boat `b` at `ppu` css px per meter as the hull (its direction: its course, or its last heading; and its size to
+ * draw, meters: to scale, or at least BOAT_SHAPE_PX long, the selected boat BOAT_SHAPE_ON_PX), or null: a dot (the
+ * track map's rule, ui/boatShape.ts boatMark).
  */
-export function laneShape(L: Pick<LaneScrub, 'dims'>, b: Pick<LaneBoat, 'dir' | 'hold' | 'sog'> & { role?: LaneBoat['role'] }, ppu: number): { dir: Vec; dims: ClassDims } | null {
-  const s = boatShapeOr({ dir: b.dir, hold: b.hold, sog: b.sog, dims: L.dims, pxPerM: ppu, minPx: b.role === 'me' ? BOAT_SHAPE_ON_PX : BOAT_SHAPE_PX });
+export function laneShape(
+  L: Pick<LaneScrub, 'dims'>,
+  b: Pick<LaneBoat, 'dir' | 'hold' | 'sog'> & Partial<Pick<LaneBoat, 'lastDir' | 'stale' | 'role'>>,
+  ppu: number,
+): { dir: Vec; dims: ClassDims } | null {
+  const s = boatMark({ dir: b.dir, lastDir: b.lastDir, hold: b.hold, stale: b.stale, sog: b.sog, dims: L.dims, pxPerM: ppu, minPx: b.role === 'me' ? BOAT_SHAPE_ON_PX : BOAT_SHAPE_PX });
   return 'shape' in s ? { dir: s.shape, dims: s.dims } : null;
 }
 
@@ -176,30 +181,34 @@ const plusS = (ms: number, gun: number): string => {
 };
 
 /**
- * One boat's trail and its hull (or dot), coloured for the selected boat and its group, the rest faded; over
- * early, its track over the line and back as the track map's replay draws it (never faded), said in the boat's
- * title ("USA 019, over early (OCS), cleared +35 s").
+ * One boat's fading trail and its hull (or dot), colored for the selected boat and its group, the rest faded;
+ * hollow (its color outlined, a little heavier) once its data is lost; over early, its track over the line and back
+ * as the track map's replay draws it (never faded, filled or hollow alike), said in the boat's title ("USA 019, over
+ * early (OCS), cleared +35 s").
  */
 function boatSvg(L: LaneScrub, b: LaneBoat, colour: string, faded: boolean, label: LabelAt | null, u: number, gun: number): { trail: string; ocs: string; dot: string; flag: string } {
   const cls = `lane-${b.role}${faded ? ' dim' : ''}`;
   const sw = b.role === 'me' ? 2.4 : b.role === 'group' ? 1.6 : 1.1;
-  const trail = b.trail
-    .map((seg) => `<polyline class="lane-trail ${cls}" points="${seg.map(xy).join(' ')}" stroke="${faded ? 'var(--ink-3)' : colour}" stroke-width="${sw}" vector-effect="non-scaling-stroke"/>`)
+  const trail = b.fade
+    .map((d, i) =>
+      d ? `<path class="lane-trail ${cls}" d="${d}" stroke="${faded ? 'var(--ink-3)' : colour}" stroke-opacity="${TRAIL_FADE[i]}" stroke-width="${sw}" vector-effect="non-scaling-stroke"/>` : '',
+    )
     .join('');
   const o = b.ocs ? ocsSvg(b.ocs, { unit: u, nonScaling: true }) : { tracks: '', marks: '' };
   if (!b.pos) return { trail, ocs: o.tracks, dot: '', flag: o.marks };
   const [x, y] = [b.pos[0].toFixed(1), b.pos[1].toFixed(1)];
   const r = dotR(b) * u;
   const ink = faded ? 'var(--ink-3)' : colour;
-  const fill = b.hold ? `fill="var(--surface)" stroke="${ink}"` : `fill="${ink}"`;
+  const fill = b.stale ? `fill="var(--surface)" stroke="${ink}"` : `fill="${ink}"`;
+  const lost = b.stale ? ' lost' : '';
   const state = b.over === 'over' ? ', over early (OCS)' : b.over === 'cleared' ? `, over early (OCS), cleared ${plusS(b.clearedMs!, gun)}` : '';
   const text = label
     ? `<text class="lane-lbl${b.role === 'me' ? ' on' : ''}" x="${label.x.toFixed(1)}" y="${label.y.toFixed(1)}" font-size="${label.fs.toFixed(2)}" stroke-width="${(2.5 * u).toFixed(2)}">${esc(b.sail)}</text>`
     : '';
   const hull = laneShape(L, b, 1 / u);
   const mark = hull
-    ? `<path class="lane-dot lane-hull" d="${hullPathAt(b.pos, hull.dir, hull.dims)}" ${fill} stroke-width="${b.role === 'me' ? 1.4 : 1}" vector-effect="non-scaling-stroke"/>`
-      : `<circle class="lane-dot${b.hold ? ' hold' : ''}" cx="${x}" cy="${y}" r="${r.toFixed(2)}" ${fill} stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+    ? `<path class="lane-dot lane-hull${lost}" d="${hullPathAt(b.pos, hull.dir, hull.dims)}" ${fill} stroke-width="${b.stale ? (b.role === 'me' ? 2 : 1.6) : b.role === 'me' ? 1.4 : 1}" vector-effect="non-scaling-stroke"/>`
+    : `<circle class="lane-dot${b.hold ? ' hold' : ''}${lost}" cx="${x}" cy="${y}" r="${r.toFixed(2)}" ${fill} stroke-width="${b.stale ? 1.6 : 1}" vector-effect="non-scaling-stroke"/>`;
   const dot = `<g class="lane-boat ${cls}" data-id="${esc(b.id)}"><title>${esc(b.sail)}${b.hold ? ' (last fix, in a gap)' : ''}${state}</title>${mark}${text}</g>`;
   return { trail, ocs: o.tracks, dot, flag: o.marks };
 }

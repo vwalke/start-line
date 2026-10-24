@@ -56,7 +56,7 @@ describe('mark labels: overlapping M1/M2 are not both drawn', () => {
   });
 });
 
-describe('tracks by leg: the legend selects a leg', () => {
+describe('Race Viewer: the legend selects a leg', () => {
   const legsIn = (svg: string): string[] => [...new Set([...svg.matchAll(/<polyline class="trk[^"]*" data-leg="(\d+)"/g)].map((m) => m[1]))];
   const vb = (svg: string): number[] => /viewBox="([^"]+)"/.exec(svg)![1].split(' ').map(Number);
 

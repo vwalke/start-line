@@ -81,7 +81,7 @@
         <ul class="land-cards">
           <li class="land-card">
             <h3>Replay the race</h3>
-            <p>Play the whole fleet back on the course map at 1×, 4× or 16×, or scrub to any moment. Show a short trail behind each boat or its full track. You can zoom in or open the map full screen.</p>
+            <p>The Race Viewer plays the whole fleet back on the course map at 1×, 4× or 16×, or scrubs to any moment. Each boat leaves a fading 2-minute trail, or you can show its full track. A boat whose tracker drops out turns hollow until its data is back. You can zoom in or open the map full screen.</p>
           </li>
           <li class="land-card">
             <h3>Track colors</h3>
@@ -216,10 +216,10 @@
           </div>
           <div id="panel-race" class="panel" role="tabpanel" aria-labelledby="tab-race" tabindex="-1" hidden>
             <section class="card has-fs">
-              <button type="button" class="fs-open" id="map-full" aria-label="Full screen track map" title="Full screen" aria-haspopup="dialog" aria-controls="fs"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
-              <h3>Tracks by leg</h3>
+              <button type="button" class="fs-open" id="map-full" aria-label="Full screen Race Viewer" title="Full screen" aria-haspopup="dialog" aria-controls="fs"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+              <h3>Race Viewer</h3>
               <div class="map-tools">
-                <div id="map-zoom" class="zoom" role="group" aria-label="Track map zoom" aria-controls="map-chart">
+                <div id="map-zoom" class="zoom" role="group" aria-label="Race Viewer zoom" aria-controls="map-chart">
                   <button type="button" data-zoom="1" aria-pressed="true">Fit</button>
                   <button type="button" data-zoom="2" aria-pressed="false">2×</button>
                   <button type="button" data-zoom="4" aria-pressed="false">4×</button>
@@ -232,7 +232,7 @@
               </div>
               <p id="map-speed-key" class="speed-key" hidden></p>
               <div class="map-wrap">
-                <div id="map-chart" class="panzoom" tabindex="0" role="group" aria-label="Track map. Arrow keys pan, plus and minus zoom, 0 resets, Space plays the race."></div>
+                <div id="map-chart" class="panzoom" tabindex="0" role="group" aria-label="Race Viewer map. Arrow keys pan, plus and minus zoom, 0 resets, Space plays the race."></div>
                 <div id="map-tip" class="map-tip" role="status" aria-live="off" hidden></div>
                 <div id="map-scrub" class="scrub" role="group" aria-label="Race time" aria-controls="map-chart">
                   <button type="button" id="map-play" class="scrub-play" aria-pressed="false" aria-label="Play" title="Play (Space)"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path class="i-play" d="M4 2.5v11l9-5.5z" /><path class="i-pause" d="M4 2.5h3v11H4zM9 2.5h3v11H9z" /></svg></button>

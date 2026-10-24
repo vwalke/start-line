@@ -363,7 +363,7 @@ describe('index.html full screen markup', () => {
   it('has an expand button on the start chart, the track map and the place changes chart', () => {
     for (const [id, label] of [
       ['start-full', 'Full screen start chart'],
-      ['map-full', 'Full screen track map'],
+      ['map-full', 'Full screen Race Viewer'],
       ['places-full', 'Full screen place changes chart'],
     ]) {
       expect(html).toMatch(new RegExp(`<button type="button" class="fs-open" id="${id}" aria-label="${label}" title="Full screen" aria-haspopup="dialog" aria-controls="fs"><svg`));

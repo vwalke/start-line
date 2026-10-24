@@ -1,10 +1,10 @@
 /**
  * The boat shape: the start chart's stylized hull (to scale, from the class's LOA and beam), shared with the
  * track map's boats while scrubbing and the Start tab's "Around the gun" view. Those two draw it centred on the
- * boat's position, pointing along its course over ground at that moment, to scale or at least BOAT_SHAPE_PX long,
- * wherever a shape tells more than a dot: else (no course: a tracker gap, a held position, too slow; no class
- * dimensions; or so far zoomed out a symbol would overstate the boat too much) they keep the dot. Pure: outlines
- * and SVG path data; the callers draw them.
+ * boat's position, pointing along its course over ground at that moment (or the last heading known while it is held
+ * in a gap, slow or has no course: boatMark), to scale or at least BOAT_SHAPE_PX long, filled while its data is
+ * fresh and hollow once it is lost; the dot only with no heading ever known, no class dimensions, or so far zoomed
+ * out a symbol would overstate the boat too much. Pure: outlines and SVG path data; the callers draw them.
  */
 import { add, bearingVec, scale, type Vec } from '../analysis/geo';
 import type { ClassDims } from '../data/classes';
@@ -144,6 +144,44 @@ export function boatShapeOr(o: ShapeInput): { shape: Vec; dims: ClassDims } | { 
   if (!(o.dims.loaM * o.pxPerM >= BOAT_SHAPE_MIN_PX)) return { dot: 'small' };
   const f = Math.max(1, (o.minPx ?? BOAT_SHAPE_PX) / (o.dims.loaM * o.pxPerM));
   return { shape: o.dir, dims: f > 1 ? { loaM: o.dims.loaM * f, beamM: o.dims.beamM * f } : o.dims };
+}
+
+/**
+ * Held at its last fix inside a tracker gap, a boat is drawn hollow (its data lost) once that fix is older than
+ * this, ms, or than its gap threshold when that is longer; before then it stays filled, so a gap of a second or two
+ * never flickers it between filled and hollow.
+ */
+export const BOAT_STALE_MS = 3000;
+
+/** Whether a boat at `t`, held (`hold`) at its last fix `lastFix`, is drawn hollow: that fix more than max(BOAT_STALE_MS, `gapMs`) ago. */
+export const boatStale = (hold: boolean, lastFix: number | undefined, t: number, gapMs: number): boolean =>
+  hold && lastFix != null && t - lastFix > Math.max(BOAT_STALE_MS, gapMs);
+
+export interface MarkInput extends ShapeInput {
+  /** The last heading known before now (map coordinates, unit): drawn while held, slow or without a course; null: none ever. */
+  lastDir?: Vec | null;
+  /** Its data is lost (boatStale): hollow. */
+  stale?: boolean;
+}
+
+/** A boat's mark: the hull along `shape` (sized `dims`) or the dot (`dot`: why), filled or `hollow` (its data lost). */
+export type BoatMark = { shape: Vec; dims: ClassDims; hollow: boolean } | { dot: DotWhy; hollow: boolean };
+
+const isDir = (d: Vec | null | undefined): d is Vec => !!d && Number.isFinite(d[0]) && Number.isFinite(d[1]) && (d[0] !== 0 || d[1] !== 0);
+
+/**
+ * The race map's and Around the gun's boat (one rule for both): the hull wherever a heading is known, along the
+ * course now while moving with fresh data, else along the last heading known (held in a gap, under
+ * BOAT_SHAPE_MIN_KN, no course this step); the dot only when no heading was ever known, the class has no
+ * dimensions, or the hull would be too small on screen (boatShapeOr's size rule). Either is hollow when `stale`.
+ */
+export function boatMark(o: MarkInput): BoatMark {
+  const hollow = !!o.stale;
+  const moving = !o.hold && isDir(o.dir) && !(Number.isFinite(o.sog) && o.sog < BOAT_SHAPE_MIN_KN);
+  const heading = moving ? o.dir : isDir(o.lastDir) ? o.lastDir : null;
+  if (!heading) return { dot: o.hold ? 'hold' : isDir(o.dir) ? 'slow' : 'no-heading', hollow };
+  const s = boatShapeOr({ ...o, dir: heading, hold: false, sog: NaN });
+  return 'shape' in s ? { ...s, hollow } : { dot: s.dot, hollow };
 }
 
 /** The hull's SVG path data in map coordinates, centred on `at`, pointing along `dir`. */

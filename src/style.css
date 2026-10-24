@@ -556,7 +556,13 @@ svg .sog-hover { fill: none; stroke: var(--ink); pointer-events: none; }
 svg .trk.pre { opacity: 0.7; }
 svg .trk.pre.dim { opacity: 0.12; }
 svg .boat-at.dim { opacity: 0.35; }
+/* Each boat's fading trail (ui/trail.ts): one path per slice, its opacity on the path; dimmed and faint as its boat is. */
+svg .btrail path { fill: none; stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
+svg .btrail.dim { opacity: 0.35; }
+svg .btrail.off { opacity: 0.4; }
 svg .dot { stroke: var(--ink); }
+/* Data lost (boatShape.ts boatStale): hollow, outlined in the boat's own color (`--c`). */
+svg .dot.lost { stroke: var(--c, var(--ink)); }
 svg .dot.off { opacity: 0.4; }
 svg .dot-hdg { stroke: var(--ink); stroke-linecap: round; }
 svg text.dot-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; font-weight: 600; pointer-events: none; }
@@ -589,8 +595,9 @@ svg .dot-vs { fill: none; stroke: var(--ink); pointer-events: none; }
 .coach-opp .opp-map { margin: 8px 0 0; font-size: 0.85rem; }
 .opp-map-link { font-weight: 600; }
 @media (prefers-color-scheme: dark) {
-  svg .dot[style]:not(.hold) { fill: var(--cd); }
-  svg .dot.hold[style] { stroke: var(--cd); }
+  svg .dot[style]:not(.lost) { fill: var(--cd); }
+  svg .dot.lost[style] { stroke: var(--cd, var(--c)); }
+  svg .btrail[style] { stroke: var(--cd); }
 }
 
 /* Speed through the start: drawn at the card's width, like the bump chart. */
@@ -1150,7 +1157,7 @@ svg .lane-lbl.on { font-weight: 700; }
 svg .lane-trail { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 svg .lane-trail.dim { opacity: 0.35; }
 svg .lane-boat.dim { opacity: 0.45; }
-svg .lane-dot:not(.hold) { stroke: var(--surface); }
+svg .lane-dot:not(.lost) { stroke: var(--surface); }
 svg .lane-hull { stroke-linejoin: round; }
 .lane-zoom { margin: 6px 0 0; }
 .lane-stage.panzoom { display: block; }

@@ -433,24 +433,29 @@ Switching races keeps the tab.
   It opens at the gun (0:00) and keeps the second picked across redraws (a
   new boat, say) for the session. Every boat's position and course on the
   1 s grid and its trail points are worked out once per race and selection;
-  scrubbing only redraws the map. Each second draws every boat with its
-  trail back to gun −1:30 (or where the data starts) and the start line.
-- **Boat shapes** (`ui/boatShape.ts`): Around the gun and the track map
-  while scrubbing or replaying draw each boat as the start chart's hull,
-  centered on its position and pointing along its course over ground at
-  that moment (the scrubber's: the step between the fixes either side). It
+  scrubbing only redraws the map. Each second draws every boat with the
+  Race Viewer's fading trail, its last 2 minutes (never before gun −1:30,
+  or where the data starts), and the start line.
+- **Boat shapes** (`ui/boatShape.ts` `boatMark`): Around the gun and the
+  Race Viewer while scrubbing or replaying draw each boat as the start
+  chart's hull, centered on its position and pointing along its course over
+  ground at that moment (the scrubber's: the step between the fixes either
+  side), or, while it is held in a tracker gap, slower than 1 kn or has no
+  course, along the last heading it had. It
   is to scale from the class's length and beam once that is at least 12 px
   long on screen (`BOAT_SHAPE_PX`; 15 px for the selected boat), else a
   symbol that long with the hull's proportions (as the start chart's
-  markers when its hulls would be too small). Where a shape can't say more
-  than a dot, the boat stays a dot: no course (fixes too close together),
-  held in a tracker gap (hollow), slower than 1 kn (`BOAT_SHAPE_MIN_KN`: the
-  course between fixes is mostly noise), a class with no dimensions, or
+  markers when its hulls would be too small). It is filled while the boat's
+  data is fresh and hollow (outlined in its own color, a little heavier)
+  once it is lost, so a dropout no longer flips the hull to a dot. The boat
+  is a dot only when no heading was ever known (no step yet of at least
+  1 kn, `BOAT_SHAPE_MIN_KN`), the class has no dimensions, or the map is
   zoomed out so far the hull to scale would be under 1.5 px
   (`BOAT_SHAPE_MIN_PX`: the symbol would overstate it over 8× and a close
-  fleet would run together; zoom in for shapes). Sail-number labels, the
-  selection, the comparison rings and the map's colors (by leg, rank or
-  boat speed) are the dots'.
+  fleet would run together; zoom in for shapes); that dot is filled or
+  hollow by the same rule. Sail-number labels, the selection, the
+  comparison rings, the over-early styling and the map's colors (by leg,
+  rank or boat speed) are the same filled or hollow.
 - **Around the gun: zoom.** The map pans and zooms as the track map does
   (`ui/panzoom.ts`: pinch, drag, double-tap, Ctrl/⌘ + wheel, + / − / 0 with
   the map focused, and the same Fit / 2× / 4× / 8× buttons). Fit, the
@@ -477,9 +482,10 @@ Switching races keeps the tab.
   the line, blowing from the course side (`Wind assumed ⟂ line`, a dashed
   arrow turned that way). No mark is drawn. The selected boat and its Coach
   group (Top 3 by default) are highlighted and labeled, the rest faded.
-  Positions are the track map scrubber's: interpolated across short steps,
-  held hollow for up to 5 s in a gap, else the boat is missing at that
-  second (never placed); trails break at gaps. A boat within 1 s of a fix
+  Positions are the Race Viewer's: interpolated across short steps, held
+  at the last fix in a gap (hollow after the first 3 s) for up to 2 minutes,
+  else the boat is missing at that second (never placed); trails break at
+  gaps. A boat within 1 s of a fix
   where the scrubber has no position (its feed starting or ending, the far
   side of a gap) is placed at that fix. The caption is just the selected
   boat's place upwind among the boats placed (`USA 016: ≈ 6 of 15`: an
@@ -713,8 +719,22 @@ Switching races keeps the tab.
   sorted column in short ("Up VMG", "B1 SOG", "Race Time"). In finish
   order (no sort) it is hidden: Fin already gives that order, and a phone
   keeps the width.
-- **Tracks by leg:** a map in local meters (no map tiles), rotated so the wind
-  comes from the top. The legend picks one leg and zooms the map to it.
+- **Race Viewer** (the Race tab's map; it was "Tracks by leg"): a map in
+  local meters (no map tiles), rotated so the wind comes from the top. The
+  legend picks one leg and zooms the map to it. With the time slider on,
+  each boat leaves a trail of its last 2 minutes (`BOAT_TRAIL_MS` in
+  `ui/trail.ts`; the `Trail` buttons pick 30 s or 2 min, the default, or
+  `All` / a Coach card's `Window` for the tracks themselves). The trail is
+  in the boat's own color (its leg, rank or speed color, dimmed with it when
+  another boat is selected) and fades toward the tail in four steps
+  (`TRAIL_FADE`). It breaks at every tracker gap (the map's gap rule, over
+  2 s or twice the boat's usual step), never bridging one. Each frame only
+  updates the trails' path data (`ui/trailLayer.ts`); the map is never
+  redrawn for it during play. A boat whose data drops out stays a hull at
+  its last fix and last heading: filled for the first 3 s
+  (`BOAT_STALE_MS`, or the boat's gap threshold when longer, so a short gap
+  never flickers it), then hollow in its own color until its data is back,
+  for up to 2 minutes (`MAP_HOLD_S`).
 - **Color tracks:** `Color: Leg | Rank | Boat speed` beside the legend.
   Rank is the elapsed-time scale (reversed plasma: yellow = fastest, through
   orange and magenta to purple = slowest). Rank also sets opacity and width:
