@@ -2,10 +2,11 @@
  * The landing page at `/` (its content is static HTML in index.html, `#landing`, so it renders and is
  * crawlable without waiting on any script or RaceSense fetch). This only fills in two things:
  *   - the Regatta Pass price, from data/price.ts (the HTML carries the same text; tests hold them equal);
- *   - "Continue: <event · race>", a link to /regattas (which reopens it) when a race was viewed before.
- * Nothing of the app (ui/app.ts) is loaded here.
+ *   - "Continue: <event · race>", a link to /regattas (which reopens it) when a race was viewed before;
+ * and starts the feature cards' lightbox (lightbox.ts). Nothing of the app (ui/app.ts) is loaded here.
  */
 import { PRICE_REGATTA } from '../data/price';
+import { startLightbox } from './lightbox';
 import { REGATTAS_PATH } from './route';
 
 /** recall.lastView (ui/lastView.ts LAST_VIEW_KEY): read here without loading the app's modules. */
@@ -57,4 +58,5 @@ export function startLanding(doc: Document = document): void {
     a.textContent = link.label;
     a.hidden = false;
   }
+  startLightbox(doc);
 }
