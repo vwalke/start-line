@@ -1,39 +1,27 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { BUY_PARAM, BUY_TTL_MS, EMAIL_RATE_MAX, handleAuth, parseIntent, readBuy, signBuy, type AuthCtx, type AuthDeps } from '../functions/_auth';
+import { BUY_PARAM, BUY_TTL_MS, handleAuth, parseIntent, readBuy, signBuy, type AuthCtx } from '../functions/_auth';
 import { ensureUser } from '../functions/_authDb';
 import { handleBilling, type BillingCtx } from '../functions/_stripe';
-import { RateLimiter } from '../functions/_vkx';
 import type { PaywallEnv } from '../functions/_paywall';
 import { googleStartUrl, peekBuy, type Me } from '../src/data/paywall';
 import { autoCheckout, hereWithout, lockCardHtml, sheetHtml, type LockView } from '../src/ui/paywall';
 import type { PassView } from '../functions/_entitlements';
 import { grantSql } from '../scripts/grant-gift.mjs';
 import { MemD1 } from './d1mem';
-import { EVENT, NOW, ORIGIN, giveRegatta, giveSeason, paywallEnv, resetPaywallCaches, signIn } from './paywallHelpers';
+import { EVENT, NOW, ORIGIN, TURNSTILE_TOKEN, giveRegatta, giveSeason, mailbox, paywallEnv, resetPaywallCaches, signIn, tokenOf } from './paywallHelpers';
 
 const SECRET = 'auth_secret_test_fake';
 const authCtx = (request: Request, env: PaywallEnv, path: string): AuthCtx => ({ request, env, params: { path: path.split('/') } });
 const billCtx = (request: Request, env: PaywallEnv, path: string): BillingCtx => ({ request, env, params: { path: path.split('/') } });
 const json = async (r: Response): Promise<Record<string, unknown>> => (await r.json()) as Record<string, unknown>;
 
-function mailbox(now = NOW): AuthDeps & { links: () => string[] } {
-  const sent: string[] = [];
-  return {
-    now: () => now,
-    cache: null,
-    limits: { email: new RateLimiter(EMAIL_RATE_MAX, 3_600_000), ip: new RateLimiter(20, 3_600_000) },
-    log: (line) => sent.push(line),
-    links: () => sent.flatMap((s) => s.match(/https?:\/\/\S+\/api\/auth\/verify\?token=[A-Za-z0-9_-]+/g) ?? []),
-  };
-}
-
 /** The magic-link round trip with a body (returnTo, buy …): the confirm POST's redirect. */
 async function magicLink(db: MemD1, body: Record<string, unknown>, route = 'email'): Promise<Response> {
   const env = paywallEnv(db);
   const m = mailbox();
-  const req = new Request(`${ORIGIN}/api/auth/${route}`, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', origin: ORIGIN, 'cf-connecting-ip': '203.0.113.9' } });
+  const req = new Request(`${ORIGIN}/api/auth/${route}`, { method: 'POST', body: JSON.stringify({ ...body, turnstileToken: TURNSTILE_TOKEN }), headers: { 'content-type': 'application/json', origin: ORIGIN, 'cf-connecting-ip': '203.0.113.9' } });
   expect((await handleAuth(authCtx(req, env, route), m)).status).toBe(200);
-  const token = new URL(m.links()[0]).searchParams.get('token')!;
+  const token = tokenOf(m.links()[0]);
   const confirm = new Request(`${ORIGIN}/api/auth/verify`, { method: 'POST', body: new URLSearchParams({ token }).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGIN } });
   const res = await handleAuth(authCtx(confirm, env, 'verify'), m);
   expect(res.status).toBe(303);
@@ -104,7 +92,9 @@ describe('sign-in carries the intent to a one-time marker', () => {
     const db = new MemD1();
     const res = await google(db, { returnTo: `/?event=${EVENT}&div=J70&race=3`, buy: 'regatta', event: EVENT });
     const loc = new URL(res.headers.get('location')!, ORIGIN);
-    expect(loc.pathname + '?' + [...loc.searchParams.keys()].join(',')).toBe('/?event,div,race,buy');
+    // The buy marker, then the welcome toast's marker (the app starts checkout first; the toast stays out of its way).
+    expect(loc.pathname + '?' + [...loc.searchParams.keys()].join(',')).toBe('/?event,div,race,buy,signin');
+    expect(loc.searchParams.get('signin')).toBe('ok');
     expect(await readBuy(SECRET, markerOf(res), await userIdOf(db, 'skipper@example.com'), NOW)).toEqual({ product: 'regatta', eventId: EVENT });
   });
 
@@ -141,7 +131,7 @@ describe('sign-in carries the intent to a one-time marker', () => {
   it('magic link: a season intent (no longer sold) is dropped: no pw_buy kept, no marker', async () => {
     const db = new MemD1();
     const res = await magicLink(db, { email: 'a@example.com', returnTo: `/?event=${EVENT}&race=3`, buy: { product: 'season' } });
-    expect(res.headers.get('location')).toBe(`/?event=${EVENT}&race=3`);
+    expect(res.headers.get('location')).toBe(`/?event=${EVENT}&race=3&signin=ok`);
     expect(db.rows('login_tokens')[0].return_to).toBe(`/?event=${EVENT}&race=3`);
   });
 
@@ -154,12 +144,12 @@ describe('sign-in carries the intent to a one-time marker', () => {
     ];
     for (const [route, body] of cases) {
       const res = await magicLink(new MemD1(), body, route);
-      expect(res.headers.get('location'), JSON.stringify(body)).toBe('/?race=3');
+      expect(res.headers.get('location'), JSON.stringify(body)).toBe('/?race=3&signin=ok');
     }
     const db = new MemD1();
     const { user } = await signIn(db, 'buyer@example.com');
     await db.prepare("INSERT INTO purchases (id, user_id, provider, provider_ref, product, amount, status, email, created_at) VALUES ('p1', ?, 'stripe', 'cs_test_x', 'regatta', 5000, 'paid', 'buyer@example.com', ?)").bind(user.id, NOW).run();
-    expect((await magicLink(db, { email: 'buyer@example.com', returnTo: '/?race=3&pw_buy=season' }, 'restore')).headers.get('location')).toBe('/?race=3');
+    expect((await magicLink(db, { email: 'buyer@example.com', returnTo: '/?race=3&pw_buy=season' }, 'restore')).headers.get('location')).toBe('/?race=3&signin=ok');
   });
 });
 

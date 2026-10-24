@@ -4,13 +4,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { EMAIL_RE as SCRIPT_EMAIL_RE, EVENT_ID_RE as SCRIPT_EVENT_ID_RE, checkEmail, expiryMs, giftId, grantSql, listSql, parseArgs, revokeSql, sqlFor, sqlString, wranglerArgs } from '../scripts/grant-gift.mjs';
 import { EMAIL_RE, entitlementsOf, userByEmail } from '../functions/_authDb';
 import { allowed, passViews, type PassView } from '../functions/_entitlements';
-import { EMAIL_RATE_MAX, handleAuth, type AuthCtx, type AuthDeps } from '../functions/_auth';
-import { RateLimiter } from '../functions/_vkx';
+import { handleAuth, type AuthCtx } from '../functions/_auth';
 import type { PaywallEnv } from '../functions/_paywall';
 import { EVENT_ID_RE } from '../src/data/vkx/validate';
 import { passLine, sheetHtml } from '../src/ui/paywall';
 import { MemD1 } from './d1mem';
-import { EVENT, NOW, ORIGIN, paywallEnv, resetPaywallCaches, signIn } from './paywallHelpers';
+import { EVENT, NOW, ORIGIN, TURNSTILE_TOKEN, mailbox, paywallEnv, resetPaywallCaches, signIn, tokenOf } from './paywallHelpers';
 
 const DAY = 86_400_000;
 const OTHER_EVENT = 'someOtherEvent1';
@@ -33,24 +32,13 @@ const grantCmd = (db: MemD1, argv: string[], at = NOW): Promise<void> => {
   return run(db, sqlFor(p, at));
 };
 
-function mailbox(now = NOW): AuthDeps & { links: () => string[] } {
-  const sent: string[] = [];
-  return {
-    now: () => now,
-    cache: null,
-    limits: { email: new RateLimiter(EMAIL_RATE_MAX, 3_600_000), ip: new RateLimiter(20, 3_600_000) },
-    log: (line) => sent.push(line),
-    links: () => sent.flatMap((s) => s.match(/https?:\/\/\S+\/api\/auth\/verify\?token=[A-Za-z0-9_-]+/g) ?? []),
-  };
-}
-
 /** A magic-link sign-in, end to end (the link proves the address): the session cookie. */
 async function magicLink(db: MemD1, typed: string, at = NOW): Promise<string> {
   const env = paywallEnv(db);
   const m = mailbox(at);
-  const req = new Request(`${ORIGIN}/api/auth/email`, { method: 'POST', body: JSON.stringify({ email: typed, returnTo: '/' }), headers: { 'content-type': 'application/json', origin: ORIGIN, 'cf-connecting-ip': '203.0.113.9' } });
+  const req = new Request(`${ORIGIN}/api/auth/email`, { method: 'POST', body: JSON.stringify({ email: typed, returnTo: '/', turnstileToken: TURNSTILE_TOKEN }), headers: { 'content-type': 'application/json', origin: ORIGIN, 'cf-connecting-ip': '203.0.113.9' } });
   expect((await handleAuth(ctx(req, env, 'email'), m)).status).toBe(200);
-  const token = new URL(m.links()[0]).searchParams.get('token')!;
+  const token = tokenOf(m.links()[0]);
   const confirm = new Request(`${ORIGIN}/api/auth/verify`, { method: 'POST', body: new URLSearchParams({ token }).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGIN } });
   const res = await handleAuth(ctx(confirm, env, 'verify'), m);
   expect(res.status).toBe(303);

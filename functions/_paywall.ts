@@ -11,7 +11,7 @@
  * route's own caching. Sessions and entitlements are read from D1 on every gated request.
  */
 import { allowed, type Entitlement } from './_entitlements';
-import { entitlementsOf, sessionUser, sessionUserId, type D1Like, type UserRow } from './_authDb';
+import { entitlementsOf, isLive, revokedReason, sessionRow, sessionUserId, touchSession, userById, type D1Like, type RevokedReason, type SessionRow, type UserRow } from './_authDb';
 import { UA, UPSTREAM, MAX_UPSTREAM_BYTES, looksLikeJson, ttlFor } from './_lib';
 import { sha256Hex } from '../src/data/vkx/compact';
 import { freeRacesOf, isFreeRace, telemetryIsFree, type FreeRaces } from '../src/data/freeRace';
@@ -20,9 +20,13 @@ import type { AskIds, AskTurn } from '../src/data/askCoach/protocol';
 import { cleanString, type AskContext } from '../src/analysis/coach/askContext';
 import { DIV_NAME_RE, EVENT_ID_RE } from '../src/data/vkx/validate';
 
-/** Cloudflare Email Sending's `send_email` binding, as far as we use it (see _auth.ts sendEmail). */
+/**
+ * An email binding, as far as we use it (the `cloudflare` provider, _auth.ts sendEmail): the builder
+ * shape `send({ from, to, subject, html, text })`. Pages Functions can't bind send_email, so this is
+ * for a Worker (or a service binding to one) later; on Pages the provider is `cloudflare-api`.
+ */
 export interface EmailBindingLike {
-  send(message: unknown): Promise<unknown>;
+  send(message: { from: string | { email: string; name: string }; to: string; subject: string; html: string; text: string }): Promise<unknown>;
 }
 
 export interface PaywallEnv {
@@ -35,6 +39,12 @@ export interface PaywallEnv {
   EMAIL_FROM?: string;
   RESEND_API_KEY?: string;
   EMAIL?: EmailBindingLike;
+  /** Cloudflare Email Sending's REST API (the `cloudflare-api` provider): the account id and an API token that may send. */
+  CF_EMAIL_ACCOUNT_ID?: string;
+  CF_EMAIL_API_TOKEN?: string;
+  /** Cloudflare Turnstile on the email sign-in and Restore access forms. */
+  TURNSTILE_SITE_KEY?: string;
+  TURNSTILE_SECRET_KEY?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   STRIPE_SECRET_KEY?: string;
@@ -135,18 +145,32 @@ export interface Viewer {
 
 const NOBODY: Viewer = { user: null, entitlements: [] };
 
+/** viewerOf's answer: also the live session's row, or why the cookie's session was signed out from elsewhere. */
+export interface SessionViewer extends Viewer {
+  hash: string | null;
+  session: SessionRow | null;
+  signedOutReason: RevokedReason | null;
+}
+
 const sessionHashOf = async (req: Request): Promise<string | null> => {
   const token = readCookie(req, SESSION_COOKIE);
   return token && TOKEN_RE.test(token) ? tokenHash('session', token) : null;
 };
 
-/** The session's user (the row: /me, checkout and the portal need its email and Stripe customer) and entitlements. */
-export async function viewerOf(req: Request, env: PaywallEnv, now: number): Promise<Viewer & { hash: string | null }> {
+/**
+ * The session's user (the row: /me, checkout and the portal need its email and Stripe customer) and
+ * entitlements. A revoked session is signed out like an expired one; `signedOutReason` says why.
+ */
+export async function viewerOf(req: Request, env: PaywallEnv, now: number): Promise<SessionViewer> {
   const db = env.AUTH_DB;
   const hash = db ? await sessionHashOf(req) : null;
-  if (!db || !hash) return { ...NOBODY, hash: null };
-  const user = await sessionUser(db, hash, now);
-  return user ? { user, entitlements: await entitlementsOf(db, user.id), hash } : { ...NOBODY, hash };
+  if (!db || !hash) return { ...NOBODY, hash: null, session: null, signedOutReason: null };
+  const s = await sessionRow(db, hash);
+  if (!s || !isLive(s, now)) return { ...NOBODY, hash, session: null, signedOutReason: s ? revokedReason(s) : null };
+  await touchSession(db, s, now);
+  const user = await userById(db, s.user_id);
+  if (!user) return { ...NOBODY, hash, session: null, signedOutReason: null };
+  return { user, entitlements: await entitlementsOf(db, user.id), hash, session: s, signedOutReason: null };
 }
 
 /** What the gate needs, in two round trips: the session row (primary key), then the user's entitlements (indexed by user). */

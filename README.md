@@ -1420,35 +1420,118 @@ from the environment (test mode first).
   proxied and analyzed data, not the raw source. The pitch is "unlock the
   analysis".
 
-**Sign-in** (`functions/_auth.ts`): email magic link (32 random bytes,
-only its SHA-256 stored, 15 min, single use; at most 5 links per address and
-20 per IP per hour; the same answer whether or not the address is known).
-The emailed link (`GET /api/auth/verify?token=`) opens a small confirm page
-(`no-store`, `Referrer-Policy: no-referrer`, a strict CSP, no external
-assets) and uses nothing, so a mail scanner that prefetches links can't spend
-it; its **Sign in to Recall** button POSTs the token to the same URL, which
-accepts only a same-origin POST (`Origin` of this site, or, as the page's
-no-referrer policy makes browsers send `Origin: null`, `Sec-Fetch-Site:
-same-origin`), uses the token once, sets the session cookie and redirects
-(303) to `returnTo`. **The sign-in rate limits are per isolate**, in memory:
-each Workers isolate counts on its own, so the effective limit grows with the
-number of isolates serving the site. A later step could keep the counts in D1
-or use Cloudflare's Rate Limiting binding. Google (state, nonce and PKCE in a signed 10-minute cookie;
-the ID token from Google's token endpoint is trusted over TLS, its claims
-checked: issuer, audience, expiry, verified email, nonce; linked by email).
-Sessions: a random token in the `wf_session` cookie
+**Sign-in** (`functions/_auth.ts`): an email sign-in link or Google, side
+by side. *Email links:* 32 random bytes, only their SHA-256 stored, 15 min,
+single use; the same answer whether or not the address is known. Asking for
+one goes, in order: the body and the address's shape, then Cloudflare
+**Turnstile**, then the rate limits, then the link is made and sent.
+Turnstile (`TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY`): the account
+sheet's email forms (sign in and Restore access) load Cloudflare's script
+once, lazily, only when `/api/auth/me` hands the page a site key, and render
+an `interaction-only` widget (invisible unless Cloudflare wants a click);
+`POST /api/auth/email` and `/restore` then need its `turnstileToken`, which
+the server checks with Cloudflare's siteverify (secret, token, the client's
+`CF-Connecting-IP`), accepting only `success: true` on this very hostname. A
+missing or failed check is a 400 ("Please complete the check and try
+again."); siteverify unreachable is a 503: it fails closed. Email sign-in is
+offered (`signIn.email`) only with an email provider **and** Turnstile set
+up, except on localhost, where the `log` provider works without Turnstile
+(and only there: `log` on any other host is not set up, a 503, and nothing is
+logged); anywhere else the email routes answer 503 without it. *Rate limits:* at most
+5 links per address and 20 per IP per fixed hour, counted in D1
+(`auth_rate_limits`, one atomic upsert per key; no count back is a 429) so
+every isolate shares the counts; keys are `email:<SHA-256 of the address>` and `ip:<SHA-256 of the
+IP>` (never the raw values), and about one request in 100 deletes counters
+older than 2 hours. *The email* (`signInMail`, shared by Restore access, which
+gets its own first line): plain text plus HTML built for Gmail, Outlook and
+Apple Mail (tables and inline styles only, 560px wide, the RECALL wordmark as
+live text on the carbon masthead with the gold rule, no images; a
+bulletproof "Sign in to Recall" button in the brand blue with a VML fallback
+for Outlook desktop; the plain link under it; "works once and expires in N
+minutes" from `LOGIN_TOKEN_TTL_MS`; a hidden preheader; `color-scheme: light
+dark`). *The link* carries the token in the **fragment**
+(`/api/auth/verify#token=…`), which browsers never send, so it stays out of
+server logs and `Referer`. `GET /api/auth/verify` uses nothing, so a mail
+scanner that prefetches links can't spend it: it serves a small page
+(`no-store`, `Referrer-Policy: no-referrer`, a strict CSP whose only
+`script-src` is the SHA-256 of its one inline script, no external assets)
+whose script reads the token from the fragment (or from `?token=`, the shape
+of links sent before, which keep working), takes it out of the address bar
+with `history.replaceState`, shows "Signing you in…" and POSTs it to the same
+URL. With no script (or if it fails) the page falls back to its **Sign in**
+button (an old `?token=` link works with no script at all; a `#token=` link
+says to turn JavaScript on). With no token it says the link has expired. The
+POST accepts only a same-origin request (`Origin` of this site, or, as the
+page's no-referrer policy makes browsers send `Origin: null`,
+`Sec-Fetch-Site: same-origin`), uses the token once, sets the session cookie
+and redirects (303) to `returnTo` plus `signin=ok`; the app then shows a
+"You're signed in as name@example.com." toast (`#signin-toast`, a polite
+live region, a close button, gone after 5 seconds, never taking focus) and
+drops the marker from the URL. A sign-in that goes on to Checkout skips the
+toast. A used or expired token gets a page saying so ("This link has expired
+or was already used.") with **Get a new link**
+(`/regattas?signin=expired`), which opens the sign-in sheet with a note.
+*Google:* state, nonce and PKCE in a signed 10-minute cookie; the ID token
+from Google's token endpoint is trusted over TLS, its claims checked: issuer,
+audience, expiry, verified email, nonce; linked by email; a sign-in lands
+with the same `signin=ok` toast. `returnTo` is a path on this site or an
+https page on walkeforward.com or a subdomain, else `/regattas`.
+
+*Sessions and the device cap:* a random token in the `wf_session` cookie
 (`Domain=.walkeforward.com; Path=/; Secure; HttpOnly; SameSite=Lax`, 30
 days; no `Domain` on localhost, `*.pages.dev` or any other host), its
-SHA-256 in D1, at most 3 per user (the oldest goes). `returnTo` is a path on
-this site or an https page on walkeforward.com or a subdomain, else `/`.
-Email goes out through `EMAIL_PROVIDER`: `resend`, `cloudflare` (a
-`send_email` binding named `EMAIL`; the message shape lives in
-`cloudflareMessage`, confirm it against Cloudflare's Email Sending docs) or
-`log` (the default on localhost only; anywhere else an unset provider is a
-503, never a logged link). *Restore access* sends a link only to an address
-with purchases (same answer either way); passes follow the email, so a
-webhook for an unknown address creates its user and signing in with that
-address restores everything.
+SHA-256 in D1 with a public id (12 random bytes, hex: the only id the page
+ever sees), the sign-in method, and when it was last used (written at most
+once an hour per session, so a normal request adds no write). An account
+stays signed in on **up to 3 devices**, whatever the sign-in method (the
+admin can set another cap for one user, 1 to 20: [below](#admin-signed-in-devices)).
+Signing in on a 4th revokes the least recently used one rather than deleting
+it (`revoked_reason 'device_limit'`, `revoked_by` the new session; insert and
+revoke are one D1 batch, so racing sign-ins never leave more than the cap; a
+session's hourly last-use write trims an account already over its cap the
+same way, keeping that session, `revoked_by` NULL), so that
+device is told why: its next `/api/auth/me` answers signed out with
+`signedOutReason` (`device_limit`, `remote` or `admin`) and clears the
+cookie, and the page opens the sign-in sheet once with a note ("You were
+signed out on this device because your account signed in somewhere else.
+Recall stays signed in on up to 3 devices at a time."). For 10 minutes the
+new device's `/me` lists what it signed out (`bumped`), and the page says so
+("Signing in here signed out Safari on iPhone (last used Oct 20).") in its own
+note under the app's notice line (so loading a race never clears it) until it
+is dismissed or the account sheet is opened (the sheet then shows it at the
+top); only then is it remembered as seen for that session. A revoked session is signed out everywhere (the data gate,
+checkout, the portal, `/me`). Signed in, `/me` adds `devices: { max, list:
+[{ id, label, method, createdAt, lastSeenAt, current }] }` (live sessions,
+this one first, then by last use; the label comes from the User-Agent,
+e.g. "Chrome on Mac"), and the account sheet shows them under **Devices**
+("Signed in on 2 of 3 devices.", each with "This device" or "Last used …",
+**Sign out** for the others, **Sign out all other devices**): `POST
+/api/auth/sessions/revoke {id}` (another live session of the same user, never
+this one) and `POST /api/auth/sessions/revoke-others` (every other live one),
+both same-site only, `no-store`, reason `remote`, answering `{ ok, devices }`.
+Your own Sign out still deletes the row. Expired rows and rows revoked over
+30 days ago are deleted at the user's next sign-in.
+
+*Email providers* (`EMAIL_PROVIDER`): `cloudflare-api` (recommended on
+Pages: Pages Functions can't use the `send_email` binding, so this POSTs to
+Cloudflare Email Sending's REST API,
+`https://api.cloudflare.com/client/v4/accounts/<CF_EMAIL_ACCOUNT_ID>/email/sending/send`,
+with `CF_EMAIL_API_TOKEN`; a named sender goes as `from: { address, name }`;
+sent means `success: true`, and a failure logs the HTTP status and Cloudflare's
+error codes, never the token, recipient or link), `resend` (the
+fallback), `cloudflare` (an email binding named `EMAIL`, for a Worker or a
+service binding later: `send({ from, to, subject, html, text })` with a named
+`from` as `{ email, name }`) or `log`
+(the default on localhost only; anywhere else an unset provider is a 503,
+never a logged link). A missing setting is a 503 naming the variable (never
+its value); a failed send is a 502. `EMAIL_FROM` is `Recall
+<signin@walkeforward.com>` (or a bare address); the sending domain must be
+set up for Email Sending in Cloudflare. Every email has a plain-text and an
+HTML part (one "Sign in to Recall" button and the raw link under it, inline
+styles, no images). *Restore access* sends a link only to an address with
+purchases (same answer either way); passes follow the email, so a webhook
+for an unknown address creates its user and signing in with that address
+restores everything.
 
 **Payments** (`functions/_stripe.ts`): `POST /api/billing/checkout`
 (signed in, else 401; an `Origin` header from this site or an https
@@ -1511,8 +1594,8 @@ confirmed with the account.
 
 **The page** (`src/ui/paywall.ts`): an account button in the masthead (Sign
 in / Account: passes with expiry, e.g. "All-regattas pass · every regatta ·
-until …" for an existing one, Restore access, Manage subscription for an
-existing season subscriber, Sign out) and, for a race the viewer can't
+until …" for an existing one, the signed-in devices, Restore access, Manage
+subscription for an existing season subscriber, Sign out) and, for a race the viewer can't
 open, a lock card (`#lock .lock-card`) in place of the digest: the race
 header and RaceSense finishes from the free regatta document, a blurred
 placeholder chart (no tracks are fetched), "See the start, every leg and
@@ -1553,11 +1636,19 @@ still shows the lock card.
 
 **Database.** D1 bound as `AUTH_DB`; schema in
 `migrations/0001_paywall.sql` (users, sessions, login_tokens, purchases,
-entitlements, team_members, stripe_events). **Applying it needs Vann's OK —
-do not run these without it:**
+entitlements, team_members, stripe_events) and
+`migrations/0002_signin_phase1.sql` (sign-in phase 1, additive only:
+`sessions` gains `public_id` (backfilled with random hex, unique index),
+`last_seen_at` (backfilled with `created_at`), `method`, `revoked_at`,
+`revoked_reason` and `revoked_by`; `users` gains `max_sessions` (NULL: the
+default, 3); a new `auth_rate_limits` table). **Applying either needs the
+owner's OK. Do not run these without it.** Apply 0002 to Preview first,
+then to production **before** this code is deployed there: the code reads
+the new columns on every signed-in request, so on an unmigrated database
+every signed-in request fails (503) and nobody can sign in.
 
 ```sh
-# DO NOT RUN WITHOUT VANN'S OK
+# DO NOT RUN WITHOUT THE OWNER'S OK
 npx wrangler d1 create recall-auth
 # then bind it to the Pages project as AUTH_DB (Settings → Bindings → D1 database), Production and Preview
 npx wrangler d1 migrations apply recall-auth --remote
@@ -1572,10 +1663,14 @@ Preview each):
 | `AUTH_DB` | D1 binding (not a variable) | — |
 | `AUTH_COOKIE_DOMAIN` | cookie domain, default `.walkeforward.com` | no |
 | `AUTH_SECRET` | signs the Google sign-in cookie (32+ random bytes) | yes |
-| `EMAIL_PROVIDER` | `resend`, `cloudflare` or `log` | no |
-| `EMAIL_FROM` | sender address, e.g. `recall@walkeforward.com` | no |
+| `EMAIL_PROVIDER` | `cloudflare-api` (recommended on Pages), `resend` (fallback), `cloudflare` or `log` | no |
+| `EMAIL_FROM` | sender, e.g. `Recall <signin@walkeforward.com>` (or a bare address) | no |
+| `CF_EMAIL_ACCOUNT_ID` | Cloudflare account id for Email Sending (`cloudflare-api`) | no |
+| `CF_EMAIL_API_TOKEN` | an API token with Email Sending send permission (`cloudflare-api`) | yes |
 | `RESEND_API_KEY` | Resend API key (`resend`) | yes |
-| `EMAIL` | `send_email` binding (`cloudflare`) | — |
+| `EMAIL` | email binding (`cloudflare`; a Worker or service binding, not available to Pages Functions) | — |
+| `TURNSTILE_SITE_KEY` | Turnstile widget's site key (email sign-in needs it, except on localhost) | no |
+| `TURNSTILE_SECRET_KEY` | Turnstile secret key, for siteverify | yes |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth client (redirect URI `https://recall.walkeforward.com/api/auth/google/callback`) | id no / secret yes |
 | `STRIPE_SECRET_KEY` | `sk_test_…` (then live) | yes |
 | `STRIPE_WEBHOOK_SECRET` | the webhook endpoint's `whsec_…` | yes |
@@ -1619,15 +1714,16 @@ node scripts/grant-gift.mjs grant regatta --event fDHdPcEOM6mcMRkdXNnj --email s
 node scripts/grant-gift.mjs revoke all --email sailor@example.com
 node scripts/grant-gift.mjs revoke regatta --event fDHdPcEOM6mcMRkdXNnj --email sailor@example.com
 node scripts/grant-gift.mjs revoke --id gift_0123456789abcdef01234567
-# Every gift (or one address's): id, email, scope, event, starts, expires, revoked, signed_in
+# Every gift (or one address's): id, email, scope, event, starts, expires, revoked, signed_in (a session not revoked)
 node scripts/grant-gift.mjs list
 node scripts/grant-gift.mjs list --email sailor@example.com
 # Show the SQL only:
 node scripts/grant-gift.mjs grant all --email sailor@example.com --print
 ```
 
-How it works (no migration: the tables of `migrations/0001_paywall.sql`
-only): a gift is a `purchases` row (`provider 'gift'`, `provider_ref
+How it works (no migration of its own: grant and revoke use the tables of
+`migrations/0001_paywall.sql` only; list also reads `sessions.revoked_at`
+from `0002_signin_phase1.sql`): a gift is a `purchases` row (`provider 'gift'`, `provider_ref
 'gift:<key>'`, amount 0, status `gift`) and its entitlement, both with the id
 `gift_<key>`, where the key comes from the email (lower-cased, trimmed), the
 scope and the event id (`all` and `season` are the same gift). They belong to the user with that email, created if
@@ -1645,6 +1741,35 @@ link. Caveats: the note isn't stored (no column for it); a gift for an
 address other than the one a Google-linked account was made with is a
 separate account (sign in with a link to that address); `signed_in` in the
 list means the address has a session now.
+
+### Admin: signed-in devices
+
+The device cap (3 per account by default) can be changed for one user, and
+sessions signed out, by the admin only: `scripts/sessions.mjs` (node, no
+dependencies). There is deliberately no API or UI for the cap override. Like
+the gift script it builds the SQL and runs it with `npx wrangler d1 execute
+<db> --remote --command …` (`--local` for a local D1, `--print` to show the
+SQL and run nothing; `--db` defaults to `recall-auth`), needs migration 0002,
+and changes production data: run it by hand, never from CI.
+
+```sh
+# The user's cap and sessions: public id, method, device, created, last used, expires, revoked and why (no token hashes)
+node scripts/sessions.mjs list --email sailor@example.com
+# Allow 5 devices at once (1 to 20); applies from their next sign-in
+node scripts/sessions.mjs set-cap --email sailor@example.com 5
+# Back to the default (3)
+node scripts/sessions.mjs set-cap --email sailor@example.com default
+# Sign out one session (its public id from list), or every live one
+node scripts/sessions.mjs revoke --email sailor@example.com --id 0123456789abcdef01234567
+node scripts/sessions.mjs revoke --email sailor@example.com
+```
+
+A lowered cap signs nothing out by itself: the user's next sign-in signs out
+the least recently used devices beyond it. `revoke` uses the reason `admin`,
+so the device is told "You were signed out. Sign in again to keep going."
+Inputs are checked strictly (the server's email pattern, public ids as 24
+hex characters, caps 1 to 20 or `default`) and quoted as SQL strings;
+wrangler runs without a shell.
 
 ## Local development
 

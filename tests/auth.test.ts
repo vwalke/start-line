@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_RETURN_TO,
   EMAIL_RATE_MAX,
+  EXPIRED_LINK_HREF,
+  VERIFY_PAGE_CSP,
+  VERIFY_SCRIPT,
+  verifyScriptHash,
   checkClaims,
   emailProvider,
   handleAuth,
@@ -11,42 +15,28 @@ import {
   trustedOrigin,
   verifyPageHtml,
   type AuthCtx,
-  type AuthDeps,
 } from '../functions/_auth';
-import { MAX_SESSIONS, LOGIN_TOKEN_TTL_MS, recordPurchase, ensureUser, userByEmail } from '../functions/_authDb';
-import { RateLimiter } from '../functions/_vkx';
+import { DEFAULT_MAX_SESSIONS, LOGIN_TOKEN_TTL_MS, recordPurchase, ensureUser, userByEmail } from '../functions/_authDb';
 import { cookieDomain, flagOn, sessionCookie, tokenHash, viewerOf, type PaywallEnv } from '../functions/_paywall';
 import { jsonError } from '../functions/_lib';
 import { onRequest as authRoute } from '../functions/api/auth/[[path]]';
 import { onRequestGet as proxyGet } from '../functions/api/[[path]]';
 import { MemD1 } from './d1mem';
-import { EVENT, NOW, ORIGIN, giveRegatta, paywallEnv, resetPaywallCaches, signIn } from './paywallHelpers';
+import { EVENT, NOW, ORIGIN, TURNSTILE_TOKEN, giveRegatta, mailbox, paywallEnv, queryLink, resetPaywallCaches, signIn, tokenOf, withTurnstile } from './paywallHelpers';
 
 const ctx = (request: Request, env: PaywallEnv, path: string): AuthCtx => ({ request, env, params: { path: path.split('/') } });
 const json = async (r: Response): Promise<Record<string, unknown>> => (await r.json()) as Record<string, unknown>;
-const postJson = (path: string, body: unknown, headers: Record<string, string> = {}, origin = ORIGIN): Request =>
-  new Request(`${origin}/api/auth/${path}`, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', origin, 'cf-connecting-ip': '203.0.113.9', ...headers } });
+/** A POST from the page; email and restore carry the Turnstile widget's token unless the body says otherwise. */
+const postJson = (path: string, body: Record<string, unknown>, headers: Record<string, string> = {}, origin = ORIGIN): Request =>
+  new Request(`${origin}/api/auth/${path}`, { method: 'POST', body: JSON.stringify(path === 'email' || path === 'restore' ? { turnstileToken: TURNSTILE_TOKEN, ...body } : body), headers: { 'content-type': 'application/json', origin, 'cf-connecting-ip': '203.0.113.9', ...headers } });
 
 /** The confirm page's form POST for the token in an emailed link (same origin, as a browser sends it). */
 const confirmPost = (link: string, headers: Record<string, string> = { origin: ORIGIN }): Request =>
   new Request(`${ORIGIN}/api/auth/verify`, {
     method: 'POST',
-    body: new URLSearchParams({ token: new URL(link).searchParams.get('token') ?? '' }).toString(),
+    body: new URLSearchParams({ token: tokenOf(link) }).toString(),
     headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'TestBrowser/1', ...headers },
   });
-
-/** Deps with a captured `log` mailbox and fresh limiters. */
-function mailbox(now = NOW): AuthDeps & { sent: string[]; links: () => string[] } {
-  const sent: string[] = [];
-  return {
-    now: () => now,
-    cache: null,
-    limits: { email: new RateLimiter(EMAIL_RATE_MAX, 3_600_000), ip: new RateLimiter(20, 3_600_000) },
-    log: (line) => sent.push(line),
-    sent,
-    links: () => sent.flatMap((s) => s.match(/https?:\/\/\S+\/api\/auth\/verify\?token=[A-Za-z0-9_-]+/g) ?? []),
-  };
-}
 
 beforeEach(resetPaywallCaches);
 
@@ -89,7 +79,7 @@ describe('flag', () => {
 describe('me', () => {
   it('signed out: paywall on, no user, the sign-in options configured', async () => {
     const res = await handleAuth(ctx(new Request(`${ORIGIN}/api/auth/me`), paywallEnv(new MemD1()), 'me'), mailbox());
-    expect(await json(res)).toEqual({ paywall: true, user: null, entitlements: [], signIn: { email: true, google: true } });
+    expect(await json(res)).toEqual({ paywall: true, user: null, entitlements: [], signIn: { email: true, google: true, turnstileSiteKey: 'turnstile_site_test_fake' } });
   });
 
   it('signed in: the email and the active passes', async () => {
@@ -104,7 +94,7 @@ describe('me', () => {
 
   it('with the flag on but no D1 bound: signed out, nothing to sign in with', async () => {
     const res = await handleAuth(ctx(new Request(`${ORIGIN}/api/auth/me`), paywallEnv(undefined), 'me'), mailbox());
-    expect(await json(res)).toEqual({ paywall: true, user: null, entitlements: [], signIn: { email: false, google: false } });
+    expect(await json(res)).toEqual({ paywall: true, user: null, entitlements: [], signIn: { email: false, google: false, turnstileSiteKey: 'turnstile_site_test_fake' } });
   });
 });
 
@@ -117,7 +107,9 @@ describe('magic link', () => {
     expect(res.status).toBe(200);
     expect(await json(res)).toEqual({ ok: true });
     const [link] = m.links();
-    const token = new URL(link).searchParams.get('token')!;
+    // The token rides in the fragment: never sent to a server, a log or a Referer.
+    expect(link).toMatch(/^https:\/\/recall\.walkeforward\.com\/api\/auth\/verify#token=[A-Za-z0-9_-]{43}$/);
+    const token = tokenOf(link);
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const [row] = db.rows('login_tokens');
     expect(row).toMatchObject({ email: 'racer@example.com', expires_at: NOW + LOGIN_TOKEN_TTL_MS, used_at: null, return_to: `/?event=${EVENT}&race=3` });
@@ -127,54 +119,138 @@ describe('magic link', () => {
     const verify = (at: number): Promise<Response> => handleAuth(ctx(confirmPost(link), env, 'verify'), mailbox(at));
     const ok = await verify(NOW + 60_000);
     expect(ok.status).toBe(303);
-    expect(ok.headers.get('location')).toBe(`/?event=${EVENT}&race=3`);
+    // returnTo, with the marker for the app's welcome toast.
+    expect(ok.headers.get('location')).toBe(`/?event=${EVENT}&race=3&signin=ok`);
     const cookie = ok.headers.get('set-cookie')!;
     expect(cookie).toMatch(/^wf_session=[A-Za-z0-9_-]{43}; Domain=\.walkeforward\.com; Path=\/; Max-Age=2592000; Secure; HttpOnly; SameSite=Lax$/);
     expect(await userByEmail(db, 'racer@example.com')).not.toBeNull();
     const [s] = db.rows('sessions');
     expect(s).toMatchObject({ expires_at: NOW + 60_000 + 30 * 86_400_000, user_agent: 'TestBrowser/1' });
-    // Single use: a second POST goes back to the page with a gentle "expired", no cookie.
+    // Single use: a second POST gets a page saying so (with a way back), no cookie.
     const again = await verify(NOW + 61_000);
-    expect(again.status).toBe(303);
-    expect(again.headers.get('location')).toBe('/?signin=expired');
+    expect(again.status).toBe(400);
+    expect(again.headers.get('cache-control')).toBe('no-store');
+    expect(again.headers.get('content-security-policy')).toMatch(/^default-src 'none';/);
+    const gone = await again.text();
+    expect(gone).toContain('<p>This link has expired or was already used.</p>');
+    // A way to ask for a new one: the app opens its sign-in sheet for signin=expired.
+    expect(gone).toContain(`<a class="btn" href="${EXPIRED_LINK_HREF}">Get a new link</a>`);
+    expect(EXPIRED_LINK_HREF).toBe('/regattas?signin=expired');
     expect(again.headers.get('set-cookie')).toBeNull();
     expect(db.rows('sessions')).toHaveLength(1);
   });
 
-  it('GET shows a confirm page and uses nothing (a link scanner can’t spend the token)', async () => {
+  /** The page's one inline script and the CSP hash that allows it. */
+  const scriptOf = (html: string): string => {
+    const all = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+    expect(all).toHaveLength(1);
+    return all[0][1];
+  };
+  const sha256B64 = async (s: string): Promise<string> => Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))).toString('base64');
+
+  it('GET never uses the token, from a #token= link or an old ?token= one (a link scanner can’t spend it)', async () => {
     const db = new MemD1();
     const env = paywallEnv(db);
     const m = mailbox();
     await handleAuth(ctx(postJson('email', { email: 'scan@example.com', returnTo: '/?race=2' }), env, 'email'), m);
     const [link] = m.links();
-    const token = new URL(link).searchParams.get('token')!;
-    for (let i = 0; i < 3; i++) {
-      const page = await handleAuth(ctx(new Request(link), env, 'verify'), mailbox());
-      expect(page.status).toBe(200);
+    const token = tokenOf(link);
+    // What reaches the server: a browser never sends the fragment.
+    const fragmentGet = (): Request => new Request(link.split('#')[0]);
+    const queryGet = (): Request => new Request(queryLink(link));
+    for (const [style, req] of [['fragment', fragmentGet], ['query', queryGet], ['fragment', fragmentGet], ['query', queryGet]] as const) {
+      const page = await handleAuth(ctx(req(), env, 'verify'), mailbox());
+      expect(page.status, style).toBe(200);
       expect(page.headers.get('content-type')).toBe('text/html; charset=utf-8');
       expect(page.headers.get('cache-control')).toBe('no-store');
       expect(page.headers.get('referrer-policy')).toBe('no-referrer');
-      expect(page.headers.get('content-security-policy')).toMatch(/^default-src 'none';.*form-action 'self' /);
       expect(page.headers.get('set-cookie')).toBeNull();
+      const csp = page.headers.get('content-security-policy')!;
+      expect(csp.startsWith(`${VERIFY_PAGE_CSP}; script-src 'sha256-`)).toBe(true);
+      expect(csp).not.toContain('unsafe-eval');
+      expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
       const html = await page.text();
-      expect(html).toContain('<form method="post" action="/api/auth/verify">');
-      expect(html).toContain(`name="token" value="${token}"`);
-      expect(html).toContain('Sign in to Recall');
-      // Self-contained: no scripts, nothing loaded from anywhere.
-      expect(html).not.toMatch(/<script|src=|href=|url\(/i);
+      // The auto-submit script, allowed by its hash and nothing else.
+      const script = scriptOf(html);
+      expect(script).toBe(VERIFY_SCRIPT);
+      expect(csp).toContain(`script-src 'sha256-${await sha256B64(script)}'`);
+      expect(await verifyScriptHash()).toBe(`'sha256-${await sha256B64(VERIFY_SCRIPT)}'`);
+      expect(script).toContain("location.hash.slice(1)).get('token')");
+      expect(script).toContain('new URLSearchParams(location.search).get(\'token\')');
+      expect(script).toContain("history.replaceState(null, '', location.pathname)");
+      expect(script).toContain(".submit()");
+      // "Signing you in…", announced, with a spinner screen readers skip.
+      expect(html).toContain('<div id="status" role="status" aria-live="polite"><span id="busy" class="busy" hidden><span class="spin" aria-hidden="true"></span>Signing you in…</span></div>');
+      expect(html).toContain('@media (prefers-reduced-motion:reduce){.spin{animation:none}}');
+      expect(html).toContain('<form id="f" method="post" action="/api/auth/verify">');
+      expect(html).toContain('<button type="submit">Sign in</button>');
+      expect(html).toContain('<div id="gone" hidden><p>This link has expired or was already used.</p>');
+      // Self-contained: nothing loaded from anywhere; the only link is Recall's own.
+      expect(html).not.toMatch(/src=|url\(|<link/i);
+      expect([...html.matchAll(/href="([^"]*)"/g)].map((x) => x[1]).every((h) => h === EXPIRED_LINK_HREF)).toBe(true);
+      if (style === 'fragment') {
+        // The token is only in the fragment: the form waits for the script; noscript says what to do.
+        expect(html).toContain('<input type="hidden" id="t" name="token" value="">');
+        expect(html).toContain('<div id="manual" hidden>');
+        expect(html).toMatch(/<noscript><div id="nojs"><p>Recall needs JavaScript to finish signing in from this link\. Turn it on and open the link again\.<\/p>/);
+        expect(html).not.toContain(token);
+      } else {
+        // An old link: the button works with no script at all (the fallback), and the script presses it.
+        expect(html).toContain(`<input type="hidden" id="t" name="token" value="${token}">`);
+        expect(html).toContain('<div id="manual"><p>Tap the button to finish signing in.</p><button type="submit">Sign in</button></div>');
+        expect(html).not.toContain('<noscript>');
+      }
     }
     expect(db.rows('login_tokens')[0].used_at).toBeNull();
     expect(db.rows('sessions')).toEqual([]);
-    // A malformed token never reaches the page (nothing to escape into it).
+    // A malformed token is never written into the page (the script shows the expired message).
     const bad = await handleAuth(ctx(new Request(`${ORIGIN}/api/auth/verify?token=%22%3E%3Cscript%3E`), env, 'verify'), mailbox());
-    expect(bad.status).toBe(302);
-    expect(bad.headers.get('location')).toBe('/?signin=expired');
-    // The page escapes whatever it is given all the same.
-    expect(verifyPageHtml('"><script>x</script>&\'')).toContain('value="&quot;&gt;&lt;script&gt;x&lt;/script&gt;&amp;&#39;"');
-    // Then the POST signs in.
+    expect(bad.status).toBe(200);
+    const badHtml = await bad.text();
+    expect(badHtml).toContain('name="token" value=""');
+    expect(badHtml).not.toContain('"><script>');
+    expect(verifyPageHtml('"><script>x</script>&\'')).toContain('name="token" value=""');
+    // Then the page's POST signs in, once.
     const ok = await handleAuth(ctx(confirmPost(link), env, 'verify'), mailbox());
     expect(ok.status).toBe(303);
-    expect(ok.headers.get('location')).toBe('/?race=2');
+    expect(ok.headers.get('location')).toBe('/?race=2&signin=ok');
+    expect((await handleAuth(ctx(confirmPost(link), env, 'verify'), mailbox())).status).toBe(400);
+  });
+
+  it('an old ?token= link still works end to end: its page posts the token it carries', async () => {
+    const db = new MemD1();
+    const env = paywallEnv(db);
+    const m = mailbox();
+    await handleAuth(ctx(postJson('email', { email: 'old@example.com', returnTo: '/?race=4' }), env, 'email'), m);
+    const old = queryLink(m.links()[0]);
+    expect(old).toMatch(/\/api\/auth\/verify\?token=[A-Za-z0-9_-]{43}$/);
+    const html = await (await handleAuth(ctx(new Request(old), env, 'verify'), mailbox())).text();
+    const form = /<form id="f" method="post" action="([^"]+)"><input type="hidden" id="t" name="token" value="([^"]*)">/.exec(html)!;
+    expect(form[1]).toBe('/api/auth/verify');
+    const res = await handleAuth(
+      ctx(new Request(new URL(form[1], ORIGIN), { method: 'POST', body: new URLSearchParams({ token: form[2] }).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'null', 'sec-fetch-site': 'same-origin' } }), env, 'verify'),
+      mailbox(),
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe('/?race=4&signin=ok');
+    expect(res.headers.get('set-cookie')).toMatch(/^wf_session=/);
+  });
+
+  it('the success marker goes on the safe returnTo, or the default; an outside returnTo is never kept', async () => {
+    for (const [returnTo, want] of [
+      [`/?event=${EVENT}&race=3#coach`, `/?event=${EVENT}&race=3&signin=ok#coach`],
+      ['https://legwork.walkeforward.com/x?y=1', 'https://legwork.walkeforward.com/x?y=1&signin=ok'],
+      ['https://evil.example/x', `${DEFAULT_RETURN_TO}?signin=ok`],
+      [undefined, `${DEFAULT_RETURN_TO}?signin=ok`],
+      ['/?signin=expired', '/?signin=ok'],
+    ] as const) {
+      const db = new MemD1();
+      const env = paywallEnv(db);
+      const m = mailbox();
+      await handleAuth(ctx(postJson('email', { email: 'r@example.com', returnTo }), env, 'email'), m);
+      const res = await handleAuth(ctx(confirmPost(m.links()[0]), env, 'verify'), mailbox());
+      expect(res.headers.get('location'), String(returnTo)).toBe(want);
+    }
   });
 
   it('POST: same origin only (Origin, or Sec-Fetch-Site when the Origin is null); a cross-site POST spends nothing', async () => {
@@ -209,12 +285,18 @@ describe('magic link', () => {
     const env = paywallEnv(db);
     const m = mailbox();
     await handleAuth(ctx(postJson('email', { email: 'late@example.com' }), env, 'email'), m);
-    const late = await handleAuth(ctx(confirmPost(m.links()[0]), env, 'verify'), mailbox(NOW + LOGIN_TOKEN_TTL_MS));
-    expect(late.headers.get('location')).toBe('/?signin=expired');
-    const bogus = await handleAuth(ctx(confirmPost(`${ORIGIN}/api/auth/verify?token=${'A'.repeat(43)}`), env, 'verify'), mailbox());
-    expect(bogus.headers.get('location')).toBe('/?signin=expired');
-    const empty = await handleAuth(ctx(confirmPost(`${ORIGIN}/api/auth/verify`), env, 'verify'), mailbox());
-    expect(empty.headers.get('location')).toBe('/?signin=expired');
+    const expiredPage = async (res: Response): Promise<void> => {
+      expect(res.status).toBe(400);
+      expect(res.headers.get('set-cookie')).toBeNull();
+      const html = await res.text();
+      expect(html).toContain('<p>This link has expired or was already used.</p>');
+      expect(html).toContain('<a class="btn" href="/regattas?signin=expired">Get a new link</a>');
+      expect(html).not.toMatch(/<script|src=/i);
+      expect(res.headers.get('content-security-policy')).toBe(VERIFY_PAGE_CSP);
+    };
+    await expiredPage(await handleAuth(ctx(confirmPost(m.links()[0]), env, 'verify'), mailbox(NOW + LOGIN_TOKEN_TTL_MS)));
+    await expiredPage(await handleAuth(ctx(confirmPost(`${ORIGIN}/api/auth/verify?token=${'A'.repeat(43)}`), env, 'verify'), mailbox()));
+    await expiredPage(await handleAuth(ctx(confirmPost(`${ORIGIN}/api/auth/verify`), env, 'verify'), mailbox()));
     expect(db.rows('users')).toEqual([]);
   });
 
@@ -237,7 +319,7 @@ describe('magic link', () => {
 
   it('fails closed (503) with no email provider outside localhost; logs by default on localhost only', async () => {
     const db = new MemD1();
-    const env = paywallEnv(db, { EMAIL_PROVIDER: undefined });
+    const env = paywallEnv(db, { EMAIL_PROVIDER: undefined, TURNSTILE_SITE_KEY: undefined, TURNSTILE_SECRET_KEY: undefined });
     expect(emailProvider(env, 'recall.walkeforward.com')).toBeNull();
     expect(emailProvider(env, 'start-line.pages.dev')).toBeNull();
     expect(emailProvider(env, 'localhost:8788')).toBe('log');
@@ -248,7 +330,7 @@ describe('magic link', () => {
     expect(db.rows('login_tokens')).toEqual([]);
     const local = await handleAuth(ctx(postJson('email', { email: 'a@example.com' }, {}, 'http://localhost:8788'), env, 'email'), m);
     expect(local.status).toBe(200);
-    expect(m.links()[0]).toMatch(/^http:\/\/localhost:8788\/api\/auth\/verify\?token=/);
+    expect(m.links()[0]).toMatch(/^http:\/\/localhost:8788\/api\/auth\/verify#token=/);
   });
 
   it('sends through Resend with the API key, and says so when it fails', async () => {
@@ -260,24 +342,31 @@ describe('magic link', () => {
       calls.push({ url: String(url), init });
       return new Response('{}', { status });
     }) as typeof fetch;
-    const res = await handleAuth(ctx(postJson('email', { email: 'a@example.com' }), env, 'email'), { ...mailbox(), fetch: f });
+    const res = await handleAuth(ctx(postJson('email', { email: 'a@example.com' }), env, 'email'), { ...mailbox(), fetch: withTurnstile(f) });
     expect(res.status).toBe(200);
     expect(calls[0].url).toBe('https://api.resend.com/emails');
     expect(calls[0].init.headers).toMatchObject({ authorization: 'Bearer re_test_fake' });
     const sentBody = JSON.parse(String(calls[0].init.body)) as Record<string, unknown>;
     expect(sentBody).toMatchObject({ from: 'Recall <recall@walkeforward.example>', to: ['a@example.com'], subject: 'Your Recall sign-in link' });
-    expect(String(sentBody.text)).toMatch(/\/api\/auth\/verify\?token=/);
+    expect(String(sentBody.text)).toMatch(/\/api\/auth\/verify#token=/);
+    expect(String(sentBody.html)).toContain('>Sign in to Recall</a>');
     status = 500;
-    expect((await handleAuth(ctx(postJson('email', { email: 'b@example.com' }), env, 'email'), { ...mailbox(), fetch: f })).status).toBe(502);
+    expect((await handleAuth(ctx(postJson('email', { email: 'b@example.com' }), env, 'email'), { ...mailbox(), fetch: withTurnstile(f) })).status).toBe(502);
   });
 
-  it('cloudflare provider: hands the send_email binding from, to and the raw message', async () => {
+  it('cloudflare provider: hands an email binding the builder shape (from, to, subject, html, text)', async () => {
     const sent: unknown[] = [];
-    const env = paywallEnv(new MemD1(), { EMAIL_PROVIDER: 'cloudflare', EMAIL: { send: async (msg: unknown) => void sent.push(msg) } });
+    const env = paywallEnv(new MemD1(), { EMAIL_PROVIDER: 'cloudflare', EMAIL_FROM: 'Recall <signin@walkeforward.com>', EMAIL: { send: async (msg: unknown) => void sent.push(msg) } });
     expect((await handleAuth(ctx(postJson('email', { email: 'a@example.com' }), env, 'email'), mailbox())).status).toBe(200);
-    const msg = sent[0] as { from: string; to: string; raw: string };
-    expect(msg).toMatchObject({ from: 'recall@walkeforward.example', to: 'a@example.com' });
-    expect(msg.raw).toMatch(/^From: Recall <recall@walkeforward\.example>\r\nTo: <a@example\.com>\r\nSubject: Your Recall sign-in link/);
+    const msg = sent[0] as Record<string, unknown>;
+    expect(Object.keys(msg).sort()).toEqual(['from', 'html', 'subject', 'text', 'to']);
+    expect(msg).toMatchObject({ from: { email: 'signin@walkeforward.com', name: 'Recall' }, to: 'a@example.com', subject: 'Your Recall sign-in link' });
+    expect(String(msg.text)).toMatch(/\/api\/auth\/verify#token=/);
+    expect(String(msg.html)).toContain('Sign in to Recall');
+    const missing = paywallEnv(new MemD1(), { EMAIL_PROVIDER: 'cloudflare', EMAIL: undefined });
+    const res = await handleAuth(ctx(postJson('email', { email: 'a@example.com' }), missing, 'email'), mailbox());
+    expect(res.status).toBe(503);
+    expect((await json(res)).message).toContain('(EMAIL binding)');
   });
 });
 
@@ -313,12 +402,13 @@ describe('sessions and cookies', () => {
     expect(local).toBe('wf_session=tok; Path=/; Max-Age=60; Secure; HttpOnly; SameSite=Lax');
   });
 
-  it(`keeps at most ${MAX_SESSIONS} sessions per user, revoking the oldest`, async () => {
+  it(`keeps at most ${DEFAULT_MAX_SESSIONS} live sessions per user, revoking (not deleting) the oldest`, async () => {
     const db = new MemD1();
     const env = paywallEnv(db);
     const cookies: string[] = [];
     for (let i = 0; i < 4; i++) cookies.push((await signIn(db, 'many@example.com', NOW + i * 1000)).cookie);
-    expect(db.rows('sessions')).toHaveLength(MAX_SESSIONS);
+    expect(db.rows('sessions').filter((r) => r.revoked_at == null)).toHaveLength(DEFAULT_MAX_SESSIONS);
+    expect(db.rows('sessions').filter((r) => r.revoked_at != null)).toHaveLength(1);
     const who = async (cookie: string) => (await viewerOf(new Request(ORIGIN, { headers: { cookie } }), env, NOW + 10_000)).user?.email ?? null;
     expect(await who(cookies[0])).toBeNull();
     for (const c of cookies.slice(1)) expect(await who(c)).toBe('many@example.com');
@@ -442,7 +532,8 @@ describe('Google', () => {
     const claims = { iss: 'https://accounts.google.com', aud: 'google-client-id-test-fake.apps.example', exp: NOW / 1000 + 600, sub: 'g-123', email: 'Skipper@Example.com', email_verified: true, nonce };
     const res = await handleAuth(ctx(new Request(`${ORIGIN}/api/auth/google/callback?code=4/test&state=${state}`, { headers: { cookie } }), env(db), 'google/callback'), { ...mailbox(), fetch: tokenEndpoint(claims, calls) });
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toBe('/?race=3');
+    // The same welcome marker as the magic link's.
+    expect(res.headers.get('location')).toBe('/?race=3&signin=ok');
     expect(res.headers.get('set-cookie')).toMatch(/wf_session=[A-Za-z0-9_-]{43}; Domain=\.walkeforward\.com/);
     expect(calls[0]).toMatch(/^https:\/\/oauth2\.googleapis\.com\/token .*code_verifier=/);
     expect(db.rows('users')).toEqual([expect.objectContaining({ id: existing.id, google_sub: 'g-123' })]);

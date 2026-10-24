@@ -1295,6 +1295,42 @@ body.report-on .content > :not(#report) { display: none !important; }
 .account-sub { font-size: 0.95rem; margin: 14px 0 4px; }
 .account-passes { margin: 0; padding-left: 18px; }
 .account-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.account-turnstile:empty { display: none; }
+.account-notice::before { content: none; }
+.account-devices { list-style: none; margin: 0; padding: 0; }
+.account-device { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.account-device-name { font-weight: 600; }
+.account-device-when { font-size: 0.85rem; flex: 1 1 auto; }
+.account-device .lock-secondary { margin-left: auto; }
+
+/* The welcome toast after a sign-in (paywall.ts createToast): its own fixed element, above the full-screen view (20). */
+.toast {
+  position: fixed;
+  z-index: 30;
+  left: 50%;
+  bottom: max(16px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 6px 6px 6px 16px;
+  border-radius: 10px;
+  border-bottom: 3px solid var(--gold);
+  background: var(--carbon);
+  color: var(--on-carbon);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+  font-size: 0.95rem;
+  animation: toast-in 0.2s ease-out;
+}
+.toast[hidden] { display: none; }
+.toast-text { margin: 0; overflow-wrap: anywhere; }
+.toast-close { flex: none; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--on-carbon-muted); font: inherit; font-size: 1.3rem; line-height: 1; cursor: pointer; }
+.toast-close:hover { color: var(--on-carbon); background: var(--on-carbon-line); }
+.toast-close:focus-visible { outline-color: var(--on-carbon); }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 
 /* Print: the report alone, light whatever the theme, one page on A4 and Letter (190 × 259 mm inside 10 mm margins). */
 @media print {
@@ -1307,7 +1343,7 @@ body.report-on .content > :not(#report) { display: none !important; }
     background: #fff; color: #000;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-  body.report-on .masthead, body.report-on .controls, body.report-on #notice, body.report-on #status,
+  body.report-on .masthead, body.report-on .controls, body.report-on #notice, body.report-on #account-notice, body.report-on #signin-toast, body.report-on #status,
   body.report-on .boatbar, body.report-on .wrap > footer, body.report-on #fs, body.report-on .rp-bar { display: none !important; }
   body.report-on .wrap { max-width: none; margin: 0; padding: 0; }
   body.report-on .digest { display: block; }
