@@ -6,9 +6,10 @@
  *   GET  /api/auth/me               { paywall, user, entitlements, signIn, devices?, bumped?, signedOutReason? }
  *                                   (no-store; reads D1 afresh; a revoked session's cookie is cleared)
  *   POST /api/auth/email            { email, returnTo, turnstileToken } → a magic link by email (same answer whoever asks)
- *   GET  /api/auth/verify?token=    the link's page: a "Sign in" button (uses nothing, so a mail
- *                                   scanner's prefetch can't spend the link)
- *   POST /api/auth/verify           token (form, same origin only) → use it once: session cookie, 303 to returnTo
+ *   GET  /api/auth/verify#token=    the link's page (also an old `?token=` link): its script POSTs the token
+ *                                   at once, a "Sign in" button as the fallback; uses nothing, so a mail
+ *                                   scanner's prefetch can't spend the link
+ *   POST /api/auth/verify           token (form, same origin only) → use it once: session cookie, 303 to returnTo (+ signin=ok)
  *   GET  /api/auth/google/start     → Google (state, nonce and PKCE in a signed 10-minute cookie)
  *   GET  /api/auth/google/callback  code → Google's token endpoint → session cookie
  *   POST /api/auth/logout           end this browser's session
@@ -45,6 +46,7 @@ import {
   PUBLIC_ID_RE,
   revokeOtherSessions,
   revokeSessionById,
+  LOGIN_TOKEN_TTL_MS,
   SESSION_TTL_MS,
   sessionCap,
   setGoogleSub,
@@ -312,29 +314,117 @@ export async function sendEmail(env: PaywallEnv, host: string, m: Mail, deps: Au
   }
 }
 
-const SIGN_IN_INTRO = 'Tap the link below to sign in to Recall.';
+export const SIGN_IN_SUBJECT = 'Your Recall sign-in link';
+const SIGN_IN_INTRO = "Here's your link to sign in to Recall.";
 const RESTORE_INTRO = "Here's your link to get back into Recall and your passes.";
+const SITE_NAME = 'recall.walkeforward.com';
+const SITE_ORIGIN = `https://${SITE_NAME}`;
 
-/** The sign-in (or Restore access) email: plain text, and HTML with one button and the raw link under it. Inline styles, no images, every value escaped. */
+/** The email's colors, from src/style.css: the carbon masthead, its text, the gold of the logo, the Day accent, ink and page. */
+const MAIL = {
+  carbon: '#16181c',
+  onCarbon: '#f2f4f7',
+  onCarbonMuted: '#aab3bf',
+  gold: '#ffc94d',
+  accent: '#1f6bc4',
+  ink: '#131922',
+  ink3: '#5b6675',
+  page: '#f5f7fa',
+  surface: '#ffffff',
+  rule: '#dde3ea',
+  font: "Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif",
+  display: "Archivo,'Arial Black','Helvetica Neue',Helvetica,Arial,sans-serif",
+};
+
+/** Whole minutes a sign-in link lasts (LOGIN_TOKEN_TTL_MS). */
+export const linkMinutes = (): number => Math.round(LOGIN_TOKEN_TTL_MS / 60_000);
+
+/** The site the link points at (where the email was asked for), for the footer; the production site if the link isn't a URL. */
+const originOf = (link: string): string => {
+  try {
+    const u = new URL(link);
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u.origin : SITE_ORIGIN;
+  } catch {
+    return SITE_ORIGIN;
+  }
+};
+
+/**
+ * The sign-in (or Restore access) email. Plain text, and HTML for Gmail, Outlook and Apple Mail:
+ * tables and inline styles only, at most 560px wide, the wordmark as live text on the carbon masthead
+ * (no images, so nothing breaks when they're blocked), a bulletproof button (a padded cell, with a
+ * VML roundrect for Outlook desktop), the raw link under it, a hidden preheader, and colors that
+ * stay readable if a client darkens them. Every value is escaped.
+ */
 export function signInMail(to: string, link: string, kind: 'signin' | 'restore' = 'signin'): Mail {
   const intro = kind === 'restore' ? RESTORE_INTRO : SIGN_IN_INTRO;
-  const once = 'It works once and expires in 15 minutes.';
-  const ignore = "If you didn't ask for this, you can ignore this email.";
-  const text = `${intro} ${once}\n\n${link}\n\n${ignore}`;
+  const hello = 'Hi there,';
+  const paste = 'Or paste this link into your browser:';
+  const once = `The link works once and expires in ${linkMinutes()} minutes.`;
+  const ignore = "If you didn't ask for this, you can ignore it.";
+  const button = 'Sign in to Recall';
+  const preheader = kind === 'restore' ? 'Your link to get back into Recall.' : 'Your link to sign in to Recall.';
+  const origin = originOf(link);
+  const text = `${hello}\n\n${intro}\n\n${link}\n\n${once}\n\n${ignore}\n\nRecall\n${origin}\n`;
   const href = escHtml(link);
-  const p = 'margin:0 0 16px;font-size:16px;line-height:1.5;color:#1b1f24';
-  const small = 'margin:0 0 12px;font-size:14px;line-height:1.5;color:#555';
+  const c = MAIL;
+  const p = `margin:0 0 16px;font-family:${c.font};font-size:16px;line-height:24px;color:${c.ink}`;
+  const small = `margin:0 0 12px;font-family:${c.font};font-size:14px;line-height:21px;color:${c.ink3}`;
+  // Zero-width fillers after the preheader, so the inbox preview doesn't run on into the body text.
+  const filler = '&#847;&zwnj;&nbsp;'.repeat(40);
   const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Your Recall sign-in link</title></head>
-<body style="margin:0;padding:24px 12px;background:#f6f7f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
-<div style="max-width:480px;margin:0 auto;padding:24px;background:#ffffff;border-radius:8px">
-<p style="${p}">${escHtml(`${intro} ${once}`)}</p>
-<p style="margin:0 0 20px"><a href="${href}" style="display:inline-block;padding:12px 22px;background:#0b5cad;color:#ffffff;font-size:16px;font-weight:600;text-decoration:none;border-radius:8px">Sign in to Recall</a></p>
-<p style="${small}">If the button doesn&#39;t work, open this link:<br><a href="${href}" style="color:#0b5cad;word-break:break-all">${href}</a></p>
-<p style="${small}">${escHtml(ignore)}</p>
-</div>
-</body></html>`;
-  return { to, subject: 'Your Recall sign-in link', text, html };
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>${escHtml(SIGN_IN_SUBJECT)}</title>
+</head>
+<body style="margin:0;padding:0;width:100%;background:${c.page};-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:${c.page}">${escHtml(preheader)}${filler}</div>
+<table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="${c.page}" style="background:${c.page}">
+<tr><td align="center" style="padding:24px 12px">
+<!--[if mso]><table role="presentation" width="560" border="0" cellspacing="0" cellpadding="0" align="center"><tr><td><![endif]-->
+<table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:560px;border-collapse:separate">
+<tr><td bgcolor="${c.carbon}" style="background:${c.carbon};padding:20px 28px 18px;border-radius:10px 10px 0 0;border-bottom:4px solid ${c.gold}">
+<p style="margin:0;font-family:${c.display};font-size:24px;line-height:28px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:${c.onCarbon}">Recall</p>
+<p style="margin:4px 0 0;font-family:${c.font};font-size:13px;line-height:18px;color:${c.onCarbonMuted}">Replays and debriefs for RaceSense races.</p>
+</td></tr>
+<tr><td bgcolor="${c.surface}" style="background:${c.surface};padding:28px 28px 20px;border:1px solid ${c.rule};border-top:0;border-radius:0 0 10px 10px">
+<p style="${p}">${escHtml(hello)}</p>
+<p style="${p}">${escHtml(intro)}</p>
+<table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:8px 0 24px">
+<tr><td align="center" bgcolor="${c.accent}" style="background:${c.accent};border-radius:8px">
+<!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:48px;v-text-anchor:middle;width:240px" arcsize="17%" stroke="f" fillcolor="${c.accent}">
+<w:anchorlock/>
+<center style="color:#ffffff;font-family:Arial,sans-serif;font-size:16px;font-weight:bold">${button}</center>
+</v:roundrect>
+<![endif]-->
+<!--[if !mso]><!-- -->
+<a href="${href}" target="_blank" style="display:inline-block;padding:14px 28px;font-family:${c.font};font-size:16px;line-height:20px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;background:${c.accent};border:1px solid ${c.accent}">${button}</a>
+<!--<![endif]-->
+</td></tr>
+</table>
+<p style="${small};margin-bottom:4px">${escHtml(paste)}</p>
+<p style="${small};margin-bottom:20px;word-break:break-all"><a href="${href}" target="_blank" style="color:${c.accent};text-decoration:underline">${href}</a></p>
+<p style="${small}">${escHtml(once)}</p>
+</td></tr>
+<tr><td align="center" style="padding:18px 28px 8px">
+<p style="${small};margin-bottom:6px"><a href="${escHtml(origin)}" target="_blank" style="color:${c.ink3};text-decoration:underline">${SITE_NAME}</a></p>
+<p style="${small};margin:0">${escHtml(ignore)}</p>
+</td></tr>
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr>
+</table>
+</body>
+</html>`;
+  return { to, subject: SIGN_IN_SUBJECT, text, html };
 }
 
 // ---- Turnstile (the email forms)
@@ -442,7 +532,8 @@ async function sendLink(ctx: AuthCtx, db: D1Like, email: string, returnTo: strin
   await createLoginToken(db, { tokenHash: await tokenHash('login', token), email, now, returnTo });
   const prune = pruneLoginTokens(db, now).catch(() => undefined);
   ctx.waitUntil?.(prune);
-  return sendEmail(ctx.env, url.host, signInMail(email, `${url.origin}/api/auth/verify?token=${token}`, kind), deps);
+  // The token rides in the fragment: it never reaches a server, a log or a Referer (the page's script reads it).
+  return sendEmail(ctx.env, url.host, signInMail(email, `${url.origin}/api/auth/verify#token=${token}`, kind), deps);
 }
 
 const sha256Of = (s: string): Promise<string> => sha256Hex(new TextEncoder().encode(s));
@@ -558,56 +649,117 @@ function revokeOthersRoute(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   });
 }
 
-/** The confirm page's CSP: nothing loads, no script; the form posts here, and its 303 may go on to walkeforward.com (form-action covers redirects). */
+/** The auth pages' CSP: nothing loads, no script; the form posts here, and its 303 may go on to walkeforward.com (form-action covers redirects). */
 export const VERIFY_PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://walkeforward.com https://*.walkeforward.com; base-uri 'none'; frame-ancestors 'none'";
 
-const PAGE_STYLE =
-  'body{font:16px/1.5 system-ui,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh;background:#f6f7f9;color:#1b1f24}main{max-width:22rem;padding:2rem;text-align:center}button{font:inherit;font-weight:600;padding:.7rem 1.6rem;border:0;border-radius:8px;background:#0b5cad;color:#fff;cursor:pointer}a{color:#0b5cad;font-weight:600}p{color:#555}@media (prefers-color-scheme:dark){body{background:#14171b;color:#e8eaed}p{color:#aab}a{color:#7fb3ec}}';
+/** Where "Get a new link" goes: the app, which opens the sign-in sheet saying the link had expired (src/ui/paywall.ts arrive). */
+export const EXPIRED_LINK_HREF = `${DEFAULT_RETURN_TO}?signin=expired`;
 
-const authPage = (body: string): string => `<!doctype html>
+const LOGIN_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+
+/** The success redirect's marker: the app shows "You're signed in." once and drops it from the URL. */
+export const SIGNED_IN_PARAM = 'signin';
+export const SIGNED_IN_VALUE = 'ok';
+
+const PAGE_STYLE =
+  "body{font:16px/1.5 Archivo,system-ui,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh;background:#f5f7fa;color:#131922}main{max-width:22rem;padding:2rem;text-align:center}h1{font-size:1.4rem;margin:0 0 1rem}[hidden]{display:none!important}button,.btn{display:inline-block;font:inherit;font-weight:600;padding:.7rem 1.6rem;border:0;border-radius:8px;background:#1f6bc4;color:#fff;text-decoration:none;cursor:pointer}a{color:#1f6bc4;font-weight:600}p{color:#46505e}.busy{display:inline-flex;align-items:center;gap:.6rem;color:#46505e}.spin{width:1.1rem;height:1.1rem;border:2px solid #c3ccd7;border-top-color:#1f6bc4;border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.spin{animation:none}}@media (prefers-color-scheme:dark){body{background:#10151c;color:#e9eef5}p,.busy{color:#b9c2ce}a{color:#3987e5}.spin{border-color:#3a4756;border-top-color:#3987e5}}";
+
+const authPage = (body: string, script = ''): string => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
 <title>Sign in to Recall</title>
 <style>${PAGE_STYLE}</style>
 </head><body><main>
 <h1>Sign in to Recall</h1>
 ${body}
-</main></body></html>`;
+</main>${script ? `<script>${script}</script>` : ''}</body></html>`;
 
-/** The magic link's page: one button that POSTs the token back here. Self-contained (no external assets), every value escaped. */
-export function verifyPageHtml(token: string): string {
-  return authPage(`<p>Tap the button to finish signing in.</p>
-<form method="post" action="/api/auth/verify"><input type="hidden" name="token" value="${escHtml(token)}"><button type="submit">Sign in</button></form>`);
+/**
+ * The link page's one script (static, so the CSP allows it by its hash): take the token from the
+ * fragment (new links) or the query (links sent before), take it out of the address bar at once,
+ * say "Signing you in…" and POST it. No token: the expired message. Anything throws: the button.
+ */
+export const VERIFY_SCRIPT = `(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var only = function (id) { ['manual', 'nojs', 'gone'].forEach(function (x) { var el = $(x); if (el) el.hidden = x !== id; }); };
+  var ok = /^[A-Za-z0-9_-]{43}$/;
+  var token = '';
+  try {
+    var h = new URLSearchParams(location.hash.slice(1)).get('token') || '';
+    var q = new URLSearchParams(location.search).get('token') || '';
+    token = ok.test(h) ? h : ok.test(q) ? q : '';
+    history.replaceState(null, '', location.pathname);
+  } catch (e) {}
+  if (!token) return only('gone');
+  $('t').value = token;
+  try {
+    only('');
+    $('busy').hidden = false;
+    $('f').submit();
+  } catch (e) {
+    $('busy').hidden = true;
+    only('manual');
+  }
+})();`;
+
+let scriptHash: Promise<string> | null = null;
+/** `'sha256-…'` of VERIFY_SCRIPT, for the page's script-src. */
+export const verifyScriptHash = (): Promise<string> =>
+  (scriptHash ??= crypto.subtle.digest('SHA-256', new TextEncoder().encode(VERIFY_SCRIPT)).then((d) => {
+    let s = '';
+    for (const x of new Uint8Array(d)) s += String.fromCharCode(x);
+    return `'sha256-${btoa(s)}'`;
+  }));
+
+/** The link page's CSP: VERIFY_PAGE_CSP, plus its one script by hash. */
+export const verifyPageCsp = async (): Promise<string> => `${VERIFY_PAGE_CSP}; script-src ${await verifyScriptHash()}`;
+
+const gonePara = `<p>This link has expired or was already used.</p>
+<p><a class="btn" href="${EXPIRED_LINK_HREF}">Get a new link</a></p>`;
+
+/**
+ * The magic link's page. Its script POSTs the token straight away; the form's "Sign in" button is the
+ * fallback, shown from the start for an old `?token=` link (no script needed) and when the script fails.
+ * A `#token=` link can't reach the server without the script, so noscript says so. Every value escaped.
+ */
+export function verifyPageHtml(queryToken = ''): string {
+  const q = LOGIN_TOKEN_RE.test(queryToken) ? queryToken : '';
+  return authPage(
+    `<div id="status" role="status" aria-live="polite"><span id="busy" class="busy" hidden><span class="spin" aria-hidden="true"></span>Signing you in…</span></div>
+<form id="f" method="post" action="/api/auth/verify"><input type="hidden" id="t" name="token" value="${escHtml(q)}">
+<div id="manual"${q ? '' : ' hidden'}><p>Tap the button to finish signing in.</p><button type="submit">Sign in</button></div></form>
+<div id="gone" hidden>${gonePara}</div>
+${q ? '' : `<noscript><div id="nojs"><p>Recall needs JavaScript to finish signing in from this link. Turn it on and open the link again.</p><p><a href="${EXPIRED_LINK_HREF}">Get a new link</a></p></div></noscript>`}`,
+    VERIFY_SCRIPT,
+  );
 }
 
-/** After the button, for a link that was used already or has expired: say so, and link back to Recall. */
-export const expiredPageHtml = (): string =>
-  authPage(`<p>This link has expired or was already used. Open Recall and ask for a new one.</p>
-<p><a href="${DEFAULT_RETURN_TO}">Open Recall</a></p>`);
+/** After the POST, for a link that was used already or has expired: say so, and open Recall's sign-in sheet for a new one. */
+export const expiredPageHtml = (): string => authPage(gonePara);
 
-const LOGIN_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
-
-const pageOut = (html: string, status = 200): Response =>
+const pageOut = (html: string, status = 200, csp = VERIFY_PAGE_CSP): Response =>
   new Response(html, {
     status,
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'no-store',
       'referrer-policy': 'no-referrer',
-      'content-security-policy': VERIFY_PAGE_CSP,
+      'content-security-policy': csp,
       'x-content-type-options': 'nosniff',
       'x-frame-options': 'DENY',
     },
   });
 
-/** GET: the confirm page. Uses nothing (link scanners that prefetch it can't spend the token). */
-function verifyPage(ctx: AuthCtx): Response {
+/**
+ * GET (with `#token=`, which the server never sees, or an old `?token=`): the page. Uses nothing, so
+ * a mail scanner that prefetches it can't spend the token; only the page's POST does.
+ */
+async function verifyPage(ctx: AuthCtx): Promise<Response> {
   if (!ctx.env.AUTH_DB) return notConfigured('Sign-in');
   const token = new URL(ctx.request.url).searchParams.get('token') ?? '';
-  if (!LOGIN_TOKEN_RE.test(token)) return redirect('/?signin=expired');
-  return pageOut(verifyPageHtml(token));
+  return pageOut(verifyPageHtml(token), 200, await verifyPageCsp());
 }
 
-/** POST (the page's form, same origin only): use the token once, start a session, 303 to returnTo. */
+/** POST (the page's form, same origin only): use the token once, start a session, 303 to returnTo with `signin=ok`. */
 async function verifyRoute(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   const db = ctx.env.AUTH_DB;
   if (!db) return notConfigured('Sign-in');
@@ -621,7 +773,7 @@ async function verifyRoute(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   const user = await ensureUser(db, used.email, now);
   const cookie = await startSession(db, user, req, ctx.env, now, 'email');
   const { returnTo, buy } = splitLinkReturnTo(safeReturnTo(used.returnTo, new URL(req.url).origin));
-  return redirect(await afterSignIn(db, ctx.env, user, returnTo, buy, now), [cookie], 303);
+  return redirect(signedIn(await afterSignIn(db, ctx.env, user, returnTo, buy, now)), [cookie], 303);
 }
 
 async function logoutRoute(ctx: AuthCtx): Promise<Response> {
@@ -720,6 +872,9 @@ async function afterSignIn(db: D1Like, env: PaywallEnv, user: UserRow, returnTo:
   if (intentHeld(await entitlementsOf(db, user.id), user.id, buy, now)) return to;
   return withParam(to, BUY_PARAM, await signBuy(env.AUTH_SECRET, { ...buy, userId: user.id, exp: now + BUY_TTL_MS }));
 }
+
+/** A fresh sign-in's landing page, with the marker for the app's "You're signed in." toast. */
+const signedIn = (to: string): string => withParam(to, SIGNED_IN_PARAM, SIGNED_IN_VALUE);
 
 /** The magic link's stored return_to carries the intent server-side (D1, written only here) as this parameter. */
 const LINK_BUY_PARAM = 'pw_buy';
@@ -871,7 +1026,7 @@ async function googleCallback(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   const cookie = await startSession(db, user, req, env, now, 'google');
   // The signed state carried the intent (if any): re-checked before the marker is signed for this user.
   const buy = s.buy ? parseIntent(s.buy.product, s.buy.eventId) : null;
-  return redirect(await afterSignIn(db, env, user, safeReturnTo(s.returnTo, url.origin), buy, now), [cookie, clear]);
+  return redirect(signedIn(await afterSignIn(db, env, user, safeReturnTo(s.returnTo, url.origin), buy, now)), [cookie, clear]);
 }
 
 // ---- the router

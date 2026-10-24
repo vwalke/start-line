@@ -1423,21 +1423,40 @@ logged); anywhere else the email routes answer 503 without it. *Rate limits:* at
 (`auth_rate_limits`, one atomic upsert per key; no count back is a 429) so
 every isolate shares the counts; keys are `email:<SHA-256 of the address>` and `ip:<SHA-256 of the
 IP>` (never the raw values), and about one request in 100 deletes counters
-older than 2 hours. The emailed link (`GET /api/auth/verify?token=`) opens a
-small confirm page ("Sign in to Recall", "Tap the button to finish signing
-in.", `no-store`, `Referrer-Policy: no-referrer`, a strict CSP, no external
-assets) and uses nothing, so a mail scanner that prefetches links can't spend
-it; its **Sign in** button POSTs the token to the same URL, which accepts
-only a same-origin POST (`Origin` of this site, or, as the page's
-no-referrer policy makes browsers send `Origin: null`, `Sec-Fetch-Site:
-same-origin`), uses the token once, sets the session cookie and redirects
-(303) to `returnTo`; a used or expired token gets a page saying so ("This
-link has expired or was already used. Open Recall and ask for a new one.")
-with a link back to Recall. *Google:* state, nonce and PKCE in a signed
-10-minute cookie; the ID token from Google's token endpoint is trusted over
-TLS, its claims checked: issuer, audience, expiry, verified email, nonce;
-linked by email. `returnTo` is a path on this site or an https page on
-walkeforward.com or a subdomain, else `/regattas`.
+older than 2 hours. *The email* (`signInMail`, shared by Restore access, which
+gets its own first line): plain text plus HTML built for Gmail, Outlook and
+Apple Mail (tables and inline styles only, 560px wide, the RECALL wordmark as
+live text on the carbon masthead with the gold rule, no images; a
+bulletproof "Sign in to Recall" button in the brand blue with a VML fallback
+for Outlook desktop; the plain link under it; "works once and expires in N
+minutes" from `LOGIN_TOKEN_TTL_MS`; a hidden preheader; `color-scheme: light
+dark`). *The link* carries the token in the **fragment**
+(`/api/auth/verify#token=…`), which browsers never send, so it stays out of
+server logs and `Referer`. `GET /api/auth/verify` uses nothing, so a mail
+scanner that prefetches links can't spend it: it serves a small page
+(`no-store`, `Referrer-Policy: no-referrer`, a strict CSP whose only
+`script-src` is the SHA-256 of its one inline script, no external assets)
+whose script reads the token from the fragment (or from `?token=`, the shape
+of links sent before, which keep working), takes it out of the address bar
+with `history.replaceState`, shows "Signing you in…" and POSTs it to the same
+URL. With no script (or if it fails) the page falls back to its **Sign in**
+button (an old `?token=` link works with no script at all; a `#token=` link
+says to turn JavaScript on). With no token it says the link has expired. The
+POST accepts only a same-origin request (`Origin` of this site, or, as the
+page's no-referrer policy makes browsers send `Origin: null`,
+`Sec-Fetch-Site: same-origin`), uses the token once, sets the session cookie
+and redirects (303) to `returnTo` plus `signin=ok`; the app then shows a
+"You're signed in as name@example.com." toast (`#signin-toast`, a polite
+live region, a close button, gone after 5 seconds, never taking focus) and
+drops the marker from the URL. A sign-in that goes on to Checkout skips the
+toast. A used or expired token gets a page saying so ("This link has expired
+or was already used.") with **Get a new link**
+(`/regattas?signin=expired`), which opens the sign-in sheet with a note.
+*Google:* state, nonce and PKCE in a signed 10-minute cookie; the ID token
+from Google's token endpoint is trusted over TLS, its claims checked: issuer,
+audience, expiry, verified email, nonce; linked by email; a sign-in lands
+with the same `signin=ok` toast. `returnTo` is a path on this site or an
+https page on walkeforward.com or a subdomain, else `/regattas`.
 
 *Sessions and the device cap:* a random token in the `wf_session` cookie
 (`Domain=.walkeforward.com; Path=/; Secure; HttpOnly; SameSite=Lax`, 30

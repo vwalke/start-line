@@ -95,9 +95,21 @@ export function mailbox(now = NOW, f: typeof fetch = withTurnstile()): AuthDeps 
     get sent() {
       return sent();
     },
-    links: () => sent().flatMap((s) => s.match(/https?:\/\/\S+\/api\/auth\/verify\?token=[A-Za-z0-9_-]+/g) ?? []),
+    links: () => sent().flatMap((s) => s.match(/https?:\/\/\S+\/api\/auth\/verify[?#]token=[A-Za-z0-9_-]+/g) ?? []),
   };
 }
+
+/** The token in an emailed link: in the fragment (`#token=`, new links) or the query (`?token=`, links sent before). */
+export const tokenOf = (link: string): string => {
+  const u = new URL(link);
+  return new URLSearchParams(u.hash.slice(1)).get('token') ?? u.searchParams.get('token') ?? '';
+};
+
+/** The old link shape (`?token=`), for the links sent before the token moved to the fragment. */
+export const queryLink = (link: string): string => {
+  const u = new URL(link);
+  return `${u.origin}${u.pathname}?token=${tokenOf(link)}`;
+};
 
 /** The module-level cache (race 1 windows) and the outbox start empty in every test. */
 export function resetPaywallCaches(): void {

@@ -9,7 +9,7 @@ import type { PaywallEnv } from '../functions/_paywall';
 import { EVENT_ID_RE } from '../src/data/vkx/validate';
 import { passLine, sheetHtml } from '../src/ui/paywall';
 import { MemD1 } from './d1mem';
-import { EVENT, NOW, ORIGIN, TURNSTILE_TOKEN, mailbox, paywallEnv, resetPaywallCaches, signIn } from './paywallHelpers';
+import { EVENT, NOW, ORIGIN, TURNSTILE_TOKEN, mailbox, paywallEnv, resetPaywallCaches, signIn, tokenOf } from './paywallHelpers';
 
 const DAY = 86_400_000;
 const OTHER_EVENT = 'someOtherEvent1';
@@ -38,7 +38,7 @@ async function magicLink(db: MemD1, typed: string, at = NOW): Promise<string> {
   const m = mailbox(at);
   const req = new Request(`${ORIGIN}/api/auth/email`, { method: 'POST', body: JSON.stringify({ email: typed, returnTo: '/', turnstileToken: TURNSTILE_TOKEN }), headers: { 'content-type': 'application/json', origin: ORIGIN, 'cf-connecting-ip': '203.0.113.9' } });
   expect((await handleAuth(ctx(req, env, 'email'), m)).status).toBe(200);
-  const token = new URL(m.links()[0]).searchParams.get('token')!;
+  const token = tokenOf(m.links()[0]);
   const confirm = new Request(`${ORIGIN}/api/auth/verify`, { method: 'POST', body: new URLSearchParams({ token }).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGIN } });
   const res = await handleAuth(ctx(confirm, env, 'verify'), m);
   expect(res.status).toBe(303);

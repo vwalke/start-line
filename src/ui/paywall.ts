@@ -8,7 +8,8 @@
  *     the site has a key, or Google), the passes held, the signed-in devices (sign out any other one,
  *     or all of them), Restore access, Manage subscription (an existing Season Pass subscriber only), Sign out;
  *   - a browser signed out from elsewhere (the 3-device cap, another device, the admin) gets the
- *     sign-in sheet once, saying why; a sign-in that signed out another device says which, once.
+ *     sign-in sheet once, saying why; a sign-in that signed out another device says which, once;
+ *   - back from a sign-in (`signin=ok`): a "You're signed in." toast that hides itself after 5 seconds.
  * Decisions and markup are pure functions (tested in node); createPaywall wires them to the DOM.
  */
 import { passesUnlock, type PassView } from '../../functions/_entitlements';
@@ -274,15 +275,62 @@ export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => str
 
 // ---- return trips (Stripe, the email link, Google)
 
-export type ReturnParam = { kind: 'checkout'; value: 'success' | 'cancel' } | { kind: 'signin'; value: 'expired' | 'failed' } | null;
+export type ReturnParam = { kind: 'checkout'; value: 'success' | 'cancel' } | { kind: 'signin'; value: 'ok' | 'expired' | 'failed' } | null;
 
+/** `signin=ok` (the server's marker on a fresh sign-in, functions/_auth.ts SIGNED_IN_PARAM), `expired`, `failed`; `checkout=`. */
 export function returnParam(search: string): ReturnParam {
   const q = new URLSearchParams(search);
   const c = q.get('checkout');
   if (c === 'success' || c === 'cancel') return { kind: 'checkout', value: c };
   const s = q.get('signin');
-  if (s === 'expired' || s === 'failed') return { kind: 'signin', value: s };
+  if (s === 'ok' || s === 'expired' || s === 'failed') return { kind: 'signin', value: s };
   return null;
+}
+
+export const EXPIRED_NOTE = 'That sign-in link has expired or was already used. Ask for a new one below.';
+
+/** The welcome toast's line: with the address when /api/auth/me knows it. */
+export const welcomeText = (email?: string | null): string => (email ? `You're signed in as ${email}.` : "You're signed in.");
+
+/** How long the toast stays up. */
+export const TOAST_MS = 5_000;
+
+export interface Timers {
+  set(run: () => void, ms: number): unknown;
+  clear(id: unknown): void;
+}
+
+const realTimers: Timers = { set: (run, ms) => setTimeout(run, ms), clear: (id) => clearTimeout(id as ReturnType<typeof setTimeout>) };
+
+/**
+ * A short toast (`render` draws it, '' hides it): shown, then hidden after `ms` or when dismissed.
+ * Never takes focus. On the page it has its own element (#signin-toast), so loading a race can't clear it.
+ */
+export function createToast(o: { render: (text: string) => void; timers?: Timers; ms?: number }) {
+  const t = o.timers ?? realTimers;
+  let timer: unknown = null;
+  let text = '';
+  const stop = (): void => {
+    if (timer != null) t.clear(timer);
+    timer = null;
+  };
+  const hide = (): void => {
+    stop();
+    if (!text) return;
+    text = '';
+    o.render('');
+  };
+  return {
+    show(next: string): void {
+      stop();
+      text = next;
+      o.render(next);
+      timer = t.set(hide, o.ms ?? TOAST_MS);
+    },
+    /** The close button. */
+    dismiss: hide,
+    text: (): string => text,
+  };
 }
 
 /** This page, to come back to after sign-in or checkout (without those markers; in the app, never the landing page: landing/route.ts appPath). */
@@ -419,6 +467,30 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
   let reasonShown = false;
   /** The bump note's own element, right after the app's #notice (which race loading clears freely). */
   let noteEl: HTMLElement | null = null;
+  /** The welcome toast (fixed, bottom of the screen): a live region inside, filled a frame after it shows so it is announced. */
+  let toastEl: HTMLElement | null = null;
+  const toast = createToast({
+    render: (text) => {
+      if (!toastEl && text) {
+        toastEl = document.createElement('div');
+        toastEl.id = 'signin-toast';
+        toastEl.className = 'toast';
+        toastEl.hidden = true;
+        toastEl.innerHTML = '<p class="toast-text" role="status" aria-live="polite"></p><button type="button" class="toast-close" aria-label="Dismiss">×</button>';
+        toastEl.querySelector('.toast-close')?.addEventListener('click', () => toast.dismiss());
+        document.body.appendChild(toastEl);
+      }
+      if (!toastEl) return;
+      const live = toastEl.querySelector<HTMLElement>('.toast-text');
+      toastEl.hidden = !text;
+      if (!live) return;
+      if (!text) live.textContent = '';
+      else
+        requestAnimationFrame(() => {
+          if (toast.text() === text) live.textContent = text;
+        });
+    },
+  });
   const bump = createBumpNote({
     store: sessionStore(),
     render: (text) => {
@@ -646,9 +718,15 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
 
   /** Back from Stripe, Google or an email link: say so, tidy the URL, and wait for the pass to land. */
   async function arrive(): Promise<void> {
-    // A sign-in that carried a purchase intent: straight on to Stripe, once (the marker leaves the URL first).
-    const auto = autoCheckout(me, location.search, Date.now());
-    if (new URLSearchParams(location.search).has(BUY_PARAM)) history.replaceState(history.state, '', hereWithout(location.href));
+    // Read once: the markers leave the URL below.
+    const search = location.search;
+    const p = returnParam(search);
+    const welcome = (): void => {
+      if (p?.kind === 'signin' && p.value === 'ok' && me.paywall && me.user) toast.show(welcomeText(me.user.email));
+    };
+    // A sign-in that carried a purchase intent: straight on to Stripe, once (the markers leave the URL first; no toast in the way).
+    const auto = autoCheckout(me, search, Date.now());
+    if (new URLSearchParams(search).has(BUY_PARAM)) history.replaceState(history.state, '', hereWithout(location.href));
     if (auto && !autoStarted) {
       autoStarted = true;
       o.notice('Opening the payment page…');
@@ -660,13 +738,16 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
       o.notice('');
       // 409: the pass is held after all (refresh unlocks); anything else leaves the lock card to click.
       if (r.status === 409 || r.status === 401) await refresh();
+      welcome();
       return;
     }
-    const p = returnParam(location.search);
     if (!p) return;
     history.replaceState(history.state, '', hereWithout(location.href));
     if (p.kind === 'signin') {
-      o.notice(p.value === 'expired' ? 'That sign-in link has expired or was already used. Ask for a new one.' : "Couldn't sign you in with Google. Try again, or use an email link.");
+      if (p.value === 'ok') welcome();
+      // An expired link: the sign-in sheet, to ask for a new one (a note instead when signed in already, or without email sign-in here).
+      else if (p.value === 'expired' && me.paywall && !me.user && me.signIn.email) openSheet({ mode: 'signin', note: EXPIRED_NOTE });
+      else o.notice(p.value === 'expired' ? 'That sign-in link has expired or was already used. Ask for a new one.' : "Couldn't sign you in with Google. Try again, or use an email link.");
       return;
     }
     if (p.value !== 'success') return;

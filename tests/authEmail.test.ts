@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { emailProvider, emailReady, handleAuth, parseFrom, sendEmail, signInMail, turnstileReady, type AuthCtx, type AuthDeps } from '../functions/_auth';
+import { emailProvider, emailReady, handleAuth, linkMinutes, parseFrom, sendEmail, signInMail, turnstileReady, type AuthCtx, type AuthDeps } from '../functions/_auth';
+import { LOGIN_TOKEN_TTL_MS } from '../functions/_authDb';
 import type { PaywallEnv } from '../functions/_paywall';
 import { MemD1 } from './d1mem';
 import { NOW, ORIGIN, TURNSTILE_TOKEN, TURNSTILE_VERIFY, mailbox, paywallEnv, resetPaywallCaches, withTurnstile } from './paywallHelpers';
@@ -41,26 +42,70 @@ describe('EMAIL_FROM', () => {
 });
 
 describe('the sign-in email', () => {
-  const link = `${ORIGIN}/api/auth/verify?token=${'a'.repeat(43)}`;
+  const link = `${ORIGIN}/api/auth/verify#token=${'a'.repeat(43)}`;
+  const minutes = LOGIN_TOKEN_TTL_MS / 60_000;
 
-  it('says it plainly in text, with the link on its own line', () => {
+  it('says it plainly in text, with the link on its own line and no HTML', () => {
+    expect(linkMinutes()).toBe(minutes);
     const m = signInMail('a@example.com', link);
     expect(m.subject).toBe('Your Recall sign-in link');
-    expect(m.text).toBe(`Tap the link below to sign in to Recall. It works once and expires in 15 minutes.\n\n${link}\n\nIf you didn't ask for this, you can ignore this email.`);
+    expect(m.text).toBe(
+      `Hi there,\n\nHere's your link to sign in to Recall.\n\n${link}\n\nThe link works once and expires in ${minutes} minutes.\n\nIf you didn't ask for this, you can ignore it.\n\nRecall\n${ORIGIN}\n`,
+    );
+    expect(m.text.split('\n')).toContain(link);
+    expect(m.text).not.toMatch(/<|>|&[a-z#0-9]+;/i);
     const r = signInMail('a@example.com', link, 'restore');
     expect(r.subject).toBe('Your Recall sign-in link');
-    expect(r.text.split('\n')[0]).toBe("Here's your link to get back into Recall and your passes. It works once and expires in 15 minutes.");
+    expect(r.text.split('\n')[2]).toBe("Here's your link to get back into Recall and your passes.");
+    expect(r.text.split('\n')).toContain(link);
   });
 
-  it('HTML: one button, the raw link under it, inline styles only, nothing loaded, everything escaped', () => {
-    const m = signInMail('a@example.com', `${ORIGIN}/api/auth/verify?token=x&y="<b>`);
-    expect(m.html.match(/>Sign in to Recall<\/a>/g)).toHaveLength(1);
-    expect(m.html).toContain('href="https://recall.walkeforward.com/api/auth/verify?token=x&amp;y=&quot;&lt;b&gt;"');
+  it('HTML: the wordmark as text, a bulletproof button with a VML fallback, the plain link, the expiry, the footer', () => {
+    const m = signInMail('a@example.com', link);
+    const h = m.html;
+    expect(h).toContain('<meta name="color-scheme" content="light dark">');
+    expect(h).toContain('<meta name="supported-color-schemes" content="light dark">');
+    // Hidden preheader.
+    expect(h).toMatch(/<div style="display:none;[^"]*mso-hide:all[^"]*">Your link to sign in to Recall\./);
+    // The masthead: carbon, the wordmark as live text, the gold rule.
+    expect(h).toMatch(/bgcolor="#16181c"[^>]*border-bottom:4px solid #ffc94d/);
+    expect(h).toMatch(/text-transform:uppercase;color:#f2f4f7">Recall<\/p>/);
+    expect(h).toContain('max-width:560px');
+    // The button: a padded cell in the brand blue, an <a> for most clients, a VML roundrect for Outlook desktop.
+    expect(h).toContain('<td align="center" bgcolor="#1f6bc4" style="background:#1f6bc4;border-radius:8px">');
+    expect(h.match(/>Sign in to Recall<\/a>/g)).toHaveLength(1);
+    expect(h).toMatch(/<!--\[if mso\]>\s*<v:roundrect [^>]*href="https:\/\/recall\.walkeforward\.com\/api\/auth\/verify#token=a{43}"[^>]*fillcolor="#1f6bc4">[\s\S]*<center[^>]*>Sign in to Recall<\/center>\s*<\/v:roundrect>\s*<!\[endif\]-->/);
+    expect(h).toContain('<!--[if !mso]><!-- -->');
+    // Then the plain link, the expiry from the constant, the footer.
+    expect(h).toContain('Or paste this link into your browser:');
+    expect(h).toContain(`>${link}</a>`);
+    expect(h).toContain(`The link works once and expires in ${minutes} minutes.`);
+    expect(h).toContain(`<a href="${ORIGIN}" target="_blank" style="color:#5b6675;text-decoration:underline">recall.walkeforward.com</a>`);
+    expect(h).toContain('If you didn&#39;t ask for this, you can ignore it.');
+    expect(h).toContain('Hi there,');
+    // Nothing loaded from anywhere: no images, styles sheets or scripts.
+    expect(h).not.toMatch(/<img|<link|<script|<style|src=|url\(|background-image/i);
+    // The footer links to the site the email was sent from.
+    expect(signInMail('a@example.com', 'https://abc.start-line.pages.dev/api/auth/verify#token=x').html).toContain('<a href="https://abc.start-line.pages.dev" target="_blank"');
+    const r = signInMail('a@example.com', link, 'restore').html;
+    expect(r).toContain('Here&#39;s your link to get back into Recall and your passes.');
+    expect(r).toContain('>Your link to get back into Recall.');
+  });
+
+  it('escapes the link everywhere it goes (button, VML, plain link)', () => {
+    const m = signInMail('a@example.com', `${ORIGIN}/api/auth/verify#token=x&y="<b>`);
+    expect(m.html.match(/href="https:\/\/recall\.walkeforward\.com\/api\/auth\/verify#token=x&amp;y=&quot;&lt;b&gt;"/g)).toHaveLength(3);
+    expect(m.html).toContain('>https://recall.walkeforward.com/api/auth/verify#token=x&amp;y=&quot;&lt;b&gt;</a>');
     expect(m.html).not.toContain('"<b>');
-    expect(m.html).toContain('If you didn&#39;t ask for this, you can ignore this email.');
-    expect(m.html).not.toMatch(/<img|<link|<script|<style|src=|url\(/i);
-    // No dashes or exclamation marks in the copy (tags aside: <!doctype>).
-    for (const copy of [m.text, m.html, signInMail('a@example.com', link, 'restore').html]) expect(copy.replace(/<[^>]*>/g, '')).not.toMatch(/[–—!]/);
+  });
+
+  it('copy: American, short, no dashes or exclamation marks', () => {
+    for (const kind of ['signin', 'restore'] as const) {
+      const m = signInMail('a@example.com', link, kind);
+      // Tags and comments aside (<!doctype>, <!--[if mso]>), and the preheader's fillers.
+      for (const copy of [m.text, m.html.replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]*>/g, '')]) expect(copy).not.toMatch(/[–—!]/);
+      expect(m.text).not.toMatch(/colour|cancell|organis/i);
+    }
   });
 });
 
@@ -152,7 +197,7 @@ describe('cloudflare-api provider', () => {
     expect(res.status).toBe(200);
     expect(await json(res)).toEqual({ ok: true });
     expect(api.calls.map((c) => c.url)).toEqual([CF_URL]);
-    expect(JSON.parse(String(api.calls[0].init.body)).text).toMatch(/\/api\/auth\/verify\?token=[A-Za-z0-9_-]{43}\n/);
+    expect(JSON.parse(String(api.calls[0].init.body)).text).toMatch(/\n\S+\/api\/auth\/verify#token=[A-Za-z0-9_-]{43}\n/);
     const failing = cloudflareApi(() => Response.json({ success: false }, { status: 400 }));
     const bad = await handleAuth(ctx(post('email', { email: 'b@example.com', turnstileToken: TURNSTILE_TOKEN }), env, 'email'), deps(withTurnstile(failing)));
     expect(bad.status).toBe(502);
@@ -190,7 +235,7 @@ describe('the log provider', () => {
     const res = await handleAuth(ctx(post('email', { email: 'a@example.com' }, 'http://localhost:8788'), env, 'email'), { now: () => NOW, cache: null, fetch: withTurnstile() });
     expect(res.status).toBe(200);
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(String(spy.mock.calls[0][0])).toContain('http://localhost:8788/api/auth/verify?token=');
+    expect(String(spy.mock.calls[0][0])).toContain('http://localhost:8788/api/auth/verify#token=');
   });
 });
 
