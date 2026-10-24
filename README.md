@@ -1478,9 +1478,12 @@ Your own Sign out still deletes the row. Expired rows and rows revoked over
 Pages: Pages Functions can't use the `send_email` binding, so this POSTs to
 Cloudflare Email Sending's REST API,
 `https://api.cloudflare.com/client/v4/accounts/<CF_EMAIL_ACCOUNT_ID>/email/sending/send`,
-with `CF_EMAIL_API_TOKEN`; sent means `success: true`), `resend` (the
+with `CF_EMAIL_API_TOKEN`; a named sender goes as `from: { address, name }`;
+sent means `success: true`, and a failure logs the HTTP status and Cloudflare's
+error codes, never the token, recipient or link), `resend` (the
 fallback), `cloudflare` (an email binding named `EMAIL`, for a Worker or a
-service binding later: `send({ from, to, subject, html, text })`) or `log`
+service binding later: `send({ from, to, subject, html, text })` with a named
+`from` as `{ email, name }`) or `log`
 (the default on localhost only; anywhere else an unset provider is a 503,
 never a logged link). A missing setting is a 503 naming the variable (never
 its value); a failed send is a 502. `EMAIL_FROM` is `Recall

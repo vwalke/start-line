@@ -75,10 +75,44 @@ describe('cloudflare-api provider', () => {
     expect(api.calls[0].init.headers).toEqual({ authorization: 'Bearer cf_token_test_fake', 'content-type': 'application/json' });
     const body = JSON.parse(String(api.calls[0].init.body)) as Record<string, unknown>;
     expect(Object.keys(body).sort()).toEqual(['from', 'html', 'subject', 'text', 'to']);
-    expect(body).toMatchObject({ to: 'a@example.com', from: { email: 'signin@walkeforward.com', name: 'Recall' }, subject: 'Your Recall sign-in link' });
+    expect(body).toMatchObject({ to: 'a@example.com', subject: 'Your Recall sign-in link' });
+    // The REST API takes a named sender as { address, name } (not the binding's { email, name }).
+    expect(body.from).toEqual({ address: 'signin@walkeforward.com', name: 'Recall' });
     // A bare EMAIL_FROM goes as the address alone.
     await sendEmail(cfEnv({ EMAIL_FROM: 'signin@walkeforward.com' }), 'recall.walkeforward.com', signInMail('a@example.com', 'https://x.example/l'), deps(api));
     expect(JSON.parse(String(api.calls[1].init.body)).from).toBe('signin@walkeforward.com');
+  });
+
+  it('the EMAIL binding still gets a named sender as { email, name }', async () => {
+    const sent: unknown[] = [];
+    const env = cfEnv({ EMAIL_PROVIDER: 'cloudflare', EMAIL: { send: async (msg) => void sent.push(msg) } });
+    expect(await sendEmail(env, 'recall.walkeforward.com', signInMail('a@example.com', 'https://x.example/l'), deps())).toEqual({ ok: true });
+    expect(sent).toHaveLength(1);
+    expect((sent[0] as { from: unknown }).from).toEqual({ email: 'signin@walkeforward.com', name: 'Recall' });
+  });
+
+  it('a failed send logs the status and Cloudflare error codes, never the token, recipient or link', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const reply = () => Response.json({ success: false, errors: [{ code: 10001, message: 'email.sending.error.invalid_request_schema' }], messages: [], result: null }, { status: 400 });
+      const mail = signInMail('rcpt@example.com', `${ORIGIN}/api/auth/verify?token=secret_link_token`);
+      const r = await sendEmail(cfEnv(), 'recall.walkeforward.com', mail, deps(cloudflareApi(reply)));
+      expect(r).toEqual({ ok: false, status: 502, error: "Couldn't send the email just now. Try again in a minute." });
+      expect(spy).toHaveBeenCalledTimes(1);
+      const line = spy.mock.calls.flat().map(String).join(' ');
+      expect(line).toContain('400');
+      expect(line).toContain('10001 email.sending.error.invalid_request_schema');
+      for (const secret of ['cf_token_test_fake', 'rcpt@example.com', '/api/auth/verify', 'secret_link_token']) expect(line).not.toContain(secret);
+      // Unparseable bodies and throws are logged too, without the details.
+      await sendEmail(cfEnv(), 'recall.walkeforward.com', mail, deps(cloudflareApi(() => new Response('<html>oops</html>', { status: 502 }))));
+      await sendEmail(cfEnv(), 'recall.walkeforward.com', mail, deps(cloudflareApi(() => Promise.reject(new Error('rcpt@example.com cf_token_test_fake')))));
+      expect(spy).toHaveBeenCalledTimes(3);
+      const all = spy.mock.calls.flat().map(String).join(' ');
+      expect(all).toContain('HTTP 502; unparseable body');
+      for (const secret of ['cf_token_test_fake', 'rcpt@example.com', '/api/auth/verify']) expect(all).not.toContain(secret);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('anything but ok + success: true (or a throw) is the 502', async () => {

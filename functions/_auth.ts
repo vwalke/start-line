@@ -248,6 +248,14 @@ export function parseFrom(raw: string | undefined): Sender | null {
 const notSetUp = (what: string): SendResult => ({ ok: false, status: 503, error: `Email sign-in is not set up on this site yet (${what}).` });
 const SEND_FAILED: SendResult = { ok: false, status: 502, error: "Couldn't send the email just now. Try again in a minute." };
 
+/** Codes and message keys from a Cloudflare API `errors` array, for the log (e.g. `10001 email.sending.error.invalid_request_schema`). */
+function cloudflareErrors(body: { errors?: unknown } | null): string {
+  if (!body) return 'unparseable body';
+  const errs = Array.isArray(body.errors) ? (body.errors as { code?: unknown; message?: unknown }[]) : [];
+  const parts = errs.map((e) => `${typeof e?.code === 'number' || typeof e?.code === 'string' ? e.code : '?'} ${typeof e?.message === 'string' ? e.message.slice(0, 120) : '?'}`);
+  return parts.length ? parts.join(', ') : 'no errors listed';
+}
+
 export async function sendEmail(env: PaywallEnv, host: string, m: Mail, deps: AuthDeps): Promise<SendResult> {
   const provider = emailProvider(env, host);
   if (!provider) return notSetUp('EMAIL_PROVIDER');
@@ -259,21 +267,30 @@ export async function sendEmail(env: PaywallEnv, host: string, m: Mail, deps: Au
   }
   const sender = parseFrom(env.EMAIL_FROM);
   if (!sender) return notSetUp('EMAIL_FROM');
-  // Cloudflare takes `from` as an address or { email, name }; Resend as one string.
-  const from = sender.name ? { email: sender.email, name: sender.name } : sender.email;
+  // `from` is an address or a named sender: the REST API takes { address, name }, the
+  // EMAIL binding { email, name }; Resend takes one string.
   try {
     if (provider === 'cloudflare-api') {
       const account = env.CF_EMAIL_ACCOUNT_ID?.trim();
       if (!account) return notSetUp('CF_EMAIL_ACCOUNT_ID');
       const key = env.CF_EMAIL_API_TOKEN?.trim();
       if (!key) return notSetUp('CF_EMAIL_API_TOKEN');
-      const res = await (deps.fetch ?? fetch)(cloudflareEmailUrl(account), {
-        method: 'POST',
-        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ to: m.to, from, subject: m.subject, html: m.html, text: m.text }),
-      });
-      const body = (await res.json().catch(() => null)) as { success?: unknown } | null;
-      return res.ok && body?.success === true ? { ok: true } : SEND_FAILED;
+      const from = sender.name ? { address: sender.email, name: sender.name } : sender.email;
+      let res: Response;
+      try {
+        res = await (deps.fetch ?? fetch)(cloudflareEmailUrl(account), {
+          method: 'POST',
+          headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ to: m.to, from, subject: m.subject, html: m.html, text: m.text }),
+        });
+      } catch (e) {
+        console.error(`[recall auth] cloudflare email send threw: ${e instanceof Error ? e.name : 'error'}`);
+        return SEND_FAILED;
+      }
+      const body = (await res.json().catch(() => null)) as { success?: unknown; errors?: unknown } | null;
+      if (res.ok && body?.success === true) return { ok: true };
+      console.error(`[recall auth] cloudflare email send failed: HTTP ${res.status}; ${cloudflareErrors(body)}`);
+      return SEND_FAILED;
     }
     if (provider === 'resend') {
       const key = env.RESEND_API_KEY?.trim();
@@ -287,6 +304,7 @@ export async function sendEmail(env: PaywallEnv, host: string, m: Mail, deps: Au
       return res.ok ? { ok: true } : SEND_FAILED;
     }
     if (!env.EMAIL) return notSetUp('EMAIL binding');
+    const from = sender.name ? { email: sender.email, name: sender.name } : sender.email;
     await env.EMAIL.send({ from, to: m.to, subject: m.subject, html: m.html, text: m.text });
     return { ok: true };
   } catch {
