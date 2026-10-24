@@ -6,6 +6,7 @@ import { drawingBuffers } from '../src/analysis/transfer';
 import { MAP_PRE_MS, PRE_LEG, type BoatDrawing, type FullRateTrack, type TrackSegment } from '../src/analysis/types';
 import type { RaceData } from '../src/data/types';
 import { boatsAt, mapBox, scrubFrame, scrubPoints, trackMap, trackMapView, trackPointsFull } from '../src/ui/charts';
+import { BOAT_STALE_MS } from '../src/ui/boatShape';
 import { localTime } from '../src/ui/format';
 import {
   CHUNK,
@@ -13,6 +14,7 @@ import {
   MAP_FULL_SPAN_M,
   MAP_HOLD_S,
   boatAt,
+  endHoldBefore,
   drawingPieces,
   legRanges,
   lowerBound,
@@ -86,16 +88,47 @@ describe('a boat at a moment (the scrubber dots)', () => {
     expect(boatAt('b', ranges, 9000 + 20_000, 2000, 0)!.x).toBe(27);
   });
 
-  it('has no dot inside a gap (after a short hold), nor before the first or after the last fix', () => {
-    // The hole runs 4 s → 25 s.
-    const hold = boatAt('b', ranges, 4000 + MAP_HOLD_S * 1000 - 1, 2000, 0)!;
-    expect(hold.hold).toBe(true);
-    expect(hold.x).toBe(12);
-    expect(hold.lastFix).toBe(4000);
-    expect(boatAt('b', ranges, 4000 + MAP_HOLD_S * 1000 + 1, 2000, 0)).toBeNull();
-    expect(boatAt('b', ranges, 15_000, 2000, 0)).toBeNull();
+  it('holds at the last fix inside a gap (filled at first, then stale), up to MAP_HOLD_S; none before the first or after the last fix', () => {
+    // The hole runs 4 s → 25 s: held at the 4 s fix all through it, its course and last heading kept (east).
+    for (const t of [5000, 15_000, 24_999]) {
+      const hold = boatAt('b', ranges, t, 2000, 0)!;
+      expect(hold.hold).toBe(true);
+      expect(hold.x).toBe(12);
+      expect(hold.lastFix).toBe(4000);
+      expect(hold.lastDir).toEqual([1, 0]);
+    }
+    // Stale (hollow) only once the last fix is over BOAT_STALE_MS (3 s) old: no flicker on a short gap.
+    expect(boatAt('b', ranges, 4000 + BOAT_STALE_MS, 2000, 0)!.stale).toBe(false);
+    expect(boatAt('b', ranges, 4000 + BOAT_STALE_MS + 1, 2000, 0)!.stale).toBe(true);
+    // A slow feed's own gap threshold, when longer, decides instead.
+    expect(boatAt('b', ranges, 4000 + 8000, 10_000, 0)).toMatchObject({ hold: true, stale: false });
+    expect(boatAt('b', ranges, 4000 + 10_001, 10_000, 0)).toMatchObject({ hold: true, stale: true });
     expect(boatAt('b', ranges, -1, 2000, 0)).toBeNull();
     expect(boatAt('b', ranges, 29_001, 2000, 0)).toBeNull();
+    // A hole longer than MAP_HOLD_S: held until then, then none.
+    const long = legRanges(drawing([seg(10, 0, 0, 5, 200_000)]), true);
+    expect(MAP_HOLD_S).toBe(120);
+    expect(boatAt('b', long, 4000 + MAP_HOLD_S * 1000 - 1, 2000, 0)).toMatchObject({ hold: true, stale: true, lastFix: 4000 });
+    expect(boatAt('b', long, 4000 + MAP_HOLD_S * 1000 + 1, 2000, 0)).toBeNull();
+  });
+
+  it('past its final fix (the tracker stopped), held there as in a gap for MAP_HOLD_S, but never past its finish', () => {
+    // The last fix: 29 s, x 27. No finish: held, filled for BOAT_STALE_MS, then hollow, its last heading kept.
+    const noFinish = endHoldBefore(null);
+    expect(boatAt('b', ranges, 30_000, 2000, 0, noFinish)).toMatchObject({ hold: true, stale: false, x: 27, lastFix: 29_000, lastDir: [1, 0] });
+    expect(boatAt('b', ranges, 29_000 + BOAT_STALE_MS + 1, 2000, 0, noFinish)).toMatchObject({ hold: true, stale: true, x: 27 });
+    expect(boatAt('b', ranges, 29_000 + MAP_HOLD_S * 1000, 2000, 0, noFinish)).toMatchObject({ hold: true, stale: true });
+    expect(boatAt('b', ranges, 29_000 + MAP_HOLD_S * 1000 + 1, 2000, 0, noFinish)).toBeNull();
+    // Finished at (or before) its final fix: gone after it, as before.
+    expect(boatAt('b', ranges, 29_001, 2000, 0, endHoldBefore(29_000))).toBeNull();
+    // A finish after the tracker stopped (an official time): held until the finish, then gone.
+    expect(boatAt('b', ranges, 59_999, 2000, 0, endHoldBefore(60_000))).toMatchObject({ hold: true, stale: true });
+    expect(boatAt('b', ranges, 60_000, 2000, 0, endHoldBefore(60_000))).toBeNull();
+    // Without an end hold (the default), gone after the final fix; between two leg ranges, unchanged.
+    expect(boatAt('b', ranges, 29_001, 2000, 0)).toBeNull();
+    const split = legRanges(drawing([seg(5, 0, 0), seg(5, 10_000, 1)]), true);
+    expect(boatAt('b', split, 6000, 2000, 0, noFinish)).toBeNull();
+    expect(boatAt('b', split, 15_000, 2000, 0, noFinish)).toMatchObject({ hold: true, leg: 1, lastFix: 14_000 });
   });
 
   it('reads the leg the boat is on, and before the gun the pre-start track', () => {
@@ -496,14 +529,22 @@ describe('the scrubber map', () => {
     expect(scrubFrame(a, null, null, { colour: 'rank' }, { t, win: trailWindow(t, '120', w) }).dots).toMatch(/fill="(#[0-9a-f]{6}|rgb\([^)]+\)|var\(--ink-3\))"/);
   });
 
-  it('draws a held dot hollow', () => {
+  it('draws a boat whose data is lost hollow, in its own color (a short hold stays filled)', () => {
     const d = drawing([seg(10, gun, 0, 5, 20_000)]);
     const one = { ...a, drawings: [d], boats: [{ ...a.boats[0], id: 'b' }] };
     const w = scrubWindow(one);
-    const f = scrubFrame(one, null, null, {}, { t: gun + 6000, win: trailWindow(gun + 6000, '30', w) });
-    expect(f.boats[0].hold).toBe(true);
-    expect(f.dots).toContain('class="dot hold"');
-    expect(f.dots).toContain('fill="var(--surface)"');
+    const at = (t: number) => scrubFrame(one, null, null, {}, { t, win: trailWindow(t, '30', w), trailMs: 30_000 });
+    // 2 s after the last fix: held there, still filled.
+    const brief = at(gun + 6000);
+    expect(brief.boats[0].hold).toBe(true);
+    // The hull, along its last heading (the boat's class has dimensions), as it was before the gap.
+    expect(brief.dots).toContain('class="dot hull hold"');
+    expect(brief.dots).not.toContain('var(--surface)');
+    // 10 s after: hollow, outlined in the leg's color.
+    const lost = at(gun + 14_000);
+    expect(lost.dots).toContain('class="dot hull hold lost"');
+    expect(lost.dots.match(/ d="([^"]+)"/)![1]).toBe(brief.dots.match(/ d="([^"]+)"/)![1]);
+    expect(lost.dots).toContain('fill="var(--surface)" style="--c:var(--s1)"');
   });
 });
 

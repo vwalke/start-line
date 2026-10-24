@@ -4,7 +4,7 @@ import { groupIds } from '../src/analysis/coach/groups';
 import type { Vec } from '../src/analysis/geo';
 import { startReplays, type StartReplay } from '../src/analysis/startReplay';
 import { PRE_LEG, type BoatDrawing, type RaceAnalysis, type TrackSegment } from '../src/analysis/types';
-import { legRanges } from '../src/ui/mapPieces';
+import { endHoldBefore, legRanges } from '../src/ui/mapPieces';
 import { drawingGapMs } from '../src/ui/mapPoints';
 import {
   LANE_END_S,
@@ -47,7 +47,9 @@ import {
   windBadgeHtml,
 } from '../src/ui/laneSnapshotsView';
 import { ocsLegend, ocsStretch, ocsSvg } from '../src/ui/ocsStyle';
-import { BOAT_SHAPE_MIN_PX, BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX } from '../src/ui/boatShape';
+import { BOAT_SHAPE_MIN_PX, BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, BOAT_STALE_MS } from '../src/ui/boatShape';
+import { MAP_HOLD_S } from '../src/ui/mapPieces';
+import { BOAT_TRAIL_MS, TRAIL_FADE } from '../src/ui/trail';
 import { courseStats } from '../src/ui/follow';
 import { clampView, fitView, presetActive, viewBox, zoomPreset, type View } from '../src/ui/view';
 import { ic37Race } from './helpers';
@@ -92,6 +94,8 @@ function drawing(id: string, tr: { t: number[]; x: number[]; y: number[] }): Boa
 interface BoatSpec {
   id: string;
   tr?: { t: number[]; x: number[]; y: number[] };
+  /** Its finish, s from the gun (none: no finish). */
+  finishS?: number;
 }
 
 function race(boats: BoatSpec[], twd = 0, method: 'tacks' | 'model' | 'course' = 'tacks', mark: Vec = [0, 1000], line: [Vec, Vec] = [[-100, 0], [100, 0]]): RaceAnalysis {
@@ -102,7 +106,7 @@ function race(boats: BoatSpec[], twd = 0, method: 'tacks' | 'model' | 'course' =
     legs: [{ index: 0, name: 'Beat 1', kind: 'upwind', to: 'Mark 1' }],
     marks: [{ name: 'Mark 1', xy: [mark] }],
     wind: { method, estimates: [], twdAtGunDeg: twd, model: null },
-    boats: boats.map((b, i) => ({ id: b.id, sail: b.id, colorSlot: i, finishPos: i + 1, legs: [] })),
+    boats: boats.map((b, i) => ({ id: b.id, sail: b.id, colorSlot: i, finishPos: i + 1, finishMs: b.finishS == null ? null : sec(b.finishS), legs: [] })),
     drawings: boats.filter((b) => b.tr).map((b) => drawing(b.id, b.tr!)),
   } as unknown as RaceAnalysis;
 }
@@ -154,33 +158,39 @@ describe('around the gun: frames and trails', () => {
     expect(frames(L).map((f) => f.title)).toEqual(['gun +1:00', 'gun +2:00', 'gun +3:00']);
   });
 
-  it("the boat's position at each frame (wind from the north: north up, y down) and a trail from its position at gun −1:30", () => {
+  it("the boat's position at each frame (wind from the north: north up, y down) and a trail from its position BOAT_TRAIL_MS before", () => {
     const [f0, f1, f2] = frames(L).map((f) => boatIn(f, 'A'));
     near(f0.pos, [0, -(-100 + 2 * 60)]);
     near(f1.pos, [0, -(-100 + 2 * 120)]);
     near(f2.pos, [0, -(-100 + 2 * 180)]);
-    // One unbroken trail each, across the pre-start / leg boundary, from −90 s to the frame.
-    for (const b of [f0, f1, f2]) {
+    // One unbroken trail each, across the pre-start / leg boundary, from 2 min before the frame to the frame.
+    for (const [b, s] of [[f0, 60], [f1, 120], [f2, 180]] as const) {
       expect(b.trail).toHaveLength(1);
-      near(b.trail[0][0], [0, -(-100 + 2 * -90)]);
+      near(b.trail[0][0], [0, -(-100 + 2 * (s - BOAT_TRAIL_MS / 1000))]);
       near(b.trail[0].at(-1)!, b.pos!);
     }
-    // 1 Hz, the gun's shared fix kept once: −90 … +60 is 151 points, … +120 211, … +180 271.
-    expect([f0, f1, f2].map((b) => b.trail[0].length)).toEqual([151, 211, 271]);
+    // 1 Hz, the gun's shared fix kept once: 2 min is 121 points.
+    expect([f0, f1, f2].map((b) => b.trail[0].length)).toEqual([121, 121, 121]);
+    // Fading toward the tail: one path per slice, head first, the head's slice ending at the boat.
+    expect(f2.fade).toHaveLength(TRAIL_FADE.length);
+    expect(f2.fade.every(Boolean)).toBe(true);
+    expect(f2.fade[0].endsWith(`L0.0,${(-(-100 + 2 * 180)).toFixed(1)}`)).toBe(true);
+    expect(f2.fade.at(-1)!.startsWith(`M0.0,${(-(-100 + 2 * 60)).toFixed(1)}`)).toBe(true);
   });
 
-  it('trails start at gun −1:30, inclusive, and never earlier', () => {
-    // The data from −120 s: the earliest trail point is the −90 s fix, in every frame (map y = −north).
-    for (const f of [L.frame(-90), ...frames(L)]) {
+  it('trails start at gun −1:30 at the earliest (inclusive), and reach back BOAT_TRAIL_MS', () => {
+    expect(BOAT_TRAIL_MS).toBe(120_000);
+    // The data from −120 s: the earliest trail point is the −90 s fix, or 2 min before the frame (map y = −north).
+    for (const f of [L.frame(-90), L.frame(-30), L.frame(30), ...frames(L)]) {
       const ys = boatIn(f, 'A').trail.flat().map((p) => -p[1]);
-      if (f.s > -90) expect(Math.min(...ys)).toBeCloseTo(-100 + 2 * -90, 6);
+      if (f.s > -90) expect(Math.min(...ys)).toBeCloseTo(-100 + 2 * Math.max(-90, f.s - 120), 6);
     }
     // At −1:30 itself: no trail yet (a single point), the boat placed.
     expect(boatIn(L.frame(-90), 'A').trail).toEqual([]);
     near(boatIn(L.frame(-90), 'A').pos, [0, -(-100 + 2 * -90)]);
     // A feed that starts exactly at −90 s: the trail still starts there.
     const exact = laneScrub(race([{ id: 'A', tr: track(0, -100, -90) }]), { me: 'A' });
-    near(boatIn(frames(exact)[0], 'A').trail[0][0], [0, -(-100 + 2 * -90)]);
+    near(boatIn(exact.frame(0), 'A').trail[0][0], [0, -(-100 + 2 * -90)]);
   });
 
   it('a trail starts where the data does when that is after −1:30; the caption says nothing about it', () => {
@@ -485,21 +495,30 @@ describe('around the gun: over early', () => {
 });
 
 describe('around the gun: data gaps', () => {
-  it('a long gap over a frame: the boat is missing there (no position made up), and its trails break at the gap', () => {
+  it('a long gap over a frame: the boat held hollow at its last fix (no position made up), and its trails break at the gap', () => {
     const L = laneScrub(race([{ id: 'S', tr: track(0, -100, -120, 180, [[40, 80], [95, 105]]) }]), { me: 'S' });
     const [f0, f1] = frames(L).map((f) => boatIn(f, 'S'));
-    expect(f0.pos).toBeNull();
-    expect(frames(L)[0].placed).toBe(0);
-    expect(frames(L)[0].caption).toBe('S: no position (tracker gap).');
-    // −90 → +40 drawn, nothing made up past the last fix before the gap.
+    // 20 s into the gap: at the +40 fix, hollow (stale), still pointing up the course.
+    near(f0.pos, [0, -(-100 + 2 * 40)]);
+    expect([f0.hold, f0.stale]).toEqual([true, true]);
+    near(f0.lastDir, [0, -1]);
+    expect(frames(L)[0].caption).toBe('S: ≈ 1 of 1 (last fix)');
+    // −60 → +40 drawn, nothing made up past the last fix before the gap.
     expect(f0.trail).toHaveLength(1);
     near(f0.trail[0].at(-1)!, [0, -(-100 + 2 * 40)]);
-    // −90 → +120: to +40, then from the fix after the gap (+80) to +95, then +105 → +120.
+    // 0 → +120: to +40, then from the fix after the gap (+80) to +95, then +105 → +120.
     expect(f1.trail).toHaveLength(3);
-    near(f1.trail[0][0], [0, -(-100 + 2 * -90)]);
+    near(f1.trail[0][0], [0, 100]);
     near(f1.trail[1][0], [0, -(-100 + 2 * 80)]);
     near(f1.trail[2][0], [0, -(-100 + 2 * 105)]);
     near(f1.pos, [0, -(-100 + 2 * 120)]);
+    expect([f1.hold, f1.stale]).toEqual([false, false]);
+    // A gap longer than MAP_HOLD_S: missing once the hold runs out.
+    const long = laneScrub(race([{ id: 'S', tr: track(0, -100, -120, 180, [[5, 180]]) }]), { me: 'S' });
+    expect(MAP_HOLD_S).toBe(120);
+    expect(boatIn(long.frame(5 + MAP_HOLD_S - 1), 'S').pos).not.toBeNull();
+    expect(boatIn(long.frame(5 + MAP_HOLD_S + 5), 'S').pos).toBeNull();
+    expect(long.frame(5 + MAP_HOLD_S + 5).placed).toBe(0);
   });
 
   it('a short step (within the gap rule) is interpolated; just inside a gap the dot holds at the last fix (the scrubber rule)', () => {
@@ -507,11 +526,15 @@ describe('around the gun: data gaps', () => {
     const short = laneScrub(race([{ id: 'S', tr: track(0, -100, -120, 180, [[59, 61]]) }]), { me: 'S' });
     near(boatIn(frames(short)[0], 'S').pos, [0, -(-100 + 2 * 60)]);
     expect(boatIn(frames(short)[0], 'S').hold).toBe(false);
-    // A gap +58 … +80: 2 s after the last fix, held there (hollow).
+    // A gap +58 … +80: 2 s after the last fix, held there, still filled (under BOAT_STALE_MS); hollow from 3 s on.
     const held = laneScrub(race([{ id: 'S', tr: track(0, -100, -120, 180, [[58, 80]]) }]), { me: 'S' });
     const h = boatIn(frames(held)[0], 'S');
     expect(h.hold).toBe(true);
+    expect(h.stale).toBe(false);
     near(h.pos, [0, -(-100 + 2 * 58)]);
+    expect(BOAT_STALE_MS).toBe(3000);
+    expect(boatIn(held.frame(61), 'S').stale).toBe(false);
+    expect(boatIn(held.frame(62), 'S').stale).toBe(true);
   });
 
   it('a feed that starts a fraction of a second after a frame places the boat at its first fix', () => {
@@ -537,7 +560,8 @@ describe('around the gun: data gaps', () => {
   });
 
   it('the selected boat in a tracker gap: said once; other boats without a position not listed', () => {
-    const L = laneScrub(race([{ id: 'S', tr: track(0, -100, -120, 180, [[40, 80]]) }, { id: 'A', tr: track(20, -100) }, { id: 'Ghost' }]), { me: 'S' });
+    // Its last fix 130 s before +1:00 (more than MAP_HOLD_S): no position.
+    const L = laneScrub(race([{ id: 'S', tr: track(0, -100, -120, 180, [[-70, 180]]) }, { id: 'A', tr: track(20, -100) }, { id: 'Ghost' }]), { me: 'S' });
     expect(frames(L)[0].caption).toBe('S: no position (tracker gap).');
     expect(frames(L)[0].label).toBe('Fleet at gun +1:00: 1 of 3 boats placed. S: no position (tracker gap). True wind from 0° (estimated).');
   });
@@ -631,7 +655,7 @@ describe('around the gun: renderer', () => {
 
   it('lines, trails, dots and the OCS styling keep their stroke width on screen (non-scaling)', () => {
     expect(html).toMatch(/<line class="startline" [^>]*stroke-width="2.2" vector-effect="non-scaling-stroke"\/>/);
-    for (const m of html.match(/<polyline class="lane-trail[^>]*>/g)!) expect(m).toContain('vector-effect="non-scaling-stroke"');
+    for (const m of html.match(/<path class="lane-trail[^>]*>/g)!) expect(m).toContain('vector-effect="non-scaling-stroke"');
     for (const m of html.match(/<circle class="lane-dot[^>]*>/g)!) expect(m).toContain('vector-effect="non-scaling-stroke"');
     expect(html).toMatch(/<polyline class="ocs-over" [^>]*stroke-width="3.20" vector-effect="non-scaling-stroke"\/>/);
     const fig = html.split('<figure')[1].split('</figure>')[0];
@@ -759,6 +783,7 @@ describe('around the gun: positions and trails on the 1 s grid', () => {
     { id: 'Gap', tr: track(60, -120, -120, 200, [[40, 80]]) },
     { id: 'Short', tr: track(30, -110, -120, 200, [[99, 101]]) },
     { id: 'Ends', tr: track(-30, -150, -120, 150) },
+    { id: 'Done', tr: track(-60, -150, -120, 150), finishS: 150 },
     { id: 'Ghost' },
   ]);
   const L = laneScrub(a, { me: 'Gap' });
@@ -766,7 +791,7 @@ describe('around the gun: positions and trails on the 1 s grid', () => {
   it('every second’s position is the existing lookup (placeAt: the scrubber’s, near-fix and gap rules)', () => {
     for (const d of a.drawings) {
       for (let s = LANE_START_S; s <= LANE_END_S; s++) {
-        const at = placeAt(d.id, legRanges(d, true), sec(s), drawingGapMs(d), 0);
+        const at = placeAt(d.id, legRanges(d, true), sec(s), drawingGapMs(d), 0, endHoldBefore(a.boats.find((b) => b.id === d.id)!.finishMs));
         const b = boatIn(L.frame(s), d.id);
         if (!at) expect(b.pos, `${d.id} +${s} s`).toBeNull();
         else {
@@ -777,31 +802,45 @@ describe('around the gun: positions and trails on the 1 s grid', () => {
     }
   });
 
-  it('every second’s trail is the trail worked out directly (laneTrail from gun −1:30)', () => {
+  it('every second’s trail is the trail worked out directly (laneTrail over the 2 min before, from gun −1:30 at the earliest)', () => {
     for (const d of a.drawings) {
-      for (let s = LANE_START_S; s <= LANE_END_S; s++) expect(boatIn(L.frame(s), d.id).trail).toEqual(laneTrail(a, d.id, 0, sec(LANE_TRAIL_FROM_S), sec(s)));
+      for (let s = LANE_START_S; s <= LANE_END_S; s++) {
+        const from = Math.max(sec(LANE_TRAIL_FROM_S), sec(s) - BOAT_TRAIL_MS);
+        expect(boatIn(L.frame(s), d.id).trail).toEqual(laneTrail(a, d.id, 0, from, sec(s)));
+      }
     }
   });
 
-  it('a boat in a tracker gap has no position (held hollow for the first seconds); the caption says so', () => {
+  it('a boat in a tracker gap is held at its last fix (filled for the first seconds, then hollow); the caption says so', () => {
     const gap = (s: number) => boatIn(L.frame(s), 'Gap');
     expect(gap(40).pos).not.toBeNull();
     expect(gap(40).hold).toBe(false);
-    // Held at the +40 fix for up to 5 s, then gone until the fix after the gap (+80).
+    // Held at the +40 fix through the gap (it is shorter than MAP_HOLD_S), until the fix after it (+80).
     expect(gap(42).hold).toBe(true);
+    expect(gap(42).stale).toBe(false);
     near(gap(42).pos, [60, -(-120 + 2 * 40)]);
     // (Within 1 s of the fix after it, +79, the near-fix rule places it there.)
     for (const s of [46, 60, 78]) {
-      expect(gap(s).pos).toBeNull();
-      expect(L.frame(s).caption).toBe('Gap: no position (tracker gap).');
+      near(gap(s).pos, [60, -(-120 + 2 * 40)]);
+      expect([gap(s).hold, gap(s).stale]).toEqual([true, true]);
+      expect(L.frame(s).caption).toMatch(/^Gap: ≈ \d of \d \(last fix\)$/);
     }
     expect(gap(80).pos).not.toBeNull();
+    expect(gap(80).stale).toBe(false);
     // A 2 s step is no gap: interpolated.
     near(boatIn(L.frame(100), 'Short').pos, [30, -(-110 + 2 * 100)]);
-    // After its track ends (+2:30): placed at its last fix for up to 1 s, then gone, the trail kept to its end.
-    near(boatIn(L.frame(151), 'Ends').pos, [-30, -(-150 + 2 * 150)]);
-    expect(boatIn(L.frame(152), 'Ends').pos).toBeNull();
-    expect(boatIn(L.frame(170), 'Ends').trail).toEqual(boatIn(L.frame(150), 'Ends').trail);
+    // Its tracker stops at +2:30 with no finish: held at its last fix as in a gap (filled, then hollow), the trail kept to its end.
+    const ends = (s: number) => boatIn(L.frame(s), 'Ends');
+    for (const s of [151, 153]) expect([ends(s).hold, ends(s).stale]).toEqual([true, false]);
+    for (const s of [154, 170, 180]) {
+      near(ends(s).pos, [-30, -(-150 + 2 * 150)]);
+      expect([ends(s).hold, ends(s).stale]).toEqual([true, true]);
+    }
+    near(ends(170).trail.at(-1)!.at(-1)!, [-30, -(-150 + 2 * 150)]);
+    // The same track ending at its finish: finished, not lost; at its last fix for up to 1 s (the near-fix rule), then gone.
+    near(boatIn(L.frame(151), 'Done').pos, [-60, -(-150 + 2 * 150)]);
+    expect(boatIn(L.frame(151), 'Done').hold).toBe(false);
+    expect(boatIn(L.frame(152), 'Done').pos).toBeNull();
     expect(boatIn(L.frame(90), 'Ghost').pos).toBeNull();
   });
 });
@@ -1014,7 +1053,7 @@ describe('IC37 R5: USA 016 selected', () => {
   const L = laneScrub(a, { me, group: groupIds(a.boats, me, { kind: 'leaders' }), replays });
   const at = (i: number, sail: string) => boatIn(frames(L)[i], idOf(sail));
 
-  it('+1:00, +2:00, +3:00: wind-up, every boat placed at each, every trail from where the feed starts (−59.9 s)', () => {
+  it('+1:00, +2:00, +3:00: wind-up, every boat placed at each, every trail the last 2 min (+1:00 from where the feed starts, −59.9 s)', () => {
     expect(frames(L).map((f) => f.title)).toEqual(['gun +1:00', 'gun +2:00', 'gun +3:00']);
     expect(L.windUp).toBe(true);
     for (const f of frames(L)) {
@@ -1022,11 +1061,13 @@ describe('IC37 R5: USA 016 selected', () => {
       expect(f.placed).toBe(a.boats.length);
       expect(f.caption).toMatch(/^USA 016: ≈ \d+ of 15$/);
     }
-    // One unbroken trail each, longer frame by frame.
-    const lens = [0, 1, 2].map((i) => at(i, 'USA 016').trail.map((t) => t.length));
-    for (const l of lens) expect(l).toHaveLength(1);
-    expect(lens[1][0]).toBeGreaterThan(lens[0][0]);
-    expect(lens[2][0]).toBeGreaterThan(lens[1][0]);
+    // One unbroken trail each, as worked out directly over the 2 min before (from where the feed starts at +1:00).
+    for (const i of [0, 1, 2]) {
+      const b = at(i, 'USA 016');
+      expect(b.trail).toHaveLength(1);
+      const t = frames(L)[i].t;
+      expect(b.trail).toEqual(laneTrail(a, me, a.wind.twdAtGunDeg, Math.max(a.meta.gunMs + LANE_TRAIL_FROM_S * 1000, t - BOAT_TRAIL_MS), t));
+    }
     // The true wind blows straight down the page, labelled with the analysis's wind at the gun.
     near(L.wind!.down, [0, 1]);
     expect(L.wind!.label).toMatch(/^TWD ~\d+° est\.$/);
@@ -1099,7 +1140,10 @@ describe('IC37 R5: USA 016 selected', () => {
         expect(b.pos).toEqual(at ? [at.mx, at.my] : null);
         if (b.pos && !away) expect(inside(b.pos), `${b.sail} at +${s} s`).toBe(true);
       }
-      for (const s of [-90, -30, 0, 45, 133, 180]) expect(boatIn(L.frame(s), d.id).trail).toEqual(laneTrail(a, d.id, twd, a.meta.gunMs + LANE_TRAIL_FROM_S * 1000, a.meta.gunMs + s * 1000));
+      for (const s of [-90, -30, 0, 45, 133, 180]) {
+        const t = a.meta.gunMs + s * 1000;
+        expect(boatIn(L.frame(s), d.id).trail).toEqual(laneTrail(a, d.id, twd, Math.max(a.meta.gunMs + LANE_TRAIL_FROM_S * 1000, t - BOAT_TRAIL_MS), t));
+      }
     }
     // One view for the whole slider: the same viewBox at −1:30, at the gun and at +3:00.
     const box = (s: number): string => laneScrubHtml(a, L, undefined, s).match(/class="chart lane-svg" viewBox="([^"]+)"/)![1];
@@ -1237,15 +1281,24 @@ describe('around the gun: boats as hulls where they can be', () => {
     expect(html).toMatch(/data-id="B"><title>B<\/title><path [^>]*fill="var\(--s2\)"/);
   });
 
-  it('falls back to the dot: held in a gap, no course, too slow, unknown class, too small', () => {
-    const html = laneScrubHtml(a, L, undefined, 60, ppu, false, { ...fitView(L.view), k: 8 });
-    // 2 s into the gap at +58: held hollow, a dot.
+  it('held in a gap, slow or without a course: the hull along its last heading, filled, then hollow once its data is lost', () => {
+    const z = { ...fitView(L.view), k: 8 };
+    const hull = (s: number): string => laneScrubHtml(a, L, undefined, s, ppu, false, z).match(/data-id="Gap"><title>Gap \(last fix, in a gap\)<\/title>(<[^>]*>)/)![1];
+    // 2 s into the gap at +58: held at its last fix, still filled (under BOAT_STALE_MS), pointing up the course.
     expect(boatIn(L.frame(60), 'Gap').hold).toBe(true);
-    expect(html).toMatch(/data-id="Gap"><title>Gap \(last fix, in a gap\)<\/title><circle class="lane-dot hold"/);
+    expect(hull(60)).toMatch(/^<path class="lane-dot lane-hull" [^>]*fill="var\(--ink-3\)"/);
+    // 10 s in: hollow, the same hull, its outline in its color and a little heavier.
+    expect(boatIn(L.frame(68), 'Gap').stale).toBe(true);
+    expect(hull(68)).toMatch(/^<path class="lane-dot lane-hull lost" [^>]*fill="var\(--surface\)" stroke="var\(--ink-3\)" stroke-width="1.6"/);
+    // The same outline as the filled hull's, at the same place and heading.
+    expect(hull(68).match(/ d="([^"]+)"/)![1]).toBe(hull(61).match(/ d="([^"]+)"/)![1]);
     const at = boatIn(L.frame(60), 'A');
     expect(laneShape(L, at, 10)).not.toBeNull();
-    expect(laneShape(L, { ...at, dir: null }, 10)).toBeNull();
-    expect(laneShape(L, { ...at, sog: 0.5 }, 10)).toBeNull();
+    // No course now, or slow: the last heading known; none ever known: the dot.
+    expect(laneShape(L, { ...at, dir: null }, 10)?.dir).toEqual(at.lastDir ?? [0, -1]);
+    expect(laneShape(L, { ...at, sog: 0.5 }, 10)).not.toBeNull();
+    expect(laneShape(L, { ...at, dir: null, lastDir: null }, 10)).toBeNull();
+    expect(laneShape(L, { ...at, sog: 0.5, lastDir: null }, 10)).toBeNull();
     expect(laneShape({ dims: null }, at, 10)).toBeNull();
     expect(laneShape(L, at, BOAT_SHAPE_MIN_PX / L.dims!.loaM - 0.01)).toBeNull();
     expect(laneShape(L, at, BOAT_SHAPE_MIN_PX / L.dims!.loaM + 0.01)).not.toBeNull();

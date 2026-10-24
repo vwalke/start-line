@@ -232,7 +232,7 @@ describe('batched SOG paths', () => {
       expect(new Set(bins).size).toBe(bins.length); // one path per bin
     }
     expect(svg).toMatch(/<path class="sog" data-bin="\d+" d="M[^"]+" stroke="#[0-9a-f]{6}" style="--cd:#[0-9a-f]{6}"\/>/);
-    expect(svg).toContain('aria-label="Tracks colored by boat speed (SOG)');
+    expect(svg).toContain('aria-label="Race Viewer, tracks colored by boat speed (SOG)');
   });
 
   it('fits a single leg and labels it', () => {
@@ -240,7 +240,7 @@ describe('batched SOG paths', () => {
     const svg = trackMap(a, null, 1, { colour: 'sog' });
     const r1 = trackSogRange(a, 1)!;
     expect(svg).toContain(`colored by boat speed (SOG), ${r1.lo.toFixed(1)} to ${r1.hi.toFixed(1)} kn`);
-    expect(svg).toMatch(/aria-label="Tracks on [^"]+, colored by boat speed/);
+    expect(svg).toMatch(/aria-label="Race Viewer on [^"]+, tracks colored by boat speed/);
     expect(sogKey(r1, 'Beat 2', hasGaps(segmentTimes(a, 1)))).toContain(`${r1.lo.toFixed(1)} kn`);
   });
 
@@ -406,11 +406,11 @@ describe('whole race in Boat speed, scaled per leg', () => {
   it('describes the scaling in the map label', () => {
     const perLeg = trackMap(a, null, null, { colour: 'sog' });
     const first = legs[0].range!;
-    expect(perLeg).toContain(`aria-label="Tracks colored by boat speed (SOG), scaled within each leg (${a.legs[0].name} ${first.lo.toFixed(1)}–${first.hi.toFixed(1)}`);
+    expect(perLeg).toContain(`aria-label="Race Viewer, tracks colored by boat speed (SOG), scaled within each leg (${a.legs[0].name} ${first.lo.toFixed(1)}–${first.hi.toFixed(1)}`);
     expect(perLeg).toContain('dark purple slowest on that leg');
     const all = trackSogRange(a, null)!;
     expect(trackMap(a, null, null, { colour: 'sog', sogScale: 'race' })).toContain(
-      `aria-label="Tracks colored by boat speed (SOG), ${all.lo.toFixed(1)} to ${all.hi.toFixed(1)} kn`,
+      `aria-label="Race Viewer, tracks colored by boat speed (SOG), ${all.lo.toFixed(1)} to ${all.hi.toFixed(1)} kn`,
     );
   });
 

@@ -96,6 +96,7 @@ import {
   TRAIL_PARAM,
   WINDOW_TRAIL,
   clampTime,
+  fadingTrailMs,
   paramOfTime,
   parseSpeed,
   parseTParam,
@@ -190,6 +191,7 @@ import {
 import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
 import { followAfter, followCam, followStep, followTarget, reducedMotion, resetFollow } from './follow';
 import { mapPaint } from './mapPaint';
+import { paintTrails } from './trailLayer';
 import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
 import { createVkxUpload } from './vkxUpload';
 import { createPaywall, lockedRange, startRace } from './paywall';
@@ -203,7 +205,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 type Full = 'start' | 'map' | 'places';
 const FULL_LABEL: Record<Full, string> = {
   start: 'Start chart, full screen',
-  map: 'Track map, full screen',
+  map: 'Race Viewer, full screen',
   places: 'Place changes, full screen',
 };
 
@@ -1382,11 +1384,15 @@ export function startApp(): void {
     section.querySelector<HTMLElement>('.lane-play')?.focus({ preventScroll: true });
   });
 
+  /** What each drawn map's tracks layer holds (a new map, a new layer). */
+  const scrubTracks = new WeakMap<Element, string>();
   /** Draw this moment's trails and boats into the static map's layers. */
   function drawScrub(a: RaceAnalysis): void {
     const svg = els.map.querySelector('svg');
     const trk = svg?.querySelector('g.scrub-trk');
     const dots = svg?.querySelector('g.scrub-dots');
+    const trails = svg?.querySelector('g.scrub-trails');
+    const ocs = svg?.querySelector('g.scrub-ocs');
     if (scrubT == null || !trk || !dots) return;
     // A boat selected (here or on another view): follow it, snapping to it once zoomed in.
     if (highlight !== mapFollowFor) {
@@ -1407,8 +1413,20 @@ export function startApp(): void {
         full = mapFullRate(a);
       }
     }
-    const f = scrubFrame(a, highlight, legSel, mapOpts(), { t: scrubT, win: trailWindow(scrubT, scrubTrail, scrubWindow(a), focusOn ? focusFrom(focusOn) : null), full });
-    trk.innerHTML = f.tracks;
+    const win = trailWindow(scrubT, scrubTrail, scrubWindow(a), focusOn ? focusFrom(focusOn) : null);
+    const f = scrubFrame(a, highlight, legSel, mapOpts(), { t: scrubT, win, full, trailMs: fadingTrailMs(scrubTrail) });
+    // The tracks layer is empty with a short trail (but a replay's or a card's), so it is only set when it changes;
+    // the fading trails reuse their paths (trailLayer.ts); never the map's full redraw.
+    if (f.tracks !== scrubTracks.get(trk)) {
+      trk.innerHTML = f.tracks;
+      scrubTracks.set(trk, f.tracks);
+    }
+    if (trails) paintTrails(trails, f.trails);
+    // A replay's over-the-line tracks, over the trails (only set when they change, as the tracks).
+    if (ocs && f.ocs !== scrubTracks.get(ocs)) {
+      ocs.innerHTML = f.ocs;
+      scrubTracks.set(ocs, f.ocs);
+    }
     dots.innerHTML = f.dots;
     scrubData = f;
   }

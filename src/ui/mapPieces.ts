@@ -9,11 +9,12 @@
  * worker (analysis/fullRate.ts) split at the same leg times.
  *
  * Also the boat's state at a moment (the scrubber's dots): linear between
- * fixes, none inside a gap (the map's gap rule, mapPoints.ts) beyond a short
- * hold, nor before the first fix or after the last.
+ * fixes; inside a gap (the map's gap rule, mapPoints.ts) held at the fix before
+ * it for up to MAP_HOLD_S, then none; none before the first fix or after the last.
  */
 import { vecBearing, type Vec } from '../analysis/geo';
 import { PRE_LEG, type BoatDrawing, type FullRateTrack } from '../analysis/types';
+import { BOAT_SHAPE_MIN_KN, boatStale } from './boatShape';
 import type { Box } from './view';
 
 /** A track the map can draw from: positions (east/north metres), fix times, SOG; roll when the source has it. */
@@ -211,10 +212,52 @@ export const pieceCount = (pieces: readonly MapPiece[]): number => pieces.reduce
 
 // ---- a boat at a moment ----------------------------------------------------------
 
-/** Inside a gap, the dot holds (hollow) at the last fix for this long, s; then it goes. */
-export const MAP_HOLD_S = 5;
+/**
+ * Inside a gap, the boat holds at its last fix for this long, s (hollow once the fix is stale: boatShape.ts
+ * boatStale), then it goes: as long as the trail behind it, so a tracker that died is off the map once its trail is.
+ */
+export const MAP_HOLD_S = 120;
 /** Fixes this close (m) give no course over ground. */
 const COG_MIN_M = 0.5;
+
+const headCache = new WeakMap<SrcTrack, { gapMs: number; idx: Int32Array }>();
+/**
+ * Per fix of `src`: the index b of the latest step (b − 1 → b) at or before it that gives a heading (no gap, at least
+ * COG_MIN_M long, BOAT_SHAPE_MIN_KN or more at either end); −1: none yet. Worked out once per source.
+ */
+function headingIdx(src: SrcTrack, gapMs: number): Int32Array {
+  const hit = headCache.get(src);
+  if (hit && hit.gapMs === gapMs) return hit.idx;
+  const { t, x, y, sog } = src;
+  const idx = new Int32Array(t.length).fill(-1);
+  for (let i = 1; i < t.length; i++) {
+    const ok = t[i] - t[i - 1] <= gapMs && Math.hypot(x[i] - x[i - 1], y[i] - y[i - 1]) >= COG_MIN_M && Math.max(sog[i - 1], sog[i]) >= BOAT_SHAPE_MIN_KN;
+    idx[i] = ok ? i : idx[i - 1];
+  }
+  headCache.set(src, { gapMs, idx });
+  return idx;
+}
+
+/**
+ * The last heading boat track `ranges` (its leg ranges in time order) gave at or before `t`, as a unit direction in
+ * map coordinates; null: none yet (no step moving at BOAT_SHAPE_MIN_KN or more). The hull keeps it while the boat is
+ * held in a gap, slow, or has no course this step.
+ */
+export function lastHeadingAt(ranges: readonly LegRange[], t: number, gapMs: number, twd: number): Vec | null {
+  for (let ri = ranges.length - 1; ri >= 0; ri--) {
+    const r = ranges[ri];
+    if (r.hi <= r.lo || t < r.src.t[r.lo]) continue;
+    const j = Math.min(upperBound(r.src.t, t, r.lo, r.hi), r.hi) - 1;
+    const b = headingIdx(r.src, gapMs)[j];
+    if (b < 1) continue;
+    const rot = rotTrack(twd, r.src);
+    const dx = rot.x[b] - rot.x[b - 1];
+    const dy = rot.y[b] - rot.y[b - 1];
+    const l = Math.hypot(dx, dy);
+    if (l > 0) return [dx / l, dy / l];
+  }
+  return null;
+}
 
 /** A boat's interpolated state at time `t`. */
 export interface BoatAt {
@@ -232,10 +275,14 @@ export interface BoatAt {
   /** The direction of travel in map coordinates (unit), or null. */
   dir: Vec | null;
   roll: number;
-  /** In a gap, within MAP_HOLD_S of the fix before it: shown there, hollow. */
+  /** In a gap (or past its final fix, before its finish), within MAP_HOLD_S of the fix before it: shown there (hollow once `stale`). */
   hold: boolean;
   /** Holding: that fix's time. */
   lastFix?: number;
+  /** Holding and that fix is stale (boatShape.ts boatStale): drawn hollow. */
+  stale: boolean;
+  /** The last heading known at or before `t` (lastHeadingAt), where the hull needs it: held, slow or no course; else omitted. */
+  lastDir?: Vec | null;
 }
 
 const lerp = (a: number, b: number, f: number): number => a + (b - a) * f;
@@ -247,22 +294,35 @@ const lerpRoll = (a: number | undefined, b: number | undefined, f: number): numb
 };
 
 /**
+ * Until when a boat finishing at `finishMs` (null: no finish) is held past its final fix (boatAt's `endHold`):
+ * before its finish. A track that ends at or after the finish is a finished boat, not a lost tracker: not held.
+ */
+export const endHoldBefore = (finishMs: number | null | undefined): number => finishMs ?? Infinity;
+
+/**
  * Where boat `id`'s track (its leg ranges, in time order) has it at `t`: linear between the fixes either
  * side; at a fix, that fix; none when the step there is a gap (> gapMs) past MAP_HOLD_S, or outside the track.
- * Later ranges win at a shared fix (the first beat at the gun, not the pre-start stretch that ends there).
+ * Past its final fix (its tracker stopped), held there as in a gap for up to MAP_HOLD_S, but only before
+ * `endHold` (endHoldBefore; -Infinity, the default: never). Later ranges win at a shared fix (the first beat at
+ * the gun, not the pre-start stretch that ends there).
  */
-export function boatAt(id: string, ranges: readonly LegRange[], t: number, gapMs: number, twd: number): BoatAt | null {
+export function boatAt(id: string, ranges: readonly LegRange[], t: number, gapMs: number, twd: number, endHold = -Infinity): BoatAt | null {
+  let final = true;
   for (let ri = ranges.length - 1; ri >= 0; ri--) {
     const r = ranges[ri];
     const tt = r.src.t;
-    if (r.hi <= r.lo || t < tt[r.lo] || t > tt[r.hi - 1]) continue;
+    if (r.hi <= r.lo) continue;
+    const end = tt[r.hi - 1];
+    const after = final && t > end && t < endHold && t - end <= MAP_HOLD_S * 1000;
+    final = false;
+    if (t < tt[r.lo] || (t > end && !after)) continue;
     const j = upperBound(tt, t, r.lo, r.hi) - 1;
     const k = Math.min(j + 1, r.hi - 1);
     const s = r.src;
     const rot = rotTrack(twd, s);
     const step = tt[k] - tt[j];
-    const exact = tt[j] === t || k === j;
-    let hold = false;
+    const exact = after || tt[j] === t || k === j;
+    let hold = after;
     let f = 0;
     if (!exact) {
       if (step > gapMs) {
@@ -278,6 +338,8 @@ export function boatAt(id: string, ranges: readonly LegRange[], t: number, gapMs
     const mdx = rot.x[b] - rot.x[a];
     const mdy = rot.y[b] - rot.y[a];
     const ml = Math.hypot(mdx, mdy);
+    const dir: Vec | null = moving && ml > 0 ? [mdx / ml, mdy / ml] : null;
+    const sog = lerp(s.sog[j], s.sog[k], f);
     return {
       id,
       t,
@@ -286,12 +348,14 @@ export function boatAt(id: string, ranges: readonly LegRange[], t: number, gapMs
       y: lerp(s.y[j], s.y[k], f),
       mx: lerp(rot.x[j], rot.x[k], f),
       my: lerp(rot.y[j], rot.y[k], f),
-      sog: lerp(s.sog[j], s.sog[k], f),
+      sog,
       cog: moving ? vecBearing([dx, dy]) : NaN,
-      dir: moving && ml > 0 ? [mdx / ml, mdy / ml] : null,
+      dir,
       roll: lerpRoll(s.roll?.[j], s.roll?.[k], f),
       hold,
       ...(hold ? { lastFix: tt[j] } : {}),
+      stale: boatStale(hold, tt[j], t, gapMs),
+      ...(hold || !dir || !(sog >= BOAT_SHAPE_MIN_KN) ? { lastDir: lastHeadingAt(ranges, t, gapMs, twd) } : {}),
     };
   }
   return null;

@@ -9,11 +9,11 @@ import type { Vec } from '../analysis/geo';
 import { awayFromLineThresholdM, lineBias } from '../analysis/line';
 import { PRE_LEG, type BoatDrawing, type BoatResult, type ExcludedBoat, type RaceAnalysis, type TrackSegment } from '../analysis/types';
 import { matchClass, type ClassDims } from '../data/classes';
-import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatShapeOr, HULL_LABEL_GAP_PX, hullLabelBox, hullOutline, hullPathAt, hullPathD } from './boatShape';
+import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, HULL_LABEL_GAP_PX, hullLabelBox, hullOutline, hullPathAt, hullPathD } from './boatShape';
 import { esc, f1, f2 } from './format';
 import { placeLabels, textWidth, type LabelReq, type Rect, type StartNames } from './labels';
 import { MAP_GAP_S, drawingGapMs, mapPoints, mapPointsOf, type MapPoints } from './mapPoints';
-import { drawingPieces, rotTrack, rotator, legRanges, boatAt, type BoatAt, type FullRateSet, type MapPiece, type PieceOptions } from './mapPieces';
+import { drawingPieces, rotTrack, rotator, legRanges, boatAt, endHoldBefore, timeRange, type BoatAt, type FullRateSet, type MapPiece, type PieceOptions } from './mapPieces';
 import {
   addSogTrack,
   emptySogPaths,
@@ -35,6 +35,7 @@ import { FAV_GAP_PX, favouredTexts, lineBiasSvg } from './startLine';
 import { FOLLOW_COURSE_S, type FollowInput } from './follow';
 import { ocsStretch, ocsSvg } from './ocsStyle';
 import { replayLabel } from './replay';
+import { trailPaths, type TrailStretch } from './trail';
 import type { StartReplay } from '../analysis/startReplay';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
 
@@ -579,8 +580,9 @@ export interface TrackMapOptions {
   /** Full-rate tracks to draw from instead of the ~1 Hz segments (zoomed in tight: mapPieces.ts useFullRate). */
   full?: FullRateSet | null;
   /**
-   * Scrubbing: draw the static map only (lines, marks, wind, scale) with two empty layers for
-   * the trails and the boats (`g.scrub-trk`, `g.scrub-dots`), filled each frame from `scrubFrame`.
+   * Scrubbing: draw the static map only (lines, marks, wind, scale) with four empty layers for the tracks, the
+   * boats' fading trails, a replay's over-the-line tracks (over the trails) and the boats (`g.scrub-trk`,
+   * `g.scrub-trails`, `g.scrub-ocs`, `g.scrub-dots`), filled each frame from `scrubFrame`.
    */
   scrub?: boolean;
   /**
@@ -961,12 +963,12 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   const label =
     leg == null
       ? speed
-        ? `Tracks colored by speed, ${speed.overall ? 'race time' : 'rank on each leg'}: yellow and boldest fastest`
+        ? `Race Viewer, tracks colored by speed, ${speed.overall ? 'race time' : 'rank on each leg'}: yellow and boldest fastest`
         : sogLabel
-          ? `Tracks ${sogLabel}`
-          : 'Tracks colored by leg'
-      : `Tracks on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', colored by speed on the leg: yellow and boldest fastest' : sogLabel ? `, ${sogLabel}` : ''}`;
-  const tracks = layer ? `${layer.gaps}${layer.paths}${layer.hi}` : '<g class="scrub-trk"></g>';
+          ? `Race Viewer, tracks ${sogLabel}`
+          : 'Race Viewer, tracks colored by leg'
+      : `Race Viewer on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', tracks colored by speed on the leg: yellow and boldest fastest' : sogLabel ? `, tracks ${sogLabel}` : ''}`;
+  const tracks = layer ? `${layer.gaps}${layer.paths}${layer.hi}` : '<g class="scrub-trk"></g><g class="scrub-trails"></g><g class="scrub-ocs"></g>';
   const top = layer ? layer.labels : '<g class="scrub-dots"></g>';
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map${opts.scrub ? ' scrub' : ''}" role="img" aria-label="${esc(opts.scrub ? `${label}; boats at the scrubber's time` : label)}">
     ${tracks}
@@ -976,27 +978,51 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
 
 // ---- race-time scrubber (Map B) ---------------------------------------------------
 
-/** The scrubber's moment: time `t`, the trail drawn ([t − trail, t]), and full-rate tracks when zoomed in tight. */
+/**
+ * The scrubber's moment: time `t`, the trail drawn ([t − trail, t]), and full-rate tracks when zoomed in tight.
+ * `trailMs` (a short trail: 30 s, or the default BOAT_TRAIL_MS): each boat's own fading trail of that length
+ * (ui/trail.ts) instead of the map's tracks over `win`; null (All, a card's window): the tracks.
+ */
 export interface ScrubAt {
   t: number;
   win: [number, number];
   full?: FullRateSet | null;
+  trailMs?: number | null;
 }
 
-/** One scrubber frame: the trails (into `g.scrub-trk`), the boats and labels (into `g.scrub-dots`), and what they were drawn from. */
+/** One boat's fading trail: path data per fade slice (ui/trail.ts TRAIL_FADE), its color (`cd`: by night), class and width (map units). */
+export interface BoatTrail {
+  id: string;
+  stroke: string;
+  cd?: string;
+  cls: string;
+  w: number;
+  d: string[];
+}
+
+/**
+ * One scrubber frame: the tracks (into `g.scrub-trk`), the boats' fading trails (into `g.scrub-trails`, by
+ * ui/trailLayer.ts, which reuses their paths), a replay's over-the-line tracks (into `g.scrub-ocs`, over the
+ * trails), the boats and labels (into `g.scrub-dots`), and what they were drawn from.
+ */
 export interface ScrubFrame {
   tracks: string;
+  trails: BoatTrail[];
+  ocs: string;
   dots: string;
   pieces: MapPiece[];
   boats: BoatAt[];
 }
+
+/** Until when boat `id` is held past its final fix (mapPieces.ts endHoldBefore): before its finish, if it has one. */
+const endHoldOf = (a: RaceAnalysis, id: string): number => endHoldBefore(a.boats.find((b) => b.id === id)?.finishMs);
 
 /** Every drawn boat (and a picked one not racing) at time `t`: mapPieces.ts boatAt, from the full-rate track when there is one. */
 export function boatsAt(a: RaceAnalysis, highlight: string | null, t: number, full?: FullRateSet | null): BoatAt[] {
   const nc = pickedExcluded(a, highlight);
   const out: BoatAt[] = [];
   for (const d of nc ? [...a.drawings, nc.drawing] : a.drawings) {
-    const b = boatAt(d.id, legRanges(d, true, full?.get(d.id)), t, drawingGapMs(d), a.wind.twdAtGunDeg);
+    const b = boatAt(d.id, legRanges(d, true, full?.get(d.id)), t, drawingGapMs(d), a.wind.twdAtGunDeg, endHoldOf(a, d.id));
     if (b) out.push(b);
   }
   return out;
@@ -1013,7 +1039,8 @@ export function mapFollowInput(a: RaceAnalysis, id: string, t: number, full?: Fu
   if (!d) return null;
   const ranges = legRanges(d, true, full?.get(d.id));
   const twd = a.wind.twdAtGunDeg;
-  const at = (ms: number): BoatAt | null => boatAt(d.id, ranges, ms, drawingGapMs(d), twd);
+  const endHold = endHoldOf(a, d.id);
+  const at = (ms: number): BoatAt | null => boatAt(d.id, ranges, ms, drawingGapMs(d), twd, endHold);
   const now = at(t);
   if (!now) return null;
   const dirs: (Vec | null)[] = [];
@@ -1045,9 +1072,10 @@ function dotColour(a: RaceAnalysis, b: BoatAt, leg: number | null, opts: TrackMa
 
 /**
  * The boats at the scrubber's time: coloured as the map is (the leg the boat is on, its rank there, or its SOG),
- * each the start chart's hull (ui/boatShape.ts: to scale or a fixed-size symbol, along its course over ground) where it can be,
- * else a dot with a short tick along its course; a dot, hollow, while holding in a gap; the selected boat bigger,
- * on top and labelled (every boat labelled in a small fleet); boats off a leg shown, faint.
+ * each the start chart's hull (ui/boatShape.ts boatMark: to scale or a fixed-size symbol, along its course over
+ * ground, or its last heading known while held in a gap or slow) where it can be, else a dot with a short tick along
+ * its course; filled while its data is fresh, hollow (same color, a heavier outline) once it is lost; the selected
+ * boat bigger, on top and labelled (every boat labelled in a small fleet); boats off a leg shown, faint.
  */
 function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, opts: TrackMapOptions, boats: readonly BoatAt[], sc: MapScale): string {
   const { unit, k } = sc;
@@ -1066,20 +1094,22 @@ function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, 
     const cmp = !on && vs.has(b.id);
     const { c, cd } = dotColour(a, b, leg, opts, speed, highlight);
     const style = cd ? ` style="--cd:${cd}"` : '';
-    const shape = boatShapeOr({ dir: b.dir, hold: b.hold, sog: b.sog, dims, pxPerM: 1 / unit, minPx: on ? BOAT_SHAPE_ON_PX : BOAT_SHAPE_PX });
+    const shape = boatMark({ dir: b.dir, lastDir: b.lastDir, hold: b.hold, stale: b.stale, sog: b.sog, dims, pxPerM: 1 / unit, minPx: on ? BOAT_SHAPE_ON_PX : BOAT_SHAPE_PX });
+    const hollow = shape.hollow;
     // A hull's half-length, or the dot's radius: what the label and the comparison ring keep clear of.
     const r = 'shape' in shape ? Math.max(shape.dims.loaM / 2, (on ? 6 : 4.2) * unit) : (on ? 6 : 4.2) * unit;
-    const cls = ['dot', 'shape' in shape ? 'hull' : '', b.hold ? 'hold' : '', on ? 'on' : cmp ? 'vs' : highlight ? 'dim' : '', leg != null && b.leg !== leg ? 'off' : ''].filter(Boolean).join(' ');
+    const cls = ['dot', 'shape' in shape ? 'hull' : '', b.hold ? 'hold' : '', hollow ? 'lost' : '', on ? 'on' : cmp ? 'vs' : highlight ? 'dim' : '', leg != null && b.leg !== leg ? 'off' : ''].filter(Boolean).join(' ');
     const [x, y] = [b.mx.toFixed(1), b.my.toFixed(1)];
     const tick =
-      'dot' in shape && b.dir && !b.hold
+      'dot' in shape && b.dir && !b.hold && !hollow
         ? `<line class="dot-hdg" x1="${x}" y1="${y}" x2="${(b.mx + b.dir[0] * (r + 6 * unit)).toFixed(1)}" y2="${(b.my + b.dir[1] * (r + 6 * unit)).toFixed(1)}" stroke-width="${((on ? 2 : 1.4) * k).toFixed(2)}"/>`
         : '';
-    const fill = b.hold ? `fill="var(--surface)" stroke="${c}"${style}` : `fill="${c}"${style}`;
+    // Hollow: the outline in the boat's color (`--c`, and `--cd` by night: style.css), a little heavier so it reads.
+    const fill = hollow ? `fill="var(--surface)" style="--c:${c}${cd ? `;--cd:${cd}` : ''}"` : `fill="${c}"${style}`;
     const ring =
       'shape' in shape
-        ? `<path class="${cls}" data-id="${esc(b.id)}" d="${hullPathAt([b.mx, b.my], shape.shape, shape.dims)}" ${fill} stroke-width="${((on ? 1.4 : 0.8) * k).toFixed(2)}"/>`
-        : `<circle class="${cls}" data-id="${esc(b.id)}" cx="${x}" cy="${y}" r="${r.toFixed(2)}" ${fill} stroke-width="${((on ? 1.8 : 1) * k).toFixed(2)}"/>`;
+        ? `<path class="${cls}" data-id="${esc(b.id)}" d="${hullPathAt([b.mx, b.my], shape.shape, shape.dims)}" ${fill} stroke-width="${((hollow ? (on ? 2.2 : 1.5) : on ? 1.4 : 0.8) * k).toFixed(2)}"/>`
+        : `<circle class="${cls}" data-id="${esc(b.id)}" cx="${x}" cy="${y}" r="${r.toFixed(2)}" ${fill} stroke-width="${((hollow ? (on ? 2.2 : 1.6) : on ? 1.8 : 1) * k).toFixed(2)}"/>`;
     const vsRing = cmp ? `<circle class="dot-vs" cx="${x}" cy="${y}" r="${(r + 2.6 * unit).toFixed(2)}" stroke-width="${(1.6 * k).toFixed(2)}"/>` : '';
     const who = byId.get(b.id);
     const sail = who ? who.sail : b.id;
@@ -1099,19 +1129,82 @@ function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, 
   return out.join('') + vsOut.join('') + sel;
 }
 
-/** One scrubber frame for time `s.t`: the trails over `s.win` (pre-gun track included) and the boats there. */
+/**
+ * One scrubber frame for time `s.t`: the boats there, and behind them either their fading trails (`s.trailMs`) or
+ * the map's tracks over `s.win` (pre-gun track included).
+ */
 export function scrubFrame(a: RaceAnalysis, highlight: string | null, leg: number | null, opts: TrackMapOptions, s: ScrubAt): ScrubFrame {
   const { view: box, k: zoom } = trackMapView(a, leg, opts.view);
   const sc = mapScale(box);
-  const layer = trackLayer(a, highlight, leg, opts, { leg, win: s.win, clip: mapClip(box, zoom), pre: true, full: s.full }, sc);
+  const clip = mapClip(box, zoom);
+  const po: PieceOptions = { leg, win: s.win, clip, pre: true, full: s.full };
+  const layer = s.trailMs ? null : trackLayer(a, highlight, leg, opts, po, sc);
   const boats = boatsAt(a, highlight, s.t, s.full);
   const r = opts.replay && opts.replay.boat === highlight && leg == null ? replaySvg(a, opts.replay, s, sc) : null;
+  // Short trails: the pieces over the window too (the point details and a card's comparison casing read them).
+  const nc = pickedExcluded(a, highlight);
+  const pieces = layer ? layer.pieces : (nc ? [...a.drawings, nc.drawing] : a.drawings).flatMap((d) => drawingPieces(a.wind.twdAtGunDeg, d, po));
+  const tracks = layer ? `${layer.gaps}${vsCasing(a, pieces, opts.vs, highlight, sc)}${layer.paths}${layer.hi}` : vsCasing(a, pieces, opts.vs, highlight, sc);
   return {
-    tracks: `${layer.gaps}${vsCasing(a, layer.pieces, opts.vs, highlight, sc)}${layer.paths}${layer.hi}${r?.tracks ?? ''}`,
-    dots: (r?.marks ?? '') + layer.labels + dotsSvg(a, highlight, leg, opts, boats, sc) + (r?.label ?? ''),
-    pieces: layer.pieces,
+    tracks,
+    ocs: r?.tracks ?? '',
+    trails: s.trailMs ? boatTrails(a, highlight, leg, opts, boats, s.t, s.trailMs, s.full, clip, sc) : [],
+    dots: (r?.marks ?? '') + (layer?.labels ?? '') + dotsSvg(a, highlight, leg, opts, boats, sc) + (r?.label ?? ''),
+    pieces,
     boats,
   };
+}
+
+/**
+ * Each placed boat's fading trail over the last `lenMs` before `t` (ui/trail.ts): in the boat's color now (as its
+ * hull: leg, rank or SOG, a picked boat not racing grey), dimmed with it when another boat is selected and faint
+ * off the leg shown; broken at its gaps (the map's rule, mapPoints.ts drawingGapMs); from the full-rate track when
+ * zoomed in tight; near `clip` only. The comparison boats over the rest, the selected boat last (on top).
+ */
+function boatTrails(
+  a: RaceAnalysis,
+  highlight: string | null,
+  leg: number | null,
+  opts: TrackMapOptions,
+  boats: readonly BoatAt[],
+  t: number,
+  lenMs: number,
+  full: FullRateSet | null | undefined,
+  clip: Box | null,
+  sc: MapScale,
+): BoatTrail[] {
+  const twd = a.wind.twdAtGunDeg;
+  const speed = opts.colour === 'rank' ? speedRanking(a, leg, opts.rankBy ?? 'leg') : null;
+  const nc = pickedExcluded(a, highlight);
+  const byId = new Map((nc ? [...a.drawings, nc.drawing] : a.drawings).map((d) => [d.id, d]));
+  const vs = new Set(opts.vs ?? []);
+  const out: BoatTrail[] = [];
+  const vsOut: BoatTrail[] = [];
+  let sel: BoatTrail | null = null;
+  for (const b of boats) {
+    const d = byId.get(b.id);
+    if (!d) continue;
+    const stretches: TrailStretch[] = [];
+    for (const r of legRanges(d, leg == null, full?.get(d.id))) {
+      if (leg != null && r.leg !== leg) continue;
+      const [i0, i1] = timeRange(r.src.t, t - lenMs, t, r.lo, r.hi);
+      if (i1 <= i0) continue;
+      const { x, y } = rotTrack(twd, r.src);
+      stretches.push({ t: r.src.t, x, y, i0, i1 });
+    }
+    // The trail runs up to the boat (not while it is held at its last fix, nor from another leg than the one shown).
+    const head: Vec | null = !b.hold && (leg == null || b.leg === leg) ? [b.mx, b.my] : null;
+    const paths = trailPaths(stretches, t, lenMs, drawingGapMs(d), head, clip);
+    if (!paths.some(Boolean)) continue;
+    const on = highlight === b.id;
+    const cmp = !on && vs.has(b.id);
+    const { c, cd } = dotColour(a, b, leg, opts, speed, highlight);
+    const cls = ['btrail', on ? 'on' : cmp ? 'vs' : highlight ? 'dim' : '', leg != null && b.leg !== leg ? 'off' : ''].filter(Boolean).join(' ');
+    const tr: BoatTrail = { id: b.id, stroke: c, ...(cd ? { cd } : {}), cls, w: +((on ? 2.6 : 1.6) * sc.k).toFixed(2), d: paths };
+    if (on) sel = tr;
+    else (cmp ? vsOut : out).push(tr);
+  }
+  return [...out, ...vsOut, ...(sel ? [sel] : [])];
 }
 
 /** The comparison boats' trails (Map D): an ink casing under their own lines, from the pieces the frame drew; broken at gaps as they are. */

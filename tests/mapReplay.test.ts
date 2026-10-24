@@ -22,7 +22,7 @@ import {
   replayWindow,
   startReplayLinks,
 } from '../src/ui/replay';
-import { T_PARAM, TRAIL_PARAM, parseTParam, parseTrail, scrubWindow, trailWindow } from '../src/ui/scrub';
+import { T_PARAM, TRAIL_PARAM, fadingTrailMs, parseTParam, parseTrail, scrubWindow, trailWindow } from '../src/ui/scrub';
 import { viewBox } from '../src/ui/view';
 import { ic37Race } from './helpers';
 
@@ -205,8 +205,8 @@ describe('IC37 R5: the replay drawn while scrubbing', () => {
     it(`${sail}: at recrossed + 5 s, over the line, the dip back, both markers and the label`, () => {
       const r = rep(sail);
       const f = frameAt(r, r.clearedMs! + 5000);
-      expect(f.tracks).toContain('class="ocs-over"');
-      expect(f.tracks).toContain('class="ocs-dip"');
+      expect(f.ocs).toContain('class="ocs-over"');
+      expect(f.ocs).toContain('class="ocs-dip"');
       expect(f.dots).toContain('class="ocs-mark back"');
       expect(f.dots).toContain('class="ocs-mark clear"');
       expect(f.dots).toContain(`>${replayLabel(r)}</text>`);
@@ -217,8 +217,8 @@ describe('IC37 R5: the replay drawn while scrubbing', () => {
     it(`${sail}: before its first crossing (gun − 10 s), neither stretch nor marker`, () => {
       const r = rep(sail);
       const f = frameAt(r, gun - 10_000);
-      expect(f.tracks).not.toContain('ocs-over');
-      expect(f.tracks).not.toContain('ocs-dip');
+      expect(f.ocs).not.toContain('ocs-over');
+      expect(f.ocs).not.toContain('ocs-dip');
       expect(f.dots).not.toContain('ocs-mark');
       // The label is there throughout the replay.
       expect(f.dots).toContain('class="ocs-lbl"');
@@ -228,11 +228,11 @@ describe('IC37 R5: the replay drawn while scrubbing', () => {
   it('draws only up to t: over the line but not yet the dip while still over', () => {
     const r = rep('USA 019');
     const f = frameAt(r, r.wentBackMs! - 2000);
-    expect(f.tracks).toContain('ocs-over');
-    expect(f.tracks).not.toContain('ocs-dip');
+    expect(f.ocs).toContain('ocs-over');
+    expect(f.ocs).not.toContain('ocs-dip');
     expect(f.dots).not.toContain('ocs-mark');
     const g = frameAt(r, (r.wentBackMs! + r.clearedMs!) / 2);
-    expect(g.tracks).toContain('ocs-dip');
+    expect(g.ocs).toContain('ocs-dip');
     expect(g.dots).toContain('ocs-mark back');
     expect(g.dots).not.toContain('ocs-mark clear');
   });
@@ -242,7 +242,7 @@ describe('IC37 R5: the replay drawn while scrubbing', () => {
     const f = frameAt(r, r.clearedMs! + 5000);
     // Its fixes between the ends are the drawn track's own (pre-gun track, then Leg 1).
     const drawn = fixesOf(legRanges(a.drawings.find((x) => x.id === r.boat)!, true));
-    const inner = overPts(f.tracks).slice(1, -1);
+    const inner = overPts(f.ocs).slice(1, -1);
     expect(inner.length).toBeGreaterThan(5);
     for (const p of inner) expect(drawn.has(p)).toBe(true);
   });
@@ -267,9 +267,9 @@ describe('IC37 R5: the replay drawn while scrubbing', () => {
     };
     const full: FullRateSet = new Map([[r.boat, tk]]);
     const f = frameAt(r, r.clearedMs! + 5000, r, full);
-    expect(f.tracks).toContain('ocs-dip');
+    expect(f.ocs).toContain('ocs-dip');
     const drawn = fixesOf(legRanges(d, true, tk));
-    const inner = overPts(f.tracks).slice(1, -1);
+    const inner = overPts(f.ocs).slice(1, -1);
     // ≈ 14 s over at 5 Hz.
     expect(inner.length).toBeGreaterThan(50);
     for (const p of inner) expect(drawn.has(p)).toBe(true);
@@ -279,10 +279,26 @@ describe('IC37 R5: the replay drawn while scrubbing', () => {
     const r = rep('USA 019');
     const t = r.clearedMs! + 5000;
     const win = trailWindow(t, 'all', w);
-    expect(scrubFrame(a, idOf('USA 017'), null, { replay: r }, { t, win }).tracks).not.toContain('ocs-');
-    expect(scrubFrame(a, r.boat, 0, { replay: r }, { t, win }).tracks).not.toContain('ocs-');
-    expect(frameAt(r, t, null).tracks).not.toContain('ocs-');
+    expect(scrubFrame(a, idOf('USA 017'), null, { replay: r }, { t, win }).ocs).not.toContain('ocs-');
+    expect(scrubFrame(a, r.boat, 0, { replay: r }, { t, win }).ocs).not.toContain('ocs-');
+    expect(frameAt(r, t, null).ocs).not.toContain('ocs-');
     // The full-race map is never styled.
     expect(trackMap(a, r.boat, null, { replay: r })).not.toContain('ocs-');
+  });
+
+  it('the over-the-line overlay has its own layer over the fading trails (Trail 30 s or 2 min during a replay)', () => {
+    // Layer order in the scrubbing map: tracks, trails, the replay's overlay, then the boats.
+    const svg = trackMap(a, null, null, { scrub: true });
+    const at = ['<g class="scrub-trk">', '<g class="scrub-trails">', '<g class="scrub-ocs">', '<g class="scrub-dots">'].map((s) => svg.indexOf(s));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((x, y) => x - y)).toEqual(at);
+    const r = rep('USA 019');
+    const t = r.clearedMs! + 5000;
+    for (const trail of ['30', '120'] as const) {
+      const f = scrubFrame(a, r.boat, null, { replay: r }, { t, win: trailWindow(t, trail, w), trailMs: fadingTrailMs(trail) });
+      expect(f.trails.length).toBeGreaterThan(0);
+      expect(f.ocs).toContain('class="ocs-over"');
+      expect(f.tracks).not.toContain('ocs-');
+    }
   });
 });
