@@ -4,7 +4,7 @@ import { groupIds } from '../src/analysis/coach/groups';
 import type { Vec } from '../src/analysis/geo';
 import { startReplays, type StartReplay } from '../src/analysis/startReplay';
 import { PRE_LEG, type BoatDrawing, type RaceAnalysis, type TrackSegment } from '../src/analysis/types';
-import { legRanges } from '../src/ui/mapPieces';
+import { endHoldBefore, legRanges } from '../src/ui/mapPieces';
 import { drawingGapMs } from '../src/ui/mapPoints';
 import {
   LANE_END_S,
@@ -94,6 +94,8 @@ function drawing(id: string, tr: { t: number[]; x: number[]; y: number[] }): Boa
 interface BoatSpec {
   id: string;
   tr?: { t: number[]; x: number[]; y: number[] };
+  /** Its finish, s from the gun (none: no finish). */
+  finishS?: number;
 }
 
 function race(boats: BoatSpec[], twd = 0, method: 'tacks' | 'model' | 'course' = 'tacks', mark: Vec = [0, 1000], line: [Vec, Vec] = [[-100, 0], [100, 0]]): RaceAnalysis {
@@ -104,7 +106,7 @@ function race(boats: BoatSpec[], twd = 0, method: 'tacks' | 'model' | 'course' =
     legs: [{ index: 0, name: 'Beat 1', kind: 'upwind', to: 'Mark 1' }],
     marks: [{ name: 'Mark 1', xy: [mark] }],
     wind: { method, estimates: [], twdAtGunDeg: twd, model: null },
-    boats: boats.map((b, i) => ({ id: b.id, sail: b.id, colorSlot: i, finishPos: i + 1, legs: [] })),
+    boats: boats.map((b, i) => ({ id: b.id, sail: b.id, colorSlot: i, finishPos: i + 1, finishMs: b.finishS == null ? null : sec(b.finishS), legs: [] })),
     drawings: boats.filter((b) => b.tr).map((b) => drawing(b.id, b.tr!)),
   } as unknown as RaceAnalysis;
 }
@@ -781,6 +783,7 @@ describe('around the gun: positions and trails on the 1 s grid', () => {
     { id: 'Gap', tr: track(60, -120, -120, 200, [[40, 80]]) },
     { id: 'Short', tr: track(30, -110, -120, 200, [[99, 101]]) },
     { id: 'Ends', tr: track(-30, -150, -120, 150) },
+    { id: 'Done', tr: track(-60, -150, -120, 150), finishS: 150 },
     { id: 'Ghost' },
   ]);
   const L = laneScrub(a, { me: 'Gap' });
@@ -788,7 +791,7 @@ describe('around the gun: positions and trails on the 1 s grid', () => {
   it('every second’s position is the existing lookup (placeAt: the scrubber’s, near-fix and gap rules)', () => {
     for (const d of a.drawings) {
       for (let s = LANE_START_S; s <= LANE_END_S; s++) {
-        const at = placeAt(d.id, legRanges(d, true), sec(s), drawingGapMs(d), 0);
+        const at = placeAt(d.id, legRanges(d, true), sec(s), drawingGapMs(d), 0, endHoldBefore(a.boats.find((b) => b.id === d.id)!.finishMs));
         const b = boatIn(L.frame(s), d.id);
         if (!at) expect(b.pos, `${d.id} +${s} s`).toBeNull();
         else {
@@ -826,10 +829,18 @@ describe('around the gun: positions and trails on the 1 s grid', () => {
     expect(gap(80).stale).toBe(false);
     // A 2 s step is no gap: interpolated.
     near(boatIn(L.frame(100), 'Short').pos, [30, -(-110 + 2 * 100)]);
-    // After its track ends (+2:30): placed at its last fix for up to 1 s, then gone, the trail kept to its end.
-    near(boatIn(L.frame(151), 'Ends').pos, [-30, -(-150 + 2 * 150)]);
-    expect(boatIn(L.frame(152), 'Ends').pos).toBeNull();
-    near(boatIn(L.frame(170), 'Ends').trail.at(-1)!.at(-1)!, [-30, -(-150 + 2 * 150)]);
+    // Its tracker stops at +2:30 with no finish: held at its last fix as in a gap (filled, then hollow), the trail kept to its end.
+    const ends = (s: number) => boatIn(L.frame(s), 'Ends');
+    for (const s of [151, 153]) expect([ends(s).hold, ends(s).stale]).toEqual([true, false]);
+    for (const s of [154, 170, 180]) {
+      near(ends(s).pos, [-30, -(-150 + 2 * 150)]);
+      expect([ends(s).hold, ends(s).stale]).toEqual([true, true]);
+    }
+    near(ends(170).trail.at(-1)!.at(-1)!, [-30, -(-150 + 2 * 150)]);
+    // The same track ending at its finish: finished, not lost; at its last fix for up to 1 s (the near-fix rule), then gone.
+    near(boatIn(L.frame(151), 'Done').pos, [-60, -(-150 + 2 * 150)]);
+    expect(boatIn(L.frame(151), 'Done').hold).toBe(false);
+    expect(boatIn(L.frame(152), 'Done').pos).toBeNull();
     expect(boatIn(L.frame(90), 'Ghost').pos).toBeNull();
   });
 });

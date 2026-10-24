@@ -210,8 +210,12 @@ describe('the landing page (index.html #landing)', () => {
     expect(landingText).toContain('Around the gun');
     expect(landingText).toContain('Drag the slider from a minute and a half before the gun to three minutes after, or press play');
     expect(landingText).toContain('Zoom in for a closer look.');
-    // Hulls only where the data allows (dots otherwise), and the whole over-early styling.
-    expect(landingText).toContain('Where the data allows, a boat is drawn as a hull pointing along its course; it stays a dot when');
+    // Hulls along the course (the last heading when slow), hollow when the tracker drops out, dots only without a
+    // heading or when too small; and the whole over-early styling.
+    expect(landingText).toContain('Each boat is drawn as a hull pointing along its course, or along its last heading when it slows right down.');
+    expect(landingText).toContain('If its tracker drops out, the hull turns hollow until its data is back.');
+    expect(landingText).toContain('A boat is only a dot before its heading is known, or when it is too small to show at the current zoom.');
+    expect(landingText).not.toMatch(/dot when[^.]*(tracker gap|very slow)/);
     expect(landingText).not.toContain('each boat drawn as a hull');
     expect(landingText).toContain('a red track while over, a dashed track going back, and markers where it went back and cleared');
     expect(landingText).not.toContain('get a ring');

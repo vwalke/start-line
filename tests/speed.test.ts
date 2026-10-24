@@ -423,7 +423,7 @@ describe('track map in Rank', () => {
     const rest = ps.filter((p) => !p.includes(' top'));
     expect(top.length).toBeGreaterThanOrEqual(3);
     expect(Math.min(...top.map(width))).toBeGreaterThan(Math.max(...rest.map(width)));
-    expect(svg).toContain('aria-label="Tracks on');
+    expect(svg).toMatch(/aria-label="Race Viewer on [^"]+, tracks colored by speed on the leg/);
   });
 
   it('draws boats that did not complete a leg grey, dashed and underneath', () => {

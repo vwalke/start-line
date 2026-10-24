@@ -65,7 +65,11 @@ describe('Race Viewer: the legend selects a leg', () => {
     const svg = trackMap(a, null, 2);
     expect(legsIn(svg)).toEqual(['2']);
     expect(svg.match(/<polyline class="trk/g)).toHaveLength(a.drawings.filter((d) => d.segments.some((s) => s.leg === 2 && s.x.length > 1)).length);
-    expect(svg).toContain('aria-label="Tracks on Beat 2"');
+    expect(svg).toContain('aria-label="Race Viewer on Beat 2"');
+    // Named for the Race Viewer and still saying how it is colored.
+    expect(trackMap(a, null)).toContain('aria-label="Race Viewer, tracks colored by leg"');
+    expect(trackMap(a, null, null, { scrub: true })).toContain('aria-label="Race Viewer, tracks colored by leg; boats at the scrubber&#39;s time"');
+    expect(trackMap(a, null)).not.toMatch(/aria-label="Tracks/);
   });
 
   it('fits the view to the selected leg’s segments and marks', () => {

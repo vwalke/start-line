@@ -560,6 +560,8 @@ svg .boat-at.dim { opacity: 0.35; }
 svg .btrail path { fill: none; stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
 svg .btrail.dim { opacity: 0.35; }
 svg .btrail.off { opacity: 0.4; }
+/* Both dimmed and off the leg: the two together (0.35 × 0.4), the faintest. */
+svg .btrail.dim.off { opacity: 0.14; }
 svg .dot { stroke: var(--ink); }
 /* Data lost (boatShape.ts boatStale): hollow, outlined in the boat's own color (`--c`). */
 svg .dot.lost { stroke: var(--c, var(--ink)); }

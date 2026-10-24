@@ -176,7 +176,7 @@ describe('#4 the drawn over stretch never runs on up the course', () => {
   const r0 = replays.find((x) => x.boat === U019)!;
   // USA 019 as if it never went back: its drawn track past the gun is drawn red only to gun + OVER_HORIZON_MS.
   const never: StartReplay = { ...r0, wentBackMs: null, clearedMs: null, over: [r0.firstCrossMs!, gun + OVER_HORIZON_MS] };
-  const over = (t: number): string => /class="ocs-over" points="([^"]+)"/.exec(scrubFrame(a, U019, null, { replay: never }, { t, win: trailWindow(t, 'all', w) }).tracks)![1];
+  const over = (t: number): string => /class="ocs-over" points="([^"]+)"/.exec(scrubFrame(a, U019, null, { replay: never }, { t, win: trailWindow(t, 'all', w) }).ocs)![1];
   it('the same stretch at gun + 4 min as just past the horizon', () => {
     expect(over(gun + 4 * 60_000)).toBe(over(gun + OVER_HORIZON_MS + 1));
     expect(over(gun + 30_000)).not.toBe(over(gun + OVER_HORIZON_MS + 1));

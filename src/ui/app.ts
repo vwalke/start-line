@@ -1392,6 +1392,7 @@ export function startApp(): void {
     const trk = svg?.querySelector('g.scrub-trk');
     const dots = svg?.querySelector('g.scrub-dots');
     const trails = svg?.querySelector('g.scrub-trails');
+    const ocs = svg?.querySelector('g.scrub-ocs');
     if (scrubT == null || !trk || !dots) return;
     // A boat selected (here or on another view): follow it, snapping to it once zoomed in.
     if (highlight !== mapFollowFor) {
@@ -1421,6 +1422,11 @@ export function startApp(): void {
       scrubTracks.set(trk, f.tracks);
     }
     if (trails) paintTrails(trails, f.trails);
+    // A replay's over-the-line tracks, over the trails (only set when they change, as the tracks).
+    if (ocs && f.ocs !== scrubTracks.get(ocs)) {
+      ocs.innerHTML = f.ocs;
+      scrubTracks.set(ocs, f.ocs);
+    }
     dots.innerHTML = f.dots;
     scrubData = f;
   }

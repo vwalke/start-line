@@ -13,7 +13,7 @@ import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, HULL_LABEL_GAP_PX, hullLabel
 import { esc, f1, f2 } from './format';
 import { placeLabels, textWidth, type LabelReq, type Rect, type StartNames } from './labels';
 import { MAP_GAP_S, drawingGapMs, mapPoints, mapPointsOf, type MapPoints } from './mapPoints';
-import { drawingPieces, rotTrack, rotator, legRanges, boatAt, timeRange, type BoatAt, type FullRateSet, type MapPiece, type PieceOptions } from './mapPieces';
+import { drawingPieces, rotTrack, rotator, legRanges, boatAt, endHoldBefore, timeRange, type BoatAt, type FullRateSet, type MapPiece, type PieceOptions } from './mapPieces';
 import {
   addSogTrack,
   emptySogPaths,
@@ -580,8 +580,9 @@ export interface TrackMapOptions {
   /** Full-rate tracks to draw from instead of the ~1 Hz segments (zoomed in tight: mapPieces.ts useFullRate). */
   full?: FullRateSet | null;
   /**
-   * Scrubbing: draw the static map only (lines, marks, wind, scale) with three empty layers for the tracks,
-   * the boats' fading trails and the boats (`g.scrub-trk`, `g.scrub-trails`, `g.scrub-dots`), filled each frame from `scrubFrame`.
+   * Scrubbing: draw the static map only (lines, marks, wind, scale) with four empty layers for the tracks, the
+   * boats' fading trails, a replay's over-the-line tracks (over the trails) and the boats (`g.scrub-trk`,
+   * `g.scrub-trails`, `g.scrub-ocs`, `g.scrub-dots`), filled each frame from `scrubFrame`.
    */
   scrub?: boolean;
   /**
@@ -962,12 +963,12 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   const label =
     leg == null
       ? speed
-        ? `Tracks colored by speed, ${speed.overall ? 'race time' : 'rank on each leg'}: yellow and boldest fastest`
+        ? `Race Viewer, tracks colored by speed, ${speed.overall ? 'race time' : 'rank on each leg'}: yellow and boldest fastest`
         : sogLabel
-          ? `Tracks ${sogLabel}`
-          : 'Tracks colored by leg'
-      : `Tracks on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', colored by speed on the leg: yellow and boldest fastest' : sogLabel ? `, ${sogLabel}` : ''}`;
-  const tracks = layer ? `${layer.gaps}${layer.paths}${layer.hi}` : '<g class="scrub-trk"></g><g class="scrub-trails"></g>';
+          ? `Race Viewer, tracks ${sogLabel}`
+          : 'Race Viewer, tracks colored by leg'
+      : `Race Viewer on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', tracks colored by speed on the leg: yellow and boldest fastest' : sogLabel ? `, tracks ${sogLabel}` : ''}`;
+  const tracks = layer ? `${layer.gaps}${layer.paths}${layer.hi}` : '<g class="scrub-trk"></g><g class="scrub-trails"></g><g class="scrub-ocs"></g>';
   const top = layer ? layer.labels : '<g class="scrub-dots"></g>';
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map${opts.scrub ? ' scrub' : ''}" role="img" aria-label="${esc(opts.scrub ? `${label}; boats at the scrubber's time` : label)}">
     ${tracks}
@@ -1001,22 +1002,27 @@ export interface BoatTrail {
 
 /**
  * One scrubber frame: the tracks (into `g.scrub-trk`), the boats' fading trails (into `g.scrub-trails`, by
- * ui/trailLayer.ts, which reuses their paths), the boats and labels (into `g.scrub-dots`), and what they were drawn from.
+ * ui/trailLayer.ts, which reuses their paths), a replay's over-the-line tracks (into `g.scrub-ocs`, over the
+ * trails), the boats and labels (into `g.scrub-dots`), and what they were drawn from.
  */
 export interface ScrubFrame {
   tracks: string;
   trails: BoatTrail[];
+  ocs: string;
   dots: string;
   pieces: MapPiece[];
   boats: BoatAt[];
 }
+
+/** Until when boat `id` is held past its final fix (mapPieces.ts endHoldBefore): before its finish, if it has one. */
+const endHoldOf = (a: RaceAnalysis, id: string): number => endHoldBefore(a.boats.find((b) => b.id === id)?.finishMs);
 
 /** Every drawn boat (and a picked one not racing) at time `t`: mapPieces.ts boatAt, from the full-rate track when there is one. */
 export function boatsAt(a: RaceAnalysis, highlight: string | null, t: number, full?: FullRateSet | null): BoatAt[] {
   const nc = pickedExcluded(a, highlight);
   const out: BoatAt[] = [];
   for (const d of nc ? [...a.drawings, nc.drawing] : a.drawings) {
-    const b = boatAt(d.id, legRanges(d, true, full?.get(d.id)), t, drawingGapMs(d), a.wind.twdAtGunDeg);
+    const b = boatAt(d.id, legRanges(d, true, full?.get(d.id)), t, drawingGapMs(d), a.wind.twdAtGunDeg, endHoldOf(a, d.id));
     if (b) out.push(b);
   }
   return out;
@@ -1033,7 +1039,8 @@ export function mapFollowInput(a: RaceAnalysis, id: string, t: number, full?: Fu
   if (!d) return null;
   const ranges = legRanges(d, true, full?.get(d.id));
   const twd = a.wind.twdAtGunDeg;
-  const at = (ms: number): BoatAt | null => boatAt(d.id, ranges, ms, drawingGapMs(d), twd);
+  const endHold = endHoldOf(a, d.id);
+  const at = (ms: number): BoatAt | null => boatAt(d.id, ranges, ms, drawingGapMs(d), twd, endHold);
   const now = at(t);
   if (!now) return null;
   const dirs: (Vec | null)[] = [];
@@ -1139,7 +1146,8 @@ export function scrubFrame(a: RaceAnalysis, highlight: string | null, leg: numbe
   const pieces = layer ? layer.pieces : (nc ? [...a.drawings, nc.drawing] : a.drawings).flatMap((d) => drawingPieces(a.wind.twdAtGunDeg, d, po));
   const tracks = layer ? `${layer.gaps}${vsCasing(a, pieces, opts.vs, highlight, sc)}${layer.paths}${layer.hi}` : vsCasing(a, pieces, opts.vs, highlight, sc);
   return {
-    tracks: tracks + (r?.tracks ?? ''),
+    tracks,
+    ocs: r?.tracks ?? '',
     trails: s.trailMs ? boatTrails(a, highlight, leg, opts, boats, s.t, s.trailMs, s.full, clip, sc) : [],
     dots: (r?.marks ?? '') + (layer?.labels ?? '') + dotsSvg(a, highlight, leg, opts, boats, sc) + (r?.label ?? ''),
     pieces,

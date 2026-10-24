@@ -175,7 +175,7 @@ describe('over early: one styling for the track map replay and Around the gun (I
     const want = ocsSvg(ocsStretch(r, legRanges(d, true), drawingGapMs(d), a.wind.twdAtGunDeg, t, win), { unit });
     expect(want.tracks).toContain('class="ocs-over"');
     expect(want.tracks).toContain('class="ocs-dip"');
-    expect(f.tracks).toContain(want.tracks);
+    expect(f.ocs).toBe(want.tracks);
     expect(f.dots).toContain(want.marks);
   });
 

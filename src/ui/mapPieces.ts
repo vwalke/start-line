@@ -275,7 +275,7 @@ export interface BoatAt {
   /** The direction of travel in map coordinates (unit), or null. */
   dir: Vec | null;
   roll: number;
-  /** In a gap, within MAP_HOLD_S of the fix before it: shown there (hollow once `stale`). */
+  /** In a gap (or past its final fix, before its finish), within MAP_HOLD_S of the fix before it: shown there (hollow once `stale`). */
   hold: boolean;
   /** Holding: that fix's time. */
   lastFix?: number;
@@ -294,22 +294,35 @@ const lerpRoll = (a: number | undefined, b: number | undefined, f: number): numb
 };
 
 /**
+ * Until when a boat finishing at `finishMs` (null: no finish) is held past its final fix (boatAt's `endHold`):
+ * before its finish. A track that ends at or after the finish is a finished boat, not a lost tracker: not held.
+ */
+export const endHoldBefore = (finishMs: number | null | undefined): number => finishMs ?? Infinity;
+
+/**
  * Where boat `id`'s track (its leg ranges, in time order) has it at `t`: linear between the fixes either
  * side; at a fix, that fix; none when the step there is a gap (> gapMs) past MAP_HOLD_S, or outside the track.
- * Later ranges win at a shared fix (the first beat at the gun, not the pre-start stretch that ends there).
+ * Past its final fix (its tracker stopped), held there as in a gap for up to MAP_HOLD_S, but only before
+ * `endHold` (endHoldBefore; -Infinity, the default: never). Later ranges win at a shared fix (the first beat at
+ * the gun, not the pre-start stretch that ends there).
  */
-export function boatAt(id: string, ranges: readonly LegRange[], t: number, gapMs: number, twd: number): BoatAt | null {
+export function boatAt(id: string, ranges: readonly LegRange[], t: number, gapMs: number, twd: number, endHold = -Infinity): BoatAt | null {
+  let final = true;
   for (let ri = ranges.length - 1; ri >= 0; ri--) {
     const r = ranges[ri];
     const tt = r.src.t;
-    if (r.hi <= r.lo || t < tt[r.lo] || t > tt[r.hi - 1]) continue;
+    if (r.hi <= r.lo) continue;
+    const end = tt[r.hi - 1];
+    const after = final && t > end && t < endHold && t - end <= MAP_HOLD_S * 1000;
+    final = false;
+    if (t < tt[r.lo] || (t > end && !after)) continue;
     const j = upperBound(tt, t, r.lo, r.hi) - 1;
     const k = Math.min(j + 1, r.hi - 1);
     const s = r.src;
     const rot = rotTrack(twd, s);
     const step = tt[k] - tt[j];
-    const exact = tt[j] === t || k === j;
-    let hold = false;
+    const exact = after || tt[j] === t || k === j;
+    let hold = after;
     let f = 0;
     if (!exact) {
       if (step > gapMs) {

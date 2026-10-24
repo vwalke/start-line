@@ -14,6 +14,7 @@ import {
   MAP_FULL_SPAN_M,
   MAP_HOLD_S,
   boatAt,
+  endHoldBefore,
   drawingPieces,
   legRanges,
   lowerBound,
@@ -109,6 +110,25 @@ describe('a boat at a moment (the scrubber dots)', () => {
     expect(MAP_HOLD_S).toBe(120);
     expect(boatAt('b', long, 4000 + MAP_HOLD_S * 1000 - 1, 2000, 0)).toMatchObject({ hold: true, stale: true, lastFix: 4000 });
     expect(boatAt('b', long, 4000 + MAP_HOLD_S * 1000 + 1, 2000, 0)).toBeNull();
+  });
+
+  it('past its final fix (the tracker stopped), held there as in a gap for MAP_HOLD_S, but never past its finish', () => {
+    // The last fix: 29 s, x 27. No finish: held, filled for BOAT_STALE_MS, then hollow, its last heading kept.
+    const noFinish = endHoldBefore(null);
+    expect(boatAt('b', ranges, 30_000, 2000, 0, noFinish)).toMatchObject({ hold: true, stale: false, x: 27, lastFix: 29_000, lastDir: [1, 0] });
+    expect(boatAt('b', ranges, 29_000 + BOAT_STALE_MS + 1, 2000, 0, noFinish)).toMatchObject({ hold: true, stale: true, x: 27 });
+    expect(boatAt('b', ranges, 29_000 + MAP_HOLD_S * 1000, 2000, 0, noFinish)).toMatchObject({ hold: true, stale: true });
+    expect(boatAt('b', ranges, 29_000 + MAP_HOLD_S * 1000 + 1, 2000, 0, noFinish)).toBeNull();
+    // Finished at (or before) its final fix: gone after it, as before.
+    expect(boatAt('b', ranges, 29_001, 2000, 0, endHoldBefore(29_000))).toBeNull();
+    // A finish after the tracker stopped (an official time): held until the finish, then gone.
+    expect(boatAt('b', ranges, 59_999, 2000, 0, endHoldBefore(60_000))).toMatchObject({ hold: true, stale: true });
+    expect(boatAt('b', ranges, 60_000, 2000, 0, endHoldBefore(60_000))).toBeNull();
+    // Without an end hold (the default), gone after the final fix; between two leg ranges, unchanged.
+    expect(boatAt('b', ranges, 29_001, 2000, 0)).toBeNull();
+    const split = legRanges(drawing([seg(5, 0, 0), seg(5, 10_000, 1)]), true);
+    expect(boatAt('b', split, 6000, 2000, 0, noFinish)).toBeNull();
+    expect(boatAt('b', split, 15_000, 2000, 0, noFinish)).toMatchObject({ hold: true, leg: 1, lastFix: 14_000 });
   });
 
   it('reads the leg the boat is on, and before the gun the pre-start track', () => {

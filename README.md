@@ -483,7 +483,8 @@ Switching races keeps the tab.
   arrow turned that way). No mark is drawn. The selected boat and its Coach
   group (Top 3 by default) are highlighted and labeled, the rest faded.
   Positions are the Race Viewer's: interpolated across short steps, held
-  at the last fix in a gap (hollow after the first 3 s) for up to 2 minutes,
+  at the last fix in a gap, or after its final fix when its tracker stops
+  before it finishes (hollow after the first 3 s), for up to 2 minutes,
   else the boat is missing at that second (never placed); trails break at
   gaps. A boat within 1 s of a fix
   where the scrubber has no position (its feed starting or ending, the far
@@ -734,7 +735,11 @@ Switching races keeps the tab.
   its last fix and last heading: filled for the first 3 s
   (`BOAT_STALE_MS`, or the boat's gap threshold when longer, so a short gap
   never flickers it), then hollow in its own color until its data is back,
-  for up to 2 minutes (`MAP_HOLD_S`).
+  for up to 2 minutes (`MAP_HOLD_S`). A tracker that stops for good is held
+  the same way after its final fix (`boatAt`'s `endHold`), but never past
+  the boat's finish: a boat that finished leaves the map at its finish as
+  before rather than showing as lost. A replay's over-the-line overlay has
+  its own layer (`g.scrub-ocs`) over the trails.
 - **Color tracks:** `Color: Leg | Rank | Boat speed` beside the legend.
   Rank is the elapsed-time scale (reversed plasma: yellow = fastest, through
   orange and magenta to purple = slowest). Rank also sets opacity and width:

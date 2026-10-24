@@ -35,7 +35,8 @@ const f1 = (v: number): string => v.toFixed(1);
  * `stretches` (time order; a fix shared where one stretch ends and the next begins is taken once) from `now − lenMs`
  * to `now`, then `head` (the boat's position now; null: none, e.g. held in a gap). Broken wherever consecutive fixes
  * are over `gapMs` apart (the map's gap rule), never bridged. Each step goes to the slice of its middle; with `clip`,
- * only steps with an end inside it. Thinned to about TRAIL_MAX_PTS points (never across a gap).
+ * only steps whose bounding box overlaps it (one crossing the view with both ends outside is kept). Thinned to
+ * about TRAIL_MAX_PTS points (never across a gap).
  */
 export function trailPaths(stretches: readonly TrailStretch[], now: number, lenMs: number, gapMs: number, head: Vec | null = null, clip: Box | null = null, slices = TRAIL_FADE.length): string[] {
   const from = now - lenMs;
@@ -47,7 +48,8 @@ export function trailPaths(stretches: readonly TrailStretch[], now: number, lenM
   const out: string[] = new Array(slices).fill('');
   /** Per slice: the point its path's pen is on (a count of points taken), -1: lifted. */
   const pen: number[] = new Array(slices).fill(-1);
-  const inside = (x: number, y: number): boolean => !clip || (x >= clip.x0 && x <= clip.x1 && y >= clip.y0 && y <= clip.y1);
+  const near = (ax: number, ay: number, bx: number, by: number): boolean =>
+    !clip || (Math.min(ax, bx) <= clip.x1 && Math.max(ax, bx) >= clip.x0 && Math.min(ay, by) <= clip.y1 && Math.max(ay, by) >= clip.y0);
   // The last point drawn to (its time and place), how many points were taken, and whether a gap came since.
   let pt = NaN;
   let px = 0;
@@ -61,7 +63,7 @@ export function trailPaths(stretches: readonly TrailStretch[], now: number, lenM
     // Thinning: skip a fix unless it ends a stretch without gaps, starts one, or the stride is up.
     if (!gap && Number.isFinite(pt) && !last && ++skipped < stride) return;
     skipped = 0;
-    if (Number.isFinite(pt) && !gap && (inside(px, py) || inside(x, y))) {
+    if (Number.isFinite(pt) && !gap && near(px, py, x, y)) {
       const sl = fadeSlice(now - (pt + t) / 2, lenMs, slices);
       if (pen[sl] !== taken) out[sl] += `M${f1(px)},${f1(py)}`;
       out[sl] += `L${f1(x)},${f1(y)}`;

@@ -29,7 +29,7 @@ import type { RaceAnalysis } from '../analysis/types';
 import type { ClassDims } from '../data/classes';
 import { startClass } from './charts';
 import { degLabel } from './format';
-import { boatAt, lastHeadingAt, legRanges, lowerBound, rotator, rotTrack, timeRange, type LegRange } from './mapPieces';
+import { boatAt, endHoldBefore, lastHeadingAt, legRanges, lowerBound, rotator, rotTrack, timeRange, type LegRange } from './mapPieces';
 import { drawingGapMs } from './mapPoints';
 import { ocsStretch, type OcsStretch } from './ocsStyle';
 import { gunRel } from './scrub';
@@ -54,9 +54,12 @@ export const LANE_PAD_M = 10;
 /** Outside its track (before the first fix, after the last), a boat is placed at its end fix when that is this close in time, ms (a feed that starts at −59.9 s). */
 export const LANE_SNAP_MS = 1000;
 
-/** Boat `id` at `t`: the scrubber's position (boatAt), else its track's end fix within LANE_SNAP_MS; east/north and map coordinates. */
-export function placeAt(id: string, ranges: readonly LegRange[], t: number, gapMs: number, twd: number): { x: number; y: number; mx: number; my: number; hold: boolean; stale: boolean } | null {
-  const at = boatAt(id, ranges, t, gapMs, twd);
+/**
+ * Boat `id` at `t`: the scrubber's position (boatAt, held past its final fix before `endHold` as the Race Viewer
+ * holds it), else its track's end fix within LANE_SNAP_MS; east/north and map coordinates.
+ */
+export function placeAt(id: string, ranges: readonly LegRange[], t: number, gapMs: number, twd: number, endHold = -Infinity): { x: number; y: number; mx: number; my: number; hold: boolean; stale: boolean } | null {
+  const at = boatAt(id, ranges, t, gapMs, twd, endHold);
   if (at) return at;
   let best: { i: number; r: LegRange; dt: number } | null = null;
   for (const r of ranges) {
@@ -359,7 +362,7 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
       gapMs = drawingGapMs(d);
       for (let s = start; s <= end; s += LANE_STEP_S) {
         const t = gun + s * 1000;
-        const at = placeAt(b.id, ranges, t, gapMs, twd);
+        const at = placeAt(b.id, ranges, t, gapMs, twd, endHoldBefore(b.finishMs));
         // The trail ends at the boat only where the scrubber itself places it (not held, not snapped to an end fix); so does its course.
         const own = at && !at.hold ? boatAt(b.id, ranges, t, gapMs, twd) : null;
         grid.push(

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import type { Vec } from '../src/analysis/geo';
@@ -6,7 +7,7 @@ import { boatsAt, mapBox, scrubFrame, trackMap, type BoatTrail } from '../src/ui
 import { laneScrub } from '../src/ui/laneSnapshots';
 import { laneScrubHtml } from '../src/ui/laneSnapshotsView';
 import { mapPaint } from '../src/ui/mapPaint';
-import { lastHeadingAt, legRanges, type LegRange } from '../src/ui/mapPieces';
+import { MAP_HOLD_S, lastHeadingAt, legRanges, type LegRange } from '../src/ui/mapPieces';
 import { drawingGapMs } from '../src/ui/mapPoints';
 import { DEFAULT_TRAIL, fadingTrailMs, scrubWindow, trailWindow } from '../src/ui/scrub';
 import { BOAT_TRAIL_MS, fadeSlice, TRAIL_FADE, TRAIL_MAX_PTS, trailPaths, type TrailStretch } from '../src/ui/trail';
@@ -118,6 +119,16 @@ describe('the trail: its length, fade and gap breaks (trail.ts trailPaths)', () 
     expect(Math.min(...xs)).toBeGreaterThanOrEqual(597);
     expect(Math.max(...xs)).toBeLessThanOrEqual(703);
   });
+
+  it('zoomed in, a step crossing the view with both ends outside it is still drawn (its box overlaps the view)', () => {
+    // Two fixes 60 s apart, 300 m either side of a 20 m view (a slow feed: no gap at a 120 s threshold).
+    const s: TrailStretch = { t: [0, 60_000], x: [-300, 300], y: [-5, 5], i0: 0, i1: 2 };
+    const clip = { x0: -10, y0: -10, x1: 10, y1: 10 };
+    expect(trailPaths([s], 60_000, BOAT_TRAIL_MS, 120_000, null, clip).join('')).toBe('M-300.0,-5.0L300.0,5.0');
+    // Wholly beside the view (its box clear of it): left out.
+    const beside: TrailStretch = { ...s, y: [50, 60] };
+    expect(trailPaths([beside], 60_000, BOAT_TRAIL_MS, 120_000, null, clip).join('')).toBe('');
+  });
 });
 
 describe('the boat: filled while its data is fresh, hollow once lost, the last heading kept (boatShape.ts boatMark)', () => {
@@ -212,6 +223,21 @@ describe('the Race Viewer while scrubbing: each boat its own fading trail', () =
     // One leg shown: boats off it faint.
     const one = frame(null, {}, 0);
     expect(one.trails.every((tr) => !tr.cls.includes('off') || one.boats.find((b) => b.id === tr.id)!.leg !== 0)).toBe(true);
+  });
+
+  it('a trail both dimmed and off the leg is the faintest (style.css): fainter than dimmed or off-leg alone', () => {
+    const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
+    const opacity = (sel: string): number => Number(new RegExp(`svg ${sel.replace(/\./g, '\\.')} \\{ opacity: ([\\d.]+); \\}`).exec(css)![1]);
+    const [dim, off, both] = ['.btrail.dim', '.btrail.off', '.btrail.dim.off'].map(opacity);
+    expect(both).toBeLessThan(dim);
+    expect(both).toBeLessThan(off);
+    // As the frame writes it: the combined class, a boat just past the leg shown while another is selected.
+    const found = a.legs.some((_, leg) =>
+      Array.from({ length: 40 }, (_, i) => a.meta.gunMs + i * 60_000).some((at) =>
+        scrubFrame(a, ME, leg, {}, { t: at, win: trailWindow(at, DEFAULT_TRAIL, w), trailMs: BOAT_TRAIL_MS }).trails.some((tr) => tr.cls === 'btrail dim off'),
+      ),
+    );
+    expect(found).toBe(true);
   });
 
   it('broken at each boat’s gaps as the map breaks its tracks', () => {
@@ -342,6 +368,59 @@ describe('playing with trails: no full redraw, each boat’s paths reused (trail
     expect(paintTrails(layer, [tr('B')])).toEqual({ created: 0, removed: 1, dSet: 0 });
     expect(g.children).toHaveLength(1);
     expect(paintTrails(layer, [tr('B'), tr('A')]).created).toBe(1);
+  });
+});
+
+describe('a tracker that stops: held hollow for MAP_HOLD_S after its final fix, unless the boat finished', () => {
+  const a = analyzeRace(j105Race(1));
+  const lastFix = (id: string): number => a.drawings.find((d) => d.id === id)!.segments.at(-1)!.t.at(-1)!;
+  // USA 55 has no finish; USA 527 finished (its last drawn fix just before its finish time).
+  const LOST = 'USA 55';
+  const DONE = 'USA 527';
+  const placed = (t: number, id: string) => boatsAt(a, null, t).find((b) => b.id === id) ?? null;
+
+  it('no finish: held at its last fix, filled at first, then hollow, for MAP_HOLD_S; then gone', () => {
+    const t0 = lastFix(LOST);
+    expect(a.boats.find((b) => b.id === LOST)!.finishMs).toBeNull();
+    expect(placed(t0 + 1000, LOST)).toMatchObject({ hold: true, stale: false, lastFix: t0 });
+    expect(placed(t0 + 60_000, LOST)).toMatchObject({ hold: true, stale: true, lastFix: t0 });
+    expect(placed(t0 + MAP_HOLD_S * 1000 + 1000, LOST)).toBeNull();
+    // Drawn hollow, at its last heading, with its "no data since" point details.
+    const f = scrubFrame(a, null, null, {}, { t: t0 + 60_000, win: trailWindow(t0 + 60_000, DEFAULT_TRAIL, scrubWindow(a)), trailMs: BOAT_TRAIL_MS });
+    expect(f.dots).toMatch(new RegExp(`class="dot hull hold lost[^"]*"[^>]*data-id="${LOST}"|data-id="${LOST}"[^>]*class="dot hull hold lost`));
+  });
+
+  it('finished: never held past its finish, so never shown as a lost boat after it', () => {
+    const fin = a.boats.find((b) => b.id === DONE)!.finishMs!;
+    expect(fin).toBeGreaterThanOrEqual(lastFix(DONE));
+    expect(fin - lastFix(DONE)).toBeLessThan(BOAT_STALE_MS);
+    expect(placed(fin, DONE)).toBeNull();
+    expect(placed(fin + 30_000, DONE)).toBeNull();
+    // Until its finish, within a second or so of its last fix: held, still filled.
+    expect(placed(lastFix(DONE) + 500, DONE)).toMatchObject({ hold: true, stale: false });
+  });
+
+  it('played across the stop: its trail paths are reused (not removed and made again), its trail ends at its last fix', () => {
+    const doc = new Doc();
+    const layer = new El('g', doc);
+    const t0 = lastFix(LOST);
+    const w = scrubWindow(a);
+    let groups: El | null = null;
+    for (let t = t0 - 5000; t <= t0 + 60_000; t += 256) {
+      const f = scrubFrame(a, LOST, null, {}, { t, win: trailWindow(t, DEFAULT_TRAIL, w), trailMs: BOAT_TRAIL_MS });
+      const r = paintTrails(layer as unknown as Element, f.trails);
+      expect(f.boats.some((b) => b.id === LOST)).toBe(true);
+      const mine = layer.children.at(-1)!;
+      if (groups) expect(mine).toBe(groups);
+      groups = mine;
+      if (t > t0) {
+        expect(r.created).toBe(0);
+        const b = f.boats.find((x) => x.id === LOST)!;
+        // The newest point drawn (the head slice empties once the stop is older than a slice).
+        const head = pts(mine.children.map((c) => c.attrs.get('d') ?? '').find(Boolean)!).at(-1)!;
+        expect(Math.hypot(head[0] - b.mx, head[1] - b.my)).toBeLessThan(0.1);
+      }
+    }
   });
 });
 
