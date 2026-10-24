@@ -12,6 +12,10 @@
  *   POST /api/auth/verify           token (form, same origin only) → use it once: session cookie, 303 to returnTo (+ signin=ok)
  *   GET  /api/auth/google/start     → Google (state, nonce and PKCE in a signed 10-minute cookie)
  *   GET  /api/auth/google/callback  code → Google's token endpoint → session cookie
+ *   GET  /api/auth/microsoft/start  → Microsoft (v2.0, tenant common; state, nonce and PKCE in the same kind of cookie)
+ *   GET  /api/auth/microsoft/callback  code → Microsoft's token endpoint → ID token checked against its JWKS → session cookie
+ *   GET  /api/auth/apple/start      → Apple (response_mode form_post; state and nonce in a SameSite=None cookie)
+ *   POST /api/auth/apple/callback   Apple's cross-site form post: code → Apple's token endpoint (ES256 client secret) → session cookie
  *   POST /api/auth/logout           end this browser's session
  *   POST /api/auth/restore          { email, turnstileToken } → a magic link, if that email bought anything
  *   POST /api/auth/sessions/revoke         { id } → sign out another of the user's devices; { ok, devices }
@@ -39,6 +43,7 @@ import {
   entitlementsOf,
   hasPurchases,
   lastUsed,
+  linkIdentity,
   liveSessions,
   normEmail,
   pruneLoginTokens,
@@ -50,10 +55,13 @@ import {
   SESSION_TTL_MS,
   sessionCap,
   setGoogleSub,
+  SIGN_IN_METHODS,
   userByEmail,
   userByGoogleSub,
+  userByIdentity,
   validEmail,
   type D1Like,
+  type IdentityInput,
   type SessionRow,
   type SignInMethod,
   type UserRow,
@@ -77,6 +85,7 @@ import {
 } from './_paywall';
 import { readCapped } from './_vkx';
 import { endpointPath } from './_lib';
+import { signEs256, verifyIdToken, type Claims } from './_jwt';
 
 export interface AuthCtx {
   request: Request;
@@ -105,9 +114,20 @@ export { RATE_WINDOW_MS } from './_authDb';
 export const MAX_BODY_BYTES = 8_000;
 export const RATE_PRUNE_CHANCE = 0.01;
 export const OAUTH_COOKIE = 'wf_oauth';
+/** Apple's callback is a cross-site POST, which a Lax cookie doesn't ride along with: its own SameSite=None cookie. */
+export const APPLE_OAUTH_COOKIE = 'wf_oauth_apple';
 export const OAUTH_TTL_S = 600;
 export const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+export const MICROSOFT_AUTH_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
+export const MICROSOFT_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+export const MICROSOFT_JWKS_URL = 'https://login.microsoftonline.com/common/discovery/v2.0/keys';
+/** The tenant of personal Microsoft accounts (Outlook.com, Hotmail, Live). */
+export const MICROSOFT_PERSONAL_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad';
+export const APPLE_ISSUER = 'https://appleid.apple.com';
+export const APPLE_AUTH_URL = 'https://appleid.apple.com/auth/authorize';
+export const APPLE_TOKEN_URL = 'https://appleid.apple.com/auth/token';
+export const APPLE_JWKS_URL = 'https://appleid.apple.com/auth/keys';
 export const RESEND_URL = 'https://api.resend.com/emails';
 export const cloudflareEmailUrl = (accountId: string): string => `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/email/sending/send`;
 export const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
@@ -486,7 +506,7 @@ export async function devicesOf(db: D1Like, user: UserRow, current: SessionRow, 
     .map((r): DeviceView => ({
       id: r.public_id!,
       label: deviceLabel(r.user_agent),
-      method: r.method === 'email' || r.method === 'google' ? r.method : null,
+      method: SIGN_IN_METHODS.includes(r.method as SignInMethod) ? (r.method as SignInMethod) : null,
       createdAt: r.created_at,
       lastSeenAt: r.token_hash === current.token_hash ? Math.max(lastUsed(r), lastUsed(current)) : lastUsed(r),
       current: r.token_hash === current.token_hash,
@@ -505,6 +525,8 @@ async function me(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   const signIn = {
     email: emailReady(env, new URL(req.url).host),
     google: !!env.AUTH_DB && !!env.GOOGLE_CLIENT_ID && !!env.AUTH_SECRET,
+    microsoft: microsoftReady(env),
+    apple: appleReady(env),
     turnstileSiteKey: turnstileReady(env) ? env.TURNSTILE_SITE_KEY!.trim() : null,
   };
   if (!v.user || !v.session) {
@@ -786,9 +808,9 @@ async function logoutRoute(ctx: AuthCtx): Promise<Response> {
   return jsonOut(200, { ok: true }, { 'set-cookie': sessionCookie('', req, ctx.env, 0) });
 }
 
-// ---- Google
+// ---- OAuth (Google, Microsoft, Apple): the signed state cookie
 
-const b64url = (bytes: Uint8Array): string => {
+const b64url =(bytes: Uint8Array): string => {
   let s = '';
   for (const x of bytes) s += String.fromCharCode(x);
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -800,9 +822,15 @@ async function hmac(secret: string, data: string): Promise<string> {
   return b64url(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data))));
 }
 
+/** The sign-in providers; each signs its state with its own name in it, so one's state is no good on another's callback. */
+export type OAuthProvider = 'google' | 'microsoft' | 'apple';
+
 export interface OAuthState {
+  /** Absent in a state signed before Microsoft and Apple came along: Google's. */
+  provider?: OAuthProvider;
   state: string;
   nonce: string;
+  /** The PKCE verifier ('' for Apple, which doesn't document PKCE for the web). */
   verifier: string;
   returnTo: string;
   exp: number;
@@ -900,49 +928,134 @@ export async function signState(secret: string, s: OAuthState): Promise<string> 
   return `${payload}.${await hmac(secret, payload)}`;
 }
 
-export async function readState(secret: string, raw: string | null, now: number): Promise<OAuthState | null> {
+/** The signed state, if it is ours, unexpired and `provider`'s. */
+export async function readState(secret: string, raw: string | null, now: number, provider: OAuthProvider = 'google'): Promise<OAuthState | null> {
   const [payload, sig] = (raw ?? '').split('.');
   if (!payload || !sig || !sameText(sig, await hmac(secret, payload))) return null;
   try {
     const s = JSON.parse(fromB64url(payload)) as OAuthState;
-    return typeof s.exp === 'number' && now < s.exp && typeof s.state === 'string' && typeof s.verifier === 'string' ? s : null;
+    if ((s.provider ?? 'google') !== provider) return null;
+    return typeof s.exp === 'number' && now < s.exp && typeof s.state === 'string' && typeof s.nonce === 'string' && typeof s.verifier === 'string' && typeof s.returnTo === 'string' ? s : null;
   } catch {
     return null;
   }
 }
 
+const has = (v: string | undefined): boolean => !!v?.trim();
 const googleReady = (env: PaywallEnv): boolean => !!(env.AUTH_DB && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.AUTH_SECRET);
-const redirectUri = (req: Request): string => `${new URL(req.url).origin}/api/auth/google/callback`;
-const oauthCookie = (value: string, maxAgeS: number): string => cookieHeader(OAUTH_COOKIE, value, { domain: null, maxAgeS, path: '/api/auth/google' });
+/** Microsoft is offered (and its routes work) only with D1, AUTH_SECRET and both of its keys. */
+export const microsoftReady = (env: PaywallEnv): boolean => !!env.AUTH_DB && has(env.AUTH_SECRET) && has(env.MICROSOFT_CLIENT_ID) && has(env.MICROSOFT_CLIENT_SECRET);
+/** Apple likewise, with all four of its settings. */
+export const appleReady = (env: PaywallEnv): boolean =>
+  !!env.AUTH_DB && has(env.AUTH_SECRET) && has(env.APPLE_SERVICES_ID) && has(env.APPLE_TEAM_ID) && has(env.APPLE_KEY_ID) && has(env.APPLE_PRIVATE_KEY);
+
+/** The callback the provider sends the browser back to: this origin, as registered with each provider. */
+const redirectUri = (req: Request, provider: OAuthProvider): string => `${new URL(req.url).origin}/api/auth/${provider}/callback`;
+
+/** The state cookie: host-only, 10 minutes, on the provider's own path; Apple's is SameSite=None (its callback is a cross-site POST). */
+const oauthCookie = (provider: OAuthProvider, value: string, maxAgeS: number): string =>
+  provider === 'apple'
+    ? cookieHeader(APPLE_OAUTH_COOKIE, value, { domain: null, maxAgeS, path: '/api/auth/apple', sameSite: 'None' })
+    : cookieHeader(OAUTH_COOKIE, value, { domain: null, maxAgeS, path: `/api/auth/${provider}` });
+
+/** A start route's state: fresh state, nonce and PKCE verifier (none for Apple), the safe returnTo, and the buy intent if valid. */
+function newState(url: URL, provider: OAuthProvider, now: number): OAuthState {
+  const buy = parseIntent(url.searchParams.get(BUY_PARAM), url.searchParams.get('event'));
+  return {
+    provider,
+    state: randomToken(),
+    nonce: randomToken(),
+    verifier: provider === 'apple' ? '' : randomToken(),
+    returnTo: safeReturnTo(url.searchParams.get('returnTo'), url.origin),
+    exp: now + OAUTH_TTL_S * 1000,
+    ...(buy ? { buy } : {}),
+  };
+}
+
+const pkceChallenge = async (verifier: string): Promise<string> => b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
+
+/** To the provider, with the signed state cookie set. */
+async function toProvider(env: PaywallEnv, provider: OAuthProvider, authUrl: string, q: URLSearchParams, s: OAuthState): Promise<Response> {
+  return redirect(`${authUrl}?${q}`, [oauthCookie(provider, await signState(env.AUTH_SECRET!, s), OAUTH_TTL_S)]);
+}
+
+/** The failure marker's companions: which provider it was, and why when the page has more to say (e.g. `microsoft_email`). */
+export const FAILED_VIA_PARAM = 'via';
+export const FAILED_REASON_PARAM = 'reason';
+const failedAt = (returnTo: string, provider: OAuthProvider, reason?: string): string => {
+  const to = withParam(withParam(returnTo, SIGNED_IN_PARAM, 'failed'), FAILED_VIA_PARAM, provider);
+  return reason ? withParam(to, FAILED_REASON_PARAM, reason) : to;
+};
+
+/** The code for an ID token at the provider's token endpoint; null on any failure. */
+async function tokenExchange(url: string, form: Record<string, string>, deps: AuthDeps): Promise<string | null> {
+  try {
+    const res = await (deps.fetch ?? fetch)(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+      body: new URLSearchParams(form),
+    });
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => undefined);
+      return null;
+    }
+    const t = ((await res.json()) as { id_token?: unknown }).id_token;
+    return typeof t === 'string' ? t : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every provider's last step, as for a magic link: a session (with its method; the device cap applies),
+ * then returnTo with the checkout marker for a buy intent (re-checked here) and `signin=ok`.
+ */
+async function finishOAuth(ctx: AuthCtx, db: D1Like, user: UserRow, method: SignInMethod, s: OAuthState, now: number, clear: string, status = 302): Promise<Response> {
+  const cookie = await startSession(db, user, ctx.request, ctx.env, now, method);
+  const buy = s.buy ? parseIntent(s.buy.product, s.buy.eventId) : null;
+  return redirect(signedIn(await afterSignIn(db, ctx.env, user, safeReturnTo(s.returnTo, new URL(ctx.request.url).origin), buy, now)), [cookie, clear], status);
+}
+
+/**
+ * Who a Microsoft or Apple sign-in is (migrations/0003_identities.sql): the user its identity already
+ * signs in, whatever the email says now; else, only with a trusted email, the user with that address
+ * (created if new: same verified email, same account) with the identity recorded; else nobody (null).
+ * An account keyed to an address nobody proved could later collect what the real owner of that
+ * address buys, so an unverified address never creates or links anything.
+ */
+async function identityUser(db: D1Like, i: IdentityInput, trusted: boolean, now: number): Promise<UserRow | null> {
+  const known = await userByIdentity(db, i.provider, i.subject, now);
+  if (known) return known;
+  if (!trusted || !i.email) return null;
+  const user = await ensureUser(db, i.email, now);
+  return linkIdentity(db, i, user.id, now);
+}
+
+const emailClaim = (c: Claims): string | null => {
+  const e = typeof c.email === 'string' ? normEmail(c.email) : '';
+  return validEmail(e) ? e : null;
+};
+const subjectOk = (sub: unknown): sub is string => typeof sub === 'string' && sub.length > 0 && sub.length <= 255;
+
+// ---- Google
 
 async function googleStart(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   const env = ctx.env;
   if (!googleReady(env)) return notConfigured('Google sign-in');
   const req = ctx.request;
-  const url = new URL(req.url);
-  const now = (deps.now ?? Date.now)();
-  const buy = parseIntent(url.searchParams.get(BUY_PARAM), url.searchParams.get('event'));
-  const s: OAuthState = {
-    state: randomToken(),
-    nonce: randomToken(),
-    verifier: randomToken(),
-    returnTo: safeReturnTo(url.searchParams.get('returnTo'), url.origin),
-    exp: now + OAUTH_TTL_S * 1000,
-    ...(buy ? { buy } : {}),
-  };
-  const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s.verifier))));
+  const s = newState(new URL(req.url), 'google', (deps.now ?? Date.now)());
   const q = new URLSearchParams({
     client_id: env.GOOGLE_CLIENT_ID!,
-    redirect_uri: redirectUri(req),
+    redirect_uri: redirectUri(req, 'google'),
     response_type: 'code',
     scope: 'openid email',
     state: s.state,
     nonce: s.nonce,
-    code_challenge: challenge,
+    code_challenge: await pkceChallenge(s.verifier),
     code_challenge_method: 'S256',
     prompt: 'select_account',
   });
-  return redirect(`${GOOGLE_AUTH_URL}?${q}`, [oauthCookie(await signState(env.AUTH_SECRET!, s), OAUTH_TTL_S)]);
+  return toProvider(env, 'google', GOOGLE_AUTH_URL, q, s);
 }
 
 export interface GoogleClaims {
@@ -985,35 +1098,21 @@ async function googleCallback(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   const req = ctx.request;
   const url = new URL(req.url);
   const now = (deps.now ?? Date.now)();
-  const clear = oauthCookie('', 0);
-  const s = await readState(env.AUTH_SECRET!, readCookie(req, OAUTH_COOKIE), now);
+  const clear = oauthCookie('google', '', 0);
+  const s = await readState(env.AUTH_SECRET!, readCookie(req, OAUTH_COOKIE), now, 'google');
   const code = url.searchParams.get('code') ?? '';
   const state = url.searchParams.get('state') ?? '';
-  if (!s || !code || !sameText(state, s.state)) return redirect('/?signin=failed', [clear]);
-  const failed = redirect(withParam(s.returnTo, 'signin', 'failed'), [clear]);
-  let idToken: unknown;
-  try {
-    const res = await (deps.fetch ?? fetch)(GOOGLE_TOKEN_URL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-      body: new URLSearchParams({
-        code,
-        client_id: env.GOOGLE_CLIENT_ID!,
-        client_secret: env.GOOGLE_CLIENT_SECRET!,
-        redirect_uri: redirectUri(req),
-        grant_type: 'authorization_code',
-        code_verifier: s.verifier,
-      }),
-    });
-    if (!res.ok) return failed;
-    idToken = ((await res.json()) as { id_token?: unknown }).id_token;
-  } catch {
-    return failed;
-  }
+  if (!s || !code || !sameText(state, s.state)) return redirect(failedAt('/', 'google'), [clear]);
+  const failed = redirect(failedAt(s.returnTo, 'google'), [clear]);
+  const idToken = await tokenExchange(
+    GOOGLE_TOKEN_URL,
+    { code, client_id: env.GOOGLE_CLIENT_ID!, client_secret: env.GOOGLE_CLIENT_SECRET!, redirect_uri: redirectUri(req, 'google'), grant_type: 'authorization_code', code_verifier: s.verifier },
+    deps,
+  );
   // The ID token came straight from Google's token endpoint over TLS in exchange for our code (and
   // our client secret and PKCE verifier): its signature need not be checked against Google's keys
   // (OpenID Connect Core 3.1.3.7). Its claims still are.
-  const claims = typeof idToken === 'string' ? decodeJwtPayload(idToken) : null;
+  const claims = idToken ? decodeJwtPayload(idToken) : null;
   const who = claims ? checkClaims(claims, env.GOOGLE_CLIENT_ID!, s.nonce, now) : null;
   if (!who) return failed;
   const db = env.AUTH_DB!;
@@ -1023,10 +1122,168 @@ async function googleCallback(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
     user = await ensureUser(db, who.email, now);
     await setGoogleSub(db, user.id, who.sub);
   }
-  const cookie = await startSession(db, user, req, env, now, 'google');
-  // The signed state carried the intent (if any): re-checked before the marker is signed for this user.
-  const buy = s.buy ? parseIntent(s.buy.product, s.buy.eventId) : null;
-  return redirect(signedIn(await afterSignIn(db, env, user, safeReturnTo(s.returnTo, url.origin), buy, now)), [cookie, clear]);
+  // users.google_sub stays what Google signs in by; the identities row is a copy, best effort (no table before migration 0003).
+  try {
+    await linkIdentity(db, { provider: 'google', subject: who.sub, email: who.email, emailVerified: true }, user.id, now);
+  } catch {
+    /* migration 0003 not applied yet */
+  }
+  return finishOAuth(ctx, db, user, 'google', s, now, clear);
+}
+
+// ---- Microsoft (identity platform v2.0, tenant `common`)
+
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Microsoft's issuer names the account's tenant: `https://login.microsoftonline.com/<tid>/v2.0`, tid a GUID. */
+export const microsoftIssuerOk = (iss: unknown, c: Claims): boolean => typeof c.tid === 'string' && GUID_RE.test(c.tid) && iss === `https://login.microsoftonline.com/${c.tid}/v2.0`;
+
+/**
+ * A verified Microsoft ID token's identity: `sub` (stable per app and user) with `tid` as its tenant,
+ * and the `email` claim (lower-cased; absent: none). The email is trusted only when
+ *  (a) the account is a personal one (tid is the personal-accounts tenant) and it has an email, or
+ *  (b) a work or school account's token carries the optional claim `xms_edov` true: the tenant has
+ *      verified that it owns the email's domain.
+ * Any other work or school address is just what a tenant admin typed into a directory, so it may not
+ * be the person's at all: it never creates or links an account (identityUser).
+ */
+export function microsoftIdentity(c: Claims): { identity: IdentityInput; trusted: boolean } | null {
+  if (!subjectOk(c.sub) || typeof c.tid !== 'string' || !GUID_RE.test(c.tid)) return null;
+  const email = emailClaim(c);
+  const edov = c.xms_edov === true || c.xms_edov === 'true' || c.xms_edov === '1';
+  const tenant = c.tid.toLowerCase();
+  const trusted = !!email && (tenant === MICROSOFT_PERSONAL_TENANT || edov);
+  return { identity: { provider: 'microsoft', subject: c.sub, email, emailVerified: trusted, tenant }, trusted };
+}
+
+async function microsoftStart(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
+  const env = ctx.env;
+  if (!microsoftReady(env)) return notConfigured('Microsoft sign-in');
+  const req = ctx.request;
+  const s = newState(new URL(req.url), 'microsoft', (deps.now ?? Date.now)());
+  const q = new URLSearchParams({
+    client_id: env.MICROSOFT_CLIENT_ID!.trim(),
+    response_type: 'code',
+    response_mode: 'query',
+    redirect_uri: redirectUri(req, 'microsoft'),
+    scope: 'openid email profile',
+    state: s.state,
+    nonce: s.nonce,
+    code_challenge: await pkceChallenge(s.verifier),
+    code_challenge_method: 'S256',
+    prompt: 'select_account',
+  });
+  return toProvider(env, 'microsoft', MICROSOFT_AUTH_URL, q, s);
+}
+
+async function microsoftCallback(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
+  const env = ctx.env;
+  if (!microsoftReady(env)) return notConfigured('Microsoft sign-in');
+  const req = ctx.request;
+  const url = new URL(req.url);
+  const now = (deps.now ?? Date.now)();
+  const clear = oauthCookie('microsoft', '', 0);
+  const s = await readState(env.AUTH_SECRET!, readCookie(req, OAUTH_COOKIE), now, 'microsoft');
+  const state = url.searchParams.get('state') ?? '';
+  if (!s || !state || !sameText(state, s.state)) return redirect(failedAt('/', 'microsoft'), [clear]);
+  const failed = (reason?: string): Response => redirect(failedAt(s.returnTo, 'microsoft', reason), [clear]);
+  const code = url.searchParams.get('code') ?? '';
+  if (!code) return failed();
+  const clientId = env.MICROSOFT_CLIENT_ID!.trim();
+  const idToken = await tokenExchange(
+    MICROSOFT_TOKEN_URL,
+    { client_id: clientId, client_secret: env.MICROSOFT_CLIENT_SECRET!.trim(), code, redirect_uri: redirectUri(req, 'microsoft'), grant_type: 'authorization_code', code_verifier: s.verifier },
+    deps,
+  );
+  const claims = idToken ? await verifyIdToken(idToken, { jwksUrl: MICROSOFT_JWKS_URL, iss: microsoftIssuerOk, aud: clientId, nonce: s.nonce }, deps) : null;
+  const who = claims ? microsoftIdentity(claims) : null;
+  if (!who) return failed();
+  const db = env.AUTH_DB!;
+  const user = await identityUser(db, who.identity, who.trusted, now);
+  if (!user) return failed('microsoft_email');
+  return finishOAuth(ctx, db, user, 'microsoft', s, now, clear);
+}
+
+// ---- Apple (Sign in with Apple on the web, no Apple JS)
+
+const APPLE_RELAY_DOMAIN = '@privaterelay.appleid.com';
+
+/** Apple's client secret: an ES256 JWT from the .p8 key, good for 5 minutes (the imported key is kept per isolate). */
+export function appleClientSecret(env: PaywallEnv, now: number): Promise<string> {
+  const iat = Math.floor(now / 1000);
+  return signEs256(env.APPLE_PRIVATE_KEY!, env.APPLE_KEY_ID!.trim(), { iss: env.APPLE_TEAM_ID!.trim(), iat, exp: iat + 300, aud: APPLE_ISSUER, sub: env.APPLE_SERVICES_ID!.trim() });
+}
+
+/**
+ * A verified Apple ID token's identity: `sub`, and the email, trusted only with `email_verified` true
+ * (boolean or "true"). A private relay address (`is_private_email`, or @privaterelay.appleid.com) is
+ * verified and unique to this app: it gets an account of its own, matching only a user who already
+ * has that very address. Apple may leave the email out on later sign-ins: the identity comes first.
+ */
+export function appleIdentity(c: Claims): { identity: IdentityInput; trusted: boolean } | null {
+  if (!subjectOk(c.sub)) return null;
+  const email = emailClaim(c);
+  const verified = c.email_verified === true || c.email_verified === 'true';
+  const relay = c.is_private_email === true || c.is_private_email === 'true' || !!email?.endsWith(APPLE_RELAY_DOMAIN);
+  return { identity: { provider: 'apple', subject: c.sub, email, emailVerified: verified, isPrivateRelay: relay }, trusted: !!email && verified };
+}
+
+async function appleStart(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
+  const env = ctx.env;
+  if (!appleReady(env)) return notConfigured('Apple sign-in');
+  const req = ctx.request;
+  const s = newState(new URL(req.url), 'apple', (deps.now ?? Date.now)());
+  // Scope `email` only: names are never asked for, stored or shown.
+  const q = new URLSearchParams({
+    response_type: 'code',
+    response_mode: 'form_post',
+    client_id: env.APPLE_SERVICES_ID!.trim(),
+    redirect_uri: redirectUri(req, 'apple'),
+    scope: 'email',
+    state: s.state,
+    nonce: s.nonce,
+  });
+  return toProvider(env, 'apple', APPLE_AUTH_URL, q, s);
+}
+
+/**
+ * Apple's form post comes from https://appleid.apple.com, so there is no same-origin check here: the
+ * signed SameSite=None cookie, and the posted state matching it, stand in for one. Every answer is a
+ * 303 (on to a GET) and clears the cookie.
+ */
+async function appleCallback(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
+  const env = ctx.env;
+  if (!appleReady(env)) return notConfigured('Apple sign-in');
+  const req = ctx.request;
+  const now = (deps.now ?? Date.now)();
+  const clear = oauthCookie('apple', '', 0);
+  const s = await readState(env.AUTH_SECRET!, readCookie(req, APPLE_OAUTH_COOKIE), now, 'apple');
+  const raw = /^application\/x-www-form-urlencoded\b/i.test(req.headers.get('content-type') ?? '') ? await readCapped(req, MAX_BODY_BYTES) : null;
+  // The posted `user` field (the name, on a first sign-in) is never read.
+  const form = raw ? new URLSearchParams(new TextDecoder().decode(raw)) : null;
+  const state = form?.get('state') ?? '';
+  if (!s || !form || !state || !sameText(state, s.state)) return redirect(failedAt('/', 'apple'), [clear], 303);
+  const failed = (reason?: string): Response => redirect(failedAt(s.returnTo, 'apple', reason), [clear], 303);
+  const error = form.get('error');
+  if (error) return failed(error === 'user_cancelled_authorize' ? 'cancelled' : undefined);
+  const code = form.get('code') ?? '';
+  if (!code) return failed();
+  let clientSecret: string;
+  try {
+    clientSecret = await appleClientSecret(env, now);
+  } catch {
+    console.error('[recall auth] apple: APPLE_PRIVATE_KEY is not a usable P-256 PKCS#8 key');
+    return failed();
+  }
+  const clientId = env.APPLE_SERVICES_ID!.trim();
+  const idToken = await tokenExchange(APPLE_TOKEN_URL, { client_id: clientId, client_secret: clientSecret, code, grant_type: 'authorization_code', redirect_uri: redirectUri(req, 'apple') }, deps);
+  const claims = idToken ? await verifyIdToken(idToken, { jwksUrl: APPLE_JWKS_URL, iss: APPLE_ISSUER, aud: clientId, nonce: s.nonce }, deps) : null;
+  const who = claims ? appleIdentity(claims) : null;
+  if (!who) return failed();
+  const db = env.AUTH_DB!;
+  const user = await identityUser(db, who.identity, who.trusted, now);
+  if (!user) return failed('apple_email');
+  return finishOAuth(ctx, db, user, 'apple', s, now, clear, 303);
 }
 
 // ---- the router
@@ -1046,6 +1303,10 @@ export async function handleAuth(ctx: AuthCtx, deps: AuthDeps = {}): Promise<Res
     'sessions/revoke-others': { POST: () => revokeOthersRoute(ctx, deps) },
     'google/start': { GET: () => googleStart(ctx, deps) },
     'google/callback': { GET: () => googleCallback(ctx, deps) },
+    'microsoft/start': { GET: () => microsoftStart(ctx, deps) },
+    'microsoft/callback': { GET: () => microsoftCallback(ctx, deps) },
+    'apple/start': { GET: () => appleStart(ctx, deps) },
+    'apple/callback': { POST: () => appleCallback(ctx, deps) },
   };
   const r = routes[path];
   if (!r) return notFound();

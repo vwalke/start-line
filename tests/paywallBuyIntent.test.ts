@@ -246,7 +246,7 @@ describe('only the sign-in methods set up here are shown', () => {
     expect(s).not.toContain('Google');
     expect(sheetHtml(me(true, false), { mode: 'sent', email: 'a@example.com' }, title)).toContain('Check your email');
     expect(lock({ signInEmail: true, signInGoogle: false })).toContain('data-pw="restore">Restore access');
-    expect(sheetHtml(me(true, true), { mode: 'signin' }, title)).toMatch(/type="email"[\s\S]*Continue with Google/);
+    expect(sheetHtml(me(true, true), { mode: 'signin' }, title)).toMatch(/Continue with Google[\s\S]*type="email"/);
   });
 
   it('neither: a short "unavailable" line instead of buttons', () => {

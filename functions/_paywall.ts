@@ -33,7 +33,7 @@ export interface PaywallEnv {
   PAYWALL_ENABLED?: string;
   AUTH_DB?: D1Like;
   AUTH_COOKIE_DOMAIN?: string;
-  /** Signs the short-lived Google sign-in cookie. */
+  /** Signs the short-lived Google / Microsoft / Apple sign-in cookies and the buy marker. */
   AUTH_SECRET?: string;
   EMAIL_PROVIDER?: string;
   EMAIL_FROM?: string;
@@ -47,6 +47,14 @@ export interface PaywallEnv {
   TURNSTILE_SECRET_KEY?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  /** Microsoft identity platform (v2.0, tenant `common`): the Entra app's client id and secret. */
+  MICROSOFT_CLIENT_ID?: string;
+  MICROSOFT_CLIENT_SECRET?: string;
+  /** Sign in with Apple (web): the Services ID (client_id), team id, key id and the key's .p8 PEM (secret). */
+  APPLE_SERVICES_ID?: string;
+  APPLE_TEAM_ID?: string;
+  APPLE_KEY_ID?: string;
+  APPLE_PRIVATE_KEY?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   STRIPE_PRICE_REGATTA?: string;
@@ -128,8 +136,9 @@ export function readCookie(req: Request, name: string): string | null {
   return null;
 }
 
-export function cookieHeader(name: string, value: string, o: { domain: string | null; maxAgeS: number; path?: string }): string {
-  return [`${name}=${value}`, ...(o.domain ? [`Domain=${o.domain}`] : []), `Path=${o.path ?? '/'}`, `Max-Age=${o.maxAgeS}`, 'Secure', 'HttpOnly', 'SameSite=Lax'].join('; ');
+/** `sameSite: 'None'` only for a cookie a cross-site POST must carry back (Apple's form_post callback). */
+export function cookieHeader(name: string, value: string, o: { domain: string | null; maxAgeS: number; path?: string; sameSite?: 'Lax' | 'None' }): string {
+  return [`${name}=${value}`, ...(o.domain ? [`Domain=${o.domain}`] : []), `Path=${o.path ?? '/'}`, `Max-Age=${o.maxAgeS}`, 'Secure', 'HttpOnly', `SameSite=${o.sameSite ?? 'Lax'}`].join('; ');
 }
 
 export const sessionCookie = (token: string, req: Request, env: PaywallEnv, maxAgeS: number): string =>

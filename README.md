@@ -1420,8 +1420,8 @@ from the environment (test mode first).
   proxied and analyzed data, not the raw source. The pitch is "unlock the
   analysis".
 
-**Sign-in** (`functions/_auth.ts`): an email sign-in link or Google, side
-by side. *Email links:* 32 random bytes, only their SHA-256 stored, 15 min,
+**Sign-in** (`functions/_auth.ts`): Google, Apple or Microsoft (each only
+once its keys are set), and an email sign-in link. *Email links:* 32 random bytes, only their SHA-256 stored, 15 min,
 single use; the same answer whether or not the address is known. Asking for
 one goes, in order: the body and the address's shape, then Cloudflare
 **Turnstile**, then the rate limits, then the link is made and sent.
@@ -1476,6 +1476,108 @@ from Google's token endpoint is trusted over TLS, its claims checked: issuer,
 audience, expiry, verified email, nonce; linked by email; a sign-in lands
 with the same `signin=ok` toast. `returnTo` is a path on this site or an
 https page on walkeforward.com or a subdomain, else `/regattas`.
+
+*Microsoft and Apple* (`GET /api/auth/microsoft/start`, `GET
+/api/auth/microsoft/callback`, `GET /api/auth/apple/start`, `POST
+/api/auth/apple/callback`; the redirect URI is this origin plus the callback
+path, as for Google). The start routes take the same `returnTo` and buy
+intent (`buy`, `event`) as Google's, and their state is signed the same way
+(HMAC with `AUTH_SECRET`, 10 minutes) with the provider's name inside, so one
+provider's state is refused on another's callback. Both ID tokens are
+verified with WebCrypto against the provider's JWKS (`functions/_jwt.ts`:
+RS256 only, the key by `kid`, the keys cached an hour per isolate and fetched
+again at most every 5 minutes for an unknown `kid`; then expiry with 5
+minutes of skew, `iat`/`nbf`, issuer, audience and nonce, constant-time).
+Any failure goes back to `returnTo` with `signin=failed&via=<provider>`; the
+page says "Couldn't sign you in with Microsoft. Try again, or use an email
+link." (Apple, Google likewise). A success runs exactly Google's tail: a
+session with its method (`microsoft` / `apple`, shown in the device list as
+"Safari on iPhone · Apple"), the device cap, the checkout marker for a buy
+intent, and `signin=ok`.
+
+- *Microsoft* (identity platform v2.0, tenant `common`): authorization code
+  with PKCE (S256), `response_mode=query`, scope `openid email profile`,
+  `prompt=select_account`; the state cookie is `wf_oauth` on
+  `Path=/api/auth/microsoft` (SameSite=Lax: the callback is a top-level
+  GET). The token must have `aud` = `MICROSOFT_CLIENT_ID`, a GUID `tid`, and
+  `iss` = `https://login.microsoftonline.com/<tid>/v2.0`. The identity is
+  `sub` (stable per app and user), with `tid` stored as its tenant.
+- *Apple* (Sign in with Apple on the web, no Apple JS):
+  `response_mode=form_post`, scope `email` only (names are never asked for,
+  stored or shown; the posted `user` field is ignored), state and nonce, no
+  PKCE (Apple doesn't document it for the web: the client secret
+  authenticates the exchange). The client secret is an ES256 JWT signed with
+  `APPLE_PRIVATE_KEY` (kid `APPLE_KEY_ID`, iss `APPLE_TEAM_ID`, sub
+  `APPLE_SERVICES_ID`, aud `https://appleid.apple.com`, 5 minutes). The
+  callback is a cross-site POST from appleid.apple.com, so a Lax cookie
+  wouldn't come back with it: the state rides in its own cookie,
+  `wf_oauth_apple` (`HttpOnly; Secure; SameSite=None;
+  Path=/api/auth/apple; Max-Age=600`, host-only), cleared on every outcome.
+  That route alone skips the same-origin check; instead it needs that signed
+  cookie and the posted `state` matching it (constant-time). `GET` is 405.
+  A cancel at Apple (`error=user_cancelled_authorize`) goes back quietly
+  (`reason=cancelled`, no notice). Every answer is a 303 (on to a GET);
+  the session cookie (SameSite=Lax) set on it is sent with that GET. The
+  token must have `iss` `https://appleid.apple.com` and `aud` =
+  `APPLE_SERVICES_ID`.
+
+*Linking by email, per provider.* Same verified email, same account (the
+owner's decision): no confirmation step. An address nobody proved is never
+used to create or link an account, since that account could later collect
+what the real owner of the address buys.
+
+- *Email link:* the link proves the address.
+- *Google:* `email_verified` must be true; linked by email. Google keeps
+  signing in by `users.google_sub` as before, and also writes (best effort)
+  its row in `identities`.
+- *Microsoft:* the `email` claim (lower-cased) counts only when (a) the
+  account is a personal one (`tid` is
+  `9188040d-6c67-4c5b-b112-36a304b66dad`) and has an email, or (b) a work or
+  school account's token carries the optional claim `xms_edov` true (the
+  tenant has verified that it owns the email's domain). Any other work or
+  school address is only what a directory admin typed in.
+- *Apple:* `email_verified` must be true. A private relay address
+  (`is_private_email`, or `@privaterelay.appleid.com`) is verified and unique
+  to this app: it gets its own account, and matches only a user who already
+  has that very relay address. A real address links to the user with it.
+
+Lookup order for Microsoft and Apple: an existing identity (provider, `sub`)
+signs its user in whatever the email says now (Apple often leaves the email
+out after the first sign-in). Otherwise a trusted email links to (or
+creates) the user with that address and records the identity
+(`INSERT OR IGNORE`, then read back, so two first sign-ins at once end on one
+user). Otherwise nothing is created or linked and the sign-in is refused
+with `reason=microsoft_email` ("Your Microsoft account didn't share a
+verified email address, so it can't be used to sign in here. Try Google,
+Apple or an email link.") or `reason=apple_email` ("Apple didn't share a
+verified email address, so we couldn't sign you in. Try again, or use Google,
+Microsoft or an email link."). Each identity sign-in updates its
+`last_used_at`.
+
+*Setting up Microsoft* (Microsoft Entra admin center → App registrations →
+New registration): supported account types **Accounts in any organizational
+directory (any Microsoft Entra ID tenant) and personal Microsoft accounts**;
+platform **Web** with the redirect URIs
+`https://recall.walkeforward.com/api/auth/microsoft/callback` and, for
+testing, `https://signin-phase2.start-line.pages.dev/api/auth/microsoft/callback`;
+a client secret (Certificates & secrets) → `MICROSOFT_CLIENT_SECRET` (note
+its expiry), the Application (client) ID → `MICROSOFT_CLIENT_ID`. In **Token
+configuration → Add optional claim → ID**, add **`email`** and
+**`xms_edov`**: without `email` no Microsoft account can sign in, and
+without `xms_edov` no work or school account can.
+
+*Setting up Apple* (Apple Developer → Certificates, Identifiers & Profiles):
+an **App ID** with Sign in with Apple enabled; a **Services ID** (its
+identifier → `APPLE_SERVICES_ID`) with Sign in with Apple configured for that
+App ID, the domains `recall.walkeforward.com` (and
+`signin-phase2.start-line.pages.dev` for testing) and the return URLs
+`https://recall.walkeforward.com/api/auth/apple/callback` (and
+`https://signin-phase2.start-line.pages.dev/api/auth/apple/callback`); a
+**key** with Sign in with Apple, downloaded once as a `.p8` (its contents,
+the whole PEM → `APPLE_PRIVATE_KEY`, a literal `\n` for each line break is
+fine; its Key ID → `APPLE_KEY_ID`); the Team ID → `APPLE_TEAM_ID`. Apple
+requires https and registered domains, and doesn't allow localhost return
+URLs, so try Apple on the preview alias, not locally.
 
 *Sessions and the device cap:* a random token in the `wf_session` cookie
 (`Domain=.walkeforward.com; Path=/; Secure; HttpOnly; SameSite=Lax`, 30
@@ -1603,13 +1705,20 @@ Coach's top 3 for every boat in R2–R8", **Unlock this regatta — $50** (the
 only offer), and "Race 1 of every regatta is free; unlock the rest of a
 regatta for $50 · Already bought? Sign in · Restore access". Back from Checkout it re-reads
 `/api/auth/me` until the pass lands, then unlocks. Only the sign-in methods
-`/api/auth/me` reports (`signIn.email`, `signIn.google`) are shown: with
+`/api/auth/me` reports (`signIn.email`, `signIn.google`, `signIn.microsoft`,
+`signIn.apple`; the last two true only with every one of their settings) are
+shown, in this order: **Continue with Google**, **Continue with Apple**
+(black, white Apple logo; white in dark mode), **Continue with Microsoft**
+(light, gray border, the four-square logo), then the email form with
+Turnstile and Restore access. The logos are inline SVG, no images. With
 email off there is no email form, no Restore access (it sends an email) and
-no "check your email" (the lock card reads "… · Already bought? Sign in"); with Google off, no Google button; with neither, "Sign-in is
-unavailable right now" instead of buttons.
+no "check your email" (the lock card reads "… · Already bought? Sign in"); a
+provider that is off has no button; with none at all, "Sign-in is
+unavailable right now" instead of buttons. With email alone the sheet looks
+as before.
 
 *Checkout through sign-in.* A signed-out sailor who clicks a pass is asked
-to sign in, and the pass goes along: in Google's signed state cookie, or in
+to sign in, and the pass goes along: in the provider's signed state cookie (Google, Microsoft, Apple), or in
 the magic link's stored `return_to` (D1, written only by the server, single
 use, 15 minutes). After the callback or the link's confirm, the server
 re-validates it (product, `EVENT_ID_RE`) and, unless the user already holds
@@ -1647,6 +1756,18 @@ then to production **before** this code is deployed there: the code reads
 the new columns on every signed-in request, so on an unmigrated database
 every signed-in request fails (503) and nobody can sign in.
 
+`migrations/0003_identities.sql` (Microsoft and Apple, additive only): a new
+`identities` table (provider, subject, user, email, whether it was verified,
+Microsoft's tenant, whether it is an Apple relay address, created and last
+used; primary key (provider, subject)), backfilled with a `google` row for
+every user with a `google_sub`. **DO NOT RUN IT WITHOUT THE OWNER'S OK.**
+Apply it (Preview first, then production) **before** any `MICROSOFT_*` or
+`APPLE_*` key is set: those sign-ins use this table only. This code can be
+deployed before it without changing anything: Google keeps reading and
+writing `users.google_sub` as today (its `identities` write is best effort
+and fails quietly without the table), and Microsoft and Apple stay hidden,
+their routes answering 503 `not_configured`, until their keys exist.
+
 ```sh
 # DO NOT RUN WITHOUT THE OWNER'S OK
 npx wrangler d1 create recall-auth
@@ -1662,7 +1783,7 @@ Preview each):
 | `PAYWALL_ENABLED` | `true` turns the paywall on (default off) | no |
 | `AUTH_DB` | D1 binding (not a variable) | — |
 | `AUTH_COOKIE_DOMAIN` | cookie domain, default `.walkeforward.com` | no |
-| `AUTH_SECRET` | signs the Google sign-in cookie (32+ random bytes) | yes |
+| `AUTH_SECRET` | signs the Google, Microsoft and Apple sign-in cookies and the checkout marker (32+ random bytes) | yes |
 | `EMAIL_PROVIDER` | `cloudflare-api` (recommended on Pages), `resend` (fallback), `cloudflare` or `log` | no |
 | `EMAIL_FROM` | sender, e.g. `Recall <signin@walkeforward.com>` (or a bare address) | no |
 | `CF_EMAIL_ACCOUNT_ID` | Cloudflare account id for Email Sending (`cloudflare-api`) | no |
@@ -1672,6 +1793,12 @@ Preview each):
 | `TURNSTILE_SITE_KEY` | Turnstile widget's site key (email sign-in needs it, except on localhost) | no |
 | `TURNSTILE_SECRET_KEY` | Turnstile secret key, for siteverify | yes |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth client (redirect URI `https://recall.walkeforward.com/api/auth/google/callback`) | id no / secret yes |
+| `MICROSOFT_CLIENT_ID` | the Entra app's Application (client) ID (redirect URI `https://recall.walkeforward.com/api/auth/microsoft/callback`); needs migration 0003 | no |
+| `MICROSOFT_CLIENT_SECRET` | the Entra app's client secret | yes |
+| `APPLE_SERVICES_ID` | the Services ID, Apple's `client_id` (return URL `https://recall.walkeforward.com/api/auth/apple/callback`); needs migration 0003 | no |
+| `APPLE_TEAM_ID` | the Apple Developer Team ID | no |
+| `APPLE_KEY_ID` | the Sign in with Apple key's Key ID | no |
+| `APPLE_PRIVATE_KEY` | that key's `.p8` file, the whole PEM (literal `\n` line breaks are fine) | yes |
 | `STRIPE_SECRET_KEY` | `sk_test_…` (then live) | yes |
 | `STRIPE_WEBHOOK_SECRET` | the webhook endpoint's `whsec_…` | yes |
 | `STRIPE_PRICE_REGATTA` | the Regatta Pass price id | no |
@@ -1729,8 +1856,9 @@ from `0002_signin_phase1.sql`): a gift is a `purchases` row (`provider 'gift'`, 
 scope and the event id (`all` and `season` are the same gift). They belong to the user with that email, created if
 new (as a Stripe webhook does for a buyer with no account), so the pass
 unlocks nothing until someone signs in as that very address: a magic link
-proves it, Google only with a verified email (and links by it), and every
-session comes from one of the two. An existing user gets it on their next
+proves it, and Google, Microsoft and Apple link by it only when they vouch
+for it (the rules above), so every session that reaches it proved the
+address. An existing user gets it on their next
 request. Granting the same gift again changes nothing but its expiry (and
 lifts a revocation); revoking twice keeps the first revocation's time.
 Inputs are checked strictly (the server's email and event-id patterns; dates

@@ -244,10 +244,10 @@ describe('Turnstile', () => {
   const me = async (e: PaywallEnv, origin = ORIGIN): Promise<Record<string, unknown>> => (await json(await handleAuth(ctx(new Request(`${origin}/api/auth/me`), e, 'me'), deps()))).signIn as Record<string, unknown>;
 
   it('signIn.email needs an email provider and Turnstile, except on localhost; the site key goes to the page', async () => {
-    expect(await me(env())).toEqual({ email: true, google: true, turnstileSiteKey: 'turnstile_site_test_fake' });
+    expect(await me(env())).toEqual({ email: true, google: true, microsoft: false, apple: false, turnstileSiteKey: 'turnstile_site_test_fake' });
     const noTs = env({ TURNSTILE_SECRET_KEY: undefined });
     expect(turnstileReady(noTs)).toBe(false);
-    expect(await me(noTs)).toEqual({ email: false, google: true, turnstileSiteKey: null });
+    expect(await me(noTs)).toEqual({ email: false, google: true, microsoft: false, apple: false, turnstileSiteKey: null });
     expect(await me(env({ TURNSTILE_SITE_KEY: '' }))).toMatchObject({ email: false, turnstileSiteKey: null });
     expect(await me(env({ EMAIL_PROVIDER: 'nope' }))).toMatchObject({ email: false });
     // Localhost: the log provider works without Turnstile.

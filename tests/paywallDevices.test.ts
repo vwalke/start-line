@@ -37,7 +37,7 @@ describe('/api/auth/me on the page: the new fields', () => {
       paywall: true,
       user: { email: 'a@example.com' },
       entitlements: [],
-      signIn: { email: true, google: false, turnstileSiteKey: '0x4AAAAtest' },
+      signIn: { email: true, google: false, microsoft: false, apple: false, turnstileSiteKey: '0x4AAAAtest' },
       devices: { max: 3, list: [device(), device({ id: 'c'.repeat(24), current: false, method: null })] },
       bumped: [{ label: 'Safari on iPhone', lastSeenAt: OCT20 }],
     });
@@ -45,7 +45,7 @@ describe('/api/auth/me on the page: the new fields', () => {
       paywall: true,
       user: null,
       entitlements: [],
-      signIn: { email: true, google: false, turnstileSiteKey: null },
+      signIn: { email: true, google: false, microsoft: false, apple: false, turnstileSiteKey: null },
       signedOutReason: 'device_limit',
     });
     expect(parseMe({ paywall: true, user: null, signedOutReason: 'hacked' })).not.toHaveProperty('signedOutReason');
