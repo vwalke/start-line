@@ -64,6 +64,8 @@ const DEBRIEF_BOAT = 'USA 343';
  */
 const CASCAIS_R3 = { ...CASCAIS, race: '3' };
 const REPLAY_T = 2095;
+/** 2026 IC37 North American Championship, race 4: the start shot (a 274 m line, pin favored, ~18 boats at the gun). */
+const IC37_R4 = { event: 'VaWTh1uA7TrLejoSFlUn', div: 'IC37', race: '4' };
 
 /** The app's view preferences (ui/speed.ts, sog.ts, labels.ts, startSog.ts): cleared before every shot. */
 const PREF_KEYS = ['recall.trackColour', 'recall.rankBy', 'recall.speedTop', 'recall.sogScale', 'recall.startColour', 'recall.startNames', 'recall.startSogWindow', 'recall.lastView'];
@@ -72,9 +74,12 @@ const PREF_KEYS = ['recall.trackColour', 'recall.rankBy', 'recall.speedTop', 're
  * One shot per landing card, in the cards' order.
  *   el:     the element captured (an array: the box around all of them, which must fit in the viewport)
  *   thumb:  a tighter element (or the box around several) for the thumbnail (default: the same capture)
+ *   thumbClip: instead of `thumb`, a function run in the page that returns the thumbnail's clip rect (css px)
  *   focus:  where the thumbnail's crop sits in the capture, [x, y] from 0 to 1; zoom: crop tighter than cover
  *   hide:   selectors hidden for the capture (parts of the element that aren't what the card describes)
  *   fullMaxH: the full image's tallest (px; cropped from the top)
+ *   viewport: this shot's viewport (default VIEWPORT)
+ *   afterThumb: with thumbClip, steps run after the thumbnail is taken and before the full image
  */
 export const SHOTS = [
   {
@@ -110,13 +115,85 @@ export const SHOTS = [
   {
     slug: 'start',
     card: 'The start',
-    race: CASCAIS,
-    params: { boat: CASCAIS_BOAT },
+    race: IC37_R4,
     hash: 'start',
     ready: ['#start-chart svg'],
-    el: '#panel-start > section.card:first-of-type',
-    thumb: '#start-chart',
-    hide: ['#lane-snapshots', '#start-findings-box', '#start-replay', '#start-hint'],
+    // Full screen's Fit (ui/charts.ts startFullFrame) fits the line and the bows at the gun to the width and puts
+    // spare height below them, so the viewport's height only decides how much water is left under the 60 s tracks.
+    // The thumbnail is taken at this height (room for the whole line at 16:10); then `afterThumb` trims it.
+    viewport: { width: 1280, height: 800 },
+    steps: async (page) => {
+      await stable(page, ['#start-chart'], WAIT_MS);
+      // Full screen (ui/app.ts): the card's tools go to #fs-tools, the speed key and chip line to #fs-key, the chart
+      // to #fs-body. Speed and Auto first: the speed key's row resizes #fs-body, which refits; then Fit.
+      await page.click('#start-full');
+      await page.waitForSelector('#fs:not([hidden]) #fs-body #start-chart svg', { timeout: WAIT_MS });
+      await page.click('#fs-tools button[data-start-colour="speed"]');
+      await page.click('#fs-tools button[data-start-names="auto"]');
+      await page.waitForSelector('#fs-key #start-speed-key:not([hidden])', { timeout: WAIT_MS });
+      await settle(page);
+      await page.click('#fs-tools #start-zoom button[data-zoom="1"]');
+    },
+    // The key and chip row and the chart: not the zoom / color / names bar or Close above them.
+    el: ['#fs-key', '#fs-body'],
+    /**
+     * The thumbnail: the line, its ends and their labels (PIN / RC and the favored-end label) always whole; then as
+     * much of the named boats and their tracks as 16:10 holds, centered on them, with no edge through a label.
+     * Line and fleet here are much wider than 16:10, so the box is as wide as the line needs and the spare height
+     * goes below, where the tracks are.
+     */
+    thumbClip: ({ w, h }) => {
+      const body = document.querySelector('#fs-body').getBoundingClientRect();
+      const svg = document.querySelector('#fs-body svg.chart.start');
+      const rects = (sel) => [...svg.querySelectorAll(sel)].map((e) => e.getBoundingClientRect()).filter((r) => r.width || r.height);
+      const boxOf = (rs) => ({
+        x0: Math.max(body.left, Math.min(...rs.map((r) => r.left))),
+        y0: Math.max(body.top, Math.min(...rs.map((r) => r.top))),
+        x1: Math.min(body.right, Math.max(...rs.map((r) => r.right))),
+        y1: Math.min(body.bottom, Math.max(...rs.map((r) => r.bottom))),
+      });
+      const pad = 16;
+      const aspect = w / h;
+      const line = boxOf(rects('.startline, .pin, .rc, .endlbl, .fav-lbl'));
+      const all = boxOf(rects('.startline, .pin, .rc, .endlbl, .fav-lbl, g.boat:not(.nolbl), .trail'));
+      const labels = rects('.endlbl, .fav-lbl, g.boat:not(.nolbl) .blbl');
+      const need = line.x1 - line.x0 + 2 * pad;
+      const width = Math.max(need, Math.min(all.x1 - all.x0 + 2 * pad, (all.y1 - all.y0 + 2 * pad) * aspect));
+      // Centered on everything, then moved as little as keeps the line in.
+      let x0 = Math.min(Math.max((all.x0 + all.x1) / 2 - width / 2, line.x1 + pad - width), line.x0 - pad);
+      let x1 = x0 + width;
+      // An edge through a name or end label moves out past it.
+      for (let pass = 0, moved = true; moved && pass < 8; pass++) {
+        moved = false;
+        for (const r of labels) {
+          if (r.left < x0 && r.right > x0) [x0, moved] = [r.left - 4, true];
+          if (r.left < x1 && r.right > x1) [x1, moved] = [r.right + 4, true];
+        }
+      }
+      let y0 = all.y0 - pad;
+      let y1 = y0 + (x1 - x0) / aspect;
+      // Inside the chart: shifted back in where it can be, cut where it is bigger.
+      const fit = (a, b, lo, hi) => (b - a >= hi - lo ? [lo, hi] : a < lo ? [lo, lo + b - a] : b > hi ? [hi - (b - a), hi] : [a, b]);
+      [x0, x1] = fit(x0, x1, body.left, body.right);
+      [y0, y1] = fit(y0, y1, body.top, body.bottom);
+      return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+    },
+    // The full image: the viewport cut down to the lowest track plus the scale bar under it (ui/charts.ts scaleBar
+    // sits 8 px off the bottom with its label above), then Fit again, which keeps the same scale and top.
+    afterThumb: async (page) => {
+      const { bottom, tracks } = await page.evaluate(() => {
+        const body = document.querySelector('#fs-body').getBoundingClientRect();
+        const rs = [...document.querySelectorAll('#fs-body svg.chart.start .trail')].map((e) => e.getBoundingClientRect()).filter((r) => r.width || r.height);
+        return { bottom: body.bottom, tracks: rs.length ? Math.max(...rs.map((r) => r.bottom)) : body.bottom };
+      });
+      const cut = Math.floor(bottom - (tracks + 40));
+      if (cut <= 0) return;
+      const vp = page.viewportSize();
+      await page.setViewportSize({ width: vp.width, height: Math.max(480, vp.height - cut) });
+      await settle(page);
+      await page.click('#fs-tools #start-zoom button[data-zoom="1"]');
+    },
+    hide: ['#fs-rotate'],
   },
   {
     slug: 'around-the-gun',
@@ -381,7 +458,7 @@ async function settle(page) {
 }
 
 /** The PNG of one element, or of the box around several (which has to fit in the viewport). */
-async function capture(page, el) {
+async function capture(page, el, vh = VIEWPORT.height) {
   const sels = Array.isArray(el) ? el : [el];
   if (sels.length === 1) return page.locator(sels[0]).first().screenshot({ type: 'png', animations: 'disabled', caret: 'hide' });
   const boxOf = () =>
@@ -394,8 +471,8 @@ async function capture(page, el) {
     }, sels);
   let box = await boxOf();
   if (!box) throw new Error(`nothing on screen for ${sels.join(' + ')}`);
-  if (box.height > VIEWPORT.height) throw new Error(`${sels.join(' + ')} is ${Math.round(box.height)} px tall, more than the viewport`);
-  if (box.y < 0 || box.y + box.height > VIEWPORT.height) {
+  if (box.height > vh) throw new Error(`${sels.join(' + ')} is ${Math.round(box.height)} px tall, more than the viewport`);
+  if (box.y < 0 || box.y + box.height > vh) {
     await page.evaluate((dy) => window.scrollBy(0, dy), box.y - 8);
     box = await boxOf();
   }
@@ -404,6 +481,7 @@ async function capture(page, el) {
 
 async function shoot(context, o, shot, names, hits) {
   const page = await context.newPage();
+  if (shot.viewport) await page.setViewportSize(shot.viewport);
   page.on('pageerror', (e) => console.warn(`  [${shot.slug}] page error: ${e.message}`));
   await page.addInitScript(
     ({ keys, prefs }) => {
@@ -432,8 +510,18 @@ async function shoot(context, o, shot, names, hits) {
     await settle(page);
 
     // Captured before the checks, so a failed shot's PNGs can still go to --png-dir to look at (never to --out).
-    const full = await capture(page, shot.el);
-    const thumb = shot.thumb ? await capture(page, shot.thumb) : full;
+    const vh = () => page.viewportSize()?.height ?? VIEWPORT.height;
+    let thumb = null;
+    if (shot.thumbClip) {
+      thumb = await page.screenshot({ type: 'png', clip: await page.evaluate(shot.thumbClip, { w: THUMB_W, h: THUMB_H }), animations: 'disabled', caret: 'hide' });
+      if (shot.afterThumb) {
+        await shot.afterThumb(page);
+        await stable(page, els, wait);
+        await settle(page);
+      }
+    }
+    const full = await capture(page, shot.el, vh());
+    thumb ??= shot.thumb ? await capture(page, shot.thumb, vh()) : full;
     let error = null;
     if (!hits.regatta) error = 'the regatta document never came through the route, so boat names could not be removed';
     else if (o.nameCheck) {
@@ -598,7 +686,7 @@ async function main() {
       }
       if (o.pngDir) {
         writeFileSync(join(o.pngDir, `${shot.slug}.png`), pngs.full);
-        if (shot.thumb) writeFileSync(join(o.pngDir, `${shot.slug}-thumb.png`), pngs.thumb);
+        if (pngs.thumb !== pngs.full) writeFileSync(join(o.pngDir, `${shot.slug}-thumb.png`), pngs.thumb);
       }
       if (pngs.error) {
         console.error(`  ${shot.slug}: FAILED: ${pngs.error}${o.pngDir ? ` (the capture is in ${o.pngDir})` : ''}`);

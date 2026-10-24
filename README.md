@@ -45,10 +45,13 @@ PLAYWRIGHT_CORE=/path/to/playwright-core/index.js node scripts/landing-thumbs.mj
 Use a port Node's `fetch` accepts: undici refuses its "bad ports" (4190 is one), and the script checks the server
 with `fetch` first.
 
-The races are the J/70 Worlds in Cascais (Open, `race=4`, USA 833 for the start and regatta views; the replay is
+The races are the J/70 Worlds in Cascais (Open, `race=4`, USA 833 for Around the gun and the regatta view; the replay is
 `race=3` at the windward mark, a moment picked from `tests/fixtures/cascais_r3.json` where nearly every boat near
 USA 833 has fresh fixes) and the J/105 CBC (`race=1`, linked to Yachtscoring 50575; the debrief and report are
-`race=3` for USA 343, which covers 85% of that race on its fixture, against USA 833's thin Cascais tracks). Sail numbers only: the script removes boat names and Yachtscoring's
+`race=3` for USA 343, which covers 85% of that race on its fixture, against USA 833's thin Cascais tracks). The start
+is the 2026 IC37 North American Championship (`race=4`), its start chart in full screen (Fit, Color: Speed,
+Names: Auto) without the bar of controls above it: the thumbnail at 1280×800, the full image with the
+viewport cut down to just under the tracks. Sail numbers only: the script removes boat names and Yachtscoring's
 owner and crew fields from the responses before the page sees them, hides `.bname` / `.rp-name`, and fails a
 shot if any removed name is still in the captured element (whole words, case as written; one-word names that are
 also the app's own words, `NOT_NAMES` such as "Mark", are skipped). Look over every image before committing it anyway.
