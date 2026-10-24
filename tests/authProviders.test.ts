@@ -845,7 +845,11 @@ describe('the page', () => {
   it('the buttons: inline logos (no images), accessible text, the brand classes', () => {
     const html = providerButtonsHtml({ google: true, microsoft: true, apple: true });
     expect(html).not.toMatch(/<img|https?:\/\//);
-    expect(html).toContain('<a class="lock-secondary google" data-pw="google" href="#">Continue with Google</a>');
+    const g = /<a class="lock-secondary signin-google" data-pw="google" href="#"><svg class="signin-logo"[\s\S]*?<\/a>/.exec(html)![0];
+    expect(g).toContain('aria-hidden="true"');
+    expect(g.match(/<path /g)).toHaveLength(4);
+    for (const c of ['#EA4335', '#4285F4', '#FBBC05', '#34A853']) expect(g).toContain(`fill="${c}"`);
+    expect(g).toContain('</svg><span>Continue with Google</span></a>');
     expect(html).toMatch(/<a class="lock-secondary signin-apple" data-pw="apple" href="#"><svg class="signin-logo"[^>]*aria-hidden="true"[^>]*><path fill="currentColor" d="M12\.152[^"]+"\/><\/svg><span>Continue with Apple<\/span><\/a>/);
     const ms = /<a class="lock-secondary signin-microsoft"[\s\S]*?<\/a>/.exec(html)![0];
     expect(ms).toContain('aria-hidden="true"');

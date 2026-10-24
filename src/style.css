@@ -1302,6 +1302,11 @@ body.report-on .content > :not(#report) { display: none !important; }
 .account-providers p { margin: 0; }
 .account-providers .lock-secondary { width: 100%; box-sizing: border-box; justify-content: center; gap: 10px; padding: 0 20px; }
 .signin-logo { flex: none; width: 18px; height: 18px; }
+/* Brand buttons. Google and Microsoft stay light in dark mode; Apple flips to white. */
+/* Google's guidelines (light theme): white, #747775 border, #1F1F1F text, the standard-color G.
+   Roboto isn't loaded here, so it keeps the app font at Apple and Microsoft's weight. */
+.account-providers .signin-google { background: #fff; border-color: #747775; color: #1f1f1f; font-weight: 600; }
+.account-providers .signin-google:hover { border-color: #1f1f1f; background: #f2f2f2; }
 /* Apple's guidelines: black, white logo and text (white with black in dark mode). */
 .account-providers .signin-apple { background: #000; border-color: #000; color: #fff; font-weight: 600; }
 .account-providers .signin-apple:hover { border-color: #000; background: #1d1d1f; }

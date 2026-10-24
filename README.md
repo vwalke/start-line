@@ -1727,7 +1727,8 @@ regatta for $50 · Already bought? Sign in · Restore access". Back from Checkou
 `/api/auth/me` until the pass lands, then unlocks. Only the sign-in methods
 `/api/auth/me` reports (`signIn.email`, `signIn.google`, `signIn.microsoft`,
 `signIn.apple`; the last two true only with every one of their settings) are
-shown, in this order: **Continue with Google**, **Continue with Apple**
+shown, in this order: **Continue with Google** (white, gray border, the
+four-color G; light in dark mode too), **Continue with Apple**
 (black, white Apple logo; white in dark mode), **Continue with Microsoft**
 (light, gray border, the four-square logo), then the email form with
 Turnstile and Restore access. The logos are inline SVG, no images. With
