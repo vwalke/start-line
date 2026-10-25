@@ -427,9 +427,12 @@ export function ladderChart(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder,
     const x = (L.x(s.fromMs) + L.x(s.toMs)) / 2;
     out.push(`<text class="cl-leg-lbl" data-leg="${s.leg}" x="${r1(x)}" y="${L.padT - 6}" font-size="${fs - 1}" text-anchor="middle">${esc(s.name)}</text>`);
   }
-  // Each group boat, thin, one colour for the whole race (clipped to the panel), then the median, bold black.
+  // The median, bold black, then each group boat, thin, one colour for the whole race, on top (clipped to the panel):
+  // a boat that is the median (the middle of an odd group) runs along the bold line instead of vanishing under it.
   const clip = `cl-clip-${Math.round(L.W)}`;
   out.push(`<clipPath id="${clip}"><rect x="${L.padL}" y="${L.padT}" width="${L.W - L.padL - L.padR}" height="${L.gapB - L.padT}"/></clipPath><g clip-path="url(#${clip})">`);
+  const med = runsPath(ladder.points, (i) => (ladder.points[i].behindS == null ? null : -ladder.points[i].behindS!), L);
+  out.push(`<path class="cl-med" d="${med}"/>`);
   const byId = new Map(a.boats.map((b) => [b.id, b]));
   if (each) {
     ladder.group.forEach((id, k) => {
@@ -440,8 +443,7 @@ export function ladderChart(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder,
       }
     });
   }
-  const med = runsPath(ladder.points, (i) => (ladder.points[i].behindS == null ? null : -ladder.points[i].behindS!), L);
-  out.push(`<path class="cl-med" d="${med}"/></g>`);
+  out.push(`</g>`);
   // Lone points (a run of one) as dots so they don't vanish.
   ladder.points.forEach((p, i) => {
     if (p.behindS == null) return;
