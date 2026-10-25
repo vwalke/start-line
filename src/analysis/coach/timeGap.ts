@@ -37,13 +37,15 @@
  *     monotone, so a straight line across a hole stays between the truth's two ends.
  * - Gap at `t`: the chosen boat's progress at `t`, and `t` − the time the group boat got that far, s
  *   (+ = behind: it was there earlier). Boats on different legs compare.
- * - The group's gap (bold line): the median over a fixed set of boats, each read across holes up to
- *   GROUP_BRIDGE_S, so a boat in a hole keeps its place in the median instead of dropping out of it
- *   (with a split group, one boat fewer moves the median from one cluster to the other). Drawn only
- *   where at least GROUP_MIN_SHARE of the group's gaps are read across holes of GROUP_DRAW_HOLE_S or
- *   less (a median of straight lines across a shared hole is a guess). Where the set with a value
- *   changes anyway (a track starts or ends, a hole over GROUP_BRIDGE_S), the line breaks for a point
- *   rather than step to a median over other boats.
+ * - The group's gap (bold line): over a fixed set of boats, each read across holes up to GROUP_BRIDGE_S,
+ *   so a boat in a hole keeps its place in the reference instead of dropping out of it (with a split
+ *   group, one boat fewer moves it from one cluster to the other). At each point it is the mean of the
+ *   boats with a value when there are GROUP_MEAN_MAX_BOATS or fewer (the median of three is just the
+ *   middle boat), else their median (groupStat). Drawn only where at least GROUP_MIN_SHARE of the
+ *   group's gaps are read across holes of GROUP_DRAW_HOLE_S or less (a reference over straight lines
+ *   across a shared hole is a guess). Where the set with a value changes anyway (a track starts or
+ *   ends, a hole over GROUP_BRIDGE_S), the line breaks for a point rather than step to a reference
+ *   over other boats.
  */
 import { circMean, dot, len, median, sub, type Vec } from '../geo';
 import { GROUP_MIN_SHARE, legEnd, legLengths, rung, type Course, type GapPoint, type Wind } from './ladder';
@@ -65,21 +67,34 @@ export const ROUNDING_OUT_M = 30;
  */
 export const FINISH_IN_M = 30;
 /**
- * The group line reads a boat across holes up to this long, s (its thin line doesn't), so the median
+ * The group line reads a boat across holes up to this long, s (its thin line doesn't), so its reference
  * keeps the same boats. The trackers here lose boats for minutes in rounding packs (J/105 CBC race 2:
  * every boat for 4–5 min at the windward mark, USA 313 for 7 min down the first run). Over 10 min the
- * straight line would span most of a leg: the boat leaves the median there, and the line breaks.
+ * straight line would span most of a leg: the boat leaves the group line there, and the line breaks.
  */
 export const GROUP_BRIDGE_S = 600;
 /**
  * The group line is drawn only where at least GROUP_MIN_SHARE of its gaps are read across holes no
  * longer than this (for both boats), s: twice the position rule's span (COACH_MAX_SPAN_S), ~60–120 m
  * of a leg, over which a straight line is off by a second or two. Across a hole the whole fleet shared,
- * a median of straight lines is no measurement: with 60 s, J/105 CBC race 2 Beat 2 (every boat 20–55 s
+ * a reference over straight lines is no measurement: with 60 s, J/105 CBC race 2 Beat 2 (every boat 20–55 s
  * between fixes) moved 13 s in 10 s, faster than a gap can grow; across J/70 Worlds race 2's 10 min
  * hole on the first run, a 50 s dip that wasn't.
  */
 export const GROUP_DRAW_HOLE_S = 30;
+/** The group line is the mean of the boats with a value when there are this many or fewer, else their median. */
+export const GROUP_MEAN_MAX_BOATS = 5;
+
+/** Which statistic the group line uses over `n` boats with a value (GROUP_MEAN_MAX_BOATS). */
+export const groupStatKind = (n: number): 'mean' | 'median' => (n <= GROUP_MEAN_MAX_BOATS ? 'mean' : 'median');
+
+/**
+ * The group line's value over the group boats' gaps `xs` (non-empty): their mean or median, as groupStatKind says.
+ * Summed in sorted order, so the same boats in another order (a card's group vs the chart's) give the very same value.
+ */
+export function groupStat(xs: readonly number[]): number {
+  return groupStatKind(xs.length) === 'mean' ? [...xs].sort((a, b) => a - b).reduce((s, x) => s + x, 0) / xs.length : median(xs);
+}
 
 /** Distance made good along leg `leg`'s rhumb line from its start mark, m (negative behind it, over its length past the end; 0 on a leg of no length). */
 export function legProgress(c: Course, leg: number, p: Vec): number {
@@ -386,13 +401,13 @@ function gapPoints(c: Course, me: ProgressTrack, pts: ProgressTrack[], fromMs: n
     const all = pts.map((pt) => (prog == null ? null : gap(t, timeAtProgress(pt, prog, GROUP_BRIDGE_S))));
     const ok = all.filter((x): x is number => x != null);
     const seen = near ? pts.filter((pt) => timeAtProgress(pt, prog!, GROUP_DRAW_HOLE_S) != null).length : 0;
-    // In the median but not there as positions are read: bridged across a hole (estimated).
+    // In the group line but not there as positions are read: bridged across a hole (estimated).
     const est = prog == null ? 0 : pts.filter((pt, k) => all[k] != null && timeAtProgress(pt, prog) == null).length;
-    // The same boats as the point before, or a break: never a step from one set's median to another's.
+    // The same boats as the point before, or a break: never a step from one set's reference to another's.
     const set = ok.length >= need ? all.map((x) => (x == null ? '-' : '+')).join('') : null;
     const steady = setBefore == null || set === setBefore;
     setBefore = set;
-    out.push({ tMs: t, behindS: set != null && steady && seen >= need ? median(ok) : null, n: ok.length, est, each, leg: prog == null ? null : legOfProgress(c, prog) });
+    out.push({ tMs: t, behindS: set != null && steady && seen >= need ? groupStat(ok) : null, n: ok.length, est, each, leg: prog == null ? null : legOfProgress(c, prog) });
   }
   return out;
 }

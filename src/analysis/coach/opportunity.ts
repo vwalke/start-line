@@ -68,7 +68,7 @@ export interface Opportunity {
 }
 
 /**
- * Two of the chart's points a card read (timeGap.ts groupGap, s, + = behind): the median of `ids` (the bold line with
+ * Two of the chart's points a card read (timeGap.ts groupGap, s, + = behind): the mean or median of `ids` (groupStat; the bold line with
  * that group: Custom, or Top 3 when they are the leaders), or `boat`'s own line (a thin line). A Δgap is g1 − g0.
  */
 export interface GapReading {
@@ -238,7 +238,7 @@ export const minSeconds = (kind: DetectorKind, level: Confidence): number =>
 /**
  * A Δgap's two reads are at least this far apart, ms. Each is one of the chart's points (timeGap.ts groupGap), not a
  * median around it: the card's seconds are then exactly the chart's change between the two (the progress gap is
- * already a fixed group's median, read across holes, so it doesn't need smoothing).
+ * already a fixed group's mean or median, read across holes, so it doesn't need smoothing).
  */
 export const GAP_READ_MS = 60_000;
 

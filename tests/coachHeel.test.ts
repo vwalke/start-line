@@ -457,14 +457,15 @@ describe('D11 golden: the committed fixtures', () => {
     }
   });
 
-  it('M24 R4: 491 sailed ~7° flatter than the top 3 on Beat 1 and slower: a card; 658 and 615 too flat, on their D6 cards', () => {
+  it('M24 R4: 491 sailed ~7° flatter than the top 3 on Beat 1 and slower: found; 658 and 615 too flat, on their D6 cards', () => {
     const d491 = coachDebrief(m24.a, m24.m, '491')!;
-    const c = d491.cards.find((x) => x.kind === 'D11')!;
+    const c = d491.found.find((x) => x.kind === 'D11')!;
     expect(c).toMatchObject({ variant: 'under', facts: { leg: 'Beat 1', ref: 'leaders' } });
     expect(c.facts.dHeel as number).toBeLessThan(-6);
     expect(c.seconds).toBeGreaterThan(30);
     expect(c.seconds).toBeLessThan(50);
-    expect(c.confidence).toBe('medium');
+    // No card since the top 3's line is their mean: the start card's early lane (17 s on it) claims Beat 1's first 5 min.
+    expect(d491.cards.some((x) => x.kind === 'D11')).toBe(false);
     for (const id of ['658', '615']) {
       const d = coachDebrief(m24.a, m24.m, id)!;
       const d6 = d.cards.find((x) => x.kind === 'D6')!;
@@ -481,7 +482,7 @@ describe('D11 golden: the committed fixtures', () => {
     expect(r615.findings.find((f) => f.theme === 'heel-under')).toMatchObject({ kind: 'D11', seconds: 0 });
     expect(r615.evaluated).toEqual(expect.arrayContaining(['heel-over', 'heel-under']));
     const r491 = raceDigest(m24.a, m24.m, '491');
-    expect(r491.findings.find((f) => f.theme === 'heel-under')!.seconds).toBeGreaterThan(30);
+    expect(r491.findings.find((f) => f.theme === 'heel-under')).toMatchObject({ kind: 'D11', seconds: 0 });
   });
 
   it('M24 R4 leg stories: a heel chip on 491\'s Beat 1, on the closed row (it cost time)', () => {

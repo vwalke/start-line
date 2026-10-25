@@ -174,7 +174,7 @@ describe('Coach tab on the fixtures', () => {
     // Phone width still draws.
     expect(ladderChart(a, model, l, { kind: 'leaders' }, { widthPx: 340, each: false })).not.toContain('cl-each');
     const chips = ladderChips(a, l, { kind: 'leaders' }, true);
-    expect(chips[0]).toMatchObject({ text: '#USA 96 vs top 3 (median)', swatch: 'bold' });
+    expect(chips[0]).toMatchObject({ text: '#USA 96 vs top 3 (mean)', swatch: 'bold' });
     expect(chips.some((c) => c.text === 'no data')).toBe(true);
   });
 

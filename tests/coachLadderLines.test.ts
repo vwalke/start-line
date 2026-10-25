@@ -1,7 +1,7 @@
 /**
  * The gap chart's thin lines when the chosen boat finished in the top 3 (Fall Brawl J/70 race 3, official results):
- * the group never includes it, and every rival's line is drawn over the median, so the one that is the median (the
- * middle of three) runs along the bold line instead of vanishing under it.
+ * the group never includes it, and every rival's line is drawn over the bold group line (the mean of the three), so
+ * a rival that runs along it stays visible instead of vanishing under it.
  */
 import { describe, expect, it } from 'vitest';
 import { rivalLadder } from '../src/analysis/coach';
@@ -27,12 +27,14 @@ describe('Coach gap chart: a top-3 boat vs Top 3', () => {
     expect(groupIds(a.boats, me.id, { kind: 'custom', ids: [me.id, ...top] })).toEqual(top);
   });
 
-  it('each rival has a thin line, drawn after the median, including the rival that is the median', () => {
+  it('each rival has a thin line, drawn after the group line, which is the mean of the three and no single rival', () => {
     const l = rivalLadder(m, a, me.id, { kind: 'leaders' })!;
     expect(l.group).toEqual(top);
-    // One rival is the median at most points (the middle of three).
-    const onMed = l.group.map((_, k) => l.points.filter((p) => p.behindS != null && p.each[k] === p.behindS).length);
-    expect(Math.max(...onMed)).toBeGreaterThan(l.points.filter((p) => p.behindS != null).length / 2);
+    // The mean of three is no rival's own line: hardly any point has the bold line on a thin one (the median, the middle
+    // of three, was on one at most points).
+    const drawn = l.points.filter((p) => p.behindS != null);
+    const onOne = drawn.filter((p) => p.each.some((e) => e === p.behindS)).length;
+    expect(onOne).toBeLessThan(drawn.length / 10);
     const svg = ladderChart(a, m, l, { kind: 'leaders' }, { widthPx: 900, each: true });
     const med = svg.indexOf('class="cl-med"');
     expect(med).toBeGreaterThan(-1);

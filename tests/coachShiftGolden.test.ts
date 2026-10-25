@@ -85,19 +85,19 @@ describe('D4 golden: race 2 Beat 1, the wrong side of a 14° left shift (debrief
     expect(t.sentence).toMatch(/^You went right while the leaders held left; the wind backed 14°/);
     expect(t.tip).toContain('on a header more than 30 s, tack');
     expect(windowChip(c, a)).toBe('12:26–12:34');
-    // The start card (71 s: the crossing's 47 s + the early lane's 24 s, 12:26–12:31) ranks first now, so D4 gives up the
+    // The start card (72 s: the crossing's 47 s + the early lane's 25 s, 12:26–12:31) ranks first now, so D4 gives up the
     // minutes they share: 26 s of its 60 shown (was the other way round: D4 ≈ 90 s first, the start ≈ 51 s).
     expect(d.cards.map((x) => x.kind)).toEqual(['D1', 'D4', 'D7']);
     expect(c.seconds).toBeLessThan(o.seconds);
     expect(secondsChip(c)).toBe('≈ 26 s');
   });
 
-  it('the early-lane D3 (24 s, same minutes) rides on the start card; the start keeps it, the crossing\'s 47 s untouched', () => {
+  it('the early-lane D3 (25 s, same minutes) rides on the start card; the start keeps it, the crossing\'s 47 s untouched', () => {
     // D1 fired (64 m back): the D3 after it merges into the start card, its seconds a part of their own.
     expect(d.found.some((x) => x.kind === 'D3')).toBe(false);
     const start = d.found.find((x) => x.kind === 'D1')!;
-    // Got 24.4 s on the chart (Top 3: 42.6 → 67.0 s, 12:26:01–12:30:51); on the wind ladder it was 19 s.
-    expect(Math.round(start.facts.d3S as number)).toBe(24);
+    // Got 24.9 s on the chart (Top 3's mean: 41.2 → 66.0 s, 12:26:01–12:30:51; 24.4 s on their median); on the wind ladder it was 19 s.
+    expect(Math.round(start.facts.d3S as number)).toBe(25);
     expect(start.parts).toHaveLength(2);
     const card = d.cards.find((x) => x.kind === 'D1')!;
     expect(card.seconds).toBeCloseTo(start.seconds, 9);

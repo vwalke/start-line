@@ -3,8 +3,8 @@
  * pickers of its own; the Regatta view is coachRegatta.ts). Phase 1: one
  * line of key-number chips with ⚠ caveats and the one ⓘ, and the rival ladder
  * — the boat's gap in seconds to a group of boats over the race at equal course
- * progress (analysis/coach/timeGap.ts; ahead up, behind down), the group median
- * bold and each group boat thin, roundings
+ * progress (analysis/coach/timeGap.ts; ahead up, behind down), the group's mean
+ * (5 or fewer boats) or median bold and each group boat thin, roundings
  * marked, and the fleet's wind in a strip underneath on the same time axis.
  * Gaps in the data: the bold group line bridges a boat's tracker gap of up to GROUP_BRIDGE_S (10 min) in a straight
  * line (the readout counts those boats as estimated); each boat's thin line is not filled in and breaks. Where the
@@ -17,7 +17,7 @@ import { DEFAULT_GROUPS, NEAR_PLACES, type Group, type GroupKind } from '../anal
 import { RACE_MIN_COVERAGE } from '../analysis/coach/debrief';
 import type { CoachModel, RivalLadder } from '../analysis/coach';
 import type { GapPoint } from '../analysis/coach/ladder';
-import { GROUP_BRIDGE_S, GROUP_DRAW_HOLE_S } from '../analysis/coach/timeGap';
+import { GROUP_BRIDGE_S, GROUP_DRAW_HOLE_S, GROUP_MEAN_MAX_BOATS, groupStatKind } from '../analysis/coach/timeGap';
 import { COACH_MAX_SPAN_S } from '../analysis/coach/tracks';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { finishRank } from '../analysis/result';
@@ -141,7 +141,7 @@ export function coachChips(
 export const COACH_BULLETS: readonly string[] = [
   'Gap = how many seconds earlier (behind, down) or later (ahead, up) the group got as far along the course as you are now.',
   "How far along: on beats and runs, how far up (or down) the leg's wind ladder, one wind direction for the whole leg, so both tacks and gybes count alike; on reaches, distance made good along the line between the marks. A rounding counts from 30 m before the mark to 30 m down the next leg, so the lines run on through it.",
-  `Bold: the median of the group, always over the same boats. Where a boat's tracker has a gap of up to ${GROUP_BRIDGE_S / 60} min, the bold line bridges it in a straight line (the readout counts that boat as estimated). Thin: each group boat as tracked; its line is not filled in across gaps.`,
+  `Bold: the group's average, always over the same boats: the mean of the boats with data when there are ${GROUP_MEAN_MAX_BOATS} or fewer, the median when there are more. Where a boat's tracker has a gap of up to ${GROUP_BRIDGE_S / 60} min, the bold line bridges it in a straight line (the readout counts that boat as estimated). Thin: each group boat as tracked; its line is not filled in across gaps. The scale fits every line for ${GROUP_MEAN_MAX_BOATS} or fewer boats; with more, a line that runs off it gets a small marker at the edge.`,
   "Wind (strip below) comes from the fleet's tacks, minute by minute, not a sensor; dotted where estimated between minutes.",
   `Breaks: a thin line breaks where that boat's or your fixes are over ${COACH_MAX_SPAN_S} s apart; the bold line (and a gray band) where yours or most of the group's are over ${GROUP_DRAW_HOLE_S} s apart, or the group never got that far.`,
 ];
@@ -202,9 +202,12 @@ export interface LadderLayout {
   tAt: (px: number) => number;
 }
 
-/** How far past the median's range the group boats' own lines may stretch the scale, × that range. */
+/**
+ * With more than GROUP_MEAN_MAX_BOATS group boats, how far past the group line's range their own lines may stretch
+ * the scale, × that range (the rest is clipped and marked at the edge). With fewer, the scale fits every line.
+ */
 export const EACH_HEADROOM = 0.5;
-/** Palette slots for the group's own lines; the median stays black. */
+/** Palette slots for the group's own lines; the group line stays black. */
 export const LADDER_COLOR_SLOTS = 8;
 
 /** One stable colour per group boat for the whole chart (finish order, not the current leg). */
@@ -289,18 +292,27 @@ export function ladderLayout(ladder: RivalLadder, wind: { twdAt: (t: number) => 
   const H = windB + 22;
   const t0 = gunMs;
   const t1 = Math.max(gunMs + 60_000, ladder.points.length ? ladder.points[ladder.points.length - 1].tMs : gunMs + 60_000);
-  // Scaled to the median (and zero); the group boats' own lines widen it by at most EACH_HEADROOM of that, then clip.
-  const med: number[] = [0];
+  // Zero, the group line and, with `each`, the group boats' own lines. Up to GROUP_MEAN_MAX_BOATS boats every line
+  // fits, padded a little; with more, they widen the group line's range by at most EACH_HEADROOM of it, then clip.
+  const ref: number[] = [0];
   const own: number[] = [];
   for (const p of ladder.points) {
-    if (p.behindS != null) med.push(-p.behindS);
+    if (p.behindS != null) ref.push(-p.behindS);
     if (each) for (const e of p.each) if (e != null) own.push(-e);
   }
-  const mHi = Math.max(...med);
-  const mLo = Math.min(...med);
-  const room = EACH_HEADROOM * Math.max(mHi - mLo, 60);
-  let hi = Math.min(Math.max(mHi, ...own), mHi + room);
-  let lo = Math.max(Math.min(mLo, ...own), mLo - room);
+  const mHi = Math.max(...ref);
+  const mLo = Math.min(...ref);
+  let hi = Math.max(mHi, ...own);
+  let lo = Math.min(mLo, ...own);
+  if (ladder.group.length <= GROUP_MEAN_MAX_BOATS) {
+    const pad = own.length ? Math.max(0.05 * (hi - lo), 3) : 0;
+    hi += pad;
+    lo -= pad;
+  } else {
+    const room = EACH_HEADROOM * Math.max(mHi - mLo, 60);
+    hi = Math.min(hi, mHi + room);
+    lo = Math.max(lo, mLo - room);
+  }
   const sStep = niceStep(Math.max(hi - lo, 20));
   hi = Math.ceil((hi + 1e-9) / sStep) * sStep;
   lo = Math.floor((lo - 1e-9) / sStep) * sStep;
@@ -342,12 +354,42 @@ function runsPath(pts: { tMs: number }[], val: (i: number) => number | null, L: 
 }
 
 /**
+ * Where group boat `k`'s thin line leaves the gap panel: the x it crosses the top or bottom, one per exit (a break
+ * while it is off the panel is not a new one), skipping one within 6 px of the last at that edge.
+ */
+function clipMarks(pts: readonly { tMs: number; each: (number | null)[] }[], k: number, L: LadderLayout): { x: number; top: boolean }[] {
+  const out: { x: number; top: boolean }[] = [];
+  const lastX = { top: -Infinity, bottom: -Infinity };
+  const edge = (v: number): 'top' | 'bottom' | null => (v > L.hi ? 'top' : v < L.lo ? 'bottom' : null);
+  let was: 'top' | 'bottom' | null = null;
+  let prev: { tMs: number; v: number } | null = null;
+  for (const p of pts) {
+    const e = p.each[k];
+    if (e == null) {
+      prev = null;
+      continue;
+    }
+    const v = -e;
+    const now = edge(v);
+    if (now && now !== was) {
+      const lim = now === 'top' ? L.hi : L.lo;
+      const x = L.x(prev ? prev.tMs + ((p.tMs - prev.tMs) * (lim - prev.v)) / (v - prev.v) : p.tMs);
+      if (x - lastX[now] >= 6) out.push({ x, top: now === 'top' });
+      lastX[now] = x;
+    }
+    was = now;
+    prev = { tMs: p.tMs, v };
+  }
+  return out;
+}
+
+/**
  * The shortest stretch without a bold value that gets a grey band, ms: longer than COACH_MAX_SPAN_S, the thin lines'
  * break (a stretch of fixes that far apart is a hole), so a band and a thin line's break mean the same thing.
  */
 export const NO_DATA_MIN_MS = COACH_MAX_SPAN_S * 1000;
 
-/** Spans (ms) where the median has no value for longer than `minMs`: from the last point with one (or the first point) to the next (or the last point). */
+/** Spans (ms) where the group line has no value for longer than `minMs`: from the last point with one (or the first point) to the next (or the last point). */
 export function nullSpans(points: { tMs: number; behindS: number | null }[], minMs = NO_DATA_MIN_MS): [number, number][] {
   const out: [number, number][] = [];
   let start: number | null = null;
@@ -427,8 +469,8 @@ export function ladderChart(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder,
     const x = (L.x(s.fromMs) + L.x(s.toMs)) / 2;
     out.push(`<text class="cl-leg-lbl" data-leg="${s.leg}" x="${r1(x)}" y="${L.padT - 6}" font-size="${fs - 1}" text-anchor="middle">${esc(s.name)}</text>`);
   }
-  // The median, bold black, then each group boat, thin, one colour for the whole race, on top (clipped to the panel):
-  // a boat that is the median (the middle of an odd group) runs along the bold line instead of vanishing under it.
+  // The group line, bold black, then each group boat, thin, one colour for the whole race, on top (clipped to the panel):
+  // a boat that is on the group line (the middle of a large odd group) runs along it instead of vanishing under it.
   const clip = `cl-clip-${Math.round(L.W)}`;
   out.push(`<clipPath id="${clip}"><rect x="${L.padL}" y="${L.padT}" width="${L.W - L.padL - L.padR}" height="${L.gapB - L.padT}"/></clipPath><g clip-path="url(#${clip})">`);
   const med = runsPath(ladder.points, (i) => (ladder.points[i].behindS == null ? null : -ladder.points[i].behindS!), L);
@@ -444,6 +486,16 @@ export function ladderChart(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder,
     });
   }
   out.push(`</g>`);
+  // A small caret in the boat's colour where its thin line runs off the panel (only a group over GROUP_MEAN_MAX_BOATS clips).
+  if (each) {
+    ladder.group.forEach((id, k) => {
+      for (const c of clipMarks(ladder.points, k, L)) {
+        const tip = c.top ? L.padT : L.gapB;
+        const base = c.top ? tip + 5 : tip - 5;
+        out.push(`<path class="cl-clip-mark" data-boat="${esc(id)}" d="M${r1(c.x - 3.5)} ${base}L${r1(c.x + 3.5)} ${base}L${r1(c.x)} ${tip}Z" fill="${ladderBoatColor(id, ladder.group)}"/>`);
+      }
+    });
+  }
   // Lone points (a run of one) as dots so they don't vanish.
   ladder.points.forEach((p, i) => {
     if (p.behindS == null) return;
@@ -492,8 +544,18 @@ export function ladderHover(ladder: RivalLadder, L: LadderLayout, px: number, re
   return best < 0 ? null : { i: best, tMs: ladder.points[best].tMs };
 }
 
-/** "6 boats", "6 boats, 2 estimated": the boats in the median, and how many of them are bridged across a tracker gap. */
-export const boatsCount = (p: Pick<GapPoint, 'n' | 'est'>): string => `${p.n} boat${p.n === 1 ? '' : 's'}${p.est ? `, ${p.est} estimated` : ''}`;
+/** "mean of 3 boats", "median of 8 boats, 2 estimated": the group line's statistic, the boats in it, and how many of them are bridged across a tracker gap. */
+export const boatsCount = (p: Pick<GapPoint, 'n' | 'est'>): string =>
+  `${groupStatKind(p.n)} of ${p.n} boat${p.n === 1 ? '' : 's'}${p.est ? `, ${p.est} estimated` : ''}`;
+
+/**
+ * The legend's name for the group line: "mean" or "median" when every drawn point uses it, "mean / median" when it
+ * changes during the race; with nothing drawn, what the whole group (`groupSize` boats) would use.
+ */
+export function ladderStatLabel(points: readonly Pick<GapPoint, 'n' | 'behindS'>[], groupSize: number): string {
+  const kinds = new Set(points.filter((p) => p.behindS != null).map((p) => groupStatKind(p.n)));
+  return kinds.size > 1 ? 'mean / median' : ([...kinds][0] ?? groupStatKind(groupSize));
+}
 
 /** The tooltip's HTML for point `i`. */
 export function ladderTipHtml(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder, g: Group, i: number): string {
@@ -524,10 +586,16 @@ export function ladderBreaks(ladder: Pick<RivalLadder, 'points' | 'group'>, each
   });
 }
 
-/** The chart's legend chips: the bold median, each group boat by name and colour, no data. */
+/** The chart's legend chips: the bold group line (mean or median), each group boat by name and colour, no data. */
 export function ladderChips(a: RaceAnalysis, ladder: RivalLadder, g: Group, each: boolean): Chip[] {
   const me = a.boats.find((b) => b.id === ladder.boat);
-  const chips: Chip[] = [{ text: `${me ? `#${me.sail}` : ladder.boat} vs ${GROUP_SHORT[g.kind]} (median)`, swatch: 'bold' }];
+  const chips: Chip[] = [
+    {
+      text: `${me ? `#${me.sail}` : ladder.boat} vs ${GROUP_SHORT[g.kind]} (${ladderStatLabel(ladder.points, ladder.group.length)})`,
+      swatch: 'bold',
+      title: `The mean of the boats with data when there are ${GROUP_MEAN_MAX_BOATS} or fewer, the median when there are more`,
+    },
+  ];
   if (each) {
     const byId = new Map(a.boats.map((b) => [b.id, b]));
     for (const id of ladder.group) {
