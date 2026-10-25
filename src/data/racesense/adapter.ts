@@ -4,7 +4,23 @@
  * normalized `RaceData`. Pure functions only; fetching lives in api.ts so
  * the same code runs against the offline fixtures in tests.
  */
-import { awayFromStart, crossings, feedRaceNumber, fleetOnsetFloor, lineFrom, officialTimesPlausible, trackerFinish, PLAUSIBLE_SEARCH_MS, type MarkSeries } from '../finishes';
+import { bowFixes, committeeAt, EST_MIN_SHARE, estimateFinish, farEndBoats } from '../finishEstimate';
+import {
+  awayFromStart,
+  bearingDeg,
+  courseAxisDeg,
+  crossings,
+  destination,
+  feedRaceNumber,
+  fleetOnsetFloor,
+  lineFrom,
+  officialTimesPlausible,
+  trackerFinish,
+  PLAUSIBLE_SEARCH_MS,
+  type Fix,
+  type MarkSeries,
+  type Plausibility,
+} from '../finishes';
 import { finishedWithCode } from '../official/codes';
 import type { OfficialResultRow } from '../official/link';
 import type { Boat, CourseMark, EntryResults, LatLon, Line, MarkTrack, RaceData, RaceResults, RcStart, Track, WindSample } from '../types';
@@ -530,20 +546,40 @@ function finishDevices(course: Course | null): { left: string; right: string } |
   return null;
 }
 
+/** The committee boat's tracker: the start line's right end. */
+function committeeDevice(course: Course | null): string | null {
+  const a = course?.achievements?.find((x) => x.type === 'startLine');
+  return a?.deviceRoles.find((d) => /right/i.test(d.role))?.sn ?? null;
+}
+
 /**
  * Decide places and finish times (RaceData.results, Boat.finishSource / official*): official
  * places and codes when linked, with official times only if plausible (data/finishes.ts), else
  * RaceSense's finish or the tracker crossing; with no official results and no RaceSense
  * finishes, tracker crossings. A race with RaceSense finishes and no official results is left as it was.
+ * With `estimate` (no finish line in the feed), when the start line standing in for it doesn't do (too few
+ * finishers cross it, or the official times disagree with it), the crossings are of a line estimated off the
+ * committee boat instead (data/finishEstimate.ts), returned as `estimated`.
  */
 function resolveResults(
   boats: Boat[],
   rowsOf: (sail: string) => Row[] | undefined,
   rows: Row[],
-  ctx: { gunMs: number; startMid: LatLon; course: Course | null; finishLine: Line | null; rsFinishes: number; official: OfficialRaceInput | null; nextGunMs: number | null },
-): RaceResults | undefined {
+  ctx: {
+    gunMs: number;
+    startMid: LatLon;
+    startLine: Line;
+    axisDeg: number;
+    course: Course | null;
+    finishLine: Line | null;
+    estimate: boolean;
+    rsFinishes: number;
+    official: OfficialRaceInput | null;
+    nextGunMs: number | null;
+  },
+): { results?: RaceResults; estimated?: Line } {
   const { gunMs, official } = ctx;
-  if (!official && ctx.rsFinishes > 0) return undefined;
+  if (!official && ctx.rsFinishes > 0) return {};
   const lastTs = rows.length ? rows[rows.length - 1].ts : gunMs;
   const endMs = Math.min(lastTs, ctx.nextGunMs != null ? ctx.nextGunMs - 30_000 : Infinity);
   const dev = finishDevices(ctx.course);
@@ -575,12 +611,64 @@ function resolveResults(
   const tracker = new Map<string, number>();
   if (lineAt) {
     for (const b of boats) {
-      const t = trackerFinish(fixes.get(b.id)!, lineAt, gunMs, endMs, feedRn, floor);
+      const t = trackerFinish(fixes.get(b.id)!, lineAt, gunMs, endMs, feedRn, floor, ctx.axisDeg);
       if (t != null) tracker.set(b.id, t);
     }
   }
 
-  if (!official) {
+  const byRs = new Map((official?.rows ?? []).filter((r) => r.rsSail).map((r) => [r.rsSail!, r]));
+  const utc = (wall: number | null): number | null => (wall == null || !official ? null : wall - official.tzOffsetMs);
+  // A boat that finished with a code (DPI, SCP, …; DSQ / UFD / BFD with a finish time) is a finisher here: its
+  // time counts for the plausibility check and it keeps its finish (codes.ts finishedWithCode).
+  const finished = (r: OfficialResultRow | undefined): boolean => !!r && (r.code == null || finishedWithCode(r.code, r.finishWallMs != null));
+  const isFinisher = (r: OfficialResultRow | undefined): boolean => !!r && ((r.code == null && r.place != null) || (r.code != null && finished(r)));
+  const fins = (official?.rows ?? []).filter(isFinisher);
+  const allOfficial = fins.map((r) => utc(r.finishWallMs)).filter((t): t is number => t != null);
+  const plausible = (la: ((t: number) => Line | null) | null, fx: (b: Boat) => readonly Fix[]): Plausibility => {
+    const pairs = boats
+      .map((b) => ({ b, o: byRs.get(b.sail) }))
+      .filter((x) => finished(x.o) && utc(x.o!.finishWallMs) != null)
+      .map(({ b, o }) => ({ officialMs: utc(o!.finishWallMs)!, crossings: la ? crossings(fx(b), la, gunMs, endMs + PLAUSIBLE_SEARCH_MS) : [] }));
+    return allOfficial.length ? officialTimesPlausible(pairs, gunMs, ctx.nextGunMs, allOfficial) : { ok: false, n: 0, medianS: null, why: 'no official finish times' };
+  };
+  let plaus = official ? plausible(lineAt, (b) => fixes.get(b.id)!) : null;
+
+  // No finish line in the feed: when the start line doesn't do for one, a line off the committee boat. The start
+  // line does when most finishers cross it, and the official times agree with it (AYC finishes on it); a line
+  // estimated anyway replaces it only if it does better: the official times agree with it, or (none) more cross it.
+  let estimated: Line | undefined;
+  if (ctx.estimate) {
+    const finishers = official ? new Set(boats.filter((b) => isFinisher(byRs.get(b.sail))).map((b) => b.id)) : farEndBoats(fixes, ctx.startLine, ctx.axisDeg, gunMs, endMs);
+    const crossedOf = (m: ReadonlyMap<string, number>): number => [...finishers].filter((id) => m.has(id)).length;
+    const startDoes = crossedOf(tracker) >= EST_MIN_SHARE * finishers.size;
+    if (finishers.size && !(startDoes && plaus?.ok)) {
+      const bow = new Map(boats.map((b) => [b.id, bowFixes(fixes.get(b.id)!, b.bowOffsetM)]));
+      const cbHex = committeeDevice(ctx.course);
+      const cb = cbHex ? series(cbHex) : null;
+      const boatAt = committeeAt(cb?.t.length ? cb : null, ctx.startLine.right);
+      const est = estimateFinish({
+        boats: boats.map((b) => ({ id: b.id, fixes: bow.get(b.id)!, officialMs: finished(byRs.get(b.sail)) ? utc(byRs.get(b.sail)!.finishWallMs) : null })),
+        finishers,
+        boatAt,
+        baseDeg: bearingDeg(ctx.startLine.left, ctx.startLine.right),
+        finishOf: (fx, la) => trackerFinish(fx, la, gunMs, endMs, feedRn, floor, ctx.axisDeg),
+      });
+      const estPlaus = est && official ? plausible(est.fit.lineAt, (b) => bow.get(b.id)!) : null;
+      const better = !startDoes || (estPlaus ? estPlaus.ok : crossedOf(est?.finishes ?? new Map()) > crossedOf(tracker));
+      if (est && better) {
+        tracker.clear();
+        for (const [id, t] of est.finishes) tracker.set(id, t);
+        if (estPlaus) plaus = estPlaus;
+        // Drawn where the committee boat was at the fleet's median finish.
+        const ts = [...est.finishes].filter(([id]) => finishers.has(id)).map(([, t]) => t);
+        const c = boatAt(ts.length ? median(ts) : gunMs);
+        estimated = { left: c, right: destination(c, est.fit.bearingDeg, est.fit.lengthM) };
+      }
+    }
+  }
+  const withLine = (results: RaceResults): { results: RaceResults; estimated?: Line } => (estimated ? { results, estimated } : { results });
+
+  if (!official || !plaus) {
     for (const b of boats) {
       const t = tracker.get(b.id);
       b.finishMs = t ?? null;
@@ -589,21 +677,9 @@ function resolveResults(
       const away = awayFromStart(fixes.get(b.id)!, ctx.startMid, gunMs, t != null);
       if (away) b.notRacing = away;
     }
-    return { places: 'tracker', times: 'tracker', trackerFinishes: tracker.size };
+    return withLine({ places: 'tracker', times: 'tracker', trackerFinishes: tracker.size });
   }
 
-  const byRs = new Map(official.rows.filter((r) => r.rsSail).map((r) => [r.rsSail!, r]));
-  const utc = (wall: number | null): number | null => (wall == null ? null : wall - official.tzOffsetMs);
-  // A boat that finished with a code (DPI, SCP, …; DSQ / UFD / BFD with a finish time) is a finisher here: its
-  // time counts for the plausibility check and it keeps its finish (codes.ts finishedWithCode).
-  const finished = (r: OfficialResultRow | undefined): boolean => !!r && (r.code == null || finishedWithCode(r.code, r.finishWallMs != null));
-  const fins = official.rows.filter((r) => (r.code == null && r.place != null) || (r.code != null && finished(r)));
-  const pairs = boats
-    .map((b) => ({ b, o: byRs.get(b.sail) }))
-    .filter((x) => finished(x.o) && utc(x.o!.finishWallMs) != null)
-    .map(({ b, o }) => ({ officialMs: utc(o!.finishWallMs)!, crossings: lineAt ? crossings(fixes.get(b.id)!, lineAt, gunMs, endMs + PLAUSIBLE_SEARCH_MS) : [] }));
-  const allOfficial = fins.map((r) => utc(r.finishWallMs)).filter((t): t is number => t != null);
-  const plaus = allOfficial.length ? officialTimesPlausible(pairs, gunMs, ctx.nextGunMs, allOfficial) : { ok: false, n: 0, medianS: null, why: 'no official finish times' };
   let trackerN = 0;
   let rsN = 0;
   for (const b of boats) {
@@ -651,7 +727,7 @@ function resolveResults(
   const noOfficial = boats.filter((b) => !byRs.has(b.sail)).map((b) => b.sail);
   if (noTrack.length) out.officialNoTrack = noTrack;
   if (noOfficial.length) out.trackNoOfficial = noOfficial;
-  return out;
+  return withLine(out);
 }
 
 export function buildRaceData(
@@ -830,16 +906,24 @@ export function buildRaceData(
   };
   if (opts.classLabel) data.classLabel = opts.classLabel;
   if (untracked.length) data.courseUntracked = untracked;
-  const results = resolveResults(boats, rowsOf, rows, {
+  const { results, estimated } = resolveResults(boats, rowsOf, rows, {
     gunMs,
     startMid: mid,
+    startLine,
+    axisDeg: courseAxisDeg(startLine, st.windDirection, boats.map((b) => rowsOf(b.sail) ?? []), gunMs),
     course,
     finishLine,
+    // Only with no finish line anywhere in the feed and no mark trackers (they would place the course).
+    estimate: !finishLine && !marks.length && !(course?.achievements ?? []).some((a) => a.type === 'finishLine'),
     rsFinishes: fins.length,
     official: opts.official ?? null,
     nextGunMs: opts.nextGunMs ?? null,
   });
   if (results) data.results = results;
+  if (estimated) {
+    data.finishLine = estimated;
+    data.finishLineEstimated = true;
+  }
   if (ws?.length) {
     data.windModel = { label: opts.wind?.modelLabel ?? opts.wind?.model ?? 'weather model', samples: ws };
   }

@@ -7,7 +7,10 @@
  * crossing from a minute before that onset, and not before the fleet's onset (fleetOnsetFloor)
  * (Cascais race 2: 98 of 100 RaceSense finishes reproduced, median 0.6 s off). Without stage rows it is the first crossing after the boat's
  * last visit to the far end of the course (the last time it was ≥ 70% of its furthest distance
- * from the line). A track that never crosses gets no finish: none is ever invented.
+ * from the line, measured along the course axis: the start's wind direction, else square to the
+ * start line toward the fleet). Along the axis, not as the crow flies: a boat that sails home
+ * cross-wind past the windward mark's distance is still on its way to finish (2026 Fall Brawl).
+ * A track that never crosses gets no finish: none is ever invented.
  *
  * Official times (Yachtscoring) are used only when plausible: at least 3 matched finishers have
  * a crossing within 10 min of their official time and the median gap is ≤ 60 s, and every
@@ -36,8 +39,10 @@ export const CROSS_MAX_GAP_MS = 120_000;
 export const FINISH_MIN_AFTER_GUN_MS = 5 * 60_000;
 /** The stage onset can precede the boat's own row by a fix or two. */
 export const STAGE_SLACK_MS = 60_000;
-/** Without stage rows: the finish follows the boat's last time this far out (share of its furthest distance from the line). */
+/** Without stage rows: the finish follows the boat's last time this far out (share of its furthest distance up the course axis). */
 export const FAR_FRAC = 0.7;
+/** …and a boat that never got this far up the course axis (m) has no finish. */
+export const FAR_MIN_M = 300;
 /** Plausible official times: matched finishers with a crossing near their official time… */
 export const PLAUSIBLE_MIN_BOATS = 3;
 /** …within this (to find the crossing)… */
@@ -74,6 +79,28 @@ export const lineFrom = (left: MarkSeries | undefined, right: MarkSeries | undef
   };
 
 const xy = (p: LatLon, o: LatLon): [number, number] => [(p.lon - o.lon) * rad * R * Math.cos(o.lat * rad), (p.lat - o.lat) * rad * R];
+
+/** Local east/north metres of `p` from `o`. */
+export const metresFrom = xy;
+
+/** Bearing from `a` to `b`, degrees true (0..360). */
+export function bearingDeg(a: LatLon, b: LatLon): number {
+  const [x, y] = xy(b, a);
+  return ((Math.atan2(x, y) / rad) % 360 + 360) % 360;
+}
+
+/** The point `m` metres from `p` on bearing `deg`. */
+export function destination(p: LatLon, deg: number, m: number): LatLon {
+  return { lat: p.lat + (m * Math.cos(deg * rad)) / (R * rad), lon: p.lon + (m * Math.sin(deg * rad)) / (R * rad * Math.cos(p.lat * rad)) };
+}
+
+/** How far `p` is from `o` along bearing `deg`, m (negative behind). */
+export function alongDeg(p: LatLon, o: LatLon, deg: number): number {
+  const [x, y] = xy(p, o);
+  return x * Math.sin(deg * rad) + y * Math.cos(deg * rad);
+}
+
+const lineMid = (l: Line): LatLon => ({ lat: (l.left.lat + l.right.lat) / 2, lon: (l.left.lon + l.right.lon) / 2 });
 
 /** Times (ms) where the track crosses the line segment (ends extended by 2%) within [t0, t1]. */
 export function crossings(fixes: readonly Fix[], lineAt: (t: number) => Line | null, t0: number, t1: number): number[] {
@@ -141,28 +168,59 @@ export function fleetOnsetFloor(boats: Iterable<readonly Fix[]>, gunMs: number, 
   return on[Math.floor(on.length * 0.2)] - STAGE_SLACK_MS;
 }
 
-/** One boat's tracker finish (see the file comment), or null when its track doesn't cross the line in the window; `floorMs` is fleetOnsetFloor(). */
-export function trackerFinish(fixes: readonly Fix[], lineAt: (t: number) => Line | null, gunMs: number, endMs: number, feedRn: number | null, floorMs: number | null = null): number | null {
+/**
+ * The course axis toward the far end, degrees true: the start's wind direction (the wind blows from up
+ * the course) when set, else square to the start line on the side the fleet is a minute after the gun.
+ */
+export function courseAxisDeg(start: Line, windDeg: number | null | undefined, boats: Iterable<readonly Fix[]>, gunMs: number): number {
+  if (windDeg != null && Number.isFinite(windDeg)) return ((windDeg % 360) + 360) % 360;
+  const up = (bearingDeg(start.left, start.right) + 270) % 360;
+  const mid = lineMid(start);
+  const sides: number[] = [];
+  for (const fx of boats) {
+    const f = fx.find((x) => x.ts >= gunMs + 60_000);
+    if (f) sides.push(alongDeg(f, mid, up));
+  }
+  return sides.length && median(sides) < 0 ? (up + 180) % 360 : up;
+}
+
+/** The boat's furthest distance up the axis from the line's middle over `race`, m. */
+export function axisReach(race: readonly Fix[], line: Line, axisDeg: number): number {
+  const mid = lineMid(line);
+  let far = -Infinity;
+  for (const f of race) far = Math.max(far, alongDeg(f, mid, axisDeg));
+  return far;
+}
+
+/** One boat's tracker finish (see the file comment), or null when its track doesn't cross the line in the window; `floorMs` is fleetOnsetFloor(), `axisDeg` courseAxisDeg(). */
+export function trackerFinish(
+  fixes: readonly Fix[],
+  lineAt: (t: number) => Line | null,
+  gunMs: number,
+  endMs: number,
+  feedRn: number | null,
+  floorMs: number | null = null,
+  axisDeg: number | null = null,
+): number | null {
+  // Crossings are only looked for after the onset or the far end (the first one after it is the finish).
   const from = gunMs + FINISH_MIN_AFTER_GUN_MS;
-  const xs = crossings(fixes, lineAt, from, endMs);
-  if (!xs.length) return null;
   const onset = stageOnset(fixes, gunMs, feedRn);
   if (onset != null) {
     const after = Math.max(onset - STAGE_SLACK_MS, floorMs ?? -Infinity);
-    return xs.find((t) => t >= after) ?? null;
+    return crossings(fixes, lineAt, Math.max(from, after), endMs)[0] ?? null;
   }
-  // No stage: after the boat's last visit to the far end.
+  // No stage: after the boat's last visit to the far end, up the course axis.
   const line0 = lineAt(gunMs);
   if (!line0) return null;
-  const mid = { lat: (line0.left.lat + line0.right.lat) / 2, lon: (line0.left.lon + line0.right.lon) / 2 };
-  const dist = (f: Fix): number => Math.hypot(...xy(f, mid));
   const race = fixes.filter((f) => f.ts >= gunMs && f.ts <= endMs);
   if (!race.length) return null;
-  const far = Math.max(...race.map(dist));
-  if (far < 300) return null;
+  const axis = axisDeg ?? courseAxisDeg(line0, null, [race], gunMs);
+  const far = axisReach(race, line0, axis);
+  if (far < FAR_MIN_M) return null;
+  const mid = lineMid(line0);
   let lastFar = gunMs;
-  for (const f of race) if (dist(f) >= FAR_FRAC * far) lastFar = f.ts;
-  return xs.find((t) => t > lastFar) ?? null;
+  for (const f of race) if (alongDeg(f, mid, axis) >= FAR_FRAC * far) lastFar = f.ts;
+  return crossings(fixes, lineAt, Math.max(from, lastFar), endMs).find((t) => t > lastFar) ?? null;
 }
 
 /**

@@ -389,6 +389,9 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     to: i < nLegs - 1 ? turnName(i) : 'Finish',
   }));
   if (turnMarks) notes.push(fleetWarning(data, courseWps, turnMarks, legs));
+  if (data.finishLine && data.finishLineEstimated) {
+    notes.push({ kind: 'finish-est', text: "The finish line isn't in the feed: it's placed off the committee boat from the tracks (est.)." });
+  }
 
   // ---- line
   const w = bearingVec(twdGun);
@@ -795,6 +798,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     },
     line,
     finishLine,
+    ...(finishLine && data.finishLineEstimated ? { finishLineEstimated: true } : {}),
     marks: drawnMarks,
     legs,
     legPts: pts,

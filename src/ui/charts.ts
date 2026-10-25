@@ -945,11 +945,19 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
     })
     .join('');
   const fl = a.finishLine;
+  // An estimated finish shares the committee-boat end with the start line: always drawn, dashed, labelled "(est.)".
   const finish =
-    fl && Math.hypot(fl.left[0] - a.line.left[0], fl.left[1] - a.line.left[1]) + Math.hypot(fl.right[0] - a.line.right[0], fl.right[1] - a.line.right[1]) > 20
+    fl && (a.finishLineEstimated || Math.hypot(fl.left[0] - a.line.left[0], fl.left[1] - a.line.left[1]) + Math.hypot(fl.right[0] - a.line.right[0], fl.right[1] - a.line.right[1]) > 20)
       ? (() => {
           const [p, q] = [rot(fl.left), rot(fl.right)];
-          return `<line class="finishline" x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}" stroke-width="${2 * k}"/>`;
+          if (!a.finishLineEstimated) return `<line class="finishline" x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}" stroke-width="${2 * k}"/>`;
+          const dash = ` stroke-dasharray="${(3 * k).toFixed(2)} ${(2 * k).toFixed(2)}"`;
+          const right = q[0] >= p[0];
+          const at: Vec = [q[0] + (right ? 6 : -6) * unit, q[1] + 4 * unit];
+          return (
+            `<line class="finishline est" x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}" stroke-width="${1.5 * k}"${dash}/>` +
+            `<text x="${at[0]}" y="${at[1]}" font-size="${12 * k}" class="lbl est" text-anchor="${right ? 'start' : 'end'}">Finish (est.)</text>`
+          );
         })()
       : '';
 

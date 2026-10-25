@@ -1,0 +1,182 @@
+{
+ "note": "Trimmed from Yachtscoring's public result-detail-report: 2026 Fall Brawl, race 1, J/70. Sails, statuses, places, finish times, elapsed times and GMT offset only.",
+ "data": [
+  {
+   "circleName": "Fall Brawl Invitational",
+   "divisions": [
+    {
+     "divisionName": "One Design",
+     "classes": [
+      {
+       "className": "J/70",
+       "boats": [
+        {
+         "sailPrefix": "CAN",
+         "sailNumber": "404",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:05:37.000Z",
+         "elapsedTime": 3037,
+         "placeClass": 1,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": null,
+         "sailNumber": "USA 419",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:05:42.000Z",
+         "elapsedTime": 3042,
+         "placeClass": 2,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "84",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:05:54.000Z",
+         "elapsedTime": 3054,
+         "placeClass": 3,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "56",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:06:11.000Z",
+         "elapsedTime": 3071,
+         "placeClass": 4,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "151",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:06:38.000Z",
+         "elapsedTime": 3098,
+         "placeClass": 5,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "340",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:06:53.000Z",
+         "elapsedTime": 3113,
+         "placeClass": 6,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "93",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:07:32.000Z",
+         "elapsedTime": 3152,
+         "placeClass": 7,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "363",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:07:40.000Z",
+         "elapsedTime": 3160,
+         "placeClass": 8,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "389",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:08:00.000Z",
+         "elapsedTime": 3180,
+         "placeClass": 9,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "Usa",
+         "sailNumber": "38",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:09:12.000Z",
+         "elapsedTime": 3252,
+         "placeClass": 10,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "16",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:09:33.000Z",
+         "elapsedTime": 3273,
+         "placeClass": 11,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "220",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:09:45.000Z",
+         "elapsedTime": 3285,
+         "placeClass": 12,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "209",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:10:04.000Z",
+         "elapsedTime": 3304,
+         "placeClass": 13,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "15",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:11:09.000Z",
+         "elapsedTime": 3369,
+         "placeClass": 14,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "382",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:11:17.000Z",
+         "elapsedTime": 3377,
+         "placeClass": 15,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "Uni",
+         "sailNumber": "332",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:11:22.000Z",
+         "elapsedTime": 3382,
+         "placeClass": 16,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "0005",
+         "finishStatus": "AOK",
+         "finishTime": "2026-10-24T12:11:42.000Z",
+         "elapsedTime": 3402,
+         "placeClass": 17,
+         "localGMTOffset": "-5.0"
+        },
+        {
+         "sailPrefix": "USA",
+         "sailNumber": "1255",
+         "finishStatus": "DNC",
+         "finishTime": null,
+         "elapsedTime": null,
+         "placeClass": 19,
+         "localGMTOffset": "-5.0"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
