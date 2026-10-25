@@ -30,7 +30,7 @@ function webpSize(b: Buffer): { w: number; h: number } | null {
 describe('the feature cards: one thumbnail each (index.html)', () => {
   it('has a card for every shot of scripts/landing-thumbs.mjs, in order', () => {
     expect(cards).toHaveLength(SHOTS.length);
-    expect(cards.map((c) => c.match(/<h3>([^<]+)<\/h3>/)?.[1])).toEqual(SHOTS.map((s) => s.card));
+    expect(cards.map((c) => unescape(c.match(/<h3>([^<]+)<\/h3>/)?.[1] ?? ''))).toEqual(SHOTS.map((s) => s.card));
   });
 
   it('every card has exactly one thumbnail button, above its heading, that opens the dialog', () => {
@@ -248,7 +248,7 @@ function setup(withDialog = true) {
     btn.up = { '.land-card': card };
     return btn;
   };
-  doc.thumbs = [thumb('start', 'The start', 'The start chart at the gun.'), thumb('places', 'Place changes', 'The place changes chart.')];
+  doc.thumbs = [thumb('start', 'The start', 'The start chart at the gun.'), thumb('places', 'Rounding & Finish Positions', 'The Rounding & Finish Positions chart.')];
   startLightbox(doc as unknown as Document);
   return { doc, dialog, img, title, line, close, fig, thumbs: doc.thumbs };
 }
@@ -317,7 +317,7 @@ describe('the lightbox (src/landing/lightbox.ts)', () => {
     t.close.fire('click');
     t.thumbs[1].fire('click');
     expect(t.img.src).toBe('/landing/places.webp');
-    expect(t.title.textContent).toBe('Place changes');
+    expect(t.title.textContent).toBe('Rounding & Finish Positions');
     t.close.fire('click');
     expect(t.doc.activeElement).toBe(t.thumbs[1]);
   });

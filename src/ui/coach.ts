@@ -24,6 +24,7 @@ import { finishRank } from '../analysis/result';
 import { codeShort, codeWords } from './resultText';
 import { LOW_COVERAGE, fleetOf } from '../analysis/coach/regatta';
 import { boatLabel, degLabel, duration, esc, localTime, ordinal, pct, tzLabel } from './format';
+import { SHORT_GAP_S } from './gapFill';
 import { infoHtml, warnChip, type Chip } from './info';
 
 export const GROUP_PARAM = 'grp';
@@ -104,7 +105,7 @@ export const coachNoBoatHtml = (): string => `<p class="muted coach-none coach-n
 /** "11:05" in the venue's clock. */
 const hm = (ms: number, tz: number): string => localTime(ms, tz).slice(0, 5);
 
-/** The header: place, gun time (venue clock), ⚠ tracker coverage, ⚠ longest hole, ⚠ heading from GPS course. */
+/** The header: place, gun time (venue clock), ⚠ tracker coverage, the longest hole, ⚠ heading from GPS course. */
 export function coachChips(
   a: RaceAnalysis,
   b: BoatResult,
@@ -132,7 +133,7 @@ export function coachChips(
   else if (raceCov != null && raceCov < RACE_MIN_COVERAGE) chips.push(warnChip(`tracker ${pct(raceCov)}`, 'Share of the race the tracker covered'));
   const h = ladder?.hole;
   if (h && (h.toMs - h.fromMs) / 1000 >= COACH_HOLE_CHIP_S) {
-    chips.push(warnChip(`no data ${hm(h.fromMs, tz)}–${hm(h.toMs, tz)}`, `Longest gap in this boat's track: ${duration((h.toMs - h.fromMs) / 1000)}`));
+    chips.push({ text: `no data ${hm(h.fromMs, tz)}–${hm(h.toMs, tz)}`, title: `Longest gap in this boat's track: ${duration((h.toMs - h.fromMs) / 1000)}` });
   }
   if (b.headingSource === 'cog') chips.push(warnChip('heading from GPS course', "The compass disagrees with the boat's track; angles use its course over ground"));
   return chips;
@@ -142,8 +143,8 @@ export const COACH_BULLETS: readonly string[] = [
   'Gap = how many seconds earlier (behind, down) or later (ahead, up) the group got as far along the course as you are now.',
   "How far along: on beats and runs, how far up (or down) the leg's wind ladder, one wind direction for the whole leg, so both tacks and gybes count alike; on reaches, distance made good along the line between the marks. A rounding counts from 30 m before the mark to 30 m down the next leg, so the lines run on through it.",
   `Bold: the group's average, always over the same boats: the mean of the boats with data when there are ${GROUP_MEAN_MAX_BOATS} or fewer, the median when there are more. Where a boat's tracker has a gap of up to ${GROUP_BRIDGE_S / 60} min, the bold line bridges it in a straight line (the readout counts that boat as estimated). Thin: each group boat as tracked; its line is not filled in across gaps. The scale fits every line for ${GROUP_MEAN_MAX_BOATS} or fewer boats; with more, a line that runs off it gets a small marker at the edge.`,
-  "Wind (strip below) comes from the fleet's tacks, minute by minute, not a sensor; dotted where estimated between minutes.",
-  `Breaks: a thin line breaks where that boat's or your fixes are over ${COACH_MAX_SPAN_S} s apart; the bold line (and a gray band) where yours or most of the group's are over ${GROUP_DRAW_HOLE_S} s apart, or the group never got that far.`,
+  "Wind (strip below) comes from the fleet's tacks, minute by minute, not a sensor; lighter where estimated between minutes.",
+  `Breaks: a thin line breaks where that boat's or your fixes are over ${COACH_MAX_SPAN_S} s apart; the bold line where yours or most of the group's are over ${GROUP_DRAW_HOLE_S} s apart, or the group never got that far. On the chart, a break of ${SHORT_GAP_S} s or less is drawn straight across; a longer one is left blank.`,
 ];
 
 /** The header's chip line with the ⓘ. */
@@ -337,20 +338,28 @@ export function ladderLayout(ladder: RivalLadder, wind: { twdAt: (t: number) => 
 
 const r1 = (v: number): string => v.toFixed(1);
 
-/** Runs of consecutive non-null values as SVG path data (a null breaks the line). */
-function runsPath(pts: { tMs: number }[], val: (i: number) => number | null, L: LadderLayout): string {
-  let d = '';
-  let open = false;
+/**
+ * The runs a line is drawn in, as point indices: consecutive non-null values, and (display only: the series and what
+ * the cards read are untouched) joined straight across a break of SHORT_GAP_S or less between two values; a longer
+ * break ends the run.
+ */
+export function ladderRuns(pts: readonly { tMs: number }[], val: (i: number) => number | null): number[][] {
+  const out: number[][] = [];
+  let last = -1;
   pts.forEach((p, i) => {
-    const v = val(i);
-    if (v == null) {
-      open = false;
-      return;
-    }
-    d += `${open ? 'L' : 'M'}${r1(L.x(p.tMs))} ${r1(L.y(v))}`;
-    open = true;
+    if (val(i) == null) return;
+    if (last >= 0 && (last === i - 1 || p.tMs - pts[last].tMs <= SHORT_GAP_S * 1000)) out[out.length - 1].push(i);
+    else out.push([i]);
+    last = i;
   });
-  return d;
+  return out;
+}
+
+/** A line's runs (ladderRuns) as SVG path data. */
+function runsPath(pts: { tMs: number }[], val: (i: number) => number | null, L: LadderLayout): string {
+  return ladderRuns(pts, val)
+    .map((run) => run.map((i, k) => `${k ? 'L' : 'M'}${r1(L.x(pts[i].tMs))} ${r1(L.y(val(i)!))}`).join(''))
+    .join('');
 }
 
 /**
@@ -384,8 +393,8 @@ function clipMarks(pts: readonly { tMs: number; each: (number | null)[] }[], k: 
 }
 
 /**
- * The shortest stretch without a bold value that gets a grey band, ms: longer than COACH_MAX_SPAN_S, the thin lines'
- * break (a stretch of fixes that far apart is a hole), so a band and a thin line's break mean the same thing.
+ * The shortest stretch without a bold value that counts as a break, ms: longer than COACH_MAX_SPAN_S, the thin lines'
+ * break (a stretch of fixes that far apart is a hole), so the bold line's break and a thin line's mean the same thing.
  */
 export const NO_DATA_MIN_MS = COACH_MAX_SPAN_S * 1000;
 
@@ -431,11 +440,7 @@ export function ladderChart(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder,
   const tz = a.meta.tzOffsetMs;
   const fs = L.W < 520 ? 11 : 12;
   const out: string[] = [];
-  // No-data bands (the chosen boat or every group boat untracked).
-  for (const [p, q] of nullSpans(ladder.points)) {
-    out.push(`<rect class="cl-nodata" x="${r1(L.x(p))}" y="${L.padT}" width="${r1(Math.max(1, L.x(q) - L.x(p)))}" height="${L.gapB - L.padT}"><title>No data ${hm(p, tz)}–${hm(q, tz)}</title></rect>`);
-  }
-  // The selected card's window(s), across both panels.
+  // The selected card's window(s), across both panels. Where there is no data the lines just stop (ladderRuns).
   for (const [p, q] of opts.highlight ?? []) {
     const a0 = Math.max(L.t0, p);
     const b0 = Math.min(L.t1, q);
@@ -497,12 +502,11 @@ export function ladderChart(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder,
     });
   }
   // Lone points (a run of one) as dots so they don't vanish.
-  ladder.points.forEach((p, i) => {
-    if (p.behindS == null) return;
-    const prev = ladder.points[i - 1]?.behindS;
-    const next = ladder.points[i + 1]?.behindS;
-    if (prev == null && next == null) out.push(`<circle class="cl-dot" cx="${r1(L.x(p.tMs))}" cy="${r1(L.y(-p.behindS))}" r="2.5"/>`);
-  });
+  for (const run of ladderRuns(ladder.points, (i) => ladder.points[i].behindS)) {
+    if (run.length > 1) continue;
+    const p = ladder.points[run[0]];
+    out.push(`<circle class="cl-dot" cx="${r1(L.x(p.tMs))}" cy="${r1(L.y(-p.behindS!))}" r="2.5"/>`);
+  }
   // Wind strip.
   out.push(`<text class="cl-unit" x="${L.padL}" y="${L.windT - 6}" font-size="${fs - 1}">Wind from, ° (fleet est.)</text>`);
   for (const d of [L.wLo, L.wHi]) {
@@ -522,6 +526,7 @@ export function ladderChart(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder,
     });
     return d;
   };
+  // Estimated between minutes: the same line, lighter (style.css .cl-wind.est), as the maps draw a filled-in gap.
   out.push(`<path class="cl-wind" d="${seg(true)}"/><path class="cl-wind est" d="${seg(false)}"/>`);
   const me = byId.get(ladder.boat);
   const aria = `${me ? boatLabel(me, me.id) : ladder.boat}: seconds ahead or behind ${GROUP_SHORT[g.kind]} over the race, with the wind direction below.`;
@@ -568,25 +573,16 @@ export function ladderTipHtml(a: RaceAnalysis, m: CoachModel, ladder: RivalLadde
 }
 
 /**
- * Whether the chart shows a break: a grey band (nullSpans), or with `each` a thin line stopping and starting again
- * (a gap of over COACH_MAX_SPAN_S in that boat's or your fixes). The "no data" chip shows exactly then.
+ * Whether the chart shows a break: the bold line, or with `each` a thin line, stopping and starting again past what the
+ * chart joins across (ladderRuns: SHORT_GAP_S or less between values).
  */
 export function ladderBreaks(ladder: Pick<RivalLadder, 'points' | 'group'>, each: boolean): boolean {
-  if (nullSpans(ladder.points).length) return true;
+  if (ladderRuns(ladder.points, (i) => ladder.points[i].behindS).length > 1) return true;
   if (!each) return false;
-  return ladder.group.some((_, k) => {
-    let seen = false;
-    let gap = false;
-    for (const p of ladder.points) {
-      if (p.each[k] == null) gap = seen;
-      else if (gap) return true;
-      else seen = true;
-    }
-    return false;
-  });
+  return ladder.group.some((_, k) => ladderRuns(ladder.points, (i) => ladder.points[i].each[k]).length > 1);
 }
 
-/** The chart's legend chips: the bold group line (mean or median), each group boat by name and colour, no data. */
+/** The chart's legend chips: the bold group line (mean or median), each group boat by name and colour. */
 export function ladderChips(a: RaceAnalysis, ladder: RivalLadder, g: Group, each: boolean): Chip[] {
   const me = a.boats.find((b) => b.id === ladder.boat);
   const chips: Chip[] = [
@@ -607,13 +603,6 @@ export function ladderChips(a: RaceAnalysis, ladder: RivalLadder, g: Group, each
         title: boatLabel(b, id),
       });
     }
-  }
-  if (ladderBreaks(ladder, each)) {
-    chips.push({
-      text: 'no data',
-      swatch: 'band',
-      title: `A hole in the tracks: a thin line breaks where that boat's or your fixes are over ${COACH_MAX_SPAN_S} s apart; the bold line (gray band) where yours or most of the group's are over ${GROUP_DRAW_HOLE_S} s apart, or the group never got that far`,
-    });
   }
   return chips;
 }

@@ -3,40 +3,29 @@
  * ground from neighbouring drawn fixes, heel, and the lookup the hover/tap
  * tooltip reads (every drawn fix and gap of the legs shown, in map coordinates).
  *
- * A gap is a step between consecutive drawn fixes longer than MAP_GAP_S, or
- * MAP_GAP_CADENCE times the boat's usual spacing when its tracker logs slower
- * than that: the drawn segments are thinned to ≥ 1 s, so a 1 Hz boat steps ~1 s
- * and a gap is anything over 2 s, but many feeds log every 2–10 s, and a
- * fixed 2 s rule would break nearly every step of theirs.
+ * A gap (a break, left blank) is a hole in the feed longer than MAP_GAP_S, the
+ * longest the maps fill in (ui/gapFill.ts SHORT_GAP_S: RaceSense's own viewer
+ * bridges holes up to 30 s); holes up to that are filled in, drawn lighter. The
+ * holes themselves are judged on the feed's own fixes (gapFill.ts fillTrack),
+ * never on the drawn segments thinned to one fix a second.
  */
-import { median, vecBearing } from '../analysis/geo';
+import { vecBearing } from '../analysis/geo';
 import { PRE_LEG, type BoatDrawing, type RaceAnalysis, type TrackSegment } from '../analysis/types';
 import { boatLabel, degLabel, duration, esc, f1, localTime } from './format';
+import { SHORT_GAP_S, estSpan, fillRuleOf, fillTrack } from './gapFill';
 import type { BoatAt, MapPiece, SrcTrack } from './mapPieces';
 import { nearestSample, sogIndex, type IndexedTrack, type SogIndex } from './sog';
 
-/** Consecutive drawn fixes further apart than this (s) are a gap… */
-export const MAP_GAP_S = 2;
-/** …or than this many times the boat's median step, when that is longer. */
-export const MAP_GAP_CADENCE = 2;
+/** Points further apart than this (s), once short holes are filled in, are a gap: a break, left blank. */
+export const MAP_GAP_S = SHORT_GAP_S;
 /** Fixes this close (m) give no course over ground. */
 const COG_MIN_M = 0.5;
 
-/** The gap threshold, ms, for a boat with these drawn segments. */
-export function gapMsOf(segments: readonly TrackSegment[]): number {
-  const steps: number[] = [];
-  for (const s of segments) for (let i = 1; i < s.t.length; i++) steps.push(s.t[i] - s.t[i - 1]);
-  const typical = steps.length ? median(steps) : 0;
-  return Math.max(MAP_GAP_S * 1000, MAP_GAP_CADENCE * typical);
-}
+/** The gap threshold, ms: the same for every boat (MAP_GAP_S), however often its tracker logs. */
+export const gapMsOf = (_segments?: readonly TrackSegment[]): number => MAP_GAP_S * 1000;
 
-const gapCache = new WeakMap<BoatDrawing, number>();
-/** `gapMsOf` a drawing's segments, worked out once per drawing. */
-export function drawingGapMs(d: BoatDrawing): number {
-  let ms = gapCache.get(d);
-  if (ms == null) gapCache.set(d, (ms = gapMsOf(d.segments)));
-  return ms;
-}
+/** Drawing `d`'s gap threshold, ms (gapMsOf). */
+export const drawingGapMs = (_d?: BoatDrawing): number => gapMsOf();
 
 /** [first, end) index ranges of `t` with no step over `gapMs`; a lone fix between two gaps is a run of one. */
 export function gapRuns(t: ArrayLike<number>, gapMs: number): [number, number][] {
@@ -63,7 +52,7 @@ export function mapHasGaps(a: RaceAnalysis, leg: number | null): boolean {
 }
 
 /** The map key's note for its "no data" swatch. */
-export const MAP_GAP_TITLE = `Telemetry gap: no fix for over ${MAP_GAP_S} s (or twice the boat's usual spacing)`;
+export const MAP_GAP_TITLE = `Telemetry gap: no fix for over ${MAP_GAP_S} s`;
 
 /**
  * Course over ground at fix `i`, degrees true, from its neighbouring fixes
@@ -123,20 +112,21 @@ export interface MapPoints {
 /** A piece of track for the lookup: [i0, i1) of `src`, whose map coordinates are `rx`, `ry`. */
 export type PointPiece = Omit<MapPiece, 'rx' | 'ry' | 'end'> & { rx: Float64Array | Float32Array; ry: Float64Array | Float32Array };
 
-/** Build the lookup for leg `leg` (or all) of the whole race; `xy` gives a segment's points in map coordinates. */
+/** Build the lookup for leg `leg` (or all) of the whole race, as drawn (short gaps filled in: ui/gapFill.ts); `xy` gives a track's points in map coordinates. */
 export function mapPoints(
   a: Pick<RaceAnalysis, 'drawings'>,
   leg: number | null,
-  xy: (seg: TrackSegment) => { x: Float64Array | Float32Array; y: Float64Array | Float32Array },
+  xy: (seg: SrcTrack) => { x: Float64Array | Float32Array; y: Float64Array | Float32Array },
 ): MapPoints {
   const pieces: PointPiece[] = [];
   const gapMs = new Map<string, number>();
   for (const d of a.drawings) {
     gapMs.set(d.id, drawingGapMs(d));
-    for (const seg of d.segments) {
-      if (leg != null && seg.leg !== leg) continue;
+    for (const s of d.segments) {
+      if (leg != null && s.leg !== leg) continue;
+      const seg = fillTrack(s, fillRuleOf(d), true);
       const { x, y } = xy(seg);
-      pieces.push({ id: d.id, leg: seg.leg, src: seg, rx: x, ry: y, i0: 0, i1: Math.min(x.length, y.length, seg.t.length, seg.sog.length) });
+      pieces.push({ id: d.id, leg: s.leg, src: seg, rx: x, ry: y, i0: 0, i1: Math.min(x.length, y.length, seg.t.length, seg.sog.length) });
     }
   }
   return mapPointsOf(pieces, (id) => gapMs.get(id) ?? MAP_GAP_S * 1000);
@@ -284,6 +274,10 @@ export const PRE_START = 'pre-start';
 export const noDataLine = (a: Pick<RaceAnalysis, 'meta'>, t0: number, t1: number): string =>
   `no data ${localTime(t0, a.meta.tzOffsetMs)}–${localTime(t1, a.meta.tzOffsetMs)}`;
 
+/** "estimated, no fix 12:01:05–12:01:15": a point filled into a short gap (ui/gapFill.ts). */
+export const estLine = (a: Pick<RaceAnalysis, 'meta'>, t0: number, t1: number): string =>
+  `estimated, no fix ${localTime(t0, a.meta.tzOffsetMs)}–${localTime(t1, a.meta.tzOffsetMs)}`;
+
 /** "12:03:04 (gun +5:12)". */
 function timeLine(a: Pick<RaceAnalysis, 'meta'>, t: number): string {
   const s = (t - a.meta.gunMs) / 1000;
@@ -315,6 +309,7 @@ export function mapTipLines(a: Pick<RaceAnalysis, 'boats' | 'legs' | 'meta'>, p:
     const place = d.leg === PRE_LEG ? null : opts.placeAt?.(d.id, d.t);
     if (place) lines.push(`Place ${place.place} of ${place.of}`);
     if (d.hold && d.lastFix != null) lines.push(`no data since ${localTime(d.lastFix, a.meta.tzOffsetMs)}`);
+    if (d.est) lines.push('estimated position');
     return lines;
   }
   const i = pick.i;
@@ -332,6 +327,7 @@ export function mapTipLines(a: Pick<RaceAnalysis, 'boats' | 'legs' | 'meta'>, p:
   lines.push(leg(pieceLeg));
   const place = pieceLeg === PRE_LEG ? null : opts.placeAt?.(id, t);
   if (place) lines.push(`Place ${place.place} of ${place.of}`);
+  if (seg.est?.[j] === 1) lines.push(estLine(a, ...estSpan(seg.t, seg.est, j)));
   if (j > 0 && t - seg.t[j - 1] > ms) lines.push(noDataLine(a, seg.t[j - 1], t));
   if (j + 1 < seg.t.length && seg.t[j + 1] - t > ms) lines.push(noDataLine(a, t, seg.t[j + 1]));
   return lines;

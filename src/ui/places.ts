@@ -206,7 +206,7 @@ export function placesChart(a: RaceAnalysis, highlight: string | null, opts: Pla
   };
   // The selected boat last, on top.
   const order = [...drawn].sort((p, q) => Number(p.id === sel) - Number(q.id === sel));
-  const aria = `Place changes: each boat's place at ${pc.columns.map((c) => c.label).join(', ')}.`;
+  const aria = `Rounding & Finish Positions: each boat's place at ${pc.columns.map((c) => c.label).join(', ')}.`;
   return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="chart places${narrow ? ' narrow' : ''}" role="img" aria-label="${esc(aria)}">
     <g class="pc-grid-g">${grid.join('')}</g>${order.map(boatSvg).join('')}</svg>`;
 }

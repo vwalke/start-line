@@ -296,6 +296,6 @@ describe('places card', () => {
     expect(html).toContain('<div id="places-chart"');
     expect(html.indexOf('id="map-chart"')).toBeLessThan(html.indexOf('id="places-card"'));
     expect(html.indexOf('id="places-card"')).toBeLessThan(html.indexOf('id="race-findings-card"'));
-    expect(html).toMatch(/<h3 id="places-title">Place changes<\/h3>/);
+    expect(html).toMatch(/<h3 id="places-title">Rounding &amp; Finish Positions<\/h3>/);
   });
 });

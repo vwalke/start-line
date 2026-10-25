@@ -61,7 +61,8 @@ function seg(n: number, t0 = 0, leg = 0, holeAt = n, holeMs = 0): TrackSegment {
     roll: Float32Array.from({ length: n }, (_, i) => -i),
   };
 }
-const drawing = (segments: TrackSegment[], pre?: TrackSegment): BoatDrawing => ({ ...a.drawings[0], id: 'b', segments, pre });
+// Synthetic tracks: no feed holes copied from the fixture's drawing (its segments are its own fixes).
+const drawing = (segments: TrackSegment[], pre?: TrackSegment): BoatDrawing => ({ ...a.drawings[0], id: 'b', segments, pre, holes: undefined });
 
 describe('a boat at a moment (the scrubber dots)', () => {
   const d = drawing([seg(10, 0, 0, 5, 20_000)]);
@@ -88,7 +89,7 @@ describe('a boat at a moment (the scrubber dots)', () => {
     expect(boatAt('b', ranges, 9000 + 20_000, 2000, 0)!.x).toBe(27);
   });
 
-  it('holds at the last fix inside a gap (filled at first, then stale), up to MAP_HOLD_S; none before the first or after the last fix', () => {
+  it('holds at the last fix inside a gap (hollow only in one over SHORT_GAP_S), up to MAP_HOLD_S; none before the first or after the last fix', () => {
     // The hole runs 4 s → 25 s: held at the 4 s fix all through it, its course and last heading kept (east).
     for (const t of [5000, 15_000, 24_999]) {
       const hold = boatAt('b', ranges, t, 2000, 0)!;
@@ -97,17 +98,16 @@ describe('a boat at a moment (the scrubber dots)', () => {
       expect(hold.lastFix).toBe(4000);
       expect(hold.lastDir).toEqual([1, 0]);
     }
-    // Stale (hollow) only once the last fix is over BOAT_STALE_MS (3 s) old: no flicker on a short gap.
-    expect(boatAt('b', ranges, 4000 + BOAT_STALE_MS, 2000, 0)!.stale).toBe(false);
-    expect(boatAt('b', ranges, 4000 + BOAT_STALE_MS + 1, 2000, 0)!.stale).toBe(true);
-    // A slow feed's own gap threshold, when longer, decides instead.
+    // A 21 s hole (up to SHORT_GAP_S: the maps fill it in) is never hollow, however far into it.
+    expect(boatAt('b', ranges, 24_999, 2000, 0)!.stale).toBe(false);
     expect(boatAt('b', ranges, 4000 + 8000, 10_000, 0)).toMatchObject({ hold: true, stale: false });
-    expect(boatAt('b', ranges, 4000 + 10_001, 10_000, 0)).toMatchObject({ hold: true, stale: true });
     expect(boatAt('b', ranges, -1, 2000, 0)).toBeNull();
     expect(boatAt('b', ranges, 29_001, 2000, 0)).toBeNull();
     // A hole longer than MAP_HOLD_S: held until then, then none.
     const long = legRanges(drawing([seg(10, 0, 0, 5, 200_000)]), true);
     expect(MAP_HOLD_S).toBe(120);
+    // In a hole over SHORT_GAP_S: hollow from its start.
+    expect(boatAt('b', long, 5000, 2000, 0)).toMatchObject({ hold: true, stale: true, lastFix: 4000 });
     expect(boatAt('b', long, 4000 + MAP_HOLD_S * 1000 - 1, 2000, 0)).toMatchObject({ hold: true, stale: true, lastFix: 4000 });
     expect(boatAt('b', long, 4000 + MAP_HOLD_S * 1000 + 1, 2000, 0)).toBeNull();
   });
@@ -529,21 +529,25 @@ describe('the scrubber map', () => {
     expect(scrubFrame(a, null, null, { colour: 'rank' }, { t, win: trailWindow(t, '120', w) }).dots).toMatch(/fill="(#[0-9a-f]{6}|rgb\([^)]+\)|var\(--ink-3\))"/);
   });
 
-  it('draws a boat whose data is lost hollow, in its own color (a short hold stays filled)', () => {
-    const d = drawing([seg(10, gun, 0, 5, 20_000)]);
-    const one = { ...a, drawings: [d], boats: [{ ...a.boats[0], id: 'b' }] };
-    const w = scrubWindow(one);
-    const at = (t: number) => scrubFrame(one, null, null, {}, { t, win: trailWindow(t, '30', w), trailMs: 30_000 });
-    // 2 s after the last fix: held there, still filled.
-    const brief = at(gun + 6000);
-    expect(brief.boats[0].hold).toBe(true);
-    // The hull, along its last heading (the boat's class has dimensions), as it was before the gap.
-    expect(brief.dots).toContain('class="dot hull hold"');
+  it('draws a boat whose data is lost (a hole over SHORT_GAP_S) hollow, in its own color; in a shorter hole it is a filled hull on the filled-in path', () => {
+    const frameOf = (holeMs: number) => {
+      const d = drawing([seg(10, gun, 0, 5, holeMs)]);
+      const one = { ...a, drawings: [d], boats: [{ ...a.boats[0], id: 'b' }] };
+      const w = scrubWindow(one);
+      return (t: number) => scrubFrame(one, null, null, {}, { t, win: trailWindow(t, '30', w), trailMs: 30_000 });
+    };
+    // A 21 s hole: 2 s in, not held, an estimated position, a normal filled hull.
+    const brief = frameOf(20_000)(gun + 6000);
+    expect(brief.boats[0]).toMatchObject({ hold: false, est: true });
+    expect(brief.dots).toContain('class="dot hull"');
     expect(brief.dots).not.toContain('var(--surface)');
-    // 10 s after: hollow, outlined in the leg's color.
+    // A 41 s hole: held at its last fix and hollow, outlined in the leg's color, the same hull 2 s and 10 s in.
+    const at = frameOf(40_000);
+    const held = at(gun + 6000);
     const lost = at(gun + 14_000);
+    expect(held.dots).toContain('class="dot hull hold lost"');
     expect(lost.dots).toContain('class="dot hull hold lost"');
-    expect(lost.dots.match(/ d="([^"]+)"/)![1]).toBe(brief.dots.match(/ d="([^"]+)"/)![1]);
+    expect(lost.dots.match(/ d="([^"]+)"/)![1]).toBe(held.dots.match(/ d="([^"]+)"/)![1]);
     expect(lost.dots).toContain('fill="var(--surface)" style="--c:var(--s1)"');
   });
 });

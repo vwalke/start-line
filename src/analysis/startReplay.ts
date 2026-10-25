@@ -30,6 +30,7 @@ import { bearingVec, bisectRight, dot, interpAngle, len, sub, type Vec } from '.
 import { raceProjection } from './prepare';
 import { startCross, type StartCross } from './startCross';
 import type { RaceAnalysis } from './types';
+import { startDtlM } from './validity';
 
 export interface StartReplay {
   boat: string;
@@ -182,7 +183,7 @@ export function startReplay(a: RaceAnalysis, data: RaceData, boatId: string, cro
   for (let i = 0; i < n && tr.t[i] < m1; i++) if (tr.t[i] > m0) consider(tr.t[i], bowAt(tr.t[i]));
   consider(m1, bowAt(m1));
   if (gun >= m0 && gun <= m1) consider(gun, bowAt(gun));
-  const dtl = r.start?.dtlM;
+  const dtl = r.start ? startDtlM(r.start) : null;
   if (dtl != null && Number.isFinite(dtl)) consider(gun - (data.dtlSampleOffsetMs ?? 0), -dtl);
   const front = frontMedian(a, crossMs ?? startCrossings(a, data));
   const lostS = front != null && sc.clearedMs != null ? Math.max(0, (sc.clearedMs - front) / 1000) : null;

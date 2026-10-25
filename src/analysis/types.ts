@@ -267,6 +267,18 @@ export interface TrackSegment extends DrawnTrack {
   roll?: Float32Array;
 }
 
+/**
+ * The feed's own holes, for the maps only (analysis/rawHoles.ts): its usual step, the hole threshold, and the fixes
+ * around every hole (the drawn segments are thinned and can't tell a hole from a skipped fix).
+ */
+export interface RawHoles {
+  stepMs: number;
+  holeMs: number;
+  /** The time of the fix before each hole (the next fix in `edges` ends it). */
+  at: Float64Array;
+  edges: DrawnTrack;
+}
+
 export interface BoatDrawing {
   id: string;
   /** START_TRAIL_MS (60 s) of track up to the DTL sample, shifted so the last point is the bow. */
@@ -285,6 +297,8 @@ export interface BoatDrawing {
    * feed's own rate, leg PRE_LEG: the track map's race-time scrubber draws it. Absent in older analyses.
    */
   pre?: TrackSegment;
+  /** The feed's holes from the pre-gun track on (display only: the maps' gap fill). Absent in older analyses. */
+  holes?: RawHoles;
   /** Every fix from START_SOG_PRE_MS before the gun to START_SOG_POST_MS after: time and smoothed SOG (gaps left as they are). */
   startSog: { t: Float64Array; sog: Float32Array };
 }

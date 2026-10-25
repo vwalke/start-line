@@ -176,7 +176,7 @@ export function replayControls(a: Pick<RaceAnalysis, 'boats'>, replays: readonly
 
 /**
  * The Start tab's "Replay start → USA 017" buttons for the boats offered ('' with none): each plays that boat's start
- * in the "Around the gun" view just below (ui/laneSnapshotsView.ts), the boat selected; the track map's own replay
+ * in the "Start Playback" view just below (ui/laneSnapshotsView.ts), the boat selected; the track map's own replay
  * stays on the Race tab ("Replay start" there, and `replay=` deep links).
  */
 export function startReplayLinks(a: Pick<RaceAnalysis, 'boats'>, replays: readonly StartReplay[], highlight: string | null): string {
@@ -184,7 +184,7 @@ export function startReplayLinks(a: Pick<RaceAnalysis, 'boats'>, replays: readon
   if (!offer.length) return '';
   const links = offer.map(
     (r) =>
-      `<button type="button" class="replay-link" data-replay="${esc(r.boat)}" aria-controls="lane-snapshots" title="${esc(`${replayTitle(r, sailOf(a, r.boat))}, around the gun below`)}">Replay start → ${esc(sailOf(a, r.boat))}</button>`,
+      `<button type="button" class="replay-link" data-replay="${esc(r.boat)}" aria-controls="lane-snapshots" title="${esc(`${replayTitle(r, sailOf(a, r.boat))}, in Start Playback below`)}">Replay start → ${esc(sailOf(a, r.boat))}</button>`,
   );
   return `<span class="replay-lbl">Over early:</span> ${links.join('<span class="sep" aria-hidden="true"> · </span>')}`;
 }

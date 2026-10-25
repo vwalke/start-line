@@ -51,6 +51,21 @@ export function sampleGap(t: ArrayLike<number>, ts: number): { gapS: number; not
   return { gapS, note: `interpolated across a ${Math.round(gapS)} s data gap` };
 }
 
+/**
+ * A boat is flagged "gap at the gun" only when the hole in its own fixes around the start sample is longer than this,
+ * s, and its Vakaros device reported no distance of its own (gapAtGun).
+ */
+export const GUN_GAP_FLAG_S = 10;
+
+/** Flagged with a gap at the gun: our figure is across a hole over GUN_GAP_FLAG_S, and there is no device figure to use instead. */
+export const gapAtGun = (s: Pick<StartResult, 'dtlGapS' | 'rcDtlM'>): boolean => s.dtlGapS != null && s.dtlGapS > GUN_GAP_FLAG_S && s.rcDtlM == null;
+
+/**
+ * The boat's distance behind the line at the start for the start figures: the Vakaros device's own when ours is
+ * interpolated across a hole and the device reported one; else ours.
+ */
+export const startDtlM = (s: Pick<StartResult, 'dtlM' | 'dtlGapS' | 'rcDtlM'>): number => (s.dtlGapS != null && s.rcDtlM != null ? s.rcDtlM : s.dtlM);
+
 /** An unranked start (our DTL across a hole) is still placed at the gun, estimated, by dead reckoning from a fix this close to the sample… */
 export const START_EST_NEAR_MS = 10_000;
 /** …or, without one, by our interpolated DTL when fixes this close bracket the sample on both sides. Further out: unknown. */

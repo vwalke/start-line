@@ -7,13 +7,14 @@
 import { primaryDtlM } from '../analysis/findings';
 import type { Vec } from '../analysis/geo';
 import { awayFromLineThresholdM, lineBias } from '../analysis/line';
-import { PRE_LEG, type BoatDrawing, type BoatResult, type ExcludedBoat, type RaceAnalysis, type TrackSegment } from '../analysis/types';
+import { PRE_LEG, type BoatDrawing, type BoatResult, type ExcludedBoat, type RaceAnalysis } from '../analysis/types';
 import { matchClass, type ClassDims } from '../data/classes';
 import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, HULL_LABEL_GAP_PX, hullLabelBox, hullOutline, hullPathAt, hullPathD } from './boatShape';
 import { esc, f1, f2 } from './format';
 import { placeLabels, textWidth, type LabelReq, type Rect, type StartNames } from './labels';
 import { MAP_GAP_S, drawingGapMs, mapPoints, mapPointsOf, type MapPoints } from './mapPoints';
-import { drawingPieces, rotTrack, rotator, legRanges, boatAt, endHoldBefore, timeRange, type BoatAt, type FullRateSet, type MapPiece, type PieceOptions } from './mapPieces';
+import { drawingPieces, rotTrack, rotator, filledRanges, boatAt, endHoldBefore, timeRange, type BoatAt, type FullRateSet, type MapPiece, type PieceOptions, type SrcTrack } from './mapPieces';
+import { EST_OPACITY, estStep, fillRuleOf, fillTrack } from './gapFill';
 import {
   addSogTrack,
   emptySogPaths,
@@ -35,7 +36,7 @@ import { FAV_GAP_PX, favouredTexts, lineBiasSvg } from './startLine';
 import { FOLLOW_COURSE_S, type FollowInput } from './follow';
 import { ocsStretch, ocsSvg } from './ocsStyle';
 import { replayLabel } from './replay';
-import { trailPaths, type TrailStretch } from './trail';
+import { trailSlices, type TrailStretch } from './trail';
 import type { StartReplay } from '../analysis/startReplay';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
 
@@ -379,23 +380,38 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     const col = boatColor(b, fleet);
     const dim = (highlight && highlight !== d.id ? ' dim' : '') + (isNc ? ' nc' : '');
     const dash = isNc ? ` stroke-dasharray="${(4 * k).toFixed(2)} ${(3 * k).toFixed(2)}"` : '';
+    // As the map draws it: a short hole (in the feed's own fixes) filled in lighter (ui/gapFill.ts), a longer one left blank.
+    const gapMs = drawingGapMs(d);
+    const trail = fillTrack(d.trail, fillRuleOf(d));
     if (range && !isNc) {
-      const n = d.trail.x.length;
+      const n = trail.x.length;
       const x = new Float64Array(n);
       const y = new Float64Array(n);
-      for (let i = 0; i < n; i++) [x[i], y[i]] = rot([d.trail.x[i], d.trail.y[i]]);
-      addSogTrack(highlight && highlight !== d.id ? sogTrails.dim : sogTrails.on, x, y, d.trail.t, d.trail.sog, range, (i) => inBox([x[i], y[i]]));
+      for (let i = 0; i < n; i++) [x[i], y[i]] = rot([trail.x[i], trail.y[i]]);
+      addSogTrack(highlight && highlight !== d.id ? sogTrails.dim : sogTrails.on, x, y, trail.t, trail.sog, range, (i) => inBox([x[i], y[i]]), gapMs, trail.est);
     } else {
-      // Only the parts inside the fit box; a trail that leaves and re-enters is drawn as separate runs.
-      const runs: Vec[][] = [[]];
-      for (let i = 0; i < d.trail.x.length; i++) {
-        const p = rot([d.trail.x[i], d.trail.y[i]]);
-        if (inBox(p)) runs[runs.length - 1].push(p);
-        else if (runs[runs.length - 1].length) runs.push([]);
+      // Only the parts inside the fit box; a trail that leaves and re-enters is drawn as separate runs, as is each filled-in stretch.
+      const runs: { p: Vec[]; est: boolean }[] = [{ p: [], est: false }];
+      for (let i = 0; i < trail.x.length; i++) {
+        const p = rot([trail.x[i], trail.y[i]]);
+        const cur = runs[runs.length - 1];
+        const gap = i > 0 && trail.t[i] - trail.t[i - 1] > gapMs;
+        const est = i > 0 && !gap && estStep(trail.est, i);
+        if (gap || !inBox(p)) {
+          if (cur.p.length) runs.push({ p: inBox(p) ? [p] : [], est: false });
+          else if (inBox(p)) cur.p.push(p);
+          continue;
+        }
+        if (cur.p.length && est !== cur.est) {
+          runs.push({ p: [cur.p[cur.p.length - 1], p], est });
+          continue;
+        }
+        if (!cur.p.length) cur.est = est;
+        cur.p.push(p);
       }
       const dest = isNc ? ncTrails : trails;
       for (const tr of runs) {
-        if (tr.length > 1) dest.push(`<polyline class="trail${dim}" points="${pts(tr)}" stroke="${col}" stroke-width="${1.5 * k}"${dash}/>`);
+        if (tr.p.length > 1) dest.push(`<polyline class="trail${dim}${tr.est ? ' trail-est' : ''}" points="${pts(tr.p)}" stroke="${col}" stroke-width="${1.5 * k}"${dash}${tr.est ? ` stroke-opacity="${EST_OPACITY}"` : ''}/>`);
       }
     }
     if (!d.bow || d.courseAtGun == null || !b.start) continue;
@@ -599,7 +615,7 @@ export interface TrackMapOptions {
 }
 
 /** A segment's points in map coordinates (wind at the top), worked out once per segment. */
-const rotSeg = (twd: number, seg: TrackSegment): { x: Float64Array; y: Float64Array } => rotTrack(twd, seg);
+const rotSeg = (twd: number, seg: SrcTrack): { x: Float64Array; y: Float64Array } => rotTrack(twd, seg);
 
 /** Each boat's drawn segments (leg `leg`, or all) in map coordinates, as the map draws them. */
 function mapTracks(a: RaceAnalysis, leg: number | null): IndexedTrack[] {
@@ -635,9 +651,11 @@ function nearClip(x: ArrayLike<number>, y: ArrayLike<number>, clip: Box | null):
 const xy1 = (x: number, y: number): string => `${x.toFixed(1)},${y.toFixed(1)}`;
 
 /**
- * A segment as the map draws it in Leg and Rank: runs of two or more fixes with
- * no step over the boat's gap threshold (mapPoints.ts), only near `clip`; and
- * each gap as a chord ("M…L…"), drawn faint and dashed (as Boat speed does).
+ * A segment as the map draws it in Leg and Rank: runs of two or more points with
+ * no step over the boat's gap threshold (mapPoints.ts), only near `clip`, the
+ * stretches filled into short gaps (`est`, ui/gapFill.ts) as runs of their own
+ * (`est`, drawn lighter); and each gap left as a chord ("M…L…": the map leaves
+ * it blank; what it spans is in the point details).
  */
 export function segRuns(
   x: ArrayLike<number>,
@@ -645,13 +663,16 @@ export function segRuns(
   t: ArrayLike<number>,
   gapMs: number,
   clip: Box | null = null,
-): { runs: Vec[][]; gaps: string } {
+  est?: ArrayLike<number>,
+): { runs: Vec[][]; est: Vec[][]; gaps: string } {
   const near = nearClip(x, y, clip);
   const runs: Vec[][] = [];
+  const estRuns: Vec[][] = [];
   let gaps = '';
   let cur: Vec[] = [];
+  let curEst = false;
   const flush = (): void => {
-    if (cur.length > 1) runs.push(cur);
+    if (cur.length > 1) (curEst ? estRuns : runs).push(cur);
     cur = [];
   };
   const n = Math.min(x.length, y.length, t.length);
@@ -659,12 +680,18 @@ export function segRuns(
     if (i > 0 && t[i] - t[i - 1] > gapMs) {
       flush();
       if (near(i - 1) || near(i)) gaps += `M${xy1(x[i - 1], y[i - 1])}L${xy1(x[i], y[i])}`;
+    } else if (i > 0 && estStep(est, i) !== curEst) {
+      // From fixes to a filled stretch or back: a new run from the shared point.
+      const last = cur[cur.length - 1];
+      flush();
+      if (last) cur.push(last);
     }
+    if (i > 0) curEst = t[i] - t[i - 1] <= gapMs && estStep(est, i);
     if (near(i)) cur.push([x[i], y[i]]);
     else flush();
   }
   flush();
-  return { runs, gaps };
+  return { runs, est: estRuns, gaps };
 }
 
 /** Stroke widths in Boat speed, map units: everyone, and the selected boat. */
@@ -696,7 +723,7 @@ function sogLayer(
       const x = pc.rx.subarray(pc.i0, pc.i1);
       const y = pc.ry.subarray(pc.i0, pc.i1);
       const range = segmentSogRange(a, pc.leg, leg, scale) ?? { lo: 0, hi: 1 };
-      addSogTrack(acc, x, y, pc.src.t.subarray(pc.i0, pc.i1), pc.src.sog.subarray(pc.i0, pc.i1), range, nearClip(x, y, clip), gapMs);
+      addSogTrack(acc, x, y, pc.src.t.subarray(pc.i0, pc.i1), pc.src.sog.subarray(pc.i0, pc.i1), range, nearClip(x, y, clip), gapMs, pc.src.est?.subarray(pc.i0, pc.i1));
     }
   }
   const out: string[] = [];
@@ -768,9 +795,8 @@ function mapScale(box: Box): MapScale {
   return { box, unit, k: unit };
 }
 
-/** The tracks as drawn: gap chords under everything, the tracks, the selected boat's on top, Rank's labels; and the pieces drawn. */
+/** The tracks as drawn: the tracks, the selected boat's on top, Rank's labels; and the pieces drawn. */
 interface TrackLayer {
-  gaps: string;
   paths: string;
   hi: string;
   labels: string;
@@ -782,7 +808,8 @@ const PRE_COLOR = 'var(--ink-3)';
 
 /**
  * The map's tracks for pieces `po` (the whole race, or the scrubber's window), coloured by leg, rank or
- * boat speed, with each boat's gaps as dashed chords. Track before the gun is neutral in Leg and Rank, by SOG in Boat speed.
+ * boat speed; a short gap filled in lighter (`trk-est`: ui/gapFill.ts), a longer one left blank. Track before the
+ * gun is neutral in Leg and Rank, by SOG in Boat speed.
  */
 function trackLayer(a: RaceAnalysis, highlight: string | null, leg: number | null, opts: TrackMapOptions, po: PieceOptions, sc: MapScale): TrackLayer {
   const { box, unit, k } = sc;
@@ -801,10 +828,11 @@ function trackLayer(a: RaceAnalysis, highlight: string | null, leg: number | nul
     drawn.push(...ps);
     return ps;
   };
+  /** A filled-in run (ui/gapFill.ts): the same line, lighter (its stroke opacity × EST_OPACITY). */
+  const estOp = (est: boolean, op = 1): string => (est ? ` stroke-opacity="${(op * EST_OPACITY).toFixed(2)}"` : '');
+  const estCls = (est: boolean): string => (est ? ' trk-est' : '');
 
   const paths: string[] = opts.colour === 'sog' ? [sogLayer(a, highlight, leg, k, sogScale, clip, piecesOf)] : [];
-  /** Leg and Rank: each boat's gaps, faint dashed chords under the tracks. */
-  const gapSvg: string[] = [];
   const hi: string[] = [];
   /** Rank mode: [draw order, svg]; unranked first, then slowest → fastest, the selection last. */
   const ordered: [number, string][] = [];
@@ -815,22 +843,20 @@ function trackLayer(a: RaceAnalysis, highlight: string | null, leg: number | nul
   for (const d of opts.colour === 'sog' ? (nc ? [nc.drawing] : []) : drawings) {
     const isNc = d === nc?.drawing;
     const gapMs = drawingGapMs(d);
-    let gaps = '';
     for (const grp of pieceGroups(piecesOf(d))) {
-      // Each run between gaps is its own line; the gaps are drawn apart, below.
-      const runs: Vec[][] = [];
+      // Each run between gaps is its own line (a gap is left blank), each filled-in stretch too (drawn lighter).
+      const runs: { run: Vec[]; est: boolean }[] = [];
       for (const pc of grp.pieces) {
-        const r = segRuns(pc.rx.subarray(pc.i0, pc.i1), pc.ry.subarray(pc.i0, pc.i1), pc.src.t.subarray(pc.i0, pc.i1), gapMs, clip);
-        runs.push(...r.runs);
-        gaps += r.gaps;
+        const r = segRuns(pc.rx.subarray(pc.i0, pc.i1), pc.ry.subarray(pc.i0, pc.i1), pc.src.t.subarray(pc.i0, pc.i1), gapMs, clip, pc.src.est?.subarray(pc.i0, pc.i1));
+        runs.push(...r.runs.map((run) => ({ run, est: false })), ...r.est.map((run) => ({ run, est: true })));
       }
       if (!runs.length) continue;
       const segLeg = grp.leg;
       if (isNc) {
         const dash = `stroke-dasharray="${(5 * k).toFixed(2)} ${(4 * k).toFixed(2)}"`;
-        for (const run of runs) {
+        for (const { run, est } of runs) {
           // No <title>: the map's hover/tap tooltip is the point details; a native tooltip would double up.
-          const svg = `<polyline class="trk on nc" data-leg="${segLeg}" data-id="${esc(d.id)}" points="${pts(run)}" stroke="${NC_COLOR}" ${dash} ${sw(2.6)}></polyline>`;
+          const svg = `<polyline class="trk on nc${estCls(est)}" data-leg="${segLeg}" data-id="${esc(d.id)}" points="${pts(run)}" stroke="${NC_COLOR}" ${dash} ${sw(2.6)}${estOp(est)}></polyline>`;
           if (speed) ordered.push([2, svg]);
           else hi.push(svg);
         }
@@ -839,8 +865,8 @@ function trackLayer(a: RaceAnalysis, highlight: string | null, leg: number | nul
       if (segLeg === PRE_LEG) {
         const on = highlight === d.id;
         const cls = highlight ? (on ? 'trk pre on' : 'trk pre dim') : 'trk pre';
-        for (const run of runs) {
-          const svg = `<polyline class="${cls}" data-leg="${segLeg}" data-id="${esc(d.id)}" points="${pts(run)}" stroke="${PRE_COLOR}" ${sw(on ? 2.2 : 1.1)}></polyline>`;
+        for (const { run, est } of runs) {
+          const svg = `<polyline class="${cls}${estCls(est)}" data-leg="${segLeg}" data-id="${esc(d.id)}" points="${pts(run)}" stroke="${PRE_COLOR}" ${sw(on ? 2.2 : 1.1)}${estOp(est)}></polyline>`;
           (on ? hi : paths).push(svg);
         }
         continue;
@@ -848,8 +874,8 @@ function trackLayer(a: RaceAnalysis, highlight: string | null, leg: number | nul
       if (!speed) {
         const cls = highlight ? (highlight === d.id ? 'trk on' : 'trk dim') : 'trk';
         const width = highlight === d.id ? 2.6 : 1.2;
-        for (const run of runs) {
-          const svg = `<polyline class="${cls}" data-leg="${segLeg}" points="${pts(run)}" stroke="${legColor(segLeg)}" ${sw(width)}></polyline>`;
+        for (const { run, est } of runs) {
+          const svg = `<polyline class="${cls}${estCls(est)}" data-leg="${segLeg}" points="${pts(run)}" stroke="${legColor(segLeg)}" ${sw(width)}${estOp(est)}></polyline>`;
           (highlight === d.id ? hi : paths).push(svg);
         }
         continue;
@@ -858,24 +884,25 @@ function trackLayer(a: RaceAnalysis, highlight: string | null, leg: number | nul
       const on = highlight === d.id;
       const st = speedStyle(r, opts.top ?? 'all', on ? 'this' : highlight ? 'other' : 'none');
       // Grey strokes are classed by why (unranked / out of the top N), coloured ones by tier, a picked boat past N 'picked'.
-      const cls = ['trk spd', st.kind === 'picked-out' ? 'picked' : st.t == null ? st.kind : st.tier, on ? 'on' : ''].filter(Boolean).join(' ');
-      const op = `stroke-opacity="${st.opacity.toFixed(2)}"`;
-      for (const run of runs) {
+      const cls0 = ['trk spd', st.kind === 'picked-out' ? 'picked' : st.t == null ? st.kind : st.tier, on ? 'on' : ''].filter(Boolean).join(' ');
+      for (const { run, est } of runs) {
         const p = pts(run);
+        const cls = cls0 + estCls(est);
+        const op = `stroke-opacity="${(st.opacity * (est ? EST_OPACITY : 1)).toFixed(2)}"`;
         const attrs = `data-leg="${segLeg}" data-id="${esc(d.id)}" points="${p}"`;
         let svg: string;
         if (st.kind === 'picked-out' && r) {
           // Ink over a surface casing: no rank colour, so it can't pass for one of the top N; its rank is labelled instead.
-          svg = `<polyline class="spd-pick-case" points="${p}" ${sw(st.width + 2.4)}/><polyline class="${cls}" ${attrs} ${sw(st.width)} ${op}></polyline>`;
+          svg = `<polyline class="spd-pick-case" points="${p}" ${sw(st.width + 2.4)}${estOp(est)}/><polyline class="${cls}" ${attrs} ${sw(st.width)} ${op}></polyline>`;
         } else if (st.t == null) {
           const dash = st.kind === 'unranked' ? ` stroke-dasharray="${(3 * k).toFixed(2)} ${(2.5 * k).toFixed(2)}"` : '';
           svg = `<polyline class="${cls}" ${attrs} ${sw(st.width)} ${op}${dash}></polyline>`;
         } else {
           // Selection: an ink outline under the boat's own colour. Otherwise, by day, a thin dark casing under the pale fast end, as faint as its stroke.
           const casing = on
-            ? `<polyline class="spd-sel" points="${p}" ${sw(st.width + 2.4)}/>`
+            ? `<polyline class="spd-sel" points="${p}" ${sw(st.width + 2.4)}${estOp(est)}/>`
             : casedByDay(st.t)
-              ? `<polyline class="spd-case" points="${p}" ${sw(st.width + 1)} stroke-opacity="${(0.55 * st.opacity).toFixed(2)}"/>`
+              ? `<polyline class="spd-case" points="${p}" ${sw(st.width + 1)} stroke-opacity="${(0.55 * st.opacity * (est ? EST_OPACITY : 1)).toFixed(2)}"/>`
               : '';
           svg = `${casing}<polyline class="${cls}" ${attrs} stroke="${speedColor(st.t)}" style="--cd:${speedColor(st.t, 'dark')}" ${sw(st.width)} ${op}></polyline>`;
         }
@@ -886,12 +913,6 @@ function trackLayer(a: RaceAnalysis, highlight: string | null, leg: number | nul
         if (!speed.overall) pickLabels.push({ at: grp.end, leg: segLeg, rank: r.rank });
         else if (!pickLabels[0] || segLeg >= pickLabels[0].leg) pickLabels[0] = { at: grp.end, leg: segLeg, rank: r.rank };
       }
-    }
-    // A picked non-competitor's holes stay plain holes (its line is dashed already).
-    if (gaps && !isNc) {
-      const on = highlight === d.id;
-      const cls = highlight ? (on ? 'trk-gap on' : 'trk-gap dim') : 'trk-gap';
-      gapSvg.push(`<path class="${cls}" data-id="${esc(d.id)}" d="${gaps}" ${sw(on ? 1.6 : 1.2)} stroke-dasharray="${(3 * k).toFixed(2)} ${(2.5 * k).toFixed(2)}"/>`);
     }
   }
   if (speed) {
@@ -906,7 +927,7 @@ function trackLayer(a: RaceAnalysis, highlight: string | null, leg: number | nul
       return `<text class="spd-pick-lbl" x="${(x + (right ? 7 : -7) * unit).toFixed(1)}" y="${(y + 4 * unit).toFixed(1)}" font-size="${12 * k}" stroke-width="${(3 * k).toFixed(2)}" text-anchor="${right ? 'start' : 'end'}">#${rank}</text>`;
     })
     .join('');
-  return { gaps: gapSvg.join(''), paths: paths.join(''), hi: hi.join(''), labels, pieces: drawn };
+  return { paths: paths.join(''), hi: hi.join(''), labels, pieces: drawn };
 }
 
 /** Whole-race tracks coloured by leg (or by speed rank, or boat speed), or only leg `leg` (fitted to it); scrubbing, the static map only. */
@@ -976,7 +997,7 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
           ? `Race Viewer, tracks ${sogLabel}`
           : 'Race Viewer, tracks colored by leg'
       : `Race Viewer on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', tracks colored by speed on the leg: yellow and boldest fastest' : sogLabel ? `, tracks ${sogLabel}` : ''}`;
-  const tracks = layer ? `${layer.gaps}${layer.paths}${layer.hi}` : '<g class="scrub-trk"></g><g class="scrub-trails"></g><g class="scrub-ocs"></g>';
+  const tracks = layer ? `${layer.paths}${layer.hi}` : '<g class="scrub-trk"></g><g class="scrub-trails"></g><g class="scrub-ocs"></g>';
   const top = layer ? layer.labels : '<g class="scrub-dots"></g>';
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map${opts.scrub ? ' scrub' : ''}" role="img" aria-label="${esc(opts.scrub ? `${label}; boats at the scrubber's time` : label)}">
     ${tracks}
@@ -998,7 +1019,10 @@ export interface ScrubAt {
   trailMs?: number | null;
 }
 
-/** One boat's fading trail: path data per fade slice (ui/trail.ts TRAIL_FADE), its color (`cd`: by night), class and width (map units). */
+/**
+ * One boat's fading trail: path data per fade slice (ui/trail.ts TRAIL_FADE), and the same for its stretches filled
+ * into a short gap (`est`, drawn lighter: ui/gapFill.ts); its color (`cd`: by night), class and width (map units).
+ */
 export interface BoatTrail {
   id: string;
   stroke: string;
@@ -1006,6 +1030,7 @@ export interface BoatTrail {
   cls: string;
   w: number;
   d: string[];
+  est?: string[];
 }
 
 /**
@@ -1030,7 +1055,7 @@ export function boatsAt(a: RaceAnalysis, highlight: string | null, t: number, fu
   const nc = pickedExcluded(a, highlight);
   const out: BoatAt[] = [];
   for (const d of nc ? [...a.drawings, nc.drawing] : a.drawings) {
-    const b = boatAt(d.id, legRanges(d, true, full?.get(d.id)), t, drawingGapMs(d), a.wind.twdAtGunDeg, endHoldOf(a, d.id));
+    const b = boatAt(d.id, filledRanges(d, true, full?.get(d.id)), t, drawingGapMs(d), a.wind.twdAtGunDeg, endHoldOf(a, d.id));
     if (b) out.push(b);
   }
   return out;
@@ -1045,7 +1070,7 @@ export function mapFollowInput(a: RaceAnalysis, id: string, t: number, full?: Fu
   const nc = pickedExcluded(a, id);
   const d = a.drawings.find((x) => x.id === id) ?? nc?.drawing;
   if (!d) return null;
-  const ranges = legRanges(d, true, full?.get(d.id));
+  const ranges = filledRanges(d, true, full?.get(d.id));
   const twd = a.wind.twdAtGunDeg;
   const endHold = endHoldOf(a, d.id);
   const at = (ms: number): BoatAt | null => boatAt(d.id, ranges, ms, drawingGapMs(d), twd, endHold);
@@ -1152,7 +1177,7 @@ export function scrubFrame(a: RaceAnalysis, highlight: string | null, leg: numbe
   // Short trails: the pieces over the window too (the point details and a card's comparison casing read them).
   const nc = pickedExcluded(a, highlight);
   const pieces = layer ? layer.pieces : (nc ? [...a.drawings, nc.drawing] : a.drawings).flatMap((d) => drawingPieces(a.wind.twdAtGunDeg, d, po));
-  const tracks = layer ? `${layer.gaps}${vsCasing(a, pieces, opts.vs, highlight, sc)}${layer.paths}${layer.hi}` : vsCasing(a, pieces, opts.vs, highlight, sc);
+  const tracks = layer ? `${vsCasing(a, pieces, opts.vs, highlight, sc)}${layer.paths}${layer.hi}` : vsCasing(a, pieces, opts.vs, highlight, sc);
   return {
     tracks,
     ocs: r?.tracks ?? '',
@@ -1166,8 +1191,9 @@ export function scrubFrame(a: RaceAnalysis, highlight: string | null, leg: numbe
 /**
  * Each placed boat's fading trail over the last `lenMs` before `t` (ui/trail.ts): in the boat's color now (as its
  * hull: leg, rank or SOG, a picked boat not racing grey), dimmed with it when another boat is selected and faint
- * off the leg shown; broken at its gaps (the map's rule, mapPoints.ts drawingGapMs); from the full-rate track when
- * zoomed in tight; near `clip` only. The comparison boats over the rest, the selected boat last (on top).
+ * off the leg shown; broken at its gaps (the map's rule, mapPoints.ts drawingGapMs), a short one filled in lighter
+ * (ui/gapFill.ts); from the full-rate track when zoomed in tight; near `clip` only. The comparison boats over the
+ * rest, the selected boat last (on top).
  */
 function boatTrails(
   a: RaceAnalysis,
@@ -1193,29 +1219,30 @@ function boatTrails(
     const d = byId.get(b.id);
     if (!d) continue;
     const stretches: TrailStretch[] = [];
-    for (const r of legRanges(d, leg == null, full?.get(d.id))) {
+    for (const r of filledRanges(d, leg == null, full?.get(d.id))) {
       if (leg != null && r.leg !== leg) continue;
       const [i0, i1] = timeRange(r.src.t, t - lenMs, t, r.lo, r.hi);
       if (i1 <= i0) continue;
       const { x, y } = rotTrack(twd, r.src);
-      stretches.push({ t: r.src.t, x, y, i0, i1 });
+      stretches.push({ t: r.src.t, x, y, i0, i1, ...(r.src.est ? { est: r.src.est } : {}) });
     }
     // The trail runs up to the boat (not while it is held at its last fix, nor from another leg than the one shown).
     const head: Vec | null = !b.hold && (leg == null || b.leg === leg) ? [b.mx, b.my] : null;
-    const paths = trailPaths(stretches, t, lenMs, drawingGapMs(d), head, clip);
-    if (!paths.some(Boolean)) continue;
+    const sl = trailSlices(stretches, t, lenMs, drawingGapMs(d), head, clip, undefined, !!b.est);
+    const paths = sl.d;
+    if (!paths.some(Boolean) && !sl.est.some(Boolean)) continue;
     const on = highlight === b.id;
     const cmp = !on && vs.has(b.id);
     const { c, cd } = dotColour(a, b, leg, opts, speed, highlight);
     const cls = ['btrail', on ? 'on' : cmp ? 'vs' : highlight ? 'dim' : '', leg != null && b.leg !== leg ? 'off' : ''].filter(Boolean).join(' ');
-    const tr: BoatTrail = { id: b.id, stroke: c, ...(cd ? { cd } : {}), cls, w: +((on ? 2.6 : 1.6) * sc.k).toFixed(2), d: paths };
+    const tr: BoatTrail = { id: b.id, stroke: c, ...(cd ? { cd } : {}), cls, w: +((on ? 2.6 : 1.6) * sc.k).toFixed(2), d: paths, ...(sl.est.some(Boolean) ? { est: sl.est } : {}) };
     if (on) sel = tr;
     else (cmp ? vsOut : out).push(tr);
   }
   return [...out, ...vsOut, ...(sel ? [sel] : [])];
 }
 
-/** The comparison boats' trails (Map D): an ink casing under their own lines, from the pieces the frame drew; broken at gaps as they are. */
+/** The comparison boats' trails (Map D): an ink casing under their own lines, from the pieces the frame drew; broken at gaps as they are (along a filled-in stretch too). */
 function vsCasing(a: RaceAnalysis, pieces: readonly MapPiece[], vs: readonly string[] | null | undefined, highlight: string | null, sc: MapScale): string {
   if (!vs?.length) return '';
   const ids = new Set(vs.filter((id) => id !== highlight));
@@ -1223,8 +1250,8 @@ function vsCasing(a: RaceAnalysis, pieces: readonly MapPiece[], vs: readonly str
   let out = '';
   for (const pc of pieces) {
     if (!ids.has(pc.id)) continue;
-    const runs = segRuns(pc.rx.subarray(pc.i0, pc.i1), pc.ry.subarray(pc.i0, pc.i1), pc.src.t.subarray(pc.i0, pc.i1), gapOf(pc.id)).runs;
-    for (const run of runs) out += `<polyline class="trk-vs" data-id="${esc(pc.id)}" points="${pts(run)}" stroke-width="${(3.4 * sc.k).toFixed(2)}"/>`;
+    const r = segRuns(pc.rx.subarray(pc.i0, pc.i1), pc.ry.subarray(pc.i0, pc.i1), pc.src.t.subarray(pc.i0, pc.i1), gapOf(pc.id), null, pc.src.est?.subarray(pc.i0, pc.i1));
+    for (const run of [...r.runs, ...r.est]) out += `<polyline class="trk-vs" data-id="${esc(pc.id)}" points="${pts(run)}" stroke-width="${(3.4 * sc.k).toFixed(2)}"/>`;
   }
   return out;
 }
@@ -1241,8 +1268,8 @@ function replaySvg(a: RaceAnalysis, r: StartReplay, s: ScrubAt, sc: MapScale): {
   const twd = a.wind.twdAtGunDeg;
   const d = a.drawings.find((x) => x.id === r.boat);
   if (!d) return { tracks: '', marks: '', label: '' };
-  // Drawn as the Start tab's "Around the gun" view draws it (ui/ocsStyle.ts), from the source the map draws.
-  const { tracks, marks } = ocsSvg(ocsStretch(r, legRanges(d, true, s.full?.get(d.id)), drawingGapMs(d), twd, s.t, s.win), { unit });
+  // Drawn as the Start tab's "Start Playback" view draws it (ui/ocsStyle.ts), from the source the map draws.
+  const { tracks, marks } = ocsSvg(ocsStretch(r, filledRanges(d, true, s.full?.get(d.id)), drawingGapMs(d), twd, s.t, s.win), { unit });
   // The label: off the line's middle on the pre-start side (away from the first mark), inside the view.
   const rot = rotator(twd);
   const L = rot(a.line.left);

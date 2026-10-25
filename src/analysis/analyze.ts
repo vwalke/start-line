@@ -58,7 +58,8 @@ import {
   type WindInfo,
 } from './types';
 import { finishRank } from './result';
-import { assessStart, estimateDtl, rankStarts, sampleGap } from './validity';
+import { rawHoles } from './rawHoles';
+import { assessStart, estimateDtl, rankStarts, sampleGap, startDtlM } from './validity';
 import { classifyLeg, closeHauledTackAngle, estimateTwd, makeTwdAt, readStartTwd, startWindHeadings, steadyIndices, straddles, windPoints } from './wind';
 
 const centroid = (ps: Vec[]): Vec => scale(ps.reduce((a, b) => add(a, b), [0, 0] as Vec), 1 / ps.length);
@@ -658,6 +659,8 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       courseAtGun,
       segments,
       pre,
+      // Display only: the feed's own holes, so the maps judge gaps on its fixes, not the thinned segments.
+      holes: rawHoles(tr.t, tr.x, tr.y, sogSm, gun - MAP_PRE_MS),
     };
     return { result, drawing };
   };
@@ -692,7 +695,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   const approach = results.filter((r) => r.start && r.start.vToLineMs > 0).map((r) => r.start!.vToLineMs);
   const vFloor = Math.max(0.3, approach.length ? 0.5 * median(approach) : 0.3);
   // One boat kilometres out must not take the "furthest back" place or stretch the Fit.
-  const absDtl = (r: BoatResult): number => Math.abs(r.start!.dtlM);
+  const absDtl = (r: BoatResult): number => Math.abs(startDtlM(r.start!));
   const withBow = results.filter((r) => r.start);
   const awayThresh = awayFromLineThresholdM(withBow.map(absDtl));
   if (withBow.filter((r) => absDtl(r) <= awayThresh).length >= 3) {

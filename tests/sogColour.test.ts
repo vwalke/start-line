@@ -194,13 +194,14 @@ describe('batched SOG paths', () => {
     expect(acc.gap).toBe('');
   });
 
-  it('draws steps over 5 s as grey gap segments, not in any colour run', () => {
+  it('leaves steps over 5 s out of every colour run, and blank (no gap chord drawn)', () => {
     const acc = emptySogPaths(10);
     addSogTrack(acc, xs(4), [0, 0, 0, 0], [0, 1000, 8000, 9000], [5, 5, 5, 5], r);
     expect(acc.gap).toBe('M1.0,0.0L2.0,0.0');
     expect(acc.bins[5]).toBe('M0.0,0.0L1.0,0.0M2.0,0.0L3.0,0.0');
     const svg = sogPathsSvg(acc, 1.4, 1);
-    expect(svg).toMatch(/<path class="sog-gap" d="M1\.0,0\.0L2\.0,0\.0" stroke-dasharray="[\d.]+ [\d.]+"\/>/);
+    expect(svg).not.toContain('sog-gap');
+    expect(svg).not.toContain('M1.0,0.0L2.0,0.0');
     expect(hasGaps([[0, 1000, 8000]])).toBe(true);
     expect(hasGaps([[0, 1000, 6000]])).toBe(false);
   });

@@ -206,8 +206,10 @@ describe('the landing page (index.html #landing)', () => {
     for (const m of landingText.matchAll(/sign[- ]?in[^.]*/gi)) expect(m[0]).toMatch(/Google/);
   });
 
-  it('describes the Around the gun slider in plain words and leaves out features that are switched per site', () => {
-    expect(landingText).toContain('Around the gun');
+  it('describes the Start Playback slider in plain words and leaves out features that are switched per site', () => {
+    expect(landingText).toContain('Start Playback');
+    expect(landingText).toContain('Rounding & Finish Positions');
+    expect(landingText).not.toMatch(/Around the gun|Place changes/);
     expect(landingText).toContain('Drag the slider from a minute and a half before the gun to three minutes after, or press play');
     expect(landingText).toContain('Zoom in for a closer look.');
     // Hulls along the course (the last heading when slow), hollow when the tracker drops out, dots only without a

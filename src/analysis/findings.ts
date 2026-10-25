@@ -2,6 +2,7 @@
 import { compassRound, median, wrap180 } from './geo';
 import { biasAngle, lineBias } from './line';
 import type { BoatResult, Finding, RaceAnalysis, StartCompare, StartCompareSide, StartResult } from './types';
+import { gapAtGun, startDtlM } from './validity';
 import { START_WIND_SPAN } from './wind';
 
 /** Findings about the start (the line and the starts), shown under the start chart, and the rest (legs, results, wind), shown with the race. */
@@ -93,7 +94,7 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
     out.push({ kind: 'start', text: startCompareText(compare), boatIds: [compare.best.id, ...(compare.worst ? [compare.worst.id] : [])], compare });
   }
   if (away.length) {
-    const km = (b: BoatResult): string => `${(Math.abs(b.start!.dtlM) / 1000).toFixed(1)} km`;
+    const km = (b: BoatResult): string => `${(Math.abs(startDtlM(b.start!)) / 1000).toFixed(1)} km`;
     out.push({
       kind: 'start',
       boatIds: away.map((b) => b.id),
@@ -122,8 +123,8 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
       kind: 'start',
       boatIds: [b.id],
       text:
-        s.dtlGapS != null
-          ? `${tag(b)}: ${rc} and our track has a ${r0(s.dtlGapS)} s gap at the gun; it may have been over (${pos} by interpolation), but neither figure is reliable.`
+        gapAtGun(s)
+          ? `${tag(b)}: ${rc} and our track has a ${r0(s.dtlGapS!)} s gap at the gun; it may have been over (${pos} by interpolation), but neither figure is reliable.`
           : `${tag(b)}: ${rc}, and our track puts the bow ${pos} the line at the start; it may have been over without race control's OCS check seeing it (GPS and bow offset are approximate).`,
     });
   }

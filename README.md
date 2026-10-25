@@ -45,7 +45,7 @@ PLAYWRIGHT_CORE=/path/to/playwright-core/index.js node scripts/landing-thumbs.mj
 Use a port Node's `fetch` accepts: undici refuses its "bad ports" (4190 is one), and the script checks the server
 with `fetch` first.
 
-The races are the J/70 Worlds in Cascais (Open, `race=4`, USA 833 for Around the gun and the regatta view; the replay is
+The races are the J/70 Worlds in Cascais (Open, `race=4`, USA 833 for Start Playback and the regatta view; the replay is
 `race=3` at the windward mark, a moment picked from `tests/fixtures/cascais_r3.json` where nearly every boat near
 USA 833 has fresh fixes) and the J/105 CBC (`race=1`, linked to Yachtscoring 50575; the debrief and report are
 `race=3` for USA 343, which covers 85% of that race on its fixture, against USA 833's thin Cascais tracks). The start
@@ -68,10 +68,15 @@ Under the race header the digest has three tabs, **Start**, **Race** and
 **Coach**; the boat list beside (on a phone, above) them and the selected boat
 are shared by all three.
 
-- **Start tab:** the start chart with its start findings, speed through the
-  start, and the Start by boat table.
-- **Race tab:** the tracks-by-leg map, place changes, the race findings and
-  warnings, and the Legs by boat table with the Upwind / Downwind summaries.
+- **Start tab:** the start chart (Start View - Gun) with Start Playback and its
+  start findings, Start Speed Control, and the Start by boat table.
+- **Race tab:** the Race Viewer map, Rounding & Finish Positions, Race Analysis
+  (the findings and warnings), and the Performance Metrics table with the
+  Upwind / Downwind summaries.
+
+Each section has a larger, bold title; a section inside a card (Start Playback,
+under the start chart's chips and over-early line; the start findings) is set
+off by a thin rule in the theme's border color.
 - **Coach tab** (on for everyone; the old `?coach=1` is ignored): the boat
   selected in the boat list (or a chart) in the race picked in the Race menu.
   It has no race or boat picker of its own; with no boat selected it asks for
@@ -109,8 +114,10 @@ are shared by all three.
     there). A gap between fixes where the boat made no progress (a tack back, a
     stall in a rounding zone) isn't a hole. The gap scale fits every thin line
     for 5 or fewer boats; with more it follows the bold line plus some headroom
-    and marks a thin line that runs off it at the edge. The "no data" chip shows exactly
-    when a line breaks. The cards read the same series (`groupGap`), so
+    and marks a thin line that runs off it at the edge. On the chart only, a break of
+    `SHORT_GAP_S` = 30 s or less between two values is drawn straight across, and a
+    longer one is left blank (no band, no "no data" chip); the wind strip's estimated
+    stretches are the same line, lighter. The cards read the same series (`groupGap`), so
     a card's seconds are the chart's change for the same group), the biggest gains as cards
     ranked by their impact on the result (see [How the Coach ranks
     cards](#how-the-coach-ranks-cards); at most 3, at most 2 from one detector:
@@ -418,7 +425,7 @@ history) and kept with the last race viewed. A hash on the URL wins; a link
 without one opens Start, or the saved tab when it reopens the saved race.
 Switching races keeps the tab.
 
-- **Start at the gun:** each boat's bow (GPS tracker + class bow offset)
+- **Start View - Gun:** each boat's bow (GPS tracker + class bow offset)
   against the line with a 60 s trail (`START_TRAIL_MS`) shifted so it ends on
   that bow, arrows along course over ground, plus the line length and bias and
   which end was favored. Wind bearings display as 0° rather than 360°.
@@ -451,7 +458,7 @@ Switching races keeps the tab.
   boat labels: Auto places them greedily (selected boat, then by start place)
   and leaves out any that would overlap another label or the line, so
   zooming in reveals more; hover or tap a boat for its name either way.
-- **Around the gun (−1:30 to +3:00)** (`ui/laneSnapshots.ts`, drawn by
+- **Start Playback (−1:30 to +3:00)** (`ui/laneSnapshots.ts`, drawn by
   `ui/laneSnapshotsView.ts`): a section under the start chart, open by
   default (collapsible), kept as a view of its own (not merged into the
   start chart). One map at the panel's full width (on a phone too) shows the
@@ -471,7 +478,7 @@ Switching races keeps the tab.
   scrubbing only redraws the map. Each second draws every boat with the
   Race Viewer's fading trail, its last 2 minutes (never before gun −1:30,
   or where the data starts), and the start line.
-- **Boat shapes** (`ui/boatShape.ts` `boatMark`): Around the gun and the
+- **Boat shapes** (`ui/boatShape.ts` `boatMark`): Start Playback and the
   Race Viewer while scrubbing or replaying draw each boat as the start
   chart's hull, centered on its position and pointing along its course over
   ground at that moment (the scrubber's: the step between the fixes either
@@ -481,8 +488,10 @@ Switching races keeps the tab.
   long on screen (`BOAT_SHAPE_PX`; 15 px for the selected boat), else a
   symbol that long with the hull's proportions (as the start chart's
   markers when its hulls would be too small). It is filled while the boat's
-  data is fresh and hollow (outlined in its own color, a little heavier)
-  once it is lost, so a dropout no longer flips the hull to a dot. The boat
+  data is fresh and hollow (a quiet outline in its own color) once it is
+  lost in a long gap, so a dropout no longer flips the hull to a dot. In a
+  short gap the boat stays a filled hull on the filled-in path (see Data
+  gaps on the maps). The boat
   is a dot only when no heading was ever known (no step yet of at least
   1 kn, `BOAT_SHAPE_MIN_KN`), the class has no dimensions, or the map is
   zoomed out so far the hull to scale would be under 1.5 px
@@ -491,7 +500,7 @@ Switching races keeps the tab.
   hollow by the same rule. Sail-number labels, the selection, the
   comparison rings, the over-early styling and the map's colors (by leg,
   rank or boat speed) are the same filled or hollow.
-- **Around the gun: zoom.** The map pans and zooms as the track map does
+- **Start Playback: zoom.** The map pans and zooms as the track map does
   (`ui/panzoom.ts`: pinch, drag, double-tap, Ctrl/⌘ + wheel, + / − / 0 with
   the map focused, and the same Fit / 2× / 4× / 8× buttons). Fit, the
   default and what Fit and 0 reset to, is fixed for the whole slider (it
@@ -517,9 +526,9 @@ Switching races keeps the tab.
   the line, blowing from the course side (`Wind assumed ⟂ line`, a dashed
   arrow turned that way). No mark is drawn. The selected boat and its Coach
   group (Top 3 by default) are highlighted and labeled, the rest faded.
-  Positions are the Race Viewer's: interpolated across short steps, held
-  at the last fix in a gap, or after its final fix when its tracker stops
-  before it finishes (hollow after the first 3 s), for up to 2 minutes,
+  Positions are the Race Viewer's: interpolated across short steps, on the
+  filled-in curve across a short gap, held at the last fix in a longer gap, or after its final fix when its tracker stops
+  before it finishes (hollow after the first 30 s), for up to 2 minutes,
   else the boat is missing at that second (never placed); trails break at
   gaps. A boat within 1 s of a fix
   where the scrubber has no position (its feed starting or ending, the far
@@ -529,7 +538,7 @@ Switching races keeps the tab.
   wind, or along the line's perpendicular when the wind is assumed), or its
   one note (`no position (tracker gap).` / `not tracked.`); a second with
   no positions and no trails says `No tracks at this time.`
-- **Around the gun: over early.** A boat over early (the over-early facts
+- **Start Playback: over early.** A boat over early (the over-early facts
   from the worker, as the track map's "Replay start") is drawn as that
   replay draws it, from the same helper (`ui/ocsStyle.ts`): its track over
   the line in red on a light casing, its dip back dashed red until it
@@ -556,15 +565,19 @@ Switching races keeps the tab.
   plus legend swatches (`- - line extended`, `- - no data`, `○ estimated
   mark`, `- - not racing`, `● crossed the line`). Caveats stay in sight as
   red ⚠ chips: low wind confidence (`⚠ wind est. low`, `⚠ wind assumed`),
-  low data, gaps across the gun, Vakaros vs our check, unchecked OCS,
-  missing roundings, a start window cut short, legs split from the fleet's
-  turns (on the Race findings card). The row ends in one ⓘ
+  low data, Vakaros vs our check, unchecked OCS, missing roundings, a start
+  window cut short, legs split from the fleet's turns (on the Race Analysis
+  card). A gap at the gun is a plain chip (`1 with a gap at the gun`), only
+  for a hole of over `GUN_GAP_FLAG_S` = 10 s across the start sample with no
+  Vakaros distance of the device's own; where the device reported one, the
+  start figures (ranking, away from the line, the Coach's start inputs, the
+  over-early replay) use it instead of our interpolated figure. The row ends in one ⓘ
   "How to read this" (a native `<details>`, closed by default; it stays
   open across redraws) with a few short bullets: methods, what dashed
   means, sensitivity (±5° of wind ≈ ±N m), label meaning, Names modes,
   gestures, and for the start table each boat's start caveats. Full screen
   shows the same key line.
-- **Map zoom: centering and follow** (the Around the gun map and the track
+- **Map zoom: centering and follow** (the Start Playback map and the track
   map: gestures in `ui/panzoom.ts`, views in `ui/view.ts`, the follow camera
   in `ui/follow.ts`). The 2× / 4× / 8× buttons
   and + / − center on the selected boat where it is at the moment shown
@@ -606,7 +619,7 @@ Switching races keeps the tab.
   dismissal is kept in `recall.hints` (`ui/hints.ts`; blocked storage just
   shows it again next visit). Desktop gestures are in the start chart's ⓘ.
 - **Full screen** (`ui/fullscreen.ts`): the expand button at the top right
-  of the start chart, the track map and the place changes cards opens that
+  of the start chart, the track map and the Rounding & Finish Positions cards opens that
   chart over the whole viewport, with its own controls in a compact top bar
   (start chart: Fit / 2× / 4× / 8×, Color, Names; map: the leg picker and
   Color) and its key (the speed scale, or each boat's color for a fleet of
@@ -635,13 +648,13 @@ Switching races keeps the tab.
   landscape full screen the same start is drawn about 2.5× larger. In
   portrait, a wide start shows a dismissible "Rotate to landscape for a
   bigger view" (the orientation is never forced); the chart is redrawn on
-  every resize or rotation. The place changes chart fits the overlay's
+  every resize or rotation. The Rounding & Finish Positions chart fits the overlay's
   height when that leaves each row at least 12 px (growing a small fleet's
   rows up to 32 px); otherwise it keeps its usual rows and scrolls inside
   the overlay. On closing, the page's scroll position and focus on the
   expand button are restored once the browser has left native fullscreen
   (Chrome resets both on its way out), and again on the next frame.
-- **Speed through the start** (Start tab, after the start chart;
+- **Start Speed Control** (Start tab, after the start chart;
   `analysis/startSog.ts`, `ui/startSog.ts`): each racing boat's speed over
   ground (the same 4 s mean the speed-colored tracks use) against seconds
   from the gun, with the gun as a dashed line. `Window: 30 s | 60 s | 120 s`
@@ -651,7 +664,7 @@ Switching races keeps the tab.
   before the gun to allow for it; if no boat's track goes back as far as the
   window, the chart starts at the earliest data and a ⚠ chip says so.
   A line breaks wherever a boat's fixes are more than 5 s apart (the same
-  threshold as the distance `~` and Data %), with a gray dashed join, so a
+  threshold as the distance `~` and Data %), with a faint gray dashed join, so a
   hole is never drawn as a speed; hovering inside one shows nothing. A dot
   marks where each boat crossed the line (the start table's Late) and its
   speed then ("crossed +2.6 s at 5.3 kn"). Hover or tap for the speed under
@@ -662,7 +675,7 @@ Switching races keeps the tab.
   check, bow-corrected), seconds late, line position (0% pin … 100% RC),
   speed at the gun, TWA at the gun and heel at the gun, with each boat's start
   caveats listed under it.
-- **Legs by boat** (Race tab, a table after the map, place changes and race findings): finish place,
+- **Performance Metrics** (Race tab, a table after the map, Rounding & Finish Positions and Race Analysis): finish place,
   start place, then per leg VMG, SOG, TWA, heel, distance sailed (meters), leg time
   with the place at the mark, tacks (on beats) or gybes (on runs; both on
   reaches) and Data %; then the same for **Upwind** and **Downwind**, then the
@@ -673,7 +686,7 @@ Switching races keeps the tab.
   gybe count where one bridges a gap, and a leg time whose rounding falls in
   one. A leg whose rounding is lost in a gap shows — (see Legs below). Data %
   below 90% is flagged ⚠ with how much of the leg had data and the longest gap.
-- **Place changes** (Race tab, after the track map; `analysis/places.ts`,
+- **Rounding & Finish Positions** (Race tab, after the track map; `analysis/places.ts`,
   `ui/places.ts`): a bump chart of each boat's place at the start, at every
   mark rounding (named as the legs name them; a repeat is "M1 (2)") and at
   the finish, 1 at the top. Start is the start table's place among clean
@@ -763,18 +776,39 @@ Switching races keeps the tab.
   `All` / a Coach card's `Window` for the tracks themselves). The trail is
   in the boat's own color (its leg, rank or speed color, dimmed with it when
   another boat is selected) and fades toward the tail in four steps
-  (`TRAIL_FADE`). It breaks at every tracker gap (the map's gap rule, over
-  2 s or twice the boat's usual step), never bridging one. Each frame only
+  (`TRAIL_FADE`). It breaks only at a tracker gap longer than `SHORT_GAP_S`
+  (30 s, the map's gap rule for every boat); a shorter one is filled in,
+  lighter (see Data gaps on the maps). Each frame only
   updates the trails' path data (`ui/trailLayer.ts`); the map is never
-  redrawn for it during play. A boat whose data drops out stays a hull at
-  its last fix and last heading: filled for the first 3 s
-  (`BOAT_STALE_MS`, or the boat's gap threshold when longer, so a short gap
-  never flickers it), then hollow in its own color until its data is back,
-  for up to 2 minutes (`MAP_HOLD_S`). A tracker that stops for good is held
-  the same way after its final fix (`boatAt`'s `endHold`), but never past
+  redrawn for it during play. A boat in a gap over 30 s stays a hull at its
+  last fix and last heading, hollow (a quiet outline in its own color) until
+  its data is back, for up to 2 minutes (`MAP_HOLD_S`). A tracker that stops
+  for good is held after its final fix (`boatAt`'s `endHold`), filled for
+  `BOAT_STALE_MS` (30 s) and then hollow, but never past
   the boat's finish: a boat that finished leaves the map at its finish as
   before rather than showing as lost. A replay's over-the-line overlay has
   its own layer (`g.scrub-ocs`) over the trails.
+- **Data gaps on the maps** (`ui/gapFill.ts`, display only): holes are
+  judged on the feed's own fixes, not on the drawn segments thinned to one
+  fix a second (thinning turns a 1.5 s hole in a 2 Hz feed into a 2.5 s
+  step). A hole is a step between the feed's fixes over 2 s, or twice its
+  usual step (`analysis/rawHoles.ts`); each drawing carries the fixes around
+  every hole (`BoatDrawing.holes`, display data that no result reads), merged
+  back into the thinned segments for drawing. A hole of `SHORT_GAP_S` = 30 s
+  or less (RaceSense's own viewer bridges up to 30 s) is filled in with a
+  smooth curve: a cubic Hermite
+  from the fixes either side and their velocities (course from the
+  neighboring step, at the fix's SOG), Catmull-Rom where those are missing,
+  straight where a tangent points back or the curve would swing wide;
+  sampled about every second. The filled stretch is the same line, solid and
+  lighter, in the Race Viewer's tracks and trails, the start chart's trails
+  and Start Playback, and the boat there is a normal filled hull on the
+  curve, pointing along it. A longer gap is a break, left blank, and its
+  hollow hull kept quiet. On C31 Gold Cup race 10 (a ~2 Hz feed) that takes
+  the blank share of boat-time in gun ±60 s from 21% to 1%. The race map's ⓘ says once: `Estimated sections are lighter.`
+  The filled points are drawn and nothing else: the results, finishes, OCS,
+  start-line crossings, penalties, places, coverage and every Coach number
+  read the real fixes only (`tests/gapFillDisplayOnly.test.ts`).
 - **Color tracks:** `Color: Leg | Rank | Boat speed` beside the legend.
   Rank is the elapsed-time scale (reversed plasma: yellow = fastest, through
   orange and magenta to purple = slowest). Rank also sets opacity and width:
@@ -784,8 +818,8 @@ Switching races keeps the tab.
   by race time (`Rank by: Overall`). `Highlight: Top 3 / Top 10` grays out
   everyone else and spreads the colors over just those. Boat speed shades
   every stretch of track by that boat's own speed over ground (4 s mean,
-  viridis: dark purple slow, through teal, to yellow-green fast; gray dashed
-  = telemetry gap). The scale is the fleet's 5th–95th percentile. On the
+  viridis: dark purple slow, through teal, to yellow-green fast; a long
+  telemetry gap is left blank). The scale is the fleet's 5th–95th percentile. On the
   whole race, `Scale: Per leg` (the default) stretches colors over each
   leg's own spread so beats aren't all dark next to planing runs; `Whole
   race` uses one knot range for every leg. Hover a track for the boat, local
@@ -807,7 +841,7 @@ Switching races keeps the tab.
   `#USA 019 (Balthasar) was over 2.3 m by Vakaros DTL (not flagged OCS)`
   (`by our track estimate` when the figure is ours; the boat name, never a
   person's).
-  **Race findings** (Race tab) follow the place changes: the biggest single-leg gain and
+  **Race Analysis** (Race tab) follows Rounding & Finish Positions: the biggest single-leg gain and
   loss, the quickest boats upwind and downwind, places gained or lost, and a
   wind cross-check. Below them, the race's data caveats (`RaceAnalysis.notes`,
   typed; `warnings` keeps the full sentences) are a key line: ⚠ chips for
@@ -1127,7 +1161,7 @@ src/
   data/orphans.ts            rebuilt races from the feed's race stages (bounded probes)
   data/recovery.ts           glue: link request, per-race official input, probe fetcher
   data/cache.ts              memory + Cache API caching
-  analysis/                  RaceData -> RaceAnalysis (geometry, legs, wind, tacks/gybes, heel, coverage, upwind/downwind summaries, place changes, findings)
+  analysis/                  RaceData -> RaceAnalysis (geometry, legs, wind, tacks/gybes, heel, coverage, upwind/downwind summaries, places at each rounding, findings)
   worker.ts                  fetch + normalize (+ merge uploaded boat logs) + analyze, off the main thread
   vkxWorker.ts               boat-log upload: parse, match, pack, off the main thread
   ui/                        plain TS + SVG rendering (ui/vkxUpload.ts: the upload bar and dialog)

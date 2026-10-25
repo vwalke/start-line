@@ -26,6 +26,7 @@
 import { SOG_GAP_MS } from '../analysis/smooth';
 import type { RaceAnalysis } from '../analysis/types';
 import { esc, f1 } from './format';
+import { EST_OPACITY, estStep } from './gapFill';
 import { contrast, SPEED_BG, type SogScale } from './speed';
 
 /** Viridis at 0, 0.1, … 1 (matplotlib). */
@@ -211,14 +212,15 @@ export function* segmentTimes(a: RaceAnalysis, leg: number | null): Generator<Fl
 
 // ---- batched paths ----------------------------------------------------------
 
-/** One boat's (or a group's) path data: per bin, the casing for pale bins, the gaps. */
+/** One boat's (or a group's) path data: per bin, the casing for pale bins, the gaps; per bin, the stretches filled into short gaps (ui/gapFill.ts). */
 export interface SogPaths {
   bins: string[];
   casing: string;
   gap: string;
+  est: string[];
 }
 
-export const emptySogPaths = (bins = SOG_BINS): SogPaths => ({ bins: Array<string>(bins).fill(''), casing: '', gap: '' });
+export const emptySogPaths = (bins = SOG_BINS): SogPaths => ({ bins: Array<string>(bins).fill(''), casing: '', gap: '', est: Array<string>(bins).fill('') });
 
 const xy = (x: number, y: number): string => `${x.toFixed(1)},${y.toFixed(1)}`;
 
@@ -227,6 +229,7 @@ const xy = (x: number, y: number): string => `${x.toFixed(1)},${y.toFixed(1)}`;
  * mean SOG; consecutive same-bin steps extend one "M…L…" run, and a new run
  * starts on the shared point, so the line stays continuous. Steps longer than
  * `gapMs` go to the gap path instead; steps with an end outside `inside` are skipped.
+ * A step to or from a point filled into a short gap (`est`, ui/gapFill.ts) goes to its bin's `est` path (uncased).
  */
 export function addSogTrack(
   acc: SogPaths,
@@ -237,9 +240,11 @@ export function addSogTrack(
   r: SogRange,
   inside: (i: number) => boolean = () => true,
   gapMs = SOG_GAP_MS,
+  est?: ArrayLike<number>,
 ): void {
   const bins = acc.bins.length;
   let cur = -1;
+  let curEst = false;
   let cased = false;
   const n = Math.min(x.length, y.length, t.length, sog.length);
   for (let i = 0; i + 1 < n; i++) {
@@ -257,8 +262,16 @@ export function addSogTrack(
       continue;
     }
     const b = sogBin((sog[i] + sog[i + 1]) / 2, r, bins);
-    if (b === cur) acc.bins[b] += `L${q}`;
-    else acc.bins[b] += `M${p}L${q}`;
+    const e = estStep(est, i + 1);
+    const into = e ? acc.est : acc.bins;
+    if (b === cur && e === curEst) into[b] += `L${q}`;
+    else into[b] += `M${p}L${q}`;
+    curEst = e;
+    if (e) {
+      cased = false;
+      cur = b;
+      continue;
+    }
     if (sogCasedByDay(b, bins)) {
       acc.casing += cased ? `L${q}` : `M${p}L${q}`;
       cased = true;
@@ -268,15 +281,17 @@ export function addSogTrack(
 }
 
 /**
- * The SVG for `acc`: casing (by day), one path per bin present, the gaps
- * dashed grey. `w` is the stroke width in map units, `k` the map's unit.
+ * The SVG for `acc`: casing (by day), one path per bin present, then each bin's filled-in stretches lighter
+ * (EST_OPACITY). The gaps are left blank. `w` is the stroke width in map units, `k` the map's unit.
  */
 export function sogPathsSvg(acc: SogPaths, w: number, k: number): string {
   let s = acc.casing ? `<path class="sog-case" d="${acc.casing}" stroke-width="${((w + 1) * k).toFixed(2)}"/>` : '';
   acc.bins.forEach((d, b) => {
     if (d) s += `<path class="sog" data-bin="${b}" d="${d}" ${sogStroke(b, acc.bins.length)}/>`;
   });
-  if (acc.gap) s += `<path class="sog-gap" d="${acc.gap}" stroke-dasharray="${(3 * k).toFixed(2)} ${(2.5 * k).toFixed(2)}"/>`;
+  acc.est.forEach((d, b) => {
+    if (d) s += `<path class="sog sog-est" data-bin="${b}" d="${d}" ${sogStroke(b, acc.bins.length)} stroke-opacity="${EST_OPACITY}"/>`;
+  });
   return s;
 }
 

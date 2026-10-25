@@ -286,7 +286,18 @@ input[type='search']:disabled, select:disabled { opacity: 0.6; }
 .content { min-width: 0; }
 .card { background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 10px; padding: 12px 14px; min-width: 0; }
 .card h3 { font-size: 0.95rem; margin: 0 0 6px; }
-.card + .card { margin-top: 16px; }
+.card + .card { margin-top: 18px; }
+/* Section titles: each card's heading, and the sections inside a card (Start Playback); larger and bolder than the text under them. */
+.card > h3, .lane-snapshots > summary, .coach-legs-head h3 { font-size: 1.12rem; font-weight: 700; line-height: 1.3; letter-spacing: -0.005em; color: var(--ink); }
+.card > h3 { margin: 0 0 10px; }
+/* A section inside a card (Start Playback, under the start chart's chips and over-early line; the start findings):
+   set off by a thin rule in the theme's border color, with room above and below. */
+.card > .lane-snapshots, .card > .findings-box { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rule); }
+@media (max-width: 600px) {
+  .card > h3, .lane-snapshots > summary, .coach-legs-head h3 { font-size: 1.05rem; }
+  .card > h3 { margin-bottom: 8px; }
+  .card > .lane-snapshots, .card > .findings-box { margin-top: 14px; padding-top: 12px; }
+}
 
 /* Start | Race tabs under the race header; they stick to the top while a panel scrolls
    (on a phone, under the sticky boat strip: --boatbar-h is set from its height). */
@@ -410,9 +421,9 @@ svg .trail { fill: none; opacity: 0.55; stroke-linejoin: round; }
 svg .trk { fill: none; opacity: 0.8; stroke-linejoin: round; stroke-linecap: round; }
 svg .trk.dim, svg .trail.dim { opacity: 0.12; }
 svg .trk.nc, svg .trail.nc { opacity: 0.9; }
-/* Telemetry gaps on the map (Leg and Rank): a faint dashed chord where the boat has no fixes, as Boat speed draws them. */
-svg .trk-gap { fill: none; stroke: var(--ink-3); stroke-linecap: butt; opacity: 0.7; }
-svg .trk-gap.dim { opacity: 0.12; }
+/* Telemetry gaps: a short one is filled in (ui/gapFill.ts), the same line drawn lighter (its stroke-opacity, set where
+   it is drawn: .trk-est, .trail-est, .sog-est, .btrail .est, .lane-est), solid; a longer one is left blank. */
+svg .trk-est, svg .trail-est, svg .sog-est, svg .btrail .est, svg .lane-est { stroke-dasharray: none; }
 svg .boat { cursor: pointer; }
 svg .boat.dim { opacity: 0.3; }
 svg .boat-min .min-ring { fill: none; }
@@ -504,10 +515,9 @@ svg text.spd-pick-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoi
 }
 
 /* Boat speed (map) and Speed (start trails): per-bin paths, `stroke` = day, `--cd` = night (ui/sog.ts).
-   By day the pale fast bins sit on a thin dark casing; gaps are grey dashed; a selection dims the rest. */
-svg .sog, svg .sog-case, svg .sog-gap, svg .sog-sel { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+   By day the pale fast bins sit on a thin dark casing; gaps are left blank; a selection dims the rest. */
+svg .sog, svg .sog-case, svg .sog-sel { fill: none; stroke-linejoin: round; stroke-linecap: round; }
 svg .sog-case { stroke: var(--ink); stroke-opacity: 0.45; }
-svg .sog-gap { stroke: var(--ink-3); stroke-linecap: butt; }
 svg .sog-sel { stroke: var(--ink); }
 svg .sog-trk { stroke-opacity: 0.9; }
 svg .sog-trk.dim { opacity: 0.22; }
@@ -565,8 +575,8 @@ svg .btrail.off { opacity: 0.4; }
 /* Both dimmed and off the leg: the two together (0.35 × 0.4), the faintest. */
 svg .btrail.dim.off { opacity: 0.14; }
 svg .dot { stroke: var(--ink); }
-/* Data lost (boatShape.ts boatStale): hollow, outlined in the boat's own color (`--c`). */
-svg .dot.lost { stroke: var(--c, var(--ink)); }
+/* Data lost in a long gap (boatShape.ts boatStale): hollow, outlined in the boat's own color (`--c`), kept quiet. */
+svg .dot.lost { stroke: var(--c, var(--ink)); stroke-opacity: 0.55; }
 svg .dot.off { opacity: 0.4; }
 svg .dot-hdg { stroke: var(--ink); stroke-linecap: round; }
 svg text.dot-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; font-weight: 600; pointer-events: none; }
@@ -586,7 +596,7 @@ svg text.ocs-lbl { fill: var(--bad); stroke: var(--surface); stroke-linejoin: ro
 .replay-btn[aria-pressed='true'] { background: var(--bad-bg); }
 .replay-links { margin: 4px 0 0; font-size: 0.85rem; color: var(--ink-2); }
 .replay-links .sep { color: var(--ink-3); }
-/* "Replay start → USA 017": a button (it plays the start in Around the gun below) that reads as a link. */
+/* "Replay start → USA 017": a button (it plays the start in Start Playback below) that reads as a link. */
 .replay-link { font: inherit; font-weight: 600; padding: 0; border: 0; background: none; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; min-height: 24px; }
 .replay-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 /* A Coach card on the map (Map D): the comparison boats' trails on an ink casing, their dots ringed and labelled; the "vs" line. */
@@ -604,7 +614,7 @@ svg .dot-vs { fill: none; stroke: var(--ink); pointer-events: none; }
   svg .btrail[style] { stroke: var(--cd); }
 }
 
-/* Speed through the start: drawn at the card's width, like the bump chart. */
+/* Start Speed Control: drawn at the card's width, like the bump chart. */
 #start-sog-window { margin: 0 0 6px; }
 svg.chart.start-sog { max-height: none; touch-action: pan-y; }
 svg .ss-grid { stroke: var(--rule); stroke-width: 1; }
@@ -614,14 +624,14 @@ svg .ss-gun { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 3; }
 svg .ss-gun-lbl { fill: var(--ink); font-weight: 600; }
 svg .ss-boat { cursor: pointer; }
 svg .ss-line { fill: none; stroke-linejoin: round; stroke-linecap: round; opacity: 0.9; }
-svg .ss-gap { fill: none; stroke: var(--ink-3); stroke-width: 1.2; stroke-dasharray: 4 4; }
+svg .ss-gap { fill: none; stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 4; opacity: 0.5; }
 svg .ss-hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; }
 svg .ss-cross { stroke: var(--surface); stroke-width: 1.2; }
 svg .ss-boat.dim .ss-line, svg .ss-boat.dim .ss-gap, svg .ss-boat.dim .ss-cross { opacity: 0.18; }
 svg .ss-boat.on .ss-line { opacity: 1; }
 svg .ss-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 
-/* Place changes (bump chart): drawn at the card's pixel width, so no letterboxing; tall fleets scroll the page. */
+/* Rounding & Finish Positions (bump chart): drawn at the card's pixel width, so no letterboxing; tall fleets scroll the page. */
 .places-wrap { position: relative; }
 svg.chart.places { max-height: none; overflow: visible; touch-action: pan-y; }
 svg .pc-grid { stroke: var(--rule); stroke-width: 1; }
@@ -794,6 +804,7 @@ footer { font-size: 0.75rem; color: var(--ink-3); margin-top: 24px; }
 /* Swatches drawn as the charts draw them. */
 .chip i { flex: none; display: inline-block; }
 .sw-gap, .sw-nc { width: 18px; height: 0; border-top: 2px dashed var(--ink-3); }
+.sw-gap { border-top-width: 1px; opacity: 0.6; }
 .sw-ext { width: 18px; height: 0; border-top: 1.5px dashed var(--ink-3); }
 .sw-est { width: 9px; height: 9px; border-radius: 50%; border: 1.5px dashed var(--ink-2); }
 .sw-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-2); box-shadow: 0 0 0 1px var(--surface); }
@@ -1059,7 +1070,7 @@ html.fs-on { overflow: hidden; }
 /* Leg stories (ui/coachLegs.ts): one collapsed card per leg under the opportunity cards. */
 .coach-legs { margin-top: 16px; }
 .coach-legs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0 0 8px; }
-.coach-legs-head h3 { margin: 0; font-size: 1rem; }
+.coach-legs-head h3 { margin: 0; }
 .coach-legs-head .chip-info:has(details[open]) { flex-basis: 100%; }
 .coach-legs > .card.coach-leg { margin-top: 8px; padding-top: 8px; padding-bottom: 8px; }
 .coach-leg > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 28px; cursor: pointer; }
@@ -1082,13 +1093,13 @@ svg .cl-axis, svg .cl-unit { fill: var(--ink-3); font-variant-numeric: tabular-n
 svg .cl-dir { fill: var(--ink-2); font-weight: 600; }
 svg .cl-mark { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 4 3; }
 svg .cl-leg-lbl { fill: var(--ink-2); font-weight: 600; }
-svg .cl-nodata { fill: var(--grid); opacity: 0.8; }
 svg .cl-each { fill: none; stroke-width: 1.2; stroke-linejoin: round; opacity: 0.85; }
 svg .cl-clip-mark { opacity: 0.7; }
 svg .cl-med { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 svg .cl-dot { fill: var(--ink); }
 svg .cl-wind { fill: none; stroke: var(--ink-3); stroke-width: 1.6; stroke-linejoin: round; }
-svg .cl-wind.est { stroke-dasharray: 2 3; }
+/* Estimated between minutes: the same line, solid and lighter (as the maps draw an estimated stretch). */
+svg .cl-wind.est { stroke-opacity: 0.45; }
 svg .cl-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 
 /* Race header: official numbering, finishes and the feed check (ui/races.ts). */
@@ -1128,10 +1139,10 @@ svg .cl-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 .vkx-actions button { font: inherit; min-height: 36px; padding: 4px 14px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
 .vkx-actions .vkx-ok { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 
-/* ---------- Start tab: around the gun, a time slider (ui/laneSnapshotsView.ts) ---------- */
+/* ---------- Start tab: Start Playback, a time slider (ui/laneSnapshotsView.ts) ---------- */
 .lane-snapshots { margin: 8px 0 0; }
-.lane-snapshots > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--ink-2); padding: 4px 0; min-height: 28px; }
-.lane-snapshots > summary .muted { font-weight: 500; }
+.lane-snapshots > summary { cursor: pointer; padding: 4px 0; min-height: 28px; }
+.lane-snapshots > summary .muted { font-size: 0.8em; font-weight: 500; letter-spacing: 0; }
 /* ‹ ▶ [slider] › above the map; 44 px tap targets. On a phone the slider takes its own full-width row. */
 .lane-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
 .lane-step, .lane-play { flex: none; font: inherit; font-size: 1.2rem; line-height: 1; min-width: 44px; min-height: 44px; padding: 0 8px; display: inline-grid; place-items: center; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); color: var(--ink); cursor: pointer; }
@@ -1163,6 +1174,7 @@ svg .lane-trail { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 svg .lane-trail.dim { opacity: 0.35; }
 svg .lane-boat.dim { opacity: 0.45; }
 svg .lane-dot:not(.lost) { stroke: var(--surface); }
+svg .lane-dot.lost { stroke-opacity: 0.55; }
 svg .lane-hull { stroke-linejoin: round; }
 .lane-zoom { margin: 6px 0 0; }
 .lane-stage.panzoom { display: block; }

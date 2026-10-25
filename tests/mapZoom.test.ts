@@ -41,19 +41,20 @@ function withHole(src: RaceAnalysis): { a: RaceAnalysis; id: string; s: TrackSeg
   const k = d0.segments.findIndex((s) => s.leg === 1);
   const s0 = d0.segments[k];
   const at = s0.t.length >> 1;
-  const t = Float64Array.from(s0.t, (v, i) => (i >= at ? v + 12_000 : v));
+  // A long hole (over SHORT_GAP_S, so it is left blank rather than filled in: ui/gapFill.ts).
+  const t = Float64Array.from(s0.t, (v, i) => (i >= at ? v + 30_000 : v));
   const s: TrackSegment = { ...s0, t };
   const d: BoatDrawing = { ...d0, segments: d0.segments.map((x, i) => (i === k ? s : x)) };
   return { a: { ...src, drawings: [d, ...src.drawings.slice(1)] }, id: d0.id, s, at };
 }
 
 describe('gaps as breaks', () => {
-  it('is 2 s on a 1 Hz track, twice the usual spacing on a slower one', () => {
-    expect(MAP_GAP_S).toBe(2);
-    expect(gapMsOf([seg(20)])).toBe(2000);
+  it('is SHORT_GAP_S (30 s) for every boat, however often its tracker logs (shorter holes are filled in)', () => {
+    expect(MAP_GAP_S).toBe(30);
+    expect(gapMsOf([seg(20)])).toBe(30_000);
     const slow: TrackSegment = { ...seg(20), t: Float64Array.from({ length: 20 }, (_, i) => i * 4000) };
-    expect(gapMsOf([slow])).toBe(8000);
-    expect(gapMsOf([])).toBe(2000);
+    expect(gapMsOf([slow])).toBe(30_000);
+    expect(gapMsOf([])).toBe(30_000);
   });
 
   it('splits a segment at a hole over the threshold, keeping the hole as a chord', () => {
@@ -72,20 +73,21 @@ describe('gaps as breaks', () => {
     expect(segRuns(lone.x, lone.y, lone.t, 2000).runs.map((r) => r.length)).toEqual([2, 2]);
   });
 
-  it('draws separate lines and a dashed gap chord in Leg, Rank and Boat speed', () => {
+  it('draws separate lines and leaves the gap blank (no chord) in Leg, Rank and Boat speed', () => {
     const { a: h, id } = withHole(a);
     expect(mapHasGaps(a, 1)).toBe(false);
     expect(mapHasGaps(h, 1)).toBe(true);
     const leg = trackMap(h, null, 1);
     const mine = [...leg.matchAll(/<polyline class="trk" data-leg="1" points="[^"]+"/g)];
     expect(mine.length).toBe(h.drawings.filter((d) => d.segments.some((s) => s.leg === 1 && s.x.length > 1)).length + 1);
-    expect(leg).toMatch(new RegExp(`<path class="trk-gap" data-id="${id}" d="M[-\\d.]+,[-\\d.]+L[-\\d.]+,[-\\d.]+" stroke-width="[\\d.]+" stroke-dasharray="[\\d.]+ [\\d.]+"/>`));
+    expect(leg).not.toContain('trk-gap');
     expect(trackMap(a, null, 1)).not.toContain('trk-gap');
     const rank = trackMap(h, id, 1, { colour: 'rank' });
     expect(rank.match(new RegExp(`<polyline class="trk spd[^"]*" data-leg="1" data-id="${id}"`, 'g'))).toHaveLength(2);
-    expect(rank).toContain('<path class="trk-gap on"');
+    expect(rank).not.toContain('trk-gap');
     const sog = trackMap(h, null, 1, { colour: 'sog' });
-    expect(sog).toMatch(new RegExp(`<g class="sog-trk" data-id="${id}"[^>]*>[\\s\\S]*?<path class="sog-gap"`));
+    expect(sog).toMatch(new RegExp(`<g class="sog-trk" data-id="${id}"`));
+    expect(sog).not.toContain('sog-gap');
   });
 
   it('leaves native <title> off Leg and Rank tracks (the hover/tap tooltip is the details)', () => {

@@ -155,8 +155,10 @@ describe('C31 race 10: start table', () => {
       { text: '~ 2 across a gap', title: 'Our check is interpolated across a telemetry gap' },
       { text: '— 2 no Vakaros fix' },
     ]);
-    // The start chart flags the same gaps at the gun.
-    expect(startKey(analysis, { scale: startScale(analysis) }).chips).toContainEqual(expect.objectContaining({ text: '2 with a gap at the gun', warn: true }));
+    // The start chart flags only GER42 (a 17 s hole, a stale Vakaros row), in a plain chip (not a warning): ITA 78's
+    // 32 s hole has the device's own distance to use instead (validity.ts gapAtGun).
+    const chip = startKey(analysis, { scale: startScale(analysis) }).chips.find((c) => /gap at the gun/.test(c.text));
+    expect(chip).toEqual({ text: '1 with a gap at the gun', title: 'Their GPS track has a hole of over 10 s across the gun and Vakaros reported no distance: our ~ figure is interpolated' });
   });
 
   it('shows ⚠ when Vakaros and ours disagree by more than 3 m, and a genuine 0.0', () => {
