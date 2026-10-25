@@ -108,16 +108,19 @@ export function gapAt(c: Course, w: Wind, vmg: (number | null)[], b: CoachTrack,
 }
 
 /**
- * The group's median needs at least this share of the group to compare (same leg, real fixes), else it is
- * null: a median over whoever happens to be tracked would jump as boats drop in and out.
+ * The group line needs at least this share of the group to compare (same leg, real fixes), else it is
+ * null: a reference over whoever happens to be tracked would jump as boats drop in and out.
  */
 export const GROUP_MIN_SHARE = 0.5;
 
 export interface GapPoint {
   tMs: number;
-  /** Median over the group of the per-boat gaps, s (+ = behind); null where under GROUP_MIN_SHARE of the group compares. */
+  /**
+   * The group's reference over the per-boat gaps, s (+ = behind): the chart's (timeGap.ts groupStat) the mean of
+   * GROUP_MEAN_MAX_BOATS or fewer, else the median; gapSeries' the median. Null where under GROUP_MIN_SHARE of the group compares.
+   */
   behindS: number | null;
-  /** How many group boats the median is over. */
+  /** How many group boats the reference is over. */
   n: number;
   /** How many of those are read across a tracker hole (timeGap.ts: bridged, estimated); absent: none. */
   est?: number;

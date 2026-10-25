@@ -33,7 +33,7 @@ export interface CoachCtx {
   marksEstimated: boolean;
   /**
    * The boat's gap to `ids` from `from` to `to`: the chart's points (timeGap.ts groupGap, every DETECT_STEP_MS from the
-   * gun), `behindS` the median of `ids` as the chart draws it for that group, `each` each boat's own (thin) line.
+   * gun), `behindS` the mean (5 or fewer with data) or median of `ids` as the chart draws it for that group, `each` each boat's own (thin) line.
    */
   gaps: (ids: string[], from: number, to: number) => GapPoint[];
   /** Boat name by id ("Patriot"), the sail when unnamed. */

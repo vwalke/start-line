@@ -1,7 +1,8 @@
 /**
  * Reference sets: who the chosen boat is measured against (Chris's
- * "Ivan group", Vann's "boats near me"). A gap to a set is the median of the
- * gaps to its boats, so one boat's own mistake doesn't swing it.
+ * "Ivan group", Vann's "boats near me"). A gap to a set is the mean of the
+ * gaps to its boats when 5 or fewer have one, else their median, so one boat's
+ * own mistake doesn't swing a big set (timeGap.ts groupStat).
  */
 import { finishRank } from '../result';
 import type { BoatResult } from '../types';

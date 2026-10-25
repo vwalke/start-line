@@ -94,7 +94,9 @@ are shared by all three.
     the last `FINISH_IN_M` = 30 m are a zone crossed linearly in time up to
     each boat's finish time, so at your finish each rival reads the finish
     times' difference (the feed's line can be off: J/70 Worlds race 3's boats
-    crossed it 14–29 s before their finish times). The group's median is bold, over a fixed set of boats: the bold
+    crossed it 14–29 s before their finish times). The group line is bold, over a fixed set of boats: at each
+    point the mean of the boats with data when there are `GROUP_MEAN_MAX_BOATS` = 5 or fewer, their median when
+    there are more (the legend says which: "(mean)", "(median)", or "(mean / median)" when it changes); the bold
     line bridges a rival's tracker gap of up to `GROUP_BRIDGE_S` = 10 min in a
     straight line (progress is monotone; the readout counts those boats as
     estimated: "6 boats, 2 estimated"), so the line doesn't jump when boats
@@ -105,7 +107,9 @@ are shared by all three.
     of one; on a stretch that starts or ends at a rounding-zone edge, linear in
     time by construction, only the 15 s rule, so ~10 s tracks don't drop points
     there). A gap between fixes where the boat made no progress (a tack back, a
-    stall in a rounding zone) isn't a hole. The "no data" chip shows exactly
+    stall in a rounding zone) isn't a hole. The gap scale fits every thin line
+    for 5 or fewer boats; with more it follows the bold line plus some headroom
+    and marks a thin line that runs off it at the edge. The "no data" chip shows exactly
     when a line breaks. The cards read the same series (`groupGap`), so
     a card's seconds are the chart's change for the same group), the biggest gains as cards
     ranked by their impact on the result (see [How the Coach ranks
