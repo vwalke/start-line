@@ -119,7 +119,7 @@ describe('index.html', () => {
     expect(html).toMatch(/<div id="panel-race" class="panel" role="tabpanel" aria-labelledby="tab-race" tabindex="-1" hidden>/);
   });
 
-  it('Start: start chart, speed through the start, start findings and table; Race: map, place changes, findings, legs table', () => {
+  it('Start: start chart, Start Speed Control, start findings and table; Race: map, Rounding & Finish Positions, Race Analysis, Performance Metrics', () => {
     const start = panel('panel-start');
     const race = panel('panel-race');
     for (const id of ['start-chart', 'start-findings', 'start-sog-chart', 'start-table']) expect(start).toContain(`id="${id}"`);
@@ -141,7 +141,7 @@ describe('index.html', () => {
 
   it('Start: the chart heading has no wind note; the lane snapshots open by default', () => {
     const start = panel('panel-start');
-    expect(start).toContain('<h3>Start at the gun</h3>');
+    expect(start).toContain('<h3>Start View - Gun</h3>');
     expect(start).not.toMatch(/from top|wind ↓/);
     expect(start).toMatch(/<details id="lane-snapshots" class="lane-snapshots" open>/);
   });

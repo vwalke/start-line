@@ -1,5 +1,5 @@
 /**
- * The Start tab's "Around the gun" view: the fleet at any second from gun −1:30 to gun +3:00 (a time slider), each
+ * The Start tab's "Start Playback" view: the fleet at any second from gun −1:30 to gun +3:00 (a time slider), each
  * boat the start chart's hull pointing along its course (or its last heading; a dot only with none known:
  * ui/boatShape.ts boatMark), filled while its data is fresh and hollow once it is lost, with the track map's fading
  * trail behind it (ui/trail.ts: the last BOAT_TRAIL_MS, from LANE_TRAIL_FROM_S at the earliest, the slider's start),
@@ -9,10 +9,12 @@
  * Everything is worked out once per race and selection (laneScrub): each boat's position and course on the 1 s
  * grid LANE_START_S … LANE_END_S and its trail points up to LANE_END_S; a frame (frame(s)) only slices those.
  *
- * Positions are the scrubber's (mapPieces.ts boatAt): linear between fixes, held at the last fix for MAP_HOLD_S
- * inside a gap (hollow once it is stale: boatShape.ts boatStale), else none (the boat is missing at that second, never placed); its course is the scrubber's too (the step
+ * Positions are the scrubber's (mapPieces.ts boatAt, over the tracks with their short gaps filled in for display:
+ * mapPieces.ts filledRanges, ui/gapFill.ts, so a boat in one is placed on the curve, filled): linear between fixes, held at the last fix for MAP_HOLD_S
+ * inside a gap over SHORT_GAP_S (hollow: boatShape.ts boatStale), else none (the boat is missing at that second, never placed); its course is the scrubber's too (the step
  * it is on), none while held or between fixes too close. Trails come from the same drawn tracks
- * (the pre-gun track and the legs), broken wherever consecutive fixes are a gap apart (mapPoints.ts's rule).
+ * (the pre-gun track and the legs), broken wherever consecutive fixes are a gap apart (mapPoints.ts's rule), a filled-in
+ * stretch drawn lighter.
  *
  * The view is wind-up (the analysis's wind at the gun, as the start chart) and fixed for the whole slider: fitted
  * once to everything drawn at any second of it (laneView), so it never rescales while scrubbing (zooming is the
@@ -29,11 +31,11 @@ import type { RaceAnalysis } from '../analysis/types';
 import type { ClassDims } from '../data/classes';
 import { startClass } from './charts';
 import { degLabel } from './format';
-import { boatAt, endHoldBefore, lastHeadingAt, legRanges, lowerBound, rotator, rotTrack, timeRange, type LegRange } from './mapPieces';
+import { boatAt, endHoldBefore, filledRanges, lastHeadingAt, legRanges, lowerBound, rotator, rotTrack, timeRange, type LegRange } from './mapPieces';
 import { drawingGapMs } from './mapPoints';
 import { ocsStretch, type OcsStretch } from './ocsStyle';
 import { gunRel } from './scrub';
-import { BOAT_TRAIL_MS, trailPaths } from './trail';
+import { BOAT_TRAIL_MS, trailSlices } from './trail';
 import type { Box } from './view';
 
 /** The slider's start and end, s from the gun (−1:30 … +3:00), in steps of LANE_STEP_S. */
@@ -98,8 +100,10 @@ export interface LaneBoat {
   tracked: boolean;
   /** The trail over the BOAT_TRAIL_MS before the frame (from LANE_TRAIL_FROM_S at the earliest), map coordinates, one polyline per stretch without a gap. */
   trail: Vec[][];
-  /** The same trail as path data per fade slice, head first (ui/trail.ts trailPaths). */
+  /** The same trail as path data per fade slice, head first (ui/trail.ts trailPaths)… */
   fade: string[];
+  /** …and its stretches filled into a short gap, per slice (drawn lighter: ui/gapFill.ts). */
+  fadeEst: string[];
   role: LaneRole;
   /** OCS at the frame's time (until clearedMs); 'cleared': cleared by then, within the trail. */
   over: LaneOver;
@@ -224,15 +228,20 @@ function windWords(a: RaceAnalysis, windUp: boolean): { label: string; title: st
 interface TrailPt {
   t: number;
   p: Vec;
+  /** Filled into a short gap (ui/gapFill.ts). */
+  est?: boolean;
 }
 
-/** A boat's trail points over [from, to]: its drawn fixes there (map coordinates), with its position at both ends where it has one; not yet broken at gaps. */
+/**
+ * A boat's trail points over [from, to]: its drawn track there (map coordinates, short gaps filled in), with its position at
+ * both ends where it has one; not yet broken at gaps.
+ */
 function trailPts(d: RaceAnalysis['drawings'][number], twd: number, from: number, to: number): TrailPt[] {
   const gapMs = drawingGapMs(d);
-  const ranges = legRanges(d, true);
+  const ranges = filledRanges(d, true);
   const pts: TrailPt[] = [];
   const start = boatAt(d.id, ranges, from, gapMs, twd);
-  if (start && !start.hold) pts.push({ t: from, p: [start.mx, start.my] });
+  if (start && !start.hold) pts.push({ t: from, p: [start.mx, start.my], ...(start.est ? { est: true } : {}) });
   for (const r of ranges) {
     const [i0, i1] = timeRange(r.src.t, from, to, r.lo, r.hi);
     const rot = rotTrack(twd, r.src);
@@ -240,11 +249,11 @@ function trailPts(d: RaceAnalysis['drawings'][number], twd: number, from: number
       const t = r.src.t[i];
       // Ranges share a fix where one leg ends and the next begins: keep it once.
       if (pts.length && t <= pts[pts.length - 1].t) continue;
-      pts.push({ t, p: [rot.x[i], rot.y[i]] });
+      pts.push({ t, p: [rot.x[i], rot.y[i]], ...(r.src.est?.[i] === 1 ? { est: true } : {}) });
     }
   }
   const end = boatAt(d.id, ranges, to, gapMs, twd);
-  if (end && !end.hold && (!pts.length || pts[pts.length - 1].t < to)) pts.push({ t: to, p: [end.mx, end.my] });
+  if (end && !end.hold && (!pts.length || pts[pts.length - 1].t < to)) pts.push({ t: to, p: [end.mx, end.my], ...(end.est ? { est: true } : {}) });
   return pts;
 }
 
@@ -319,6 +328,8 @@ interface GridPos {
   dir: Vec | null;
   lastDir: Vec | null;
   sog: number;
+  /** Placed on a stretch filled into a short gap (ui/gapFill.ts). */
+  est: boolean;
 }
 
 /** `s` (s from the gun) as a second of the slider: rounded to the step, clamped to `start` … `end` (not a number: the gun). */
@@ -326,7 +337,7 @@ export const laneSecond = (s: number, end = LANE_END_S, start = LANE_START_S): n
   Math.max(start, Math.min(end, Number.isFinite(s) ? Math.round(s / LANE_STEP_S) * LANE_STEP_S : 0)) + 0;
 
 /**
- * The "around the gun" view of race `a` for the selected boat and its group: every boat's position and course on
+ * The Start Playback view of race `a` for the selected boat and its group: every boat's position and course on
  * the 1 s grid LANE_START_S … LANE_END_S and its trail points from the slider's start to its end, worked out once, and the view fitted once to all
  * of them and the line; frame(s) slices them for second `s` (memoised), so scrubbing does no new work.
  */
@@ -358,7 +369,7 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
     let gapMs = Infinity;
     let ranges: LegRange[] = [];
     if (d) {
-      ranges = legRanges(d, true);
+      ranges = filledRanges(d, true);
       gapMs = drawingGapMs(d);
       for (let s = start; s <= end; s += LANE_STEP_S) {
         const t = gun + s * 1000;
@@ -376,6 +387,7 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
                 dir: own?.dir ?? null,
                 lastDir: lastHeadingAt(ranges, t, gapMs, twd),
                 sog: own ? own.sog : NaN,
+                est: !!own?.est,
               }
             : null,
         );
@@ -410,11 +422,12 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
       const upTo: TrailPt[] = [];
       if (tail > from) {
         const at = boatAt(b.id, ranges, tail, gapMs, twd);
-        if (at && !at.hold && (i0 >= n || pts[i0].t > tail)) upTo.push({ t: tail, p: [at.mx, at.my] });
+        if (at && !at.hold && (i0 >= n || pts[i0].t > tail)) upTo.push({ t: tail, p: [at.mx, at.my], ...(at.est ? { est: true } : {}) });
       }
       for (let i = i0; i < n; i++) upTo.push(pts[i]);
-      if (g?.ends && (!upTo.length || upTo[upTo.length - 1].t < t)) upTo.push({ t, p: g.pos });
-      const fade = trailPaths([{ t: upTo.map((q) => q.t), x: upTo.map((q) => q.p[0]), y: upTo.map((q) => q.p[1]), i0: 0, i1: upTo.length }], t, BOAT_TRAIL_MS, gapMs);
+      if (g?.ends && (!upTo.length || upTo[upTo.length - 1].t < t)) upTo.push({ t, p: g.pos, ...(g.est ? { est: true } : {}) });
+      const est = upTo.some((q) => q.est) ? { est: upTo.map((q) => (q.est ? 1 : 0)) } : {};
+      const fade = trailSlices([{ t: upTo.map((q) => q.t), x: upTo.map((q) => q.p[0]), y: upTo.map((q) => q.p[1]), i0: 0, i1: upTo.length, ...est }], t, BOAT_TRAIL_MS, gapMs);
       const r = repOf.get(b.id);
       let over: LaneOver = null;
       if (r) {
@@ -432,7 +445,8 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
         sog: g ? g.sog : NaN,
         tracked: tracked.has(b.id),
         trail: breakAtGaps(upTo, gapMs),
-        fade,
+        fade: fade.d,
+        fadeEst: fade.est,
         role: b.id === o.me ? 'me' : group.has(b.id) ? 'group' : 'other',
         over,
         clearedMs: over === 'cleared' ? r!.clearedMs : null,

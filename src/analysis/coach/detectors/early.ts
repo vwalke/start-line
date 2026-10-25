@@ -24,6 +24,7 @@ import {
   type AttachedChip,
   type Opportunity,
 } from '../opportunity';
+import { startDtlM } from '../../validity';
 import type { CoachCtx } from './context';
 
 export const D3_WINDOW_MS = 5 * 60_000;
@@ -102,7 +103,7 @@ export function detectEarly(ctx: CoachCtx, start: { crossMs: number | null; d1Fi
       lastTackS: tacks.length ? (tacks[tacks.length - 1] - ctx.gun) / 1000 : null,
       fleetTacks,
       sog: ctx.me.start?.speedKn ?? null,
-      dtl: ctx.me.start?.dtlM ?? null,
+      dtl: ctx.me.start ? startDtlM(ctx.me.start) : null,
       sepM: sep,
     },
     refBoats: refs,

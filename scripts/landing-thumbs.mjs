@@ -197,7 +197,7 @@ export const SHOTS = [
   },
   {
     slug: 'around-the-gun',
-    card: 'Around the gun',
+    card: 'Start Playback',
     race: CASCAIS,
     params: { boat: CASCAIS_BOAT },
     hash: 'start',
@@ -228,7 +228,7 @@ export const SHOTS = [
   },
   {
     slug: 'places',
-    card: 'Place changes',
+    card: 'Rounding & Finish Positions',
     race: J105,
     hash: 'race',
     ready: ['#places-chart svg'],

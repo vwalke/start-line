@@ -360,11 +360,11 @@ describe('full screen controller', () => {
 
 describe('index.html full screen markup', () => {
   const html = readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8');
-  it('has an expand button on the start chart, the track map and the place changes chart', () => {
+  it('has an expand button on the start chart, the track map and the Rounding & Finish Positions chart', () => {
     for (const [id, label] of [
       ['start-full', 'Full screen start chart'],
       ['map-full', 'Full screen Race Viewer'],
-      ['places-full', 'Full screen place changes chart'],
+      ['places-full', 'Full screen Rounding &amp; Finish Positions chart'],
     ]) {
       expect(html).toMatch(new RegExp(`<button type="button" class="fs-open" id="${id}" aria-label="${label}" title="Full screen" aria-haspopup="dialog" aria-controls="fs"><svg`));
     }

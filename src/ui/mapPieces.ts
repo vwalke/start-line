@@ -9,12 +9,14 @@
  * worker (analysis/fullRate.ts) split at the same leg times.
  *
  * Also the boat's state at a moment (the scrubber's dots): linear between
- * fixes; inside a gap (the map's gap rule, mapPoints.ts) held at the fix before
- * it for up to MAP_HOLD_S, then none; none before the first fix or after the last.
+ * fixes (a short hole filled in first: filledRanges); inside a gap (over the map's
+ * gap rule, mapPoints.ts: 30 s) held at the fix before it for up to MAP_HOLD_S,
+ * hollow, then none; none before the first fix or after the last.
  */
 import { vecBearing, type Vec } from '../analysis/geo';
 import { PRE_LEG, type BoatDrawing, type FullRateTrack } from '../analysis/types';
 import { BOAT_SHAPE_MIN_KN, boatStale } from './boatShape';
+import { fillRuleOf, fillTrack } from './gapFill';
 import type { Box } from './view';
 
 /** A track the map can draw from: positions (east/north metres), fix times, SOG; roll when the source has it. */
@@ -24,6 +26,8 @@ export interface SrcTrack {
   t: Float64Array;
   sog: Float32Array;
   roll?: Float32Array;
+  /** 1 on a point filled into a short gap (ui/gapFill.ts: display only, drawn lighter); absent: every point is a fix. */
+  est?: Uint8Array;
 }
 
 /** A stretch of one source drawn on one leg: [i0, i1) of `src`, whose map coordinates are `rx`, `ry` (whole source). */
@@ -181,6 +185,20 @@ export function legRanges(d: BoatDrawing, pre: boolean, full?: FullRateTrack): L
   return out;
 }
 
+/**
+ * legRanges with each source's holes judged on the feed's own fixes and the short ones filled in for drawing
+ * (ui/gapFill.ts fillTrack: a thinned segment gets the feed's fixes around each hole back first): the same ranges,
+ * over the filled sources. Display only: the maps' tracks, trails and boats read these.
+ */
+export function filledRanges(d: BoatDrawing, pre: boolean, full?: FullRateTrack): LegRange[] {
+  const rule = fillRuleOf(d);
+  return legRanges(d, pre, full).map((r) => {
+    const src = fillTrack(r.src, rule, !full && r.leg !== PRE_LEG);
+    if (src === r.src || r.hi <= r.lo) return r;
+    return { leg: r.leg, src, lo: lowerBound(src.t, r.src.t[r.lo]), hi: upperBound(src.t, r.src.t[r.hi - 1]) };
+  });
+}
+
 export interface PieceOptions {
   /** One leg, or all (null). */
   leg: number | null;
@@ -194,10 +212,10 @@ export interface PieceOptions {
   full?: FullRateSet | null;
 }
 
-/** The pieces of drawing `d` the map draws under `o`. */
+/** The pieces of drawing `d` the map draws under `o` (short holes filled in: filledRanges). */
 export function drawingPieces(twd: number, d: BoatDrawing, o: PieceOptions): MapPiece[] {
   const out: MapPiece[] = [];
-  for (const r of legRanges(d, !!o.pre && o.leg == null, o.full?.get(d.id))) {
+  for (const r of filledRanges(d, !!o.pre && o.leg == null, o.full?.get(d.id))) {
     if (o.leg != null && r.leg !== o.leg) continue;
     const [lo, hi] = o.win ? timeRange(r.src.t, o.win[0], o.win[1], r.lo, r.hi) : [r.lo, r.hi];
     if (hi <= lo) continue;
@@ -213,8 +231,7 @@ export const pieceCount = (pieces: readonly MapPiece[]): number => pieces.reduce
 // ---- a boat at a moment ----------------------------------------------------------
 
 /**
- * Inside a gap, the boat holds at its last fix for this long, s (hollow once the fix is stale: boatShape.ts
- * boatStale), then it goes: as long as the trail behind it, so a tracker that died is off the map once its trail is.
+ * Inside a gap, the boat holds at its last fix for this long, s (hollow: boatShape.ts boatStale), then it goes: as long as the trail behind it, so a tracker that died is off the map once its trail is.
  */
 export const MAP_HOLD_S = 120;
 /** Fixes this close (m) give no course over ground. */
@@ -283,6 +300,8 @@ export interface BoatAt {
   stale: boolean;
   /** The last heading known at or before `t` (lastHeadingAt), where the hull needs it: held, slow or no course; else omitted. */
   lastDir?: Vec | null;
+  /** On a stretch filled into a short gap (ui/gapFill.ts): an estimated position, drawn as usual; else omitted. */
+  est?: boolean;
 }
 
 const lerp = (a: number, b: number, f: number): number => a + (b - a) * f;
@@ -340,6 +359,7 @@ export function boatAt(id: string, ranges: readonly LegRange[], t: number, gapMs
     const ml = Math.hypot(mdx, mdy);
     const dir: Vec | null = moving && ml > 0 ? [mdx / ml, mdy / ml] : null;
     const sog = lerp(s.sog[j], s.sog[k], f);
+    const est = !hold && !!s.est && (s.est[j] === 1 || (!exact && s.est[k] === 1));
     return {
       id,
       t,
@@ -354,8 +374,9 @@ export function boatAt(id: string, ranges: readonly LegRange[], t: number, gapMs
       roll: lerpRoll(s.roll?.[j], s.roll?.[k], f),
       hold,
       ...(hold ? { lastFix: tt[j] } : {}),
-      stale: boatStale(hold, tt[j], t, gapMs),
+      stale: boatStale(hold, tt[j], t, after ? 0 : step),
       ...(hold || !dir || !(sog >= BOAT_SHAPE_MIN_KN) ? { lastDir: lastHeadingAt(ranges, t, gapMs, twd) } : {}),
+      ...(est ? { est } : {}),
     };
   }
   return null;

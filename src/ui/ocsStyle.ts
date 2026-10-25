@@ -1,6 +1,6 @@
 /**
  * How a boat over early is drawn, one way for the track map's "Replay start" (Map C) and the Start tab's
- * "Around the gun" view: its track over the line (warning red, on a surface casing) and its dip back (red
+ * "Start Playback" view: its track over the line (warning red, on a surface casing) and its dip back (red
  * dashed), each up to the moment shown and within the trail, cut at the facts' times (ui/replay.ts replaySpans,
  * from analysis/startReplay.ts), broken at gaps as the track is; a hollow red ring where it went back and a red
  * dot where it recrossed (cleared), once reached. Pure: the stretches, and their SVG at either view's sizes.

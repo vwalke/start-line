@@ -8,6 +8,7 @@ export function drawingBuffers(a: RaceAnalysis): ArrayBuffer[] {
     for (const tk of [d.trail, ...d.segments]) for (const arr of [tk.x, tk.y, tk.t, tk.sog]) out.add(arr.buffer as ArrayBuffer);
     for (const s of d.segments) if (s.roll) out.add(s.roll.buffer as ArrayBuffer);
     if (d.pre) for (const arr of [d.pre.x, d.pre.y, d.pre.t, d.pre.sog, d.pre.roll]) if (arr) out.add(arr.buffer as ArrayBuffer);
+    if (d.holes) for (const arr of [d.holes.at, d.holes.edges.x, d.holes.edges.y, d.holes.edges.t, d.holes.edges.sog]) out.add(arr.buffer as ArrayBuffer);
     out.add(d.startSog.t.buffer as ArrayBuffer);
     out.add(d.startSog.sog.buffer as ArrayBuffer);
   }

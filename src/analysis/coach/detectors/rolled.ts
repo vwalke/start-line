@@ -10,6 +10,7 @@
 import { dot, len, sub, type Vec } from '../../geo';
 import { posAt, type CoachTrack } from '../tracks';
 import type { AttachedChip } from '../opportunity';
+import { startDtlM } from '../../validity';
 import type { CoachCtx } from './context';
 
 export const D2_ALONG_LOA = 1;
@@ -58,7 +59,7 @@ export function detectRolled(ctx: CoachCtx): AttachedChip | null {
   for (const o of ctx.a.boats) {
     const s = o.start;
     if (o.id === ctx.boat || !s || !(s.speedKn > 0)) continue;
-    if (Math.abs(s.dtlM - me.dtlM) > D2_ALONG_LOA * L) continue;
+    if (Math.abs(startDtlM(s) - startDtlM(me)) > D2_ALONG_LOA * L) continue;
     const wwd = ((s.linePosPct - me.linePosPct) / 100) * lineM * wwdSign;
     if (wwd < D2_WWD_LOA[0] * L || wwd > D2_WWD_LOA[1] * L) continue;
     if (!(me.speedKn < D2_SPEED_RATIO * s.speedKn)) continue;

@@ -141,7 +141,7 @@ import {
   type MapFocus,
 } from './mapLink';
 import { mapKey, raceNotesKey, startKey } from './captions';
-import { MAP_GAP_TITLE, mapHasGaps, mapTipHtml, mapTipLines, mapTipPos, pickAt, pickMapPoint, type MapPoints, type PlaceRead } from './mapPoints';
+import { mapTipHtml, mapTipLines, mapTipPos, pickAt, pickMapPoint, type MapPoints, type PlaceRead } from './mapPoints';
 import { createFullscreen, inertOthers, lockScroll, moveNodes, trapFocus, type ScrollLock } from './fullscreen';
 import { boatLabel, esc, f1, gunTimeLine, legCount } from './format';
 import { dismissHint, hintStore, showHint } from './hints';
@@ -165,7 +165,6 @@ import {
 } from './startSog';
 import {
   START_COLOUR_KEY,
-  hasGaps,
   parseStartColour,
   sogHoverLeg,
   sogKey,
@@ -206,7 +205,7 @@ type Full = 'start' | 'map' | 'places';
 const FULL_LABEL: Record<Full, string> = {
   start: 'Start chart, full screen',
   map: 'Race Viewer, full screen',
-  places: 'Place changes, full screen',
+  places: 'Rounding & Finish Positions, full screen',
 };
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -552,7 +551,7 @@ export function startApp(): void {
     els.startColour.innerHTML = startColourControls(startColour) + startNamesControls(startNames);
     els.startKey.innerHTML =
       startColour === 'speed'
-        ? sogKey(startSogRange(a), `last ${START_TRAIL_MS / 1000} s, hull at the gun`, hasGaps(a.drawings.map((d) => d.trail.t)))
+        ? sogKey(startSogRange(a), `last ${START_TRAIL_MS / 1000} s, hull at the gun`)
         : '';
     els.startKey.hidden = startColour !== 'speed';
     renderFullKey();
@@ -570,8 +569,8 @@ export function startApp(): void {
         ? speedKey(a, legSel, rankBy, speedTop, highlight)
         : trackColour === 'sog'
           ? legSel == null && sogScale === 'leg'
-            ? sogLegKey(a, mapHasGaps(a, null), MAP_GAP_TITLE)
-            : sogKey(trackSogRange(a, legSel), legSel == null ? 'Whole race' : `${a.legs[legSel]?.name ?? 'This leg'}`, mapHasGaps(a, legSel), MAP_GAP_TITLE)
+            ? sogLegKey(a)
+            : sogKey(trackSogRange(a, legSel), legSel == null ? 'Whole race' : `${a.legs[legSel]?.name ?? 'This leg'}`)
           : '';
     els.speedKey.hidden = trackColour === 'leg';
     renderKeyLine(els.mapCap, mapKey(a, { highlight, colour: trackColour, rankBy, sogScale, leg: legSel }));
@@ -1022,7 +1021,7 @@ export function startApp(): void {
     els.coachLadder.querySelector('line.cl-hair')?.setAttribute('visibility', 'hidden');
   });
 
-  /** Speed through the start, sized for its card's width (re-run on resize). */
+  /** Start Speed Control, sized for its card's width (re-run on resize). */
   function renderStartSog(): void {
     const a = analysis;
     if (!a) return;
@@ -1363,7 +1362,7 @@ export function startApp(): void {
     openReplay(r);
     els.map.focus({ preventScroll: true });
   });
-  // The Start tab's "Replay start →": the boat selected and its start played in "Around the gun" just below (the
+  // The Start tab's "Replay start →": the boat selected and its start played in "Start Playback" just below (the
   // slider cued a few seconds before it went over: laneCueSecond), paused there with reduced motion; the track
   // map's replay (#map-replay, `replay=` links) is untouched.
   els.startReplay.addEventListener('click', (ev) => {
@@ -1839,7 +1838,7 @@ export function startApp(): void {
     ro.observe(els.tabs);
   }
 
-  // Speed through the start: a crosshair and the speed under the pointer (the selected boat's, else the nearest line's).
+  // Start Speed Control: a crosshair and the speed under the pointer (the selected boat's, else the nearest line's).
   function showSogTip(ev: PointerEvent): void {
     const a = analysis;
     const svg = els.startSog.querySelector('svg');
@@ -1890,7 +1889,7 @@ export function startApp(): void {
     if (focus) els.startSogWindow.querySelector<HTMLElement>(focus)?.focus();
   });
 
-  // Place changes: a dot's place on hover or tap (beside it, as the map's tip); a click on a line, dot or name selects the boat.
+  // Rounding & Finish Positions: a dot's place on hover or tap (beside it, as the map's tip); a click on a line, dot or name selects the boat.
   // The boat a nearby-dot readout belongs to, so a sloppy tap still selects it after the redraw.
   let placeTipId: string | null = null;
   function showPlaceTip(ev: PointerEvent): void {

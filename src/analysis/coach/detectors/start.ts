@@ -14,6 +14,7 @@
  */
 import { median } from '../../geo';
 import { coachCoverage, rangeOf, untrackedS, NOISE_BASE_S, NOISE_HOLE_SHARE, type GoodNote, type Opportunity } from '../opportunity';
+import { startDtlM } from '../../validity';
 import type { CoachCtx } from './context';
 
 export const D1_LATE_S = 6;
@@ -70,7 +71,8 @@ export function detectStart(ctx: CoachCtx): StartResultD1 {
   const crossMs = ctx.m.crossMs?.[ctx.boat] ?? null;
   const none: StartResultD1 = { opp: null, ok: null, crossMs, fired: false };
   if (!st) return none;
-  const dtl = st.dtlM;
+  // The device's own distance where ours is across a hole (validity.ts startDtlM).
+  const dtl = startDtlM(st);
   const back = dtl >= D1_BACK_LOA * ctx.loaM;
   const t0 = ctx.gun - D1_PRE_MS;
   const line = ctx.a.line;

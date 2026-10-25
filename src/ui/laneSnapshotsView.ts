@@ -1,5 +1,5 @@
 /**
- * The Start tab's "Around the gun" section: under the start chart (open by default, collapsible; a view of its
+ * The Start tab's "Start Playback" section: under the start chart (open by default, collapsible; a view of its
  * own, apart from the chart), it draws ui/laneSnapshots.ts's fleet at one second from gun −1:30 to gun +3:00,
  * full width. A time slider (−90 … 180 s, 1 s steps), ‹ › (∓1 s), ← → (1 s; with Shift LANE_SHIFT_STEP_S),
  * Home / End and a play / pause button move it, clamped at the ends. The map pans and zooms as the track map
@@ -29,6 +29,7 @@ import { esc } from './format';
 import { textWidth, type Rect } from './labels';
 import { laneScrub, laneSecond, LANE_START_S, type LaneBoat, type LaneFrame, type LaneScrub } from './laneSnapshots';
 import { ocsLegend, ocsSvg } from './ocsStyle';
+import { EST_OPACITY } from './gapFill';
 import { TRAIL_FADE } from './trail';
 import { attachPanZoom } from './panzoom';
 import { FOLLOW_COURSE_S, followAfter, followCam, followStep, followTarget, reducedMotion, resetFollow, type FollowInput } from './follow';
@@ -189,11 +190,16 @@ const plusS = (ms: number, gun: number): string => {
 function boatSvg(L: LaneScrub, b: LaneBoat, colour: string, faded: boolean, label: LabelAt | null, u: number, gun: number): { trail: string; ocs: string; dot: string; flag: string } {
   const cls = `lane-${b.role}${faded ? ' dim' : ''}`;
   const sw = b.role === 'me' ? 2.4 : b.role === 'group' ? 1.6 : 1.1;
-  const trail = b.fade
-    .map((d, i) =>
-      d ? `<path class="lane-trail ${cls}" d="${d}" stroke="${faded ? 'var(--ink-3)' : colour}" stroke-opacity="${TRAIL_FADE[i]}" stroke-width="${sw}" vector-effect="non-scaling-stroke"/>` : '',
-    )
-    .join('');
+  // The stretches filled into a short gap (ui/gapFill.ts) the same, lighter.
+  const paths = (ds: readonly string[] | undefined, est: boolean): string =>
+    (ds ?? [])
+      .map((d, i) =>
+        d
+          ? `<path class="lane-trail ${cls}${est ? ' lane-est' : ''}" d="${d}" stroke="${faded ? 'var(--ink-3)' : colour}" stroke-opacity="${est ? +(TRAIL_FADE[i] * EST_OPACITY).toFixed(3) : TRAIL_FADE[i]}" stroke-width="${sw}" vector-effect="non-scaling-stroke"/>`
+          : '',
+      )
+      .join('');
+  const trail = paths(b.fade, false) + paths(b.fadeEst, true);
   const o = b.ocs ? ocsSvg(b.ocs, { unit: u, nonScaling: true }) : { tracks: '', marks: '' };
   if (!b.pos) return { trail, ocs: o.tracks, dot: '', flag: o.marks };
   const [x, y] = [b.pos[0].toFixed(1), b.pos[1].toFixed(1)];
@@ -291,7 +297,7 @@ function laneControlsHtml(L: LaneScrub, s: number, playing: boolean): string {
 /** The zoom presets (the track map's: Fit / 2× / 4× / 8×), the one matching `zoom` pressed. */
 function laneZoomHtml(L: LaneScrub, zoom: View): string {
   const btn = (z: number): string => `<button type="button" data-zoom="${z}" aria-pressed="${presetActive(L.view, zoom, z)}">${z === 1 ? 'Fit' : `${z}×`}</button>`;
-  return `<div class="zoom lane-zoom" role="group" aria-label="Around the gun map zoom">${LANE_ZOOMS.map(btn).join('')}</div>`;
+  return `<div class="zoom lane-zoom" role="group" aria-label="Start Playback map zoom">${LANE_ZOOMS.map(btn).join('')}</div>`;
 }
 
 /**
@@ -307,7 +313,7 @@ export function laneScrubHtml(a: RaceAnalysis, L: LaneScrub, groupText?: string,
   const z = clampView(L.view, zoom);
   return (
     `${laneControlsHtml(L, on, playing)}${laneZoomHtml(L, z)}` +
-    `<div class="lane-stage panzoom${z.k > 1 ? ' zoomed' : ''}" tabindex="0" role="group" aria-label="Around the gun map. Arrow keys pan when zoomed, plus and minus zoom, 0 resets.">${frameHtml(a, L, L.frame(on), ppu, z)}</div>` +
+    `<div class="lane-stage panzoom${z.k > 1 ? ' zoomed' : ''}" tabindex="0" role="group" aria-label="Start Playback map. Arrow keys pan when zoomed, plus and minus zoom, 0 resets.">${frameHtml(a, L, L.frame(on), ppu, z)}</div>` +
     `<p class="lane-live" aria-live="polite"></p>` +
     `<p class="lane-key muted">${key.map(esc).join(' ')}${L.anyOver ? ocsLegend() : ''}</p>`
   );

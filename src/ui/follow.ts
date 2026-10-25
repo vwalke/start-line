@@ -1,5 +1,5 @@
 /**
- * The maps' look-ahead follow camera (Around the gun and the track map), as pure math plus one small stepper.
+ * The maps' look-ahead follow camera (Start Playback and the track map), as pure math plus one small stepper.
  *
  * Zoomed in on a selected boat, the view's center is the boat's position plus a lead along its smoothed course
  * (the circular mean of its course over the last FOLLOW_COURSE_S seconds), so more of the view lies where the boat

@@ -1,6 +1,6 @@
 /**
  * The boat shape: the start chart's stylized hull (to scale, from the class's LOA and beam), shared with the
- * track map's boats while scrubbing and the Start tab's "Around the gun" view. Those two draw it centred on the
+ * track map's boats while scrubbing and the Start tab's "Start Playback" view. Those two draw it centred on the
  * boat's position, pointing along its course over ground at that moment (or the last heading known while it is held
  * in a gap, slow or has no course: boatMark), to scale or at least BOAT_SHAPE_PX long, filled while its data is
  * fresh and hollow once it is lost; the dot only with no heading ever known, no class dimensions, or so far zoomed
@@ -8,6 +8,7 @@
  */
 import { add, bearingVec, scale, type Vec } from '../analysis/geo';
 import type { ClassDims } from '../data/classes';
+import { SHORT_GAP_S } from './gapFill';
 
 /**
  * Stylized hull in hull coordinates: x across (±0.5 beam), y aft (bow 0,
@@ -147,15 +148,18 @@ export function boatShapeOr(o: ShapeInput): { shape: Vec; dims: ClassDims } | { 
 }
 
 /**
- * Held at its last fix inside a tracker gap, a boat is drawn hollow (its data lost) once that fix is older than
- * this, ms, or than its gap threshold when that is longer; before then it stays filled, so a gap of a second or two
- * never flickers it between filled and hollow.
+ * A boat held past its final fix (its tracker stopped before it finished) is drawn hollow once that fix is older than
+ * this, ms: SHORT_GAP_S, the longest hole the maps fill in. In a hole it is hollow only when the hole is longer.
  */
-export const BOAT_STALE_MS = 3000;
+export const BOAT_STALE_MS = SHORT_GAP_S * 1000;
 
-/** Whether a boat at `t`, held (`hold`) at its last fix `lastFix`, is drawn hollow: that fix more than max(BOAT_STALE_MS, `gapMs`) ago. */
-export const boatStale = (hold: boolean, lastFix: number | undefined, t: number, gapMs: number): boolean =>
-  hold && lastFix != null && t - lastFix > Math.max(BOAT_STALE_MS, gapMs);
+/**
+ * Whether a boat at `t`, held (`hold`) at its last fix `lastFix`, is drawn hollow: it is in a hole of `holeMs` longer
+ * than SHORT_GAP_S (one that short is filled in, ui/gapFill.ts), or its last fix is more than BOAT_STALE_MS ago (past
+ * its final fix, where how long the hole is isn't known: `holeMs` 0).
+ */
+export const boatStale = (hold: boolean, lastFix: number | undefined, t: number, holeMs: number): boolean =>
+  hold && lastFix != null && (holeMs > SHORT_GAP_S * 1000 || t - lastFix > BOAT_STALE_MS);
 
 export interface MarkInput extends ShapeInput {
   /** The last heading known before now (map coordinates, unit): drawn while held, slow or without a course; null: none ever. */
@@ -170,7 +174,7 @@ export type BoatMark = { shape: Vec; dims: ClassDims; hollow: boolean } | { dot:
 const isDir = (d: Vec | null | undefined): d is Vec => !!d && Number.isFinite(d[0]) && Number.isFinite(d[1]) && (d[0] !== 0 || d[1] !== 0);
 
 /**
- * The race map's and Around the gun's boat (one rule for both): the hull wherever a heading is known, along the
+ * The race map's and Start Playback's boat (one rule for both): the hull wherever a heading is known, along the
  * course now while moving with fresh data, else along the last heading known (held in a gap, under
  * BOAT_SHAPE_MIN_KN, no course this step); the dot only when no heading was ever known, the class has no
  * dimensions, or the hull would be too small on screen (boatShapeOr's size rule). Either is hollow when `stale`.

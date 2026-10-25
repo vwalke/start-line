@@ -242,7 +242,7 @@ export function startTableKey(a: RaceAnalysis): KeyLine & { notes: string[] } {
   const blind = count((s) => s.ocsBlind);
   const gap = count((s) => s.dtlNote);
   const noFix = count((s) => s.rcDtlM == null && s.rcNote);
-  // The race-wide warning (with the race findings, on the Race tab) belongs by the DTL columns too.
+  // The race-wide warning (with Race Analysis, on the Race tab) belongs by the DTL columns too.
   const fleetOff = a.notes.find((n) => n.kind === 'dtl-off');
   if (fleetOff) chips.push(warnChip('Vakaros DTL off vs GPS', fleetOff.text));
   if (warn) chips.push(warnChip(`${warn} Vakaros ≠ ours`, 'Vakaros and our check disagree by more than 3 m'));

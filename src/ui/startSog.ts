@@ -1,5 +1,5 @@
 /**
- * Speed through the start: SOG against seconds from the gun for every racing
+ * Start Speed Control: SOG against seconds from the gun for every racing
  * boat (analysis/startSog.ts), drawn at the card's pixel width. Lines break at
  * telemetry gaps, joined by dashed grey; a dot marks each boat's line
  * crossing. The selected boat is drawn last and thicker; the rest fade.

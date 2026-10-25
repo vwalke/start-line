@@ -583,7 +583,8 @@ describe('a picked boat under Top N (M24 race 4)', () => {
     const mine = ps.filter((p) => idOf(p) === slow);
     expect(mine.length).toBeGreaterThan(0);
     for (const p of mine) {
-      expect(p).toMatch(/^<polyline class="trk spd picked on"/);
+      // A stretch filled into a short gap (ui/gapFill.ts) is the same line, lighter (trk-est).
+      expect(p).toMatch(/^<polyline class="trk spd picked on( trk-est)?"/);
       expect(coloured(p)).toBe(false);
       expect(p).not.toContain('--cd');
       expect(p).not.toContain('<title>');
@@ -651,7 +652,7 @@ describe('a picked boat under Top N (M24 race 4)', () => {
     expect(labels(svg)).toEqual([`#${r.rank}`]);
     const mine = polylines(svg).filter((p) => idOf(p) === id);
     expect(mine.length).toBeGreaterThan(1);
-    expect(mine.every((p) => p.startsWith('<polyline class="trk spd picked on"'))).toBe(true);
+    expect(mine.every((p) => /^<polyline class="trk spd picked on( trk-est)?"/.test(p))).toBe(true);
     expect(speedKey(a, null, 'overall', 3, id)).toContain(`picked: ${label(id)} #${r.rank} race time`);
   });
 

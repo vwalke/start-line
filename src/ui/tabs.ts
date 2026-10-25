@@ -1,6 +1,6 @@
 /**
- * The digest's three tabs: Start (start chart, speed through the start, start
- * findings and table), Race (track map, place changes, race findings, legs
+ * The digest's three tabs: Start (Start View - Gun, Start Speed Control, start
+ * findings and table), Race (track map, Rounding & Finish Positions, Race Analysis, Performance Metrics
  * table) and Coach (one boat's debrief, ui/coach.ts). The tab is page state,
  * not per-race: it stays put when another race is picked. It lives in the URL
  * hash (`#start` / `#race` / `#coach`, replaced, never pushed) and in

@@ -145,13 +145,13 @@ describe('Coach tab on the fixtures', () => {
   const gt = a.boats.find((b) => b.id === GT)!;
   const l = rivalLadder(model, a, GT, { kind: 'leaders' })!;
 
-  it('header chips: no tracked finish, gun 11:05 venue time, ⚠ tracker %, ⚠ the longest hole, ⚠ heading from GPS course', () => {
+  it('header chips: no tracked finish, gun 11:05 venue time, ⚠ tracker %, the longest hole (a plain chip), ⚠ heading from GPS course', () => {
     const chips = coachChips(a, gt, l);
     const text = chips.map((c) => (c.warn ? `⚠ ${c.text}` : c.text));
     expect(text[0]).toBe('⚠ no tracked finish');
     expect(text[1]).toBe('gun 11:05');
     expect(text.some((t) => /^⚠ tracker \d+%$/.test(t))).toBe(true);
-    expect(text.some((t) => /^⚠ no data \d\d:\d\d–\d\d:\d\d$/.test(t))).toBe(true);
+    expect(text.some((t) => /^no data \d\d:\d\d–\d\d:\d\d$/.test(t))).toBe(true);
     expect(text).toContain('⚠ heading from GPS course');
     // One line of chips, the ⓘ closed.
     const html = coachHeadHtml(chips);
@@ -164,7 +164,7 @@ describe('Coach tab on the fixtures', () => {
     const med = svg.match(/class="cl-med" d="([^"]*)"/)![1];
     expect((med.match(/M/g) ?? []).length).toBeGreaterThan(1);
     expect(svg.match(/class="cl-each"/g)).toHaveLength(l.group.length);
-    expect(svg).toContain('class="cl-nodata"');
+    expect(svg).not.toContain('cl-nodata');
     expect(svg.match(/class="cl-mark"/g)!.length).toBe(l.roundings.length);
     expect(svg).not.toContain('cl-mark-lbl');
     expect(svg).toContain('▲ s ahead');
@@ -175,7 +175,7 @@ describe('Coach tab on the fixtures', () => {
     expect(ladderChart(a, model, l, { kind: 'leaders' }, { widthPx: 340, each: false })).not.toContain('cl-each');
     const chips = ladderChips(a, l, { kind: 'leaders' }, true);
     expect(chips[0]).toMatchObject({ text: '#USA 96 vs top 3 (mean)', swatch: 'bold' });
-    expect(chips.some((c) => c.text === 'no data')).toBe(true);
+    expect(chips.some((c) => c.text === 'no data')).toBe(false);
   });
 
   it('R3 W/L: one centred leg label per course leg, from the gun to the finish; rounding lines are unlabelled', () => {
