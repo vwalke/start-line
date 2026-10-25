@@ -3,11 +3,13 @@
  * boat (analysis/startSog.ts), drawn at the card's pixel width. Lines break at
  * telemetry gaps, joined by dashed grey; a dot marks each boat's line
  * crossing. The selected boat is drawn last and thicker; the rest fade.
+ * Speeds over the axis's robust top are drawn along the top edge, a caret
+ * where the line leaves it.
  * "Window: 30 s | 60 s | 120 s" sets how far before the gun it starts
  * (recall.startSogWindow); it always runs to +20 s.
  */
 import { SOG_SMOOTH_MS } from '../analysis/smooth';
-import { sogAt, startSogSeries, START_SOG_WINDOWS, type StartSogSeries, type StartSogWindow } from '../analysis/startSog';
+import { sogAt, startSogSeries, START_SOG_WINDOWS, type StartSogBoat, type StartSogSeries, type StartSogWindow } from '../analysis/startSog';
 import type { RaceAnalysis } from '../analysis/types';
 import { boatLabel, esc, f1 } from './format';
 import { warnChip, type Chip, type KeyLine } from './info';
@@ -43,6 +45,7 @@ export interface StartSogLayout {
   /** Knots between y gridlines. */
   kStep: number;
   x: (s: number) => number;
+  /** Clamped to [lo, hi]. */
   y: (kn: number) => number;
   /** Seconds from the gun at pixel x (clamped to the window). */
   tAt: (px: number) => number;
@@ -64,9 +67,23 @@ export function startSogLayout(s: StartSogSeries, widthPx = 720): StartSogLayout
   const pw = W - padL - padR;
   const ph = H - padT - padB;
   const x = (t: number): number => padL + ((t - s.t0) / (s.t1 - s.t0)) * pw;
-  const y = (kn: number): number => padT + (1 - (kn - lo) / (hi - lo)) * ph;
+  // Clamped to the axis: a speed over its top (see startSogHi) is drawn along the top edge.
+  const y = (kn: number): number => padT + (1 - (Math.min(hi, Math.max(lo, kn)) - lo) / (hi - lo)) * ph;
   const tAt = (px: number): number => Math.min(s.t1, Math.max(s.t0, s.t0 + ((px - padL) / pw) * (s.t1 - s.t0)));
   return { W, H, padL, padR, padT, padB, t0: s.t0, t1: s.t1, lo, hi, kStep, x, y, tAt };
+}
+
+/** Pixel x of each place a boat's line leaves the top of the axis (where it crosses `hi`, or a run's start above it). */
+export function startSogClips(b: Pick<StartSogBoat, 'runs'>, L: StartSogLayout): number[] {
+  const out: number[] = [];
+  for (const r of b.runs) {
+    for (let i = 0; i < r.t.length; i++) {
+      if (r.sog[i] <= L.hi) continue;
+      if (i === 0) out.push(L.x(r.t[0]));
+      else if (r.sog[i - 1] <= L.hi) out.push(L.x(r.t[i - 1] + ((L.hi - r.sog[i - 1]) / (r.sog[i] - r.sog[i - 1])) * (r.t[i] - r.t[i - 1])));
+    }
+  }
+  return out;
 }
 
 /**
@@ -167,7 +184,11 @@ export function startSogChart(a: RaceAnalysis, highlight: string | null, w: Star
           return `<circle class="ss-cross" cx="${r1(L.x(sb.cross.tS))}" cy="${r1(L.y(sb.cross.sogKn))}" r="${on ? 4.5 : 3.5}" fill="${col}"><title>${t}</title></circle>`;
         })()
       : '';
-    return `<g class="${cls}" data-id="${esc(sb.id)}"><path class="ss-hit" d="${runs}${gaps}"><title>${who}</title></path>${gaps ? `<path class="ss-gap" d="${gaps}"/>` : ''}<path class="ss-line" d="${runs}" stroke="${col}" stroke-width="${on ? 3 : 1.6}"/>${cross}</g>`;
+    // A caret on the top edge where the line goes off the axis.
+    const clips = startSogClips(sb, L)
+      .map((cx) => `<path class="ss-clip-mark" d="M${r1(cx - 4)} ${r1(L.padT + 6)}L${r1(cx)} ${r1(L.padT)}L${r1(cx + 4)} ${r1(L.padT + 6)}Z" fill="${col}"><title>${who}: over ${L.hi} kn</title></path>`)
+      .join('');
+    return `<g class="${cls}" data-id="${esc(sb.id)}"><path class="ss-hit" d="${runs}${gaps}"><title>${who}</title></path>${gaps ? `<path class="ss-gap" d="${gaps}"/>` : ''}<path class="ss-line" d="${runs}" stroke="${col}" stroke-width="${on ? 3 : 1.6}"/>${clips}${cross}</g>`;
   };
   const order = [...drawn].sort((p, q) => Number(p.id === sel) - Number(q.id === sel));
   const aria = `Speed over ground of each boat from ${secsLabel(s.t0)} to ${secsLabel(s.t1)} around the gun.`;

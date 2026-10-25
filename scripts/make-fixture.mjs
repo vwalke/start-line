@@ -6,6 +6,10 @@
 // Telemetry gaps in the source are kept as they are (never filled).
 //   benelux (default): Benelux Sailing League Act III, J70 race 8 → tests/fixtures/benelux_r8.json
 //   c31: C31 Gold Cup race 10, four boats, regatta races 9–10 only → tests/fixtures/c31_r10.json
+//   c31r4: C31 Gold Cup race 4 around the gun: GER 8 (its tracker sent fixes ~233 km off the course from 129 s
+//        before the gun to 82 s after it) plus 7 boats across the results, all fixes from 130 s before the gun to
+//        90 s after it, course marks every 20 s, no IMU, no boat names, regatta race 4 only → tests/fixtures/c31_r4.json.
+//        It reads the C31 downloads (c31.json, c31/win_<event>_C31_<race>.json pages), e.g. from /workspace/fb.
 //   m24: Melges 24 Worlds race 4 (only the Gate is tracked), 12 boats spread over the results,
 //        competitors every 2 s away from the gun, plus coaches 03/07/10, SPARE 1 and 619 Hot Water
 //        (SPARE 1 is a second tracker on 619 in this race) every 4 s; the other races keep only
@@ -54,6 +58,25 @@ const PRESETS = {
     // Black Pearl (stale row), Milkwave (mask 5), Stella Maris (no distance), Outrage (clean).
     sails: ['GER42', 'ITA 78', 'AUT 3165', 'FRA 901'],
     races: [9, 10],
+  },
+  c31r4: {
+    event: 'J7KXCe6mx9jQpv3Li0Ae',
+    division: 'C31',
+    race: 4,
+    regatta: 'c31.json',
+    tele: 'c31/win_J7KXCe6mx9jQpv3Li0Ae_C31_4.json',
+    out: 'tests/fixtures/c31_r4.json',
+    note: 'Trimmed from public RaceSense data: C31 Gold Cup, race 4 (GER 8, whose tracker is ~233 km off the course until 82 s after the gun, plus 7 boats across the results; gun − 130 s to + 90 s at full rate; course marks only; no IMU; no boat names; regatta race 4 only). See scripts/make-fixture.mjs --preset c31r4.',
+    event_: (doc) => ({ classLabel: 'C31', startMs: doc.startDate, endMs: doc.endDate }),
+    // GER 8 and enough of the fleet (across the finish order) for the fleet's median position.
+    sails: ['GER 8', 'TUR3150', 'ITA3176', 'GER3156', 'FRA 901', 'GER 80', 'MON 3159', 'HUN 63'],
+    races: [4],
+    window: [-130_000, 90_000],
+    step: 0,
+    nearStep: 0,
+    courseMarksOnly: true,
+    drop: ['division', 'race_number', 'start_number', 'race_stage', 'status', 'roll', 'pitch'],
+    noNames: true,
   },
   m24: {
     event: 'i6WfokvPgVWlOVwyaaer',
