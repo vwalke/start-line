@@ -215,6 +215,11 @@ export interface RaceData {
   startLine: Line;
   finishLine: Line | null;
   /**
+   * The finish line isn't in the feed: it is placed off the committee boat from the tracks
+   * (data/finishEstimate.ts). Left is the committee boat at the fleet's median finish, right the far end.
+   */
+  finishLineEstimated?: boolean;
+  /**
    * Waypoints between the start and the finish in the order the race
    * committee set them (may repeat, e.g. M1, Gate, M1). Analysis may
    * re-order this if the tracks clearly disagree.

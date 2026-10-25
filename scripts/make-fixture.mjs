@@ -25,6 +25,9 @@
 //        fleets from the coach-testraces cache (see `gate` below) → tests/fixtures/gate_<key>.json.
 //   cascais-r2, cascais-r3: J/70 Worlds 2026 (Cascais), Open, races 2 and 3, the whole 100-boat fleet for the Coach's
 //        start places, gybe sets and sides (see `cascais` below) → tests/fixtures/cascais_r2.json, cascais_r3.json.
+//   fallbrawl-j70r1, fallbrawl-j70r3, fallbrawl-j105r3: 2026 Fall Brawl (Annapolis), J/70 races 1 and 3, J/105 race 3: no
+//        finish line in the feed (see `fallbrawl` below) → tests/fixtures/fallbrawl_j70_r1.json, fallbrawl_j70_r3.json,
+//        fallbrawl_j105_r3.json, and each race's trimmed Yachtscoring report → tests/fixtures/fallbrawl_ys_<class>_r<n>.json.
 // m24 and j88 read the survey downloads (regatta_<event>.json, tele_<event>_<div>_<race>.json
 // as an array of telemetry pages, wind_<event>_<YYYY-MM-DD>.json), e.g. from /workspace/legsplit-data.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -232,6 +235,41 @@ const cascais = (race, pages) => ({
 PRESETS['cascais-r2'] = cascais(2, ['tele_oRkxbTpSZPbSkrmKrbj2_Open_1788868971000_1788874882671.json', 'tele_oRkxbTpSZPbSkrmKrbj2_Open_1788872452599_1788874882671.json', 'tele_oRkxbTpSZPbSkrmKrbj2_Open_1788874799899_1788874882671.json']);
 PRESETS['cascais-r3'] = cascais(3, ['tele_oRkxbTpSZPbSkrmKrbj2_Open_1788875571000_1788881614727.json', 'tele_oRkxbTpSZPbSkrmKrbj2_Open_1788878734099_1788881614727.json', 'tele_oRkxbTpSZPbSkrmKrbj2_Open_1788881257899_1788881614727.json']);
 
+// 2026 Fall Brawl (Annapolis) for the estimated finish (data/finishEstimate.ts): the course has only the start line's two
+// trackers and RaceSense has no finishes. Reads the Fall Brawl downloads (regatta.json; tel_<class>_<race>.json, the race's
+// telemetry pages from 10 min before the gun to the next gun less a minute or the gun + 2 h; ys<race>.json, the Yachtscoring
+// result-detail-report), e.g. /workspace/recall/fallbrawl-data. The whole telemetry window; every boat every 10 s, and every
+// second within 250 m of the committee boat (the start line's right-end tracker) from 25 min after the gun (finishes need
+// 1 Hz; all of them are within 100 m of it, and the start line is ~180 m long; every second everywhere would be 2–3 MB a
+// race); the start line's two trackers every 10 s; the stage and race number kept (tracker finishes read them); no IMU; boat
+// names dropped; the division's race only. The Yachtscoring report is trimmed to the race's class and the sails, statuses,
+// places, finish times, elapsed times and GMT offset.
+const fallbrawl = (cls, race, className) => ({
+  event: '1x1uPnE0iuGDnUOvahBF',
+  division: cls,
+  race,
+  regatta: 'regatta.json',
+  tele: `tel_${cls}_${race}.json`,
+  out: `tests/fixtures/fallbrawl_${cls.toLowerCase()}_r${race}.json`,
+  note: `Trimmed from public RaceSense data: 2026 Fall Brawl (Annapolis), ${cls}, race ${race} (no finish line in the feed; whole fleet every 10 s, every second near the committee boat from 25 min after the gun; start-line trackers only; no IMU; no boat names). See scripts/make-fixture.mjs --preset fallbrawl-${cls.toLowerCase()}r${race}.`,
+  event_: (doc) => ({ classLabel: cls === 'J70' ? 'J/70' : 'J/105', venue: 'Annapolis, MD', startMs: doc.startDate, endMs: doc.endDate }),
+  races: [race],
+  fullWindow: true,
+  step: 10_000,
+  nearStep: 10_000,
+  markStep: 10_000,
+  finishDense: { fromMs: 25 * 60_000, step: 1_000, nearM: 250, sn: '0238006EAB' },
+  courseMarksOnly: true,
+  fields: ['ts', 'sn', 'sail_number', 'race_number', 'race_stage', 'role', 'latitude', 'longitude', 'heading', 'sog'],
+  round: true,
+  dp: { heading: 0, sog: 1 },
+  noNames: true,
+  ys: { file: `ys${race}.json`, className, out: `tests/fixtures/fallbrawl_ys_${cls.toLowerCase()}_r${race}.json` },
+});
+PRESETS['fallbrawl-j70r1'] = fallbrawl('J70', 1, 'J/70');
+PRESETS['fallbrawl-j70r3'] = fallbrawl('J70', 3, 'J/70');
+PRESETS['fallbrawl-j105r3'] = fallbrawl('J105', 3, 'J/105 - Overall');
+
 const args = process.argv.slice(2);
 const pi = args.indexOf('--preset');
 const preset = PRESETS[pi >= 0 ? args[pi + 1] : 'benelux'];
@@ -251,9 +289,9 @@ const div = doc.divisions[0];
 const race = div.races.find((r) => r.raceNumber === RACE);
 const gun = race.starts.at(-1).startTime;
 const lastFinish = Math.max(...race.finishes.map((f) => Date.parse(f.finishingTime)));
-// `window`: [from, to] ms from the gun, else 2 min before it to 30 s after the last finish.
-const t0 = gun + (preset.window?.[0] ?? -120_000);
-const t1 = preset.window ? gun + preset.window[1] : lastFinish + 30_000;
+// `window`: [from, to] ms from the gun, else 2 min before it to 30 s after the last finish (`fullWindow`: all the telemetry, set below).
+let t0 = gun + (preset.window?.[0] ?? -120_000);
+let t1 = preset.window ? gun + preset.window[1] : lastFinish + 30_000;
 if (preset.races) div.races = div.races.filter((r) => preset.races.includes(r.raceNumber));
 // Other races: just enough for the event-wide results (who finished, how far, how fast).
 const FINISH_KEEP = ['sailNumber', 'serialNumber', 'finishingTime', 'distanceTraveled', 'maxSpeed', 'raceNumber'];
@@ -301,12 +339,29 @@ const courseSns = preset.courseMarksOnly
   : null;
 const STEP = preset.step ?? 1_000;
 
-// roll (heel) and pitch (trim) are kept where the source has them.
-const keep = ['ts', 'sn', 'division', 'sail_number', 'race_number', 'role', 'latitude', 'longitude', 'heading', 'sog', 'roll', 'pitch'].filter(
+// roll (heel) and pitch (trim) are kept where the source has them; `fields` names the columns instead.
+const keep = (preset.fields ?? ['ts', 'sn', 'division', 'sail_number', 'race_number', 'role', 'latitude', 'longitude', 'heading', 'sog', 'roll', 'pitch']).filter(
   (f) => tele.Fields.includes(f) && !preset.drop?.includes(f),
 );
 const idx = Object.fromEntries(tele.Fields.map((f, i) => [f, i]));
 const rows = [...tele.Rows].sort((a, b) => a[idx.ts] - b[idx.ts]);
+if (preset.fullWindow) [t0, t1] = [rows[0][idx.ts], rows.at(-1)[idx.ts]];
+// `finishDense`: every boat at `step` within nearM of the committee boat's tracker (its nearest earlier fix) from fromMs after the gun.
+const committee = preset.finishDense ? rows.filter((r) => r[idx.role] === 'mark' && r[idx.sn] === parseInt(preset.finishDense.sn.slice(-4), 16)) : [];
+const nearCommittee = (r) => {
+  const fd = preset.finishDense;
+  if (!fd || !committee.length || r[idx.ts] < gun + fd.fromMs) return false;
+  let lo = 0;
+  let hi = committee.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (committee[mid][idx.ts] <= r[idx.ts]) lo = mid;
+    else hi = mid;
+  }
+  const c = committee[lo];
+  const kx = 111_195 * Math.cos(c[idx.latitude] * (Math.PI / 180));
+  return Math.hypot((r[idx.longitude] - c[idx.longitude]) * kx, (r[idx.latitude] - c[idx.latitude]) * 111_195) <= fd.nearM;
+};
 // `gateDense`: each competitor's window around its first approach to the leeward gate (either buoy within nearM,
 // after being armM away from both), from each buoy's position at the time (its nearest fix: a gate is moved).
 const gateWin = new Map();
@@ -404,9 +459,11 @@ for (const r of rows) {
   const gw = gateWin.get(sail);
   const ww = windWin.get(sail)?.some(([a, b]) => ts >= a && ts <= b);
   const step = isMark
-    ? 20_000
+    ? (preset.markStep ?? 20_000)
     : full.has(sail)
       ? 0
+      : nearCommittee(r)
+        ? preset.finishDense.step
       : near
         ? (preset.nearStep ?? 0)
         : ww
@@ -438,3 +495,25 @@ const fixture = {
 };
 writeFileSync(out, JSON.stringify(fixture));
 console.log(`wrote ${out}: ${outRows.length} rows, ${(JSON.stringify(fixture).length / 1e6).toFixed(2)} MB${preset.gateDense ? `, ${gateWin.size} boats with a gate window` : ''}${preset.windwardDense ? `, ${windWin.size} boats with windward windows` : ''}`);
+
+// `ys`: the race's Yachtscoring result-detail-report, trimmed to its class and the fields the official parser reads (no names).
+if (preset.ys) {
+  const rep = JSON.parse(readFileSync(join(dir, preset.ys.file), 'utf8'));
+  const BOAT_KEEP = ['sailPrefix', 'sailNumber', 'finishStatus', 'finishTime', 'elapsedTime', 'placeClass', 'localGMTOffset'];
+  const trimmed = {
+    note: `Trimmed from Yachtscoring's public result-detail-report: ${doc.name}, race ${RACE}, ${preset.ys.className}. Sails, statuses, places, finish times, elapsed times and GMT offset only.`,
+    data: rep.data.map((c) => ({
+      circleName: c.circleName,
+      divisions: c.divisions
+        .map((d) => ({
+          divisionName: d.divisionName,
+          classes: d.classes
+            .filter((k) => k.className === preset.ys.className)
+            .map((k) => ({ className: k.className, boats: k.boats.map((b) => Object.fromEntries(BOAT_KEEP.filter((f) => f in b).map((f) => [f, b[f]]))) })),
+        }))
+        .filter((d) => d.classes.length),
+    })),
+  };
+  writeFileSync(preset.ys.out, JSON.stringify(trimmed, null, 1) + '\n');
+  console.log(`wrote ${preset.ys.out}: ${trimmed.data.flatMap((c) => c.divisions.flatMap((d) => d.classes.flatMap((k) => k.boats))).length} boats`);
+}

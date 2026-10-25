@@ -434,7 +434,9 @@ svg .boat-min .min-ring { fill: none; }
 .hint-x { flex: none; width: 28px; height: 28px; margin: -4px 0; border: 0; border-radius: 50%; background: none; color: var(--ink-3); font: inherit; font-size: 1rem; line-height: 1; cursor: pointer; }
 .hint-x:hover { color: var(--ink); background: var(--grid); }
 svg .startline { stroke: var(--ink); stroke-linecap: round; }
-svg .finishline { stroke: var(--ink-2); stroke-dasharray: 4 3; }
+svg .finishline { stroke: var(--ink-2); }
+/* Placed from the tracks (.est): the estimated marks' dash, which charts.ts sets per zoom. */
+svg .finishline:not(.est) { stroke-dasharray: 4 3; }
 svg .pin { fill: var(--s4); stroke: var(--ink); }
 svg .rc { fill: var(--ink); }
 svg .mark { fill: var(--s4); stroke: var(--ink); }

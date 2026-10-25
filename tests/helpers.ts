@@ -124,6 +124,41 @@ export const CASCAIS_RACES = {
 } as const;
 export const cascaisRace = (key: keyof typeof CASCAIS_RACES): RaceData => trimmedRace(`./fixtures/cascais_${key}.json`, CASCAIS_RACES[key].division, CASCAIS_RACES[key].raceNumber);
 
+/**
+ * 2026 Fall Brawl (Annapolis): no finish line in the feed, only the start line's two trackers, and no RaceSense
+ * finishes; the whole fleet every 10 s, every second near the committee boat from 25 min after the gun
+ * (scripts/make-fixture.mjs --preset fallbrawl-<key>).
+ */
+export const FALLBRAWL_RACES = {
+  j70r1: { file: 'fallbrawl_j70_r1', ys: 'fallbrawl_ys_j70_r1', division: 'J70', raceNumber: 1 },
+  j70r3: { file: 'fallbrawl_j70_r3', ys: 'fallbrawl_ys_j70_r3', division: 'J70', raceNumber: 3 },
+  j105r3: { file: 'fallbrawl_j105_r3', ys: 'fallbrawl_ys_j105_r3', division: 'J105', raceNumber: 3 },
+} as const;
+export type FallBrawlKey = keyof typeof FALLBRAWL_RACES;
+
+export const fallbrawlFixture = (key: FallBrawlKey): Fixture => JSON.parse(readFileSync(here(`./fixtures/${FALLBRAWL_RACES[key].file}.json`), 'utf8')) as Fixture;
+
+/** A Fall Brawl race as the app builds it, with its official results when given (fallbrawlOfficial). */
+export function fallbrawlRace(key: FallBrawlKey, official: OfficialRaceInput | null = null, f: Fixture = fallbrawlFixture(key)): RaceData {
+  const ref = { division: FALLBRAWL_RACES[key].division, raceNumber: FALLBRAWL_RACES[key].raceNumber };
+  return buildRaceData(f.regatta, ref, [f.telemetry], { eventId: f.eventId, kind: 'fixture', official, nextGunMs: nextGunMs(currentDoc(f.regatta), ref) });
+}
+
+/**
+ * A Fall Brawl race's official results (Yachtscoring, tests/fixtures/fallbrawl_ys_*.json: sails, statuses, places and
+ * times only), parsed and paired by sail with the RaceSense boats as link.ts does; times are EDT (UTC − 4 h) although
+ * Yachtscoring says −5.
+ */
+export function fallbrawlOfficial(key: FallBrawlKey): OfficialRaceInput {
+  const rep = JSON.parse(readFileSync(here(`./fixtures/${FALLBRAWL_RACES[key].ys}.json`), 'utf8')) as YsResultReport;
+  const cls = rep.data![0].divisions![0].classes![0];
+  const rows = parseResults(rep, { circle: rep.data![0].circleName!, className: cls.className! })!;
+  const sails = fallbrawlRace(key).boats.map((b) => b.sail);
+  const m = matchBoats(sails, rows, (s) => ({ sail: s }), (r) => ({ prefix: r.prefix, sail: r.sail }));
+  const rsOf = new Map(m.pairs.map((p) => [p.b, p.a]));
+  return { number: FALLBRAWL_RACES[key].raceNumber, tzOffsetMs: -4 * 3_600_000, rows: rows.map((r) => ({ ...r, rsSail: rsOf.get(r) ?? null })) };
+}
+
 /** A race through the app path: the analysis and the Coach's model. */
 export interface CoachRace {
   a: RaceAnalysis;

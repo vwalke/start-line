@@ -73,6 +73,8 @@ export interface Start {
   ocsParticipants?: string[] | null;
   clearedOcs?: string[] | null;
   stopReason?: string | null;
+  /** The race committee's wind direction (from), degrees true, when set. */
+  windDirection?: number | null;
 }
 
 export interface Finish {

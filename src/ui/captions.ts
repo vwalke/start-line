@@ -71,6 +71,8 @@ function noteKey(n: RaceNote): KeyLine {
       return { chips: [warnChip('Vakaros DTL off vs GPS', t)], bullets: [`Vakaros DTL is a median ${n.medianM} m off the GPS tracks: use with care.`] };
     case 'not-racing':
       return { chips: [{ text: `${n.n} not racing`, title: t }], bullets: ['Not racing: coach or spare trackers, listed under the boat list.'] };
+    case 'finish-est':
+      return { chips: [warnChip('finish line est.', t)], bullets: ['Finish line placed off the committee boat from the tracks (est.).'] };
     case 'finish-unranked':
       return { chips: [warnChip(`${n.boat} finish not ranked`, t)], bullets: [`${n.boat}'s finish isn't ranked: ${n.why}.`] };
   }
