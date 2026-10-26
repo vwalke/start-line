@@ -17,6 +17,31 @@ export type StartSogWindow = (typeof START_SOG_WINDOWS)[number];
 /** Post-gun span, s. */
 export const START_SOG_POST_S = START_SOG_POST_MS / 1000;
 
+/**
+ * The axis tops out at the fastest speed in the window, leaving out boats far
+ * over the fleet: one bad tracker (C31 race 4's GER 8, at 19–41 kn far off the
+ * course) stretched it to 40 kn against the fleet's 8. A boat is left out when
+ * its own START_SOG_HI_PCT speed is more than START_SOG_BOAT_OVER_KN above the
+ * median boat's (with at least START_SOG_FLEET_MIN boats); its faster fixes are
+ * drawn clipped at the top edge. Every other boat's speeds are on the axis.
+ */
+export const START_SOG_HI_PCT = 0.99;
+export const START_SOG_BOAT_OVER_KN = 6;
+export const START_SOG_FLEET_MIN = 3;
+
+/** The `p` quantile (0–1) of `xs`, sorted ascending (nearest rank). */
+const quantile = (xs: number[], p: number): number => xs[Math.min(xs.length - 1, Math.max(0, Math.ceil(p * xs.length) - 1))];
+
+/** The axis top: the fastest speed of the boats not far over the fleet (START_SOG_BOAT_OVER_KN). null with no speeds. */
+export function startSogHi(perBoat: number[][]): number | null {
+  const sorted = perBoat.filter((v) => v.length).map((v) => [...v].sort((a, b) => a - b));
+  if (!sorted.length) return null;
+  const tops = sorted.map((v) => quantile(v, START_SOG_HI_PCT));
+  const med = [...tops].sort((a, b) => a - b)[tops.length >> 1];
+  const setters = tops.length >= START_SOG_FLEET_MIN ? sorted.filter((_, i) => tops[i] <= med + START_SOG_BOAT_OVER_KN) : sorted;
+  return Math.max(...setters.map((v) => v[v.length - 1]));
+}
+
 /** One unbroken run of fixes: seconds from the gun and SOG, kn. */
 export interface SogRun {
   t: number[];
@@ -40,7 +65,7 @@ export interface StartSogSeries {
   /** The window asked for started earlier than any boat's data. */
   clamped: boolean;
   boats: StartSogBoat[];
-  /** SOG range of the drawn data, kn (null with none). */
+  /** SOG range of the drawn data, kn (null with none): the lowest speed, and the top (startSogHi): the fastest speed but for boats far over the fleet, whose faster fixes are clipped. */
   lo: number | null;
   hi: number | null;
 }
@@ -67,8 +92,9 @@ export function startSogSeries(a: RaceAnalysis, preSec: number, postSec = START_
   const gapS = SOG_GAP_MS / 1000;
   const late = new Map(a.boats.map((b) => [b.id, b.start?.lateS ?? null]));
   let first = Infinity;
+  // The raw low: speeds can't go under 0, so a bad fix can't stretch the bottom far, and a boat stopped at the line is the chart's point.
   let lo = Infinity;
-  let hi = -Infinity;
+  const speeds: number[][] = [];
   const boats: StartSogBoat[] = [];
   // `drawings` are the racing boats only (Not racing ones are in `excluded`).
   for (const d of a.drawings) {
@@ -76,6 +102,8 @@ export function startSogSeries(a: RaceAnalysis, preSec: number, postSec = START_
     const runs: SogRun[] = [];
     let cur: SogRun | null = null;
     let prevT = -Infinity;
+    const mine: number[] = [];
+    speeds.push(mine);
     for (let i = 0; i < t.length; i++) {
       const s = (t[i] - gun) / 1000;
       if (s < -pre || s > post || !Number.isFinite(sog[i])) continue;
@@ -85,7 +113,7 @@ export function startSogSeries(a: RaceAnalysis, preSec: number, postSec = START_
       prevT = s;
       first = Math.min(first, s);
       lo = Math.min(lo, sog[i]);
-      hi = Math.max(hi, sog[i]);
+      mine.push(sog[i]);
     }
     const gaps = runs.slice(1).map((r, k): [[number, number], [number, number]] => {
       const p = runs[k];
@@ -106,6 +134,6 @@ export function startSogSeries(a: RaceAnalysis, preSec: number, postSec = START_
     clamped,
     boats,
     lo: Number.isFinite(lo) ? lo : null,
-    hi: Number.isFinite(hi) ? hi : null,
+    hi: startSogHi(speeds),
   };
 }

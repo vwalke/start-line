@@ -436,6 +436,54 @@ export function dropImuZeroRuns(rows: { ts: number; sog: number; roll: number | 
   }
 }
 
+/**
+ * A competitor fix further than this from the fleet's position at the time is
+ * no position of that boat. C31 Gold Cup race 4: GER 8's tracker sent 132
+ * fixes ~233 km east of the course, at 19–41 kn, from 129 s before the gun to
+ * 82 s after it; they had it fastest at the gun (27.2 kn), 182 km from the
+ * line, and stretched the start speed chart to 40 kn. A fleet spans a few km.
+ */
+export const FLEET_OUTLIER_M = 20_000;
+/** The fleet's position is a median per bucket this long (each boat's own median in it first). */
+export const FLEET_OUTLIER_BUCKET_MS = 30_000;
+/** Fewer boats than this in a bucket and there is no fleet to measure against: nothing is dropped. */
+export const FLEET_OUTLIER_MIN_BOATS = 5;
+
+/**
+ * Drop competitor fixes over FLEET_OUTLIER_M from the fleet: per FLEET_OUTLIER_BUCKET_MS bucket, the
+ * component-wise median of each device's median position. A bucket counts only with FLEET_OUTLIER_MIN_BOATS
+ * devices, most of them within FLEET_OUTLIER_M of that median (else it isn't the fleet's: a fleet split in
+ * two, or mostly bad fixes). Other roles (marks, coach and committee boats) are kept as they are. Order is kept.
+ */
+export function dropFleetOutliers<R extends { ts: number; sn: number; role: string; lat: number; lon: number }>(rows: R[]): R[] {
+  const bucketOf = (ts: number): number => Math.floor(ts / FLEET_OUTLIER_BUCKET_MS);
+  const buckets = new Map<number, Map<number, { lat: number[]; lon: number[] }>>();
+  for (const r of rows) {
+    if (r.role !== 'competitor') continue;
+    const k = bucketOf(r.ts);
+    let b = buckets.get(k);
+    if (!b) buckets.set(k, (b = new Map()));
+    let p = b.get(r.sn);
+    if (!p) b.set(r.sn, (p = { lat: [], lon: [] }));
+    p.lat.push(r.lat);
+    p.lon.push(r.lon);
+  }
+  const fleet = new Map<number, LatLon>();
+  for (const [k, b] of buckets) {
+    if (b.size < FLEET_OUTLIER_MIN_BOATS) continue;
+    const boats = [...b.values()].map((p) => ({ lat: median(p.lat), lon: median(p.lon) }));
+    const c = { lat: median(boats.map((p) => p.lat)), lon: median(boats.map((p) => p.lon)) };
+    const near = boats.filter((p) => metresBetween(p, c) <= FLEET_OUTLIER_M).length;
+    if (2 * near > boats.length) fleet.set(k, c);
+  }
+  if (!fleet.size) return rows;
+  const kept = rows.filter((r) => {
+    const c = r.role === 'competitor' ? fleet.get(bucketOf(r.ts)) : undefined;
+    return !c || metresBetween(r, c) <= FLEET_OUTLIER_M;
+  });
+  return kept.length === rows.length ? rows : kept;
+}
+
 /** Concatenate pages into typed rows, sorted by time, de-duplicated on (sn, role, ts). */
 export function parseTelemetry(pages: TelemetryPage[]): Row[] {
   const seen = new Set<string>();
@@ -742,7 +790,8 @@ export function buildRaceData(
   if (!st?.startTime) throw new Error('Race has no start time');
   if (!st.startLine) throw new Error('Race has no recorded start line');
   const gunMs = st.startTime;
-  const rows = parseTelemetry(pages);
+  // Before tracks, starts and finishes: a boat whose tracker is far off the fleet has no data there.
+  const rows = dropFleetOutliers(parseTelemetry(pages));
   // Older feeds (and some fixtures) have no roll / pitch columns at all.
   const imu = pages.some((p) => !!p?.Fields && (p.Fields.includes('roll') || p.Fields.includes('pitch')));
   const fins = finishMs(race);

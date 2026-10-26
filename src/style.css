@@ -627,7 +627,8 @@ svg .ss-line { fill: none; stroke-linejoin: round; stroke-linecap: round; opacit
 svg .ss-gap { fill: none; stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 4; opacity: 0.5; }
 svg .ss-hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; }
 svg .ss-cross { stroke: var(--surface); stroke-width: 1.2; }
-svg .ss-boat.dim .ss-line, svg .ss-boat.dim .ss-gap, svg .ss-boat.dim .ss-cross { opacity: 0.18; }
+svg .ss-clip-mark { stroke: var(--surface); stroke-width: 0.8; stroke-linejoin: round; }
+svg .ss-boat.dim .ss-line, svg .ss-boat.dim .ss-gap, svg .ss-boat.dim .ss-cross, svg .ss-boat.dim .ss-clip-mark { opacity: 0.18; }
 svg .ss-boat.on .ss-line { opacity: 1; }
 svg .ss-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 

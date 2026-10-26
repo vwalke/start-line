@@ -47,14 +47,17 @@ export function c31Race(f: Fixture = c31Fixture()): RaceData {
   });
 }
 
-function trimmedRace(file: string, division: string, raceNumber: number): RaceData {
-  const f = JSON.parse(readFileSync(here(file), 'utf8')) as Fixture;
+function trimmedRace(file: string, division: string, raceNumber: number, f: Fixture = JSON.parse(readFileSync(here(file), 'utf8')) as Fixture): RaceData {
   return buildRaceData(f.regatta, { division, raceNumber }, [f.telemetry], {
     eventId: f.eventId,
     kind: 'fixture',
     wind: f.wind ?? undefined,
   });
 }
+
+/** C31 Gold Cup race 4, gun − 130 s to + 90 s: GER 8 (its tracker ~233 km off the course until 82 s after the gun) and 7 more boats. */
+export const c31r4Fixture = (): Fixture => JSON.parse(readFileSync(here('./fixtures/c31_r4.json'), 'utf8')) as Fixture;
+export const c31r4Race = (f: Fixture = c31r4Fixture()): RaceData => trimmedRace('./fixtures/c31_r4.json', 'C31', 4, f);
 
 /** Melges 24 Worlds race 4: only the Gate is tracked (the start boats, which motor up to lay it); 12 boats incl. the winner 870, plus coaches 03/07/10, SPARE 1 and 619. */
 export const m24Race = (): RaceData => trimmedRace('./fixtures/m24_r4.json', 'M24', 4);
