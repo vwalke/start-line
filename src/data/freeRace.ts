@@ -17,6 +17,7 @@
  */
 import { buildRaceList } from './raceList';
 import { currentDoc, findRace, listRaces, telemetryWindow, tzOffsetMs } from './racesense/adapter';
+import { feedDivision } from './racesense/api';
 import type { RegattaDoc, RegattaResponse } from './racesense/types';
 
 export const FREE_PRE_MS = 5 * 60_000;
@@ -96,13 +97,15 @@ export const isFreeRace = (free: FreeRaces, division: string, raceNumber: number
  * Is a telemetry request for [after, before] free? With a division the document knows, it must lie
  * wholly within that division's free window (teleapi filters by division). Without one (or with an
  * unknown one) the response may carry every division, so it must lie within every division's free
- * window: never another division's later race.
+ * window: never another division's later race. The page asks by teleapi's tag (api.ts feedDivision:
+ * "VX_One" for "VX One"); the plain name counts too.
  */
 export function telemetryIsFree(free: FreeRaces, division: string | null, after: number, before: number): boolean {
   if (!(before > after)) return false;
   const inside = (w: FreeWindow): boolean => after >= w.after && before <= w.before;
-  if (division && free.divisions.includes(division)) {
-    const w = free.windows.find((x) => x.division === division);
+  const known = division ? free.divisions.find((d) => d === division || feedDivision(d) === division) : undefined;
+  if (known != null) {
+    const w = free.windows.find((x) => x.division === known);
     return !!w && inside(w);
   }
   return free.windows.length > 0 && free.divisions.every((d) => free.windows.some((w) => w.division === d && inside(w)));

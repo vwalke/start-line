@@ -484,6 +484,113 @@ export function dropFleetOutliers<R extends { ts: number; sn: number; role: stri
   return kept.length === rows.length ? rows : kept;
 }
 
+/**
+ * Some trackers re-send an old held fix among their live ones: the boat zig-zags between where it is and
+ * where it was. A moving boat (reported SOG over this) is never at the exact coordinates it reported
+ * before, so such a fix is a replay. Cascais J/70 Worlds race 3: ESP 1283 and BRA641 each replayed one
+ * fix ~1.9 km off their track 145–173 times (563 and 746 km of path for a 22 km race); Dutch Grand Prix
+ * Dragon race 4: GBR 818, 978 replays 1.4 km off; ILCA 6 Worlds Elimination Silver race 3: CHI 199268,
+ * 699 replays ~1 km off. At or under it the boat may be sitting still and keeps its repeated fixes.
+ * A fix equal to the tracker's last one kept is a hold, not a replay, and stays: the clean fixtures'
+ * only repeats while moving are such holds (1–19 a race).
+ */
+export const REPLAY_MIN_SOG_KN = 1;
+
+/**
+ * Drop competitor fixes whose exact lat/lon the same tracker reported earlier while moving (SOG over
+ * REPLAY_MIN_SOG_KN; no SOG reading counts as not moving), unless it is the tracker's last kept fix again.
+ * The first report is kept. Rows sorted by time; other roles and order are kept as they are.
+ */
+export function dropReplayedFixes<R extends { sn: number; role: string; lat: number; lon: number; sog: number }>(rows: R[]): R[] {
+  // Per tracker: latitude → the longitudes reported at it (numbers, not string keys: ~1M rows a race).
+  const seen = new Map<number, Map<number, Set<number>>>();
+  const last = new Map<number, R>();
+  const replay = (r: R): boolean => {
+    if (r.role !== 'competitor') return false;
+    let s = seen.get(r.sn);
+    if (!s) seen.set(r.sn, (s = new Map()));
+    let lons = s.get(r.lat);
+    if (!lons) s.set(r.lat, (lons = new Set()));
+    if (!lons.has(r.lon)) lons.add(r.lon);
+    else if (r.sog > REPLAY_MIN_SOG_KN) {
+      const p = last.get(r.sn);
+      if (!p || p.lat !== r.lat || p.lon !== r.lon) return true;
+    }
+    last.set(r.sn, r);
+    return false;
+  };
+  const kept = rows.filter((r) => !replay(r));
+  return kept.length === rows.length ? rows : kept;
+}
+
+/**
+ * A reported SOG over this is checked against the fix's position-derived speed. Real readings go past it
+ * (M32s racing at 25–29 kn; monohulls towed or motoring in at up to ~47 kn) and their positions agree.
+ */
+export const SOG_SPIKE_CEIL_KN = 25;
+/**
+ * …and is a spike when over SOG_SPIKE_X × that speed + SOG_SPIKE_MARGIN_KN. The speed is the faster of the
+ * legs to the nearest fix before and after at another position (a held position is skipped), each within
+ * SOG_SPIKE_REACH_MS. With neither in reach there is nothing to check against and the reading stays.
+ */
+export const SOG_SPIKE_X = 2;
+export const SOG_SPIKE_MARGIN_KN = 10;
+export const SOG_SPIKE_REACH_MS = 10_000;
+const MS_PER_KN = 1852 / 3600;
+
+/**
+ * Null out (NaN: the analysis fills it from the positions, as for any missing SOG) a competitor's reported
+ * SOG that is over SOG_SPIKE_CEIL_KN and SOG_SPIKE_X × its position-derived speed + SOG_SPIKE_MARGIN_KN.
+ * M15 Gulf Coast race 1: boats 69 (6771 kn) and 409 (1496 kn) each sent one such reading at a good
+ * position, sailing ~5–7 kn; C of C race 1 one of 11,948 kn. The fix itself is kept. Rows sorted by time.
+ * Over 725 scanned races these three are the only readings nulled (after dropFleetOutliers); a spike at a
+ * garbage position (0°, 166° E) passes, as its position moves as fast.
+ */
+export function dropSogSpikes(rows: { ts: number; sn: number; role: string; lat: number; lon: number; sog: number }[]): void {
+  const hot = rows.some((r) => r.role === 'competitor' && r.sog > SOG_SPIKE_CEIL_KN);
+  if (!hot) return;
+  const bySn = new Map<number, typeof rows>();
+  for (const r of rows) {
+    if (r.role !== 'competitor') continue;
+    let s = bySn.get(r.sn);
+    if (!s) bySn.set(r.sn, (s = []));
+    s.push(r);
+  }
+  for (const s of bySn.values()) {
+    s.forEach((r, i) => {
+      if (!(r.sog > SOG_SPIKE_CEIL_KN)) return;
+      let kn = -1;
+      for (const step of [-1, 1]) {
+        let j = i + step;
+        while (s[j] && s[j].lat === r.lat && s[j].lon === r.lon && Math.abs(s[j].ts - r.ts) <= SOG_SPIKE_REACH_MS) j += step;
+        const q = s[j];
+        const dt = q ? Math.abs(q.ts - r.ts) : 0;
+        if (dt > 0 && dt <= SOG_SPIKE_REACH_MS) kn = Math.max(kn, metresBetween(q, r) / (dt / 1000) / MS_PER_KN);
+      }
+      if (kn >= 0 && r.sog > SOG_SPIKE_X * kn + SOG_SPIKE_MARGIN_KN) r.sog = NaN;
+    });
+  }
+}
+
+/**
+ * A sail with two or more competitor trackers is drawn from the one covering the most ground: distinct
+ * cells of this many degrees (~11 m). A stuck tracker can send the most rows: Melges 24 Nationals races
+ * 1–3, USA 853's spare sent 5–19k rows at one position against the live one's ~2.8k; Star Worlds race 6,
+ * USA 8520's flipped between 3 positions (24k rows, 2 cells) against 1.8k rows over 1,183 cells. Cells,
+ * not exact positions: ILCA 6 Worlds Elimination Silver race 1, CZE 212985's idle tracker jittered over
+ * 1,641 exact positions (the live one: 1,760) but 6 cells (616).
+ */
+export const TRACKER_CELL_DEG = 1e-4;
+
+/** The tracker a sail is drawn from: most TRACKER_CELL_DEG cells, then most rows (the first on a tie). */
+export function liveTracker<R extends { lat: number; lon: number }>(devs: R[][]): R[] | undefined {
+  if (devs.length < 2) return devs[0];
+  const cells = (rs: R[]): number => new Set(rs.map((r) => `${Math.round(r.lat / TRACKER_CELL_DEG)},${Math.round(r.lon / TRACKER_CELL_DEG)}`)).size;
+  return devs
+    .map((rs) => ({ rs, cells: cells(rs) }))
+    .reduce((best, d) => (d.cells > best.cells || (d.cells === best.cells && d.rs.length > best.rs.length) ? d : best)).rs;
+}
+
 /** Concatenate pages into typed rows, sorted by time, de-duplicated on (sn, role, ts). */
 export function parseTelemetry(pages: TelemetryPage[]): Row[] {
   const seen = new Set<string>();
@@ -790,8 +897,10 @@ export function buildRaceData(
   if (!st?.startTime) throw new Error('Race has no start time');
   if (!st.startLine) throw new Error('Race has no recorded start line');
   const gunMs = st.startTime;
-  // Before tracks, starts and finishes: a boat whose tracker is far off the fleet has no data there.
-  const rows = dropFleetOutliers(parseTelemetry(pages));
+  // Before tracks, starts and finishes: replayed fixes go, a boat whose tracker is far off the fleet has no
+  // data there, and a SOG spike is no reading.
+  const rows = dropFleetOutliers(dropReplayedFixes(parseTelemetry(pages)));
+  dropSogSpikes(rows);
   // Older feeds (and some fixtures) have no roll / pitch columns at all.
   const imu = pages.some((p) => !!p?.Fields && (p.Fields.includes('roll') || p.Fields.includes('pitch')));
   const fins = finishMs(race);
@@ -880,9 +989,13 @@ export function buildRaceData(
   const finishes = new Map((race.finishes ?? []).map((f) => [f.sailNumber, f]));
   const ocs = new Set((st.ocsParticipants ?? []).filter((s) => !(st.clearedOcs ?? []).includes(s)));
   const defaultBowCm = div.offsetOverrideCm ?? 0;
+  const live = new Map<string, Row[] | undefined>();
   const rowsOf = (sail: string): Row[] | undefined => {
     const devs = bySail.get(sail);
-    if (devs?.size) return [...devs.values()].sort((a, b) => b.length - a.length)[0];
+    if (devs?.size) {
+      if (!live.has(sail)) live.set(sail, liveTracker([...devs.values()]));
+      return live.get(sail);
+    }
     const serial = stats.get(sail)?.serialNumber || finishes.get(sail)?.serialNumber;
     return serial ? bySn.get(snFromHex(serial)) : undefined;
   };

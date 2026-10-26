@@ -277,11 +277,11 @@ describe('Cascais: the line bias (D16) and thin data', () => {
       expect(b.start!.linePosPct).toBeGreaterThan(med);
       for (const c of d.cards) if (c.kind === 'D16') expect(c.seconds).toBeGreaterThanOrEqual(MIN_SECONDS.medium);
     }
-    // Found on 31 boats. The wind is medium confidence (the weather model 10.1° off, over MODEL_AGREE_DEG), and so are the
-    // cards, which then need MIN_SECONDS.medium: 17 in their top 3 (16 on the full feed, also medium; 30 in PR #46's 318.0°,
+    // Found on 32 boats (31 with 17 trackers' replayed fixes in). The wind is medium confidence (the weather model 10.1°
+    // off, over MODEL_AGREE_DEG), and so are the cards, which then need MIN_SECONDS.medium: 17 in their top 3 (16 on the full feed, also medium; 30 in PR #46's 318.0°,
     // the model 9.9° off). 35 before that, the unfavoured third against Beat 1's wind.
     expect(windSource(r3.a.wind).confidence).toBe('medium');
-    expect(found).toBe(31);
+    expect(found).toBe(32);
     expect(cards).toBe(17);
     for (const b of r2.a.boats) expect(debriefOf(r2.a, r2.m, b.id)!.found.some((x) => x.kind === 'D16')).toBe(false);
   }, 120_000);

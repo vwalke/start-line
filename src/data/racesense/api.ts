@@ -45,9 +45,18 @@ export async function fetchUsableRegatta(
 }
 
 /**
+ * A division name as teleapi tags its rows: spaces as '_' and dots as '//' ("VX One" → "VX_One",
+ * "Female 7.5" → "Female_7//5"). Queried by the plain name, such a division returns no rows. The
+ * regatta document and everything keyed off it keep the display name.
+ */
+export function feedDivision(name: string): string {
+  return name.replace(/ /g, '_').replace(/\./g, '//');
+}
+
+/**
  * Telemetry for [after, before] (ms), paginated by advancing `after`
  * (exclusive). Pages overlap by 1 ms so rows sharing the boundary
- * timestamp aren't lost; the adapter de-duplicates.
+ * timestamp aren't lost; the adapter de-duplicates. `division` is the display name (mapped by feedDivision).
  */
 export async function fetchTelemetry(
   eventId: string,
@@ -61,7 +70,7 @@ export async function fetchTelemetry(
   const ttl = opts.finished ? 30 * DAY : MINUTE;
   for (let n = 0; n < MAX_PAGES; n++) {
     const p = new URLSearchParams({ after: String(cursor), before: String(Math.floor(before)), limit: String(PAGE) });
-    if (division) p.set('division', division);
+    if (division) p.set('division', feedDivision(division));
     const url = `${PROXY_BASE}/telemetry/event/${encodeURIComponent(eventId)}?${p}`;
     const page = await cachedJson<TelemetryPage>(url, ttl, opts.signal);
     pages.push(page);

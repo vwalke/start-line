@@ -30,6 +30,7 @@ import type { YsSource } from '../src/data/official/yachtscoring';
 import { discoverOrphans, type FetchRows, type ProbeRow } from '../src/data/orphans';
 import { buildRaceList } from '../src/data/raceList';
 import { currentDoc, nextGunMs, parseTelemetry, snFromHex } from '../src/data/racesense/adapter';
+import { feedDivision } from '../src/data/racesense/api';
 import type { RegattaResponse, TelemetryPage } from '../src/data/racesense/types';
 import { linkRequest, orphanContexts } from '../src/data/recovery';
 
@@ -76,7 +77,7 @@ async function tele(ev: string, a: number, b: number, division: string | null): 
   const pages: TelemetryPage[] = [];
   let cur = Math.floor(a);
   for (let n = 0; n < 12; n++) {
-    const u = `https://teleapi.regatta.app/telemetry/event/${ev}?after=${cur}&before=${Math.floor(b)}&limit=100000${division ? `&division=${encodeURIComponent(division)}` : ''}`;
+    const u = `https://teleapi.regatta.app/telemetry/event/${ev}?after=${cur}&before=${Math.floor(b)}&limit=100000${division ? `&division=${encodeURIComponent(feedDivision(division))}` : ''}`;
     const p = await getJson<TelemetryPage>(u);
     pages.push(p);
     if (!p.Fields || !p.Rows || p.Rows.length < 100_000) break;
