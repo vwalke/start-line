@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
-import { START_SOG_HEADROOM_KN, START_SOG_HI_PCT, startSogSeries } from '../src/analysis/startSog';
+import { START_SOG_WINDOWS, startSogSeries, type StartSogWindow } from '../src/analysis/startSog';
 import type { RaceAnalysis } from '../src/analysis/types';
 import { dropFleetOutliers, FLEET_OUTLIER_M, FLEET_OUTLIER_MIN_BOATS, metresBetween, parseTelemetry } from '../src/data/racesense/adapter';
-import { startSogChart, startSogClips, startSogLayout } from '../src/ui/startSog';
-import { c31r4Fixture, c31r4Race, c31Race, fixtureRace, type Fixture } from './helpers';
+import { startSogChart, startSogClips, startSogKey, startSogLayout } from '../src/ui/startSog';
+import { c31r4Fixture, c31r4Race, c31Race, cascaisRace, fixtureRace, j105Race, type Fixture } from './helpers';
 
 const f = c31r4Fixture();
 const data = c31r4Race(f);
@@ -109,21 +109,21 @@ describe('start speed axis', () => {
     startSogSeries(x, w)
       .boats.flatMap((b) => b.runs.flatMap((r) => r.sog))
       .sort((p, q) => p - q);
+  /** The key's "off scale" chip, if any. */
+  const offScale = (x: RaceAnalysis, w: StartSogWindow) => startSogKey(startSogSeries(x, w), w).chips.find((c) => c.text.includes('off scale'));
   /** A copy with boat `id`'s start speeds replaced by `fn(i, n)`. */
   const withSog = (x: RaceAnalysis, id: string, fn: (i: number, n: number) => number): RaceAnalysis => ({
     ...x,
     drawings: x.drawings.map((d) => (d.id === id ? { ...d, startSog: { t: d.startSog.t, sog: Float32Array.from(d.startSog.sog, (_, i) => fn(i, d.startSog.sog.length)) } } : d)),
   });
 
-  it('one boat at 30–40 kn keeps the top at the fleet’s 99th percentile + 1 kn, clipped with a caret', () => {
+  it('one boat at 30–40 kn: the top is the rest of the fleet’s fastest speed; that boat is clipped with a caret and keyed', () => {
     const id = a.boats.find((b) => b.id !== 'GER 8')!.id;
     const bad = withSog(a, id, (i, n) => 30 + (10 * i) / n);
-    for (const w of [30, 60, 120] as const) {
-      const fleet = startSogSeries({ ...a, drawings: a.drawings.filter((d) => d.id !== id) }, w);
-      const v = speeds({ ...a, drawings: a.drawings.filter((d) => d.id !== id) }, w);
+    const rest = { ...a, drawings: a.drawings.filter((d) => d.id !== id) };
+    for (const w of START_SOG_WINDOWS) {
       const s = startSogSeries(bad, w);
-      expect(fleet.hi).toBeCloseTo(Math.min(v[Math.ceil(START_SOG_HI_PCT * v.length) - 1] + START_SOG_HEADROOM_KN, v.at(-1)!), 5);
-      expect(s.hi).toBe(fleet.hi);
+      expect(s.hi).toBe(speeds(rest, w).at(-1));
       expect(s.hi!).toBeLessThan(12);
       const L = startSogLayout(s);
       expect(L.hi).toBeLessThanOrEqual(12);
@@ -131,14 +131,16 @@ describe('start speed axis', () => {
       expect(L.y(-3)).toBe(L.y(L.lo));
       const b = s.boats.find((x) => x.id === id)!;
       expect(startSogClips(b, L).length).toBeGreaterThan(0);
-      const g = new RegExp(`<g class="ss-boat" data-id="${id}">.*?</g>`).exec(startSogChart(bad, null, w, {}, s))![0];
+      for (const o of s.boats.filter((x) => x.id !== id)) expect(startSogClips(o, L)).toEqual([]);
+      expect(offScale(bad, w)).toEqual({ text: '▲ off scale', title: 'Speed above the top of the chart (a tracker glitch)' });
+      const g =new RegExp(`<g class="ss-boat" data-id="${id}">.*?</g>`).exec(startSogChart(bad, null, w, {}, s))![0];
       expect(g).toContain('class="ss-clip-mark"');
       // The line itself stays inside the plot.
       for (const m of g.matchAll(/class="ss-line" d="([^"]+)"/g)) for (const [, y] of m[1].matchAll(/[ML][\d.]+ ([\d.]+)/g)) expect(Number(y)).toBeGreaterThanOrEqual(L.padT);
     }
   });
 
-  it("with GER 8's bad fixes left in (fix 2 alone), the axis tops out at 9 kn, as without them", () => {
+  it("with GER 8's bad fixes left in (fix 2 alone), the axis reads 0–9 kn as without them; GER 8 is clipped and keyed", () => {
     // Under FLEET_OUTLIER_MIN_BOATS boats nothing is dropped: GER 8's start speeds as the feed had them.
     const sails = ['GER 8', 'TUR3150', 'ITA3176'];
     const F = f.telemetry.Fields!;
@@ -147,25 +149,43 @@ describe('start speed axis', () => {
     expect(Math.max(...rawGer8.startSog.sog)).toBeGreaterThan(30);
     const bad = { ...a, drawings: a.drawings.map((d) => (d.id === 'GER 8' ? { ...d, startSog: rawGer8.startSog } : d)) };
     for (const w of [30, 60] as const) {
-      const L = startSogLayout(startSogSeries(bad, w));
+      const s = startSogSeries(bad, w);
+      const L = startSogLayout(s);
       const clean = startSogLayout(startSogSeries(a, w));
       // The whole fleet's axis is 0–9 kn; these 8 boats' slowest is just over 2 kn.
       expect([L.lo, L.hi]).toEqual([clean.lo, 9]);
       expect(clean.hi).toBe(9);
+      expect(startSogClips(s.boats.find((b) => b.id === 'GER 8')!, L).length).toBeGreaterThan(0);
+      for (const o of s.boats.filter((b) => b.id !== 'GER 8')) expect(startSogClips(o, L)).toEqual([]);
       expect(startSogChart(bad, null, w)).toContain('class="ss-clip-mark"');
+      expect(offScale(bad, w)?.text).toBe('▲ off scale');
+      expect(offScale(a, w)).toBeUndefined();
     }
   });
 
-  it('without outliers the top still covers every speed: nothing clipped', () => {
-    for (const x of [a, analyzeRace(fixtureRace()), analyzeRace(c31Race())]) {
-      for (const w of [30, 60, 120] as const) {
+  it('without outliers the top is the fastest speed: nothing clipped, no caret, no "off scale"', () => {
+    const races: [string, RaceAnalysis][] = [
+      ['cascais r2', analyzeRace(cascaisRace('r2'))],
+      ['j105 r2', analyzeRace(j105Race(2))],
+      ['c31 r10', analyzeRace(c31Race())],
+      ['c31 r4', a],
+      ['benelux r8', analyzeRace(fixtureRace())],
+    ];
+    for (const [name, x] of races) {
+      for (const w of START_SOG_WINDOWS) {
         const s = startSogSeries(x, w);
+        expect(s.hi, `${name} ${w} s`).toBe(speeds(x, w).at(-1));
         const L = startSogLayout(s);
-        const v = speeds(x, w);
-        expect(s.hi!).toBeGreaterThanOrEqual(v[Math.ceil(START_SOG_HI_PCT * v.length) - 1]);
-        expect(L.hi).toBeGreaterThanOrEqual(v.at(-1)!);
+        for (const b of s.boats) expect(startSogClips(b, L), `${name} ${w} s ${b.id}`).toEqual([]);
         expect(startSogChart(x, null, w)).not.toContain('ss-clip-mark');
+        expect(offScale(x, w), `${name} ${w} s`).toBeUndefined();
       }
     }
+  });
+
+  it('Cascais race 2: the 120 s axis reaches the fleet’s 9.1 kn (10 kn on the grid)', () => {
+    const s = startSogSeries(analyzeRace(cascaisRace('r2')), 120);
+    expect(s.hi!).toBeGreaterThan(9);
+    expect(startSogLayout(s).hi).toBe(10);
   });
 });

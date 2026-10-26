@@ -3,8 +3,9 @@
  * boat (analysis/startSog.ts), drawn at the card's pixel width. Lines break at
  * telemetry gaps, joined by dashed grey; a dot marks each boat's line
  * crossing. The selected boat is drawn last and thicker; the rest fade.
- * Speeds over the axis's robust top are drawn along the top edge, a caret
- * where the line leaves it.
+ * A boat far over the fleet (a tracker glitch, see startSogHi) is drawn along
+ * the top edge over the axis, a caret where its line leaves it; the key then
+ * shows "▲ off scale".
  * "Window: 30 s | 60 s | 120 s" sets how far before the gun it starts
  * (recall.startSogWindow); it always runs to +20 s.
  */
@@ -119,11 +120,13 @@ export function startSogHover(
   return best;
 }
 
-/** The key line: the window shown (⚠ when the tracks start later than asked), the dot and gap swatches; the method in the ⓘ. */
+/** The key line: the window shown (⚠ when the tracks start later than asked), the dot and gap swatches, the caret when a speed is off the top; the method in the ⓘ. */
 export function startSogKey(s: StartSogSeries, w: StartSogWindow): KeyLine {
   const chips: Chip[] = [s.clamped ? warnChip(`data from ${secsLabel(s.t0)} only`) : { text: `${secsLabel(s.t0)} → ${secsLabel(s.t1)}` }];
   chips.push({ text: 'crossed the line', swatch: 'dot' });
   if (s.boats.some((b) => b.gaps.length)) chips.push({ text: 'no data', swatch: 'gap' });
+  const L = startSogLayout(s);
+  if (s.boats.some((b) => startSogClips(b, L).length)) chips.push({ text: '▲ off scale', title: 'Speed above the top of the chart (a tracker glitch)' });
   return {
     chips,
     bullets: [
