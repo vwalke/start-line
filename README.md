@@ -102,43 +102,43 @@ off by a thin rule in the theme's border color.
     crossed it 14–29 s before their finish times). The group line is bold, over a fixed set of boats: at each
     point the mean of the boats with data when there are `GROUP_MEAN_MAX_BOATS` = 5 or fewer, their median when
     there are more (the legend says which: "(mean)", "(median)", or "(mean / median)" when it changes); the bold
-    line bridges a rival's tracker gap of up to `GROUP_BRIDGE_S` = 10 min in a
-    straight line (progress is monotone; the readout counts those boats as
-    estimated: "6 boats, 2 estimated"), so the line doesn't jump when boats
-    round or drop out of the data; it is drawn only where at least half the
-    group's gaps rest on holes of `GROUP_DRAW_HOLE_S` = 30 s or less, and
-    breaks for a point if the set changes anyway. Thin lines are not filled
-    in: they keep the position rule (fixes at most 15 s apart, read within 5 s
+    series reads a rival across a tracker hole of up to `GROUP_BRIDGE_S` = 10 min in a
+    straight line (progress is monotone), so the line doesn't jump when boats
+    round or drop out of the data; it has a value only where at least half the
+    group's gaps rest on holes of `GROUP_DRAW_HOLE_S` = 30 s or less. Thin lines'
+    values keep the position rule (fixes at most 15 s apart, read within 5 s
     of one; on a stretch that starts or ends at a rounding-zone edge, linear in
     time by construction, only the 15 s rule, so ~10 s tracks don't drop points
     there). A gap between fixes where the boat made no progress (a tack back, a
     stall in a rounding zone) isn't a hole. The gap scale fits every thin line
     for 5 or fewer boats; with more it follows the bold line plus some headroom
-    and marks a thin line that runs off it at the edge. On the chart only, a break of
-    `SHORT_GAP_S` = 30 s or less between two values is drawn straight across, and a
-    longer one is left blank (no band, no "no data" chip); the wind strip's estimated
-    stretches are the same line, lighter. The cards read the same series (`groupGap`), so
+    and marks a thin line that runs off it at the edge. On the chart (display only),
+    every line runs straight on across any stretch without values, however long:
+    no breaks, no bands, no "no data" chip, and the readout says only the statistic
+    and how many boats ("median of 6 boats"), never that any was estimated; the
+    wind strip's estimated minutes are the same line, lighter. The cards read the
+    same series (`groupGap`), with its holes and rules as above, so
     a card's seconds are the chart's change for the same group), the biggest gains as cards
     ranked by their impact on the result (see [How the Coach ranks
     cards](#how-the-coach-ranks-cards); at most 3, at most 2 from one detector:
     the next-best from another takes the slot; penalty turns exempt),
     **Went well** (up to 3 lines with the seconds gained: legs, roundings
     and the start where the boat gained on the top 3), the ✓ "Not the
-    problem" chips (on a stretch the tracker covered under 50 % a "Not judged"
-    chip instead: "Not enough data to judge banked gains (tracker 37%)", never a
-    ✓), and a story per leg. Works on every race the menu offers,
+    problem" chips (on a stretch the tracker covered under 50 % a chip under
+    "Not judged" instead, just what it is: "banked gains", never a ✓), and a
+    story per leg. Works on every race the menu offers,
     rebuilt and tracker-only ones included.
   - **Regatta:** the same boat over every race the Race menu lists (its
     numbering; practice left out; rebuilt and tracker-only races in). A row of
     places (official, else RaceSense's or the tracker's `~`, "of N"); the top 3
     things to work on as cards, a finding found in 2+ races being a **pattern
-    card** ("Leeward roundings cost you time in 3 of 4 races with good data",
+    card** ("Leeward roundings cost you time in 3 of 4 races judged",
     a chip per race with its seconds, and the tip); **Went well** over the
     regatta (up to 3 families: "Beats: gained on the top 3 in 2 of 4 races
     (best R2 Beat 2, 55 s)"); the ranked table of recurring findings; best
     and worst legs by type against the fleet's median leg time. All by fixed
-    rules (no AI). A race with tracker coverage under 80 % is shown and marked
-    ⚠, its seconds weighted down in proportion. The races are analyzed on
+    rules (no AI). A race with tracker coverage under 80 % has its seconds
+    weighted down in proportion (not marked on screen). The races are analyzed on
     first opening, one at a time on a second worker (`src/ui/coachRegatta.ts`,
     `src/analysis/coach/regatta.ts`) with progress, and cached for the visit;
     the race on screen is never held up.
@@ -170,8 +170,8 @@ off by a thin rule in the theme's border color.
     at its own fix nearest 60 s before the rounding (20 s–2 min) and the same
     after.     Losing max(3, min(5, ceil(5 % of the fleet))) places or more (3 up to
     60 boats, 4 to 80, 5 beyond) is a card at medium confidence ("Windward
-    mark: lost 7 places through the rounding, 10th → 17th of 100 (sparse data,
-    timing approximate)"); seconds = the change in the chart's gap to the boats
+    mark: lost 7 places through the rounding, 10th → 17th of 100 (read from the
+    places through it)"); seconds = the change in the chart's gap to the boats
     that passed it (Custom: them; its points nearest the two reads). The boat's own
     places must be from a position (a hole at the read is not judged); only
     boats measured at both reads count as passers. DNS/DNC and tracked boats
@@ -373,14 +373,14 @@ off by a thin rule in the theme's border color.
     12th of 33", "lost 5 · 30th of 33", "even · 4th of 33". A boat with no time
     at a mark (a tracker hole, a dropped tracker) is placed from a time
     interpolated between its roundings either side (or its finish) along the
-    fleet's median splits, or carried on at its own pace; such places show `~`.
+    fleet's median splits, or carried on at its own pace (estimated inside, shown plainly).
     A finish lost in a hole is placed among the finishers by its estimated
     time; a boat that finished with a code (DPI…) at its on-water place; coded
     boats that didn't (DNF…) after the last finisher. The start: every boat on
     the line by its place at the gun, the start place's order kept and a boat
     whose DTL falls in a hole placed between from its nearest fix (dead reckoning
     when one is within 10 s, else interpolation when fixes within 30 s bracket
-    the gun; `~`); over early or away from the line after them; with neither,
+    the gun; shown plainly); over early or away from the line after them; with neither,
     its start place is unknown ("— · 20th of 100") and it is left out of Beat 1's
     places gained and movers. Against Top 3 / Near /
     custom the closed row adds the leg's seconds against the group's median leg
@@ -401,12 +401,12 @@ off by a thin rule in the theme's border color.
   (top right of the race header), `#report` or `report=1` opens one printable page
   for the selected boat in the race: the header (place on the water and scored,
   with any code; race, official elapsed and corrected times; the estimated wind
-  and where it came from, the tacks 0:30–3:30 after the gun or the first beat's;
-  tracker coverage), the start (distance and seconds late at the gun, start place,
-  the estimated place at the gun when the start place is unranked, the line bias, line position, place over the line and front row, over early and when it
+  and where it came from, the tacks 0:30–3:30 after the gun or the first beat's),
+  the start (distance and seconds late at the gun, start place,
+  the line bias, line position, place over the line and front row, over early and when it
   cleared, the start card), leg by leg (places in → out of the fixed fleet, time
   against the Coach's group, SOG and VMG against the group's median, tacks /
-  gybes with D17's measured cost a maneuver, side, gate buoy, data), roundings and gates (D9 / D13), penalties (the
+  gybes with D17's measured cost a maneuver, side, gate buoy), roundings and gates (D9 / D13), penalties (the
   code, penalty turns), and the Coach's penalty card, ranked findings (its order
   and seconds), Went well and the cards' tips as things to work on; a small track
   map. Only figures Recall already works out: what the data lacks is `—` with a
@@ -482,15 +482,16 @@ Switching races keeps the tab.
   Race Viewer while scrubbing or replaying draw each boat as the start
   chart's hull, centered on its position and pointing along its course over
   ground at that moment (the scrubber's: the step between the fixes either
-  side), or, while it is held in a tracker gap, slower than 1 kn or has no
+  side), or, while it is held past its final fix, slower than 1 kn or has no
   course, along the last heading it had. It
   is to scale from the class's length and beam once that is at least 12 px
   long on screen (`BOAT_SHAPE_PX`; 15 px for the selected boat), else a
   symbol that long with the hull's proportions (as the start chart's
-  markers when its hulls would be too small). It is filled while the boat's
-  data is fresh and hollow (a quiet outline in its own color) once it is
-  lost in a long gap, so a dropout no longer flips the hull to a dot. In a
-  short gap the boat stays a filled hull on the filled-in path (see Data
+  markers when its hulls would be too small). It is filled while the boat
+  has data and hollow (a quiet outline in its own color) once its tracker has
+  stopped for good (held past its final fix, before its finish), so a dropout
+  never flips the hull to a dot. Across a hole in its track, however long, the
+  boat glides along the filled-in path as a normal filled hull (see Data
   gaps on the maps). The boat
   is a dot only when no heading was ever known (no step yet of at least
   1 kn, `BOAT_SHAPE_MIN_KN`), the class has no dimensions, or the map is
@@ -526,17 +527,16 @@ Switching races keeps the tab.
   the line, blowing from the course side (`Wind assumed ⟂ line`, a dashed
   arrow turned that way). No mark is drawn. The selected boat and its Coach
   group (Top 3 by default) are highlighted and labeled, the rest faded.
-  Positions are the Race Viewer's: interpolated across short steps, on the
-  filled-in curve across a short gap, held at the last fix in a longer gap, or after its final fix when its tracker stops
-  before it finishes (hollow after the first 30 s), for up to 2 minutes,
-  else the boat is missing at that second (never placed); trails break at
-  gaps. A boat within 1 s of a fix
-  where the scrubber has no position (its feed starting or ending, the far
-  side of a gap) is placed at that fix. The caption is just the selected
+  Positions are the Race Viewer's: between the fixes either side, on the
+  filled-in curve across a hole of any length; after its final fix when its tracker stops
+  before it finishes, held there (hollow after the first 30 s) for up to 2 minutes,
+  else the boat is missing at that second (never placed before its first fix or
+  invented after its last); trails run on across holes. A boat within 1 s of a fix
+  where the scrubber has no position (its feed starting or ending) is placed at that fix. The caption is just the selected
   boat's place upwind among the boats placed (`USA 016: ≈ 6 of 15`: an
   approximate ranking by distance made from the line's middle along the
   wind, or along the line's perpendicular when the wind is assumed), or its
-  one note (`no position (tracker gap).` / `not tracked.`); a second with
+  one note (`no position at this time.` / `not tracked.`); a second with
   no positions and no trails says `No tracks at this time.`
 - **Start Playback: over early.** A boat over early (the over-early facts
   from the worker, as the track map's "Replay start") is drawn as that
@@ -562,16 +562,18 @@ Switching races keeps the tab.
 - **Key lines** (`ui/info.ts`, `ui/captions.ts`): under every chart and
   table, one short row of chips with the key facts only, e.g.
   `Line 143 m · RC fav. 2° · 4 m · wind est. (medium) · hulls to scale`,
-  plus legend swatches (`- - line extended`, `- - no data`, `○ estimated
+  plus legend swatches (`- - line extended`, `○ estimated
   mark`, `- - not racing`, `● crossed the line`). Caveats stay in sight as
   red ⚠ chips: low wind confidence (`⚠ wind est. low`, `⚠ wind assumed`),
-  low data, Vakaros vs our check, unchecked OCS, missing roundings, a start
+  Vakaros vs our check, unchecked OCS, a start
   window cut short, legs split from the fleet's turns (on the Race Analysis
-  card). A gap at the gun is a plain chip (`1 with a gap at the gun`), only
-  for a hole of over `GUN_GAP_FLAG_S` = 10 s across the start sample with no
-  Vakaros distance of the device's own; where the device reported one, the
-  start figures (ranking, away from the line, the Coach's start inputs, the
-  over-early replay) use it instead of our interpolated figure. The row ends in one ⓘ
+  card). Nothing on screen flags a hole in a track (see Data gaps on the
+  maps). At the gun, where a boat's own fixes have a hole across the start
+  sample, the Vakaros device's distance is the start figure when it reported
+  one (ranking, away from the line, the Coach's start inputs, the over-early
+  replay); without one, our figure interpolated across the hole is shown like
+  any other (the start table's check and Late, the start chart's bow number),
+  with no `~`, chip or note. The row ends in one ⓘ
   "How to read this" (a native `<details>`, closed by default; it stays
   open across redraws) with a few short bullets: methods, what dashed
   means, sensitivity (±5° of wind ≈ ±N m), label meaning, Names modes,
@@ -583,7 +585,7 @@ Switching races keeps the tab.
   and + / − center on the selected boat where it is at the moment shown
   (the slider's second, or the scrubber's time), with the follow camera's
   look-ahead below; with no boat selected, or
-  the selected boat not placed then (a tracker gap), on the middle of the
+  the selected boat not placed then (before its first fix or after its last), on the middle of the
   fleet's positions (their bounding box's center); with nobody placed, on
   the map's center. The track map with no moment (the full race) keeps the
   view's center. Fit and 0 show the whole default extent. Pinch, double-tap
@@ -663,9 +665,9 @@ Switching races keeps the tab.
   120 s before the gun to 20 s after, and the live feed is fetched from 130 s
   before the gun to allow for it; if no boat's track goes back as far as the
   window, the chart starts at the earliest data and a ⚠ chip says so.
-  A line breaks wherever a boat's fixes are more than 5 s apart (the same
-  threshold as the distance `~` and Data %), with a faint gray dashed join, so a
-  hole is never drawn as a speed; hovering inside one shows nothing. A dot
+  Each boat is one line through all its fixes: where they are more than 5 s
+  apart (a hole) the line runs straight on between them, drawn as the rest,
+  and hovering there reads that line. A dot
   marks where each boat crossed the line (the start table's Late) and its
   speed then ("crossed +2.6 s at 5.3 kn"). Hover or tap for the speed under
   the pointer (the selected boat's, else the nearest line's) with a
@@ -677,15 +679,16 @@ Switching races keeps the tab.
   caveats listed under it.
 - **Performance Metrics** (Race tab, a table after the map, Rounding & Finish Positions and Race Analysis): finish place,
   start place, then per leg VMG, SOG, TWA, heel, distance sailed (meters), leg time
-  with the place at the mark, tacks (on beats) or gybes (on runs; both on
-  reaches) and Data %; then the same for **Upwind** and **Downwind**, then the
-  race: distance, race and finish time, average SOG, tacks, gybes and Data %.
+  with the place at the mark, and tacks (on beats) or gybes (on runs; both on
+  reaches); then the same for **Upwind** and **Downwind**, then the
+  race: distance, race and finish time, average SOG, tacks and gybes.
   Distances are whole meters with a thin-space thousands separator
-  (`12 345`). Distance sums the GPS track point to point; where fixes are
-  more than 5 s apart it's shown as `~` (approximate), and so is a tack or
-  gybe count where one bridges a gap, and a leg time whose rounding falls in
-  one. A leg whose rounding is lost in a gap shows — (see Legs below). Data %
-  below 90% is flagged ⚠ with how much of the leg had data and the longest gap.
+  (`12 345`). Distance sums the GPS track point to point. Every figure is
+  shown plainly, one across a hole in the track too (a distance, a tack or
+  gybe count or a leg time there is flagged inside, `distGapS`,
+  `manoeuvreGap`, `timeGapS`, where the analysis needs it, never on screen);
+  a leg with no timed rounding shows — (see Legs below). There is no Data %
+  column and no low-data flag.
 - **Rounding & Finish Positions** (Race tab, after the track map; `analysis/places.ts`,
   `ui/places.ts`): a bump chart of each boat's place at the start, at every
   mark rounding (named as the legs name them; a repeat is "M1 (2)") and at
@@ -694,8 +697,8 @@ Switching races keeps the tab.
   point); each mark is the order of the rounding times from the leg splits
   (a leg's end, or the next leg's start when that leg broke), among the boats
   with a time there, with equal times kept in the legs table's order; Finish
-  is the finish order. A boat with no rounding time at a mark (a telemetry
-  gap) is left out of that mark's order, so the others close up, and its line
+  is the finish order. A boat with no rounding time at a mark is left out of
+  that mark's order, so the others close up, and its line
   is dashed gray across it; nothing is guessed. A DNF's line stops at the
   last mark reached and is labeled "DNF" there. Boats set aside as not
   racing are not drawn. When the legs come from where the fleet turned (no
@@ -731,7 +734,7 @@ Switching races keeps the tab.
   or rounding up at a mark on the same side is not a maneuver; a gybe-set or
   a tack around a mark is, and within 15 s of the rounding it is counted on
   the leg it belongs to (a gybe on the run, a tack on the beat). A side change
-  across a telemetry hole (> 5 s) is counted but marked approximate (`~`).
+  across a telemetry hole (> 5 s) is counted, flagged approximate inside (not on screen).
 - **Heel** (`analysis/heel.ts`): from each tracker's motion sensor (the feed's
   `roll`, integer degrees; `roll` < 0 is heeled to port, which is what every
   fleet shows upwind on starboard tack). Shown as *leeward heel* =
@@ -742,8 +745,7 @@ Switching races keeps the tab.
   Upwind / Downwind summary it is time-weighted (each fix holds until the
   next; never across a gap over 5 s), leaving out 5 s either side of each
   tack or gybe, where heel swings through zero. Heel at the gun is the fix
-  nearest the gun within 2 s. A heel cell is flagged ⚠ when the leg had heel
-  readings for under 90% of its time. Readings of ±90° or more (a sensor
+  nearest the gun within 2 s. Readings of ±90° or more (a sensor
   clamp on coach and spare trackers) and runs of exactly 0° roll and 0° pitch
   lasting 10 s or more while moving (a device sending no IMU) count as
   missing; brief 0/0 readings are real and kept. Feeds without `roll` (older
@@ -752,11 +754,13 @@ Switching races keeps the tab.
   mounting angle (boats in one fleet sit 13° apart on every leg), so it
   doesn't compare between boats.
   With no fixes for minutes at a time, maneuvers inside the hole can't be
-  seen at all; the coverage figure says when that is likely.
-- **Data coverage:** the share of each leg (and of the race) where the boat's
-  fixes are at most 5 s apart, and the longest interval between fixes. Below
-  90% is flagged as low. The public feed is lossy: some events have holes of
-  several minutes.
+  seen at all.
+- **Data coverage** (internal): the share of each leg (and of the race) where
+  the boat's fixes are at most 5 s apart, and the longest interval between
+  fixes. The public feed is lossy: some events have holes of several minutes.
+  The Coach's confidence and gates read it (a card on thin data is low
+  confidence or not judged, never made up from an interpolated stretch); it is
+  not shown as a figure, a flag or a note anywhere.
 - **Sorting:** every column header sorts its table, best end first; click
   again to reverse. Missing values always sort last. The two tables sort
   independently, and both sorts are kept with the last race viewed (a sort
@@ -776,39 +780,55 @@ Switching races keeps the tab.
   `All` / a Coach card's `Window` for the tracks themselves). The trail is
   in the boat's own color (its leg, rank or speed color, dimmed with it when
   another boat is selected) and fades toward the tail in four steps
-  (`TRAIL_FADE`). It breaks only at a tracker gap longer than `SHORT_GAP_S`
-  (30 s, the map's gap rule for every boat); a shorter one is filled in,
-  lighter (see Data gaps on the maps). Each frame only
+  (`TRAIL_FADE`). It never breaks: a hole in the track, however long, is
+  filled in and drawn as the rest (see Data gaps on the maps). Each frame only
   updates the trails' path data (`ui/trailLayer.ts`); the map is never
-  redrawn for it during play. A boat in a gap over 30 s stays a hull at its
-  last fix and last heading, hollow (a quiet outline in its own color) until
-  its data is back, for up to 2 minutes (`MAP_HOLD_S`). A tracker that stops
-  for good is held after its final fix (`boatAt`'s `endHold`), filled for
+  redrawn for it during play. A boat in a hole glides across it on the
+  filled-in path, a normal filled hull. A tracker that stops
+  for good is held after its final fix (`boatAt`'s `endHold`) for up to
+  2 minutes (`MAP_HOLD_S`), filled for
   `BOAT_STALE_MS` (30 s) and then hollow, but never past
   the boat's finish: a boat that finished leaves the map at its finish as
   before rather than showing as lost. A replay's over-the-line overlay has
   its own layer (`g.scrub-ocs`) over the trails.
-- **Data gaps on the maps** (`ui/gapFill.ts`, display only): holes are
-  judged on the feed's own fixes, not on the drawn segments thinned to one
-  fix a second (thinning turns a 1.5 s hole in a 2 Hz feed into a 2.5 s
-  step). A hole is a step between the feed's fixes over 2 s, or twice its
-  usual step (`analysis/rawHoles.ts`); each drawing carries the fixes around
-  every hole (`BoatDrawing.holes`, display data that no result reads), merged
-  back into the thinned segments for drawing. A hole of `SHORT_GAP_S` = 30 s
-  or less (RaceSense's own viewer bridges up to 30 s) is filled in with a
-  smooth curve: a cubic Hermite
-  from the fixes either side and their velocities (course from the
-  neighboring step, at the fix's SOG), Catmull-Rom where those are missing,
-  straight where a tangent points back or the curve would swing wide;
-  sampled about every second. The filled stretch is the same line, solid and
-  lighter, in the Race Viewer's tracks and trails, the start chart's trails
-  and Start Playback, and the boat there is a normal filled hull on the
-  curve, pointing along it. A longer gap is a break, left blank, and its
-  hollow hull kept quiet. On C31 Gold Cup race 10 (a ~2 Hz feed) that takes
-  the blank share of boat-time in gun ±60 s from 21% to 1%. The race map's ⓘ says once: `Estimated sections are lighter.`
-  The filled points are drawn and nothing else: the results, finishes, OCS,
-  start-line crossings, penalties, places, coverage and every Coach number
-  read the real fixes only (`tests/gapFillDisplayOnly.test.ts`).
+- **Data gaps: none shown** (`ui/gapFill.ts`, display only). As RaceSense's
+  and Vakaros's own viewers do, Recall shows no data gaps anywhere: every hole
+  in a boat's track is bridged silently wherever the track is drawn, whatever
+  its length, accepting that a long bridge is a guess. Holes are judged on
+  the feed's own fixes, not on the drawn segments thinned to one fix a second
+  (thinning turns a 1.5 s hole in a 2 Hz feed into a 2.5 s step). A hole is a
+  step between the feed's fixes over 2 s, or twice its usual step
+  (`analysis/rawHoles.ts`); each drawing carries the fixes around every hole
+  (`BoatDrawing.holes`, display data that no result reads), merged back into
+  the thinned segments for drawing. Every hole is filled in with a smooth
+  curve: a cubic Hermite from the fixes either side and their velocities
+  (course from the neighboring step, at the fix's SOG), Catmull-Rom where
+  those are missing, straight where a tangent points back or the curve would
+  swing wide; sampled about every second. A hole where one leg's track ends
+  and the next begins (a rounding inside it) is bridged too
+  (`mapPieces.ts` `filledRanges`). The filled stretch is drawn exactly as the
+  rest of the track (no lighter opacity, no dashes, no breaks) in the Race
+  Viewer's tracks, trails and Boat speed colors, the start chart's trails,
+  Start Playback, the Coach card maps and the landing page's hero; its points
+  read like any other in the hover tooltip; and the boat glides along it
+  (position and heading between the fixes either side), a normal filled hull.
+  Before a boat's first fix and after its last nothing is invented. The
+  charts do the same: Gap to rivals' lines, Start Speed Control's speeds and
+  the Rounding & Finish Positions lines run straight on across a stretch
+  without values, and no chip, key swatch, tooltip, table mark (`~`), note or
+  Coach card names a gap, a hole, missing data or interpolation; at the gun the
+  Vakaros device's distance is the start figure where it has one, else ours
+  across the hole, shown plainly. On C31 Gold Cup race 2 (two fleet-wide
+  blackouts, 13:16–13:24 and 13:37–13:44 UTC) the share of boat-time drawn
+  blank went from 46% (and 29% lighter) to 0, and on race 10 around the gun
+  (ITA 78's 31.7 s hole) from 1% to 0. The bad data the filters drop (fixes
+  far off the fleet, a replayed tracker, SOG spikes, the start chart's
+  off-scale boats with their `▲ off scale` caret) is not a gap and stays
+  dropped. The filled points are drawn and nothing else: the results,
+  finishes, OCS, start-line crossings, penalties, places, coverage and every
+  Coach number read the real fixes only, with their own hole rules
+  (`tests/gapFillDisplayOnly.test.ts`), and the Coach makes no finding from a
+  bridged stretch.
 - **Color tracks:** `Color: Leg | Rank | Boat speed` beside the legend.
   Rank is the elapsed-time scale (reversed plasma: yellow = fastest, through
   orange and magenta to purple = slowest). Rank also sets opacity and width:
@@ -818,8 +838,8 @@ Switching races keeps the tab.
   by race time (`Rank by: Overall`). `Highlight: Top 3 / Top 10` grays out
   everyone else and spreads the colors over just those. Boat speed shades
   every stretch of track by that boat's own speed over ground (4 s mean,
-  viridis: dark purple slow, through teal, to yellow-green fast; a long
-  telemetry gap is left blank). The scale is the fleet's 5th–95th percentile. On the
+  viridis: dark purple slow, through teal, to yellow-green fast; a hole
+  colored on across, as the track is drawn). The scale is the fleet's 5th–95th percentile. On the
   whole race, `Scale: Per leg` (the default) stretches colors over each
   leg's own spread so beats aren't all dark next to planing runs; `Whole
   race` uses one knot range for every leg. Hover a track for the boat, local
@@ -1145,15 +1165,16 @@ so each is checked before it's used (`src/data/racesense/adapter.ts`,
   start's line. A stale row is not used, and the note names the race it came
   from when that race can be identified. For a stale row with a positive
   distance, race control's OCS check was blind for that boat.
-- **Gaps in our check.** The public track is about 2 Hz but loses points near
-  the gun. Our figure is interpolated across the gap if the nearest real point
+- **Holes in our check.** The public track is about 2 Hz but loses points near
+  the gun. Our figure is interpolated across the hole if the nearest real point
   is more than 2 s from our sample, or if the hole bracketing the sample is
-  longer than 5 s (even when a neighbor is within 2 s). It is shown grayed
-  with a `~`, never ranked, and has no Late (s).
+  longer than 5 s (even when a neighbor is within 2 s). It is never ranked
+  (the Vakaros figure ranks the boat when there is one), but it is shown like
+  any other figure, with its Late (s): no `~`, no gray, no note.
 - **Disagreement.** If both figures are valid and differ by more than 3 m,
   the Vakaros value gets a ⚠. If Vakaros has no usable fix and our figure is
   under 1 m (near or over the line), the boat is flagged as one race
-  control's OCS check had no data for.
+  control's OCS check didn't cover ("Vakaros had no OCS check for this boat").
 - **Ranking** uses one value per boat: Vakaros when it's valid, otherwise ours
   when it's valid, otherwise the boat is unranked. The table's Start column
   shows the place among clean starters and the source (`V` or `ours`).

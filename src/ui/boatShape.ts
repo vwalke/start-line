@@ -2,13 +2,12 @@
  * The boat shape: the start chart's stylized hull (to scale, from the class's LOA and beam), shared with the
  * track map's boats while scrubbing and the Start tab's "Start Playback" view. Those two draw it centred on the
  * boat's position, pointing along its course over ground at that moment (or the last heading known while it is held
- * in a gap, slow or has no course: boatMark), to scale or at least BOAT_SHAPE_PX long, filled while its data is
+ * past its final fix, slow or has no course: boatMark), to scale or at least BOAT_SHAPE_PX long, filled while its data is
  * fresh and hollow once it is lost; the dot only with no heading ever known, no class dimensions, or so far zoomed
  * out a symbol would overstate the boat too much. Pure: outlines and SVG path data; the callers draw them.
  */
 import { add, bearingVec, scale, type Vec } from '../analysis/geo';
 import type { ClassDims } from '../data/classes';
-import { SHORT_GAP_S } from './gapFill';
 
 /**
  * Stylized hull in hull coordinates: x across (±0.5 beam), y aft (bow 0,
@@ -115,13 +114,13 @@ export const BOAT_SHAPE_MIN_PX = 1.5;
 /** Below this SOG, kn, the course over ground between fixes is mostly GPS noise: no heading, a dot. */
 export const BOAT_SHAPE_MIN_KN = 1;
 
-/** Why a boat is a dot rather than a shape: no course to point along, held in a gap, too slow, no class dimensions, or too small on screen. */
+/** Why a boat is a dot rather than a shape: no course to point along, held past its final fix, too slow, no class dimensions, or too small on screen. */
 export type DotWhy = 'no-heading' | 'hold' | 'slow' | 'no-class' | 'small';
 
 export interface ShapeInput {
   /** Direction of travel in map coordinates (unit), null: unknown. */
   dir: Vec | null;
-  /** Held at the last fix inside a tracker gap. */
+  /** Held at its final fix (its tracker stopped before it finished). */
   hold: boolean;
   /** SOG, kn (NaN: unknown, taken as moving when there's a direction). */
   sog: number;
@@ -147,19 +146,11 @@ export function boatShapeOr(o: ShapeInput): { shape: Vec; dims: ClassDims } | { 
   return { shape: o.dir, dims: f > 1 ? { loaM: o.dims.loaM * f, beamM: o.dims.beamM * f } : o.dims };
 }
 
-/**
- * A boat held past its final fix (its tracker stopped before it finished) is drawn hollow once that fix is older than
- * this, ms: SHORT_GAP_S, the longest hole the maps fill in. In a hole it is hollow only when the hole is longer.
- */
-export const BOAT_STALE_MS = SHORT_GAP_S * 1000;
+/** A boat held past its final fix (its tracker stopped before it finished) is drawn hollow once that fix is older than this, ms. */
+export const BOAT_STALE_MS = 30_000;
 
-/**
- * Whether a boat at `t`, held (`hold`) at its last fix `lastFix`, is drawn hollow: it is in a hole of `holeMs` longer
- * than SHORT_GAP_S (one that short is filled in, ui/gapFill.ts), or its last fix is more than BOAT_STALE_MS ago (past
- * its final fix, where how long the hole is isn't known: `holeMs` 0).
- */
-export const boatStale = (hold: boolean, lastFix: number | undefined, t: number, holeMs: number): boolean =>
-  hold && lastFix != null && (holeMs > SHORT_GAP_S * 1000 || t - lastFix > BOAT_STALE_MS);
+/** Whether a boat at `t`, held (`hold`) at its final fix `lastFix`, is drawn hollow: that fix is more than BOAT_STALE_MS ago. */
+export const boatStale = (hold: boolean, lastFix: number | undefined, t: number): boolean => hold && lastFix != null && t - lastFix > BOAT_STALE_MS;
 
 export interface MarkInput extends ShapeInput {
   /** The last heading known before now (map coordinates, unit): drawn while held, slow or without a course; null: none ever. */
@@ -175,7 +166,7 @@ const isDir = (d: Vec | null | undefined): d is Vec => !!d && Number.isFinite(d[
 
 /**
  * The race map's and Start Playback's boat (one rule for both): the hull wherever a heading is known, along the
- * course now while moving with fresh data, else along the last heading known (held in a gap, under
+ * course now while moving with fresh data, else along the last heading known (held past its final fix, under
  * BOAT_SHAPE_MIN_KN, no course this step); the dot only when no heading was ever known, the class has no
  * dimensions, or the hull would be too small on screen (boatShapeOr's size rule). Either is hollow when `stale`.
  */

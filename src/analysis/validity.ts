@@ -14,7 +14,7 @@ export const SPAN_MS = 5000;
 export const DISAGREE_M = 3;
 /** Our figure is "near the line" below this, m. */
 export const NEAR_LINE_M = 1;
-export const OCS_BLIND_NOTE = 'Vakaros OCS check had no data for this boat';
+export const OCS_BLIND_NOTE = 'Vakaros had no OCS check for this boat';
 
 const r1 = (x: number): string => x.toFixed(1);
 
@@ -52,13 +52,19 @@ export function sampleGap(t: ArrayLike<number>, ts: number): { gapS: number; not
 }
 
 /**
- * A boat is flagged "gap at the gun" only when the hole in its own fixes around the start sample is longer than this,
- * s, and its Vakaros device reported no distance of its own (gapAtGun).
+ * Our figure is across a hole in the boat's own fixes around the start sample longer than this, s, with no Vakaros
+ * distance to use instead (gapAtGun): the findings then hedge an over-the-line call (nothing on screen says why).
  */
 export const GUN_GAP_FLAG_S = 10;
 
-/** Flagged with a gap at the gun: our figure is across a hole over GUN_GAP_FLAG_S, and there is no device figure to use instead. */
+/** Our start figure rests on a hole over GUN_GAP_FLAG_S, and there is no device figure to use instead. */
 export const gapAtGun = (s: Pick<StartResult, 'dtlGapS' | 'rcDtlM'>): boolean => s.dtlGapS != null && s.dtlGapS > GUN_GAP_FLAG_S && s.rcDtlM == null;
+
+/**
+ * The seconds late the start figures show: the ranked figure, else (our DTL interpolated across a hole) our
+ * interpolated one, shown like any other (display only: lateS, what the analysis reads, stays null there).
+ */
+export const shownLateS = (s: Pick<StartResult, 'lateS' | 'secsLate' | 'dtlGapS'>): number | null => s.lateS ?? (s.dtlGapS != null ? s.secsLate : null);
 
 /**
  * The boat's distance behind the line at the start for the start figures: the Vakaros device's own when ours is
@@ -138,11 +144,10 @@ export function rankStarts(boats: BoatResult[]): void {
   line.forEach((b, i) => (b.start!.estPlace = i + 1));
 }
 
-/** Every caveat on a boat's start figures, in display order. */
+/** Every caveat on a boat's start figures, in display order (our check across a hole is shown plainly: no caveat). */
 export function startNotes(s: StartResult): string[] {
   const out: string[] = [];
   if (s.rcNote) out.push(s.rcNote);
-  if (s.dtlNote) out.push(s.dtlNote.startsWith('our ') ? s.dtlNote : `our check ${s.dtlNote}`);
   if (s.warn) out.push(s.warn);
   if (s.ocsBlind) out.push(OCS_BLIND_NOTE);
   return out;

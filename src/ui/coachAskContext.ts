@@ -37,7 +37,7 @@ function compact<T extends object>(o: T): T {
 }
 
 /** One card as the page shows it. */
-export function askFinding(c: Card, a: RaceAnalysis, raceCov: number | null): AskFinding {
+export function askFinding(c: Card, a: RaceAnalysis): AskFinding {
   const t = cardText(c, a.meta.tzOffsetMs);
   const ref = c.kind === 'D5' ? d5RefChip(c.facts) : null;
   return compact({
@@ -46,9 +46,8 @@ export function askFinding(c: Card, a: RaceAnalysis, raceCov: number | null): As
     secondsChip: secondsChip(c),
     when: windowChip(c, a),
     confidence: c.confidence === 'none' ? undefined : c.confidence,
-    coveragePct: Math.floor(c.coverage * 100 + 1e-9),
     chips: [...(ref ? [ref] : []), ...t.chips.slice(0, chipsMax(c))],
-    warnings: cardWarnings(c, a, raceCov),
+    warnings: cardWarnings(c),
     what: t.sentence,
     tip: t.tip,
   });
@@ -82,7 +81,7 @@ export function raceAskContext(o: RaceAskInput): AskContext {
   const { a, me, deb } = o;
   const notes: string[] = [];
   if (!deb) notes.push('No Coach debrief for this race: no course to measure against, or the wind is still being worked out.');
-  else if (deb.noData) notes.push('Not enough tracker data for a debrief');
+  else if (deb.noData) notes.push('No debrief for this race');
   else if (deb.cards.length < 3) notes.push(deb.cards.length ? fewerLine(deb.cards.length) : 'No clear gains with this data');
   return compact({
     view: 'race' as const,
@@ -92,7 +91,7 @@ export function raceAskContext(o: RaceAskInput): AskContext {
     group: GROUP_LABEL[o.group.kind],
     race: compact({ name: o.raceName ?? `Race ${a.meta.raceNumber}`, header: o.head.map(warnText), notes }),
     penalty: deb?.penalty ? askPenalty(deb.penalty, a) : undefined,
-    findings: deb?.cards.map((c) => askFinding(c, a, deb.raceCov)),
+    findings: deb?.cards.map((c) => askFinding(c, a)),
     notTheProblem: deb?.ok.filter((n) => !n.thin).flatMap(goodTexts),
     notJudged: deb?.ok.filter((n) => n.thin).map(thinText),
     wentWell: deb?.plus.map((n) => ({ text: wentText(n), seconds: Math.round(n.seconds ?? (typeof n.facts.gainS === 'number' ? n.facts.gainS : 0)) })),
@@ -111,17 +110,15 @@ export interface RegattaAskInput {
 /** The Regatta view's context (the same summary the view renders). */
 export function regattaAskContext(o: RegattaAskInput): AskContext {
   const s = summarizeRegatta(o.races);
-  const low = s.rows.filter((r) => r.low).length;
   const errs = s.rows.filter((r) => r.status === 'error').length;
   const status = [
     `${s.done} of ${s.total} races analyzed`,
     ...(o.progress.running ? [`still analyzing ${o.progress.running}`] : []),
-    ...(low ? [`⚠ ${low} with low tracker data (counted less)`] : []),
     ...(errs ? [`${errs} couldn't be loaded`] : []),
   ].join(' · ');
   const notes: string[] = [];
   if (!s.withData) notes.push('Waiting for the races to be analyzed.');
-  if (s.findings.some((f) => f.gated)) notes.push('* of the races with the tracker data to measure it (dirty air needs the boats around you; roundings the zone time or the sparse-data place read; gate choice both gate buoys tracked).');
+  if (s.findings.some((f) => f.gated)) notes.push('* of the races where it could be measured (dirty air needs the boats around you; roundings the zone time or the place read; gate choice both gate buoys tracked).');
   return compact({
     view: 'regatta' as const,
     boat: askBoat(o.boat),

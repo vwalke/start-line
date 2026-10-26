@@ -126,7 +126,7 @@ export function confirmHtml(
  * feed's ~0.2–1 Hz ones; the Coach reads roundings and penalty turns from them at full rate, the start at 5 Hz).
  */
 export const VKX_CTA_HEAD = 'Sailed with a Vakaros? Add its log (.vkx)';
-export const VKX_CTA_LINE = "10 fixes a second instead of the tracker's 1 or fewer: it fills your boat's gaps and sharpens the Coach's read of your start, mark roundings and penalty turns.";
+export const VKX_CTA_LINE = "10 fixes a second instead of the tracker's 1 or fewer: it sharpens your boat's track and the Coach's read of your start, mark roundings and penalty turns.";
 
 /** The bar's markup (pure: tested). With no log in the race, a card that says why; with one, the chip line only. */
 export function barHtml(o: {

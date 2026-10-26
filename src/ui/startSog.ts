@@ -1,8 +1,7 @@
 /**
  * Start Speed Control: SOG against seconds from the gun for every racing
- * boat (analysis/startSog.ts), drawn at the card's pixel width. Lines break at
- * telemetry gaps, joined by dashed grey; a dot marks each boat's line
- * crossing. The selected boat is drawn last and thicker; the rest fade.
+ * boat (analysis/startSog.ts), drawn at the card's pixel width, one line per
+ * boat through all its fixes; a dot marks each boat's line crossing. The selected boat is drawn last and thicker; the rest fade.
  * A boat far over the fleet (a tracker glitch, see startSogHi) is drawn along
  * the top edge over the axis, a caret where its line leaves it; the key then
  * shows "▲ off scale".
@@ -90,7 +89,7 @@ export function startSogClips(b: Pick<StartSogBoat, 'runs'>, L: StartSogLayout):
 /**
  * The readout for a pointer at (px, py) on the chart: the selected boat's speed
  * at that time when there is a selection, else the boat whose line is nearest
- * vertically (within `reachPx`). Null inside a gap or off every line.
+ * vertically (within `reachPx`). Null off every line.
  */
 export function startSogHover(
   s: StartSogSeries,
@@ -120,11 +119,10 @@ export function startSogHover(
   return best;
 }
 
-/** The key line: the window shown (⚠ when the tracks start later than asked), the dot and gap swatches, the caret when a speed is off the top; the method in the ⓘ. */
+/** The key line: the window shown (⚠ when the tracks start later than asked), the dot swatch, the caret when a speed is off the top; the method in the ⓘ. */
 export function startSogKey(s: StartSogSeries, w: StartSogWindow): KeyLine {
   const chips: Chip[] = [s.clamped ? warnChip(`data from ${secsLabel(s.t0)} only`) : { text: `${secsLabel(s.t0)} → ${secsLabel(s.t1)}` }];
   chips.push({ text: 'crossed the line', swatch: 'dot' });
-  if (s.boats.some((b) => b.gaps.length)) chips.push({ text: 'no data', swatch: 'gap' });
   const L = startSogLayout(s);
   if (s.boats.some((b) => startSogClips(b, L).length)) chips.push({ text: '▲ off scale', title: 'Speed above the top of the chart (a tracker glitch)' });
   return {
@@ -133,7 +131,6 @@ export function startSogKey(s: StartSogSeries, w: StartSogWindow): KeyLine {
       `Speed over ground (${SOG_SMOOTH_MS / 1000} s mean) around the gun.`,
       ...(s.clamped ? [`The tracks only go back to ${secsLabel(s.t0)} here, so the ${w} s window starts there.`] : []),
       "Dot: where the boat crossed the line (the table's Late), and its speed.",
-      'Gray dashed: fixes over 5 s apart; no speed drawn.',
       'Hover or tap to read a speed; tap a line to select the boat.',
     ],
   };
@@ -180,7 +177,6 @@ export function startSogChart(a: RaceAnalysis, highlight: string | null, w: Star
     const cls = `ss-boat${sel ? (on ? ' on' : ' dim') : ''}`;
     const who = esc(boatLabel(b, b.id));
     const runs = sb.runs.map((r) => pathOf(r.t.map((t, i) => [L.x(t), L.y(r.sog[i])]))).join('');
-    const gaps = sb.gaps.map(([p, q]) => pathOf([[L.x(p[0]), L.y(p[1])], [L.x(q[0]), L.y(q[1])]])).join('');
     const cross = sb.cross
       ? (() => {
           const t = `${who}: crossed ${secsLabel(sb.cross.tS)} at ${f1(sb.cross.sogKn)} kn`;
@@ -191,7 +187,7 @@ export function startSogChart(a: RaceAnalysis, highlight: string | null, w: Star
     const clips = startSogClips(sb, L)
       .map((cx) => `<path class="ss-clip-mark" d="M${r1(cx - 4)} ${r1(L.padT + 6)}L${r1(cx)} ${r1(L.padT)}L${r1(cx + 4)} ${r1(L.padT + 6)}Z" fill="${col}"><title>${who}: over ${L.hi} kn</title></path>`)
       .join('');
-    return `<g class="${cls}" data-id="${esc(sb.id)}"><path class="ss-hit" d="${runs}${gaps}"><title>${who}</title></path>${gaps ? `<path class="ss-gap" d="${gaps}"/>` : ''}<path class="ss-line" d="${runs}" stroke="${col}" stroke-width="${on ? 3 : 1.6}"/>${clips}${cross}</g>`;
+    return `<g class="${cls}" data-id="${esc(sb.id)}"><path class="ss-hit" d="${runs}"><title>${who}</title></path><path class="ss-line" d="${runs}" stroke="${col}" stroke-width="${on ? 3 : 1.6}"/>${clips}${cross}</g>`;
   };
   const order = [...drawn].sort((p, q) => Number(p.id === sel) - Number(q.id === sel));
   const aria = `Speed over ground of each boat from ${secsLabel(s.t0)} to ${secsLabel(s.t1)} around the gun.`;

@@ -783,19 +783,16 @@ describe('templates and cards (spec §6, mockup)', () => {
       expect(t.sentence.match(/\. /g)).toBeNull(); // one sentence
     }
   });
-  it('⚠ chips: medium names what capped it, low says so with the hole, wind est.', () => {
-    expect(cardWarnings(card({ confidence: 'medium', limit: 'data', coverage: 0.58 }), a)).toEqual(['data 58%']);
-    expect(cardWarnings(card({ confidence: 'medium', limit: 'marks' }), a)).toEqual(['marks est.']);
-    expect(cardWarnings(card({ confidence: 'low', limit: 'data', conf: { boatCov: 0.3, hole: { fromMs: GUN + 13 * 60_000, toMs: GUN + 17 * 60_000 } } }), a)).toEqual([
-      'low confidence',
-      'no data 13–17 min',
-    ]);
-    expect(cardWarnings(card({ windEst: true }), a)).toEqual(['wind est.']);
-    expect(cardWarnings(card({}), a, 0.15)).toEqual(['low data']);
-    expect(cardWarnings(card({ windEst: true }), a, 0.15)).toEqual(['wind est.', 'low data']);
-    expect(cardWarnings(card({}), a, 0.4)).toEqual([]);
+  it('⚠ chips: medium names what capped it, low says so, wind est.; never the tracker coverage or a hole', () => {
+    // Capped by the tracker's coverage: still medium or low confidence, with no chip naming the data.
+    expect(cardWarnings(card({ confidence: 'medium', limit: 'data', coverage: 0.58 }))).toEqual([]);
+    expect(cardWarnings(card({ confidence: 'medium', limit: 'marks' }))).toEqual(['marks est.']);
+    expect(cardWarnings(card({ confidence: 'low', limit: 'data', conf: { boatCov: 0.3, hole: { fromMs: GUN + 13 * 60_000, toMs: GUN + 17 * 60_000 } } }))).toEqual(['low confidence']);
+    expect(cardWarnings(card({ confidence: 'low', limit: 'marks', conf: { boatCov: 1, hole: { fromMs: GUN + 13 * 60_000, toMs: GUN + 17 * 60_000 } } }))).toEqual(['low confidence', 'marks est.']);
+    expect(cardWarnings(card({ windEst: true }))).toEqual(['wind est.']);
+    expect(cardWarnings(card({}))).toEqual([]);
   });
-  it('cards, the "only N" line, the ✓ row, the no-data line', () => {
+  it('cards, the "only N" line, the ✓ row, the no-debrief line', () => {
     const c = card({ kind: 'D1', variant: 'second-row', seconds: 47, secondsLo: 42, secondsHi: 52, facts: { dtl: 64, crossS: 56, crossRank: 17, n: 18, frontLo: 6, frontHi: 9 } });
     const html = cardHtml(c, 0, a, true);
     expect(html).toContain('class="card coach-opp on"');
@@ -804,12 +801,12 @@ describe('templates and cards (spec §6, mockup)', () => {
     expect(fewerLine(1)).toBe('Only 1 clear gain with this data');
     expect(fewerLine(2)).toBe('Only 2 clear gains with this data');
     const d = { cards: [c], ok: [{ kind: 'ok' as const, detector: 'D6' as const, variant: 'upwind', facts: { twa: 39, fTwa: 43, vmg: 5, fVmg: 4.7 }, t0: 0, t1: 1 }], plus: [], totalS: 47, raceCov: 0.4, noData: false, found: [c], dirtyAir: { opp: null, chip: null, evaluated: false, share: null, fleetShare: null }, quality: { D8: false, D9: [] } };
-    const all = coachCardsHtml(a, d, null, 0.27);
+    const all = coachCardsHtml(a, d, null);
     expect(all).toContain('Only 1 clear gain with this data');
     expect(all).toContain('<li class="ok-lbl">Not the problem</li><li class="chip good">✓ Upwind pointing 39° vs fleet 43°</li>');
-    const none = coachCardsHtml(a, { ...d, cards: [], ok: [], noData: true }, null, 0.15);
-    expect(none).toContain('Not enough tracker data for a debrief');
-    expect(none).toContain('tracker 15%');
+    const none = coachCardsHtml(a, { ...d, cards: [], ok: [], noData: true }, null);
+    expect(none).toContain('<section class="card coach-nodata"><p>No debrief for this race</p></section>');
+    expect(none).not.toMatch(/tracker|no data|\d+%/i);
     expect(none).not.toContain('coach-opp');
   });
 });

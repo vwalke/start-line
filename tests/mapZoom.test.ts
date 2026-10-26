@@ -3,20 +3,7 @@ import { analyzeRace } from '../src/analysis/analyze';
 import type { BoatDrawing, RaceAnalysis, TrackSegment } from '../src/analysis/types';
 import { mapBox, rotator, segRuns, trackMap, trackMapView, trackPoints } from '../src/ui/charts';
 import { localTime } from '../src/ui/format';
-import {
-  MAP_GAP_S,
-  cogAt,
-  fixSegment,
-  gapMsOf,
-  gapRuns,
-  heelLabel,
-  mapHasGaps,
-  mapPoints,
-  mapTipHtml,
-  mapTipLines,
-  pickAt,
-  pickMapPoint,
-} from '../src/ui/mapPoints';
+import { cogAt, fixSegment, heelLabel, mapPoints, mapTipHtml, mapTipLines, pickAt, pickMapPoint } from '../src/ui/mapPoints';
 import { clientToChart, fitView, viewBox, type View } from '../src/ui/view';
 import { fixtureRace, j105Race } from './helpers';
 
@@ -41,53 +28,35 @@ function withHole(src: RaceAnalysis): { a: RaceAnalysis; id: string; s: TrackSeg
   const k = d0.segments.findIndex((s) => s.leg === 1);
   const s0 = d0.segments[k];
   const at = s0.t.length >> 1;
-  // A long hole (over SHORT_GAP_S, so it is left blank rather than filled in: ui/gapFill.ts).
+  // A 30 s hole (filled in and drawn as the rest of the track: ui/gapFill.ts).
   const t = Float64Array.from(s0.t, (v, i) => (i >= at ? v + 30_000 : v));
   const s: TrackSegment = { ...s0, t };
-  const d: BoatDrawing = { ...d0, segments: d0.segments.map((x, i) => (i === k ? s : x)) };
+  // Its feed's own holes are those of the cut track now: judged on the drawn fixes (no BoatDrawing.holes).
+  const d: BoatDrawing = { ...d0, segments: d0.segments.map((x, i) => (i === k ? s : x)), holes: undefined };
   return { a: { ...src, drawings: [d, ...src.drawings.slice(1)] }, id: d0.id, s, at };
 }
 
-describe('gaps as breaks', () => {
-  it('is SHORT_GAP_S (30 s) for every boat, however often its tracker logs (shorter holes are filled in)', () => {
-    expect(MAP_GAP_S).toBe(30);
-    expect(gapMsOf([seg(20)])).toBe(30_000);
-    const slow: TrackSegment = { ...seg(20), t: Float64Array.from({ length: 20 }, (_, i) => i * 4000) };
-    expect(gapMsOf([slow])).toBe(30_000);
-    expect(gapMsOf([])).toBe(30_000);
-  });
-
-  it('splits a segment at a hole over the threshold, keeping the hole as a chord', () => {
-    expect(gapRuns(seg(6).t, 2000)).toEqual([[0, 6]]);
+describe('holes are bridged, never breaks', () => {
+  it('segRuns: the points as one run (the tracks come with their holes filled in); near the view only when zoomed', () => {
     const s = seg(6, 3, 5000); // steps 1, 1, 6, 1, 1 s
-    expect(gapRuns(s.t, 2000)).toEqual([
-      [0, 3],
-      [3, 6],
-    ]);
-    const { runs, gaps } = segRuns(s.x, s.y, s.t, 2000);
-    expect(runs.map((r) => r.length)).toEqual([3, 3]);
-    expect(gaps).toBe('M6.0,0.0L9.0,0.0');
-    // A 2 s step is not a gap (the threshold is "more than"); a lone fix between two holes draws no line.
-    expect(gapRuns(seg(4, 2, 1000).t, 2000)).toHaveLength(1);
+    expect(segRuns(s.x, s.y).map((r) => r.length)).toEqual([6]);
     const lone = { ...seg(5), t: Float64Array.from([0, 1000, 9000, 20000, 21000]) };
-    expect(segRuns(lone.x, lone.y, lone.t, 2000).runs.map((r) => r.length)).toEqual([2, 2]);
+    expect(segRuns(lone.x, lone.y).map((r) => r.length)).toEqual([5]);
+    // Zoomed in: only the points near the view (and the one either side).
+    expect(segRuns(seg(20).x, seg(20).y, { x0: 10, y0: -1, x1: 14, y1: 1 }).map((r) => r.length)).toEqual([3]);
   });
 
-  it('draws separate lines and leaves the gap blank (no chord) in Leg, Rank and Boat speed', () => {
+  it('draws one line across a hole (no chord, nothing lighter) in Leg, Rank and Boat speed', () => {
     const { a: h, id } = withHole(a);
-    expect(mapHasGaps(a, 1)).toBe(false);
-    expect(mapHasGaps(h, 1)).toBe(true);
     const leg = trackMap(h, null, 1);
     const mine = [...leg.matchAll(/<polyline class="trk" data-leg="1" points="[^"]+"/g)];
-    expect(mine.length).toBe(h.drawings.filter((d) => d.segments.some((s) => s.leg === 1 && s.x.length > 1)).length + 1);
-    expect(leg).not.toContain('trk-gap');
-    expect(trackMap(a, null, 1)).not.toContain('trk-gap');
+    expect(mine.length).toBe(h.drawings.filter((d) => d.segments.some((s) => s.leg === 1 && s.x.length > 1)).length);
+    expect(leg).not.toMatch(/trk-gap|trk-est/);
     const rank = trackMap(h, id, 1, { colour: 'rank' });
-    expect(rank.match(new RegExp(`<polyline class="trk spd[^"]*" data-leg="1" data-id="${id}"`, 'g'))).toHaveLength(2);
-    expect(rank).not.toContain('trk-gap');
+    expect(rank.match(new RegExp(`<polyline class="trk spd[^"]*" data-leg="1" data-id="${id}"`, 'g'))).toHaveLength(1);
     const sog = trackMap(h, null, 1, { colour: 'sog' });
     expect(sog).toMatch(new RegExp(`<g class="sog-trk" data-id="${id}"`));
-    expect(sog).not.toContain('sog-gap');
+    expect(sog).not.toMatch(/sog-gap|sog-est/);
   });
 
   it('leaves native <title> off Leg and Rank tracks (the hover/tap tooltip is the details)', () => {
@@ -96,49 +65,46 @@ describe('gaps as breaks', () => {
     expect(trackMap(a, null, null, { colour: 'rank', rankBy: 'overall' })).not.toContain('<title>');
   });
 
-  it('records the gap with the fixes either side, and labels it "no data" in local time', () => {
+  it('a point in a hole reads like any other: picked as a point, its tooltip with no gap note', () => {
     const { a: h, id, s, at } = withHole(a);
     const p = trackPoints(h, 1);
-    expect(p.gaps).toHaveLength(1);
-    const g = p.gaps[0];
-    expect([g.id, g.leg, g.t0, g.t1]).toEqual([id, 1, s.t[at - 1], s.t[at]]);
-    const tz = h.meta.tzOffsetMs;
-    const lines = mapTipLines(h, p, { kind: 'gap', g: 0 });
-    expect(lines[1]).toBe(`no data ${localTime(s.t[at - 1], tz)}–${localTime(s.t[at], tz)}`);
-    expect(lines[1]).toMatch(/^no data \d\d:\d\d:\d\d–\d\d:\d\d:\d\d$/);
-    // Hovering the middle of the chord picks the gap; on an end fix, the fix (whose tooltip lists the gap too).
-    const pick = pickMapPoint(p, (g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2, 50, 50, null);
-    expect(pick).toEqual({ kind: 'gap', g: 0 });
-    expect(pickAt(p, pick!, g.x0, g.y0)).toEqual([g.x0, g.y0]);
-    const end = pickMapPoint(p, g.x1, g.y1, 1, 1, id);
-    expect(end?.kind).toBe('fix');
-    expect(mapTipLines(h, p, end!)).toContain(lines[1]);
+    expect(p).not.toHaveProperty('gaps');
+    // A filled-in point of that boat's track, inside the hole, is in the lookup and picked there like a fix.
+    const i = [...p.ix.t].findIndex((t, k) => p.ix.ids[p.ix.boat[k]] === id && t > s.t[at - 1] && t < s.t[at]);
+    expect(i).toBeGreaterThanOrEqual(0);
+    const pick = pickMapPoint(p, p.ix.x[i], p.ix.y[i], 1e-6, 1e-6, id);
+    expect(pick?.kind).toBe('fix');
+    expect(pickAt(p, pick!)).toEqual([p.ix.x[i], p.ix.y[i]]);
+    const lines = mapTipLines(h, p, pick!);
+    expect(lines[0]).toContain(h.boats.find((b) => b.id === id)!.sail);
+    expect(lines[1].startsWith(localTime(p.ix.t[i], h.meta.tzOffsetMs))).toBe(true);
+    expect(lines.join(' ')).not.toMatch(/no data|no fix|estimated|gap/i);
   });
 });
 
 describe('course over ground from positions', () => {
-  const at = (deg: number): { x: number[]; y: number[]; t: number[] } => {
+  const at = (deg: number): { x: number[]; y: number[] } => {
     const r = (deg * Math.PI) / 180;
-    return { x: [0, 5 * Math.sin(r), 10 * Math.sin(r)], y: [0, 5 * Math.cos(r), 10 * Math.cos(r)], t: [0, 1000, 2000] };
+    return { x: [0, 5 * Math.sin(r), 10 * Math.sin(r)], y: [0, 5 * Math.cos(r), 10 * Math.cos(r)] };
   };
   it('gives degrees true (x east, y north), wrapping at 0/360', () => {
     for (const deg of [0, 1, 45, 90, 180, 270, 359]) {
-      const { x, y, t } = at(deg);
-      for (const i of [0, 1, 2]) expect(cogAt(x, y, t, i, 2000)).toBeCloseTo(deg % 360, 6);
+      const { x, y } = at(deg);
+      for (const i of [0, 1, 2]) expect(cogAt(x, y, i)).toBeCloseTo(deg % 360, 6);
     }
-    const { x, y, t } = at(359.6);
-    expect(cogAt(x, y, t, 1, 2000)).toBeGreaterThan(359);
+    const { x, y } = at(359.6);
+    expect(cogAt(x, y, 1)).toBeGreaterThan(359);
   });
 
-  it('uses only neighbours on the same side of a gap, and none when still', () => {
-    // East, then a hole, then north: each side's own course.
+  it('uses the neighbours either side (one side at an end), and none when still', () => {
+    // East, then north: the corner fix between them reads the course across it.
     const x = [0, 5, 10, 10, 10];
     const y = [0, 0, 0, 5, 10];
-    const t = [0, 1000, 2000, 9000, 10000];
-    expect(cogAt(x, y, t, 2, 2000)).toBeCloseTo(90, 6);
-    expect(cogAt(x, y, t, 3, 2000)).toBeCloseTo(0, 6);
-    expect(cogAt([0, 0], [0, 0.1], [0, 1000], 0, 2000)).toBeNaN();
-    expect(cogAt([0, 10], [0, 0], [0, 9000], 0, 2000)).toBeNaN();
+    expect(cogAt(x, y, 1)).toBeCloseTo(90, 6);
+    expect(cogAt(x, y, 2)).toBeCloseTo(45, 6);
+    expect(cogAt(x, y, 4)).toBeCloseTo(0, 6);
+    expect(cogAt([0, 0], [0, 0.1], 0)).toBeNaN();
+    expect(cogAt([0], [0], 0)).toBeNaN();
   });
 });
 
@@ -183,7 +149,7 @@ describe('the tooltip', () => {
     expect(lines[1]).toBe(`${localTime(sg.t[j], tz)} (gun +${Math.floor(gun / 60)}:${String(Math.round(gun % 60)).padStart(2, '0')})`);
     expect(lines[2]).toMatch(new RegExp(`^SOG ${sg.sog[j].toFixed(1)} kn · COG \\d{1,3}°$`));
     const cog = Number(/COG (\d+)°/.exec(lines[2])![1]);
-    expect(cog).toBe(Math.round(cogAt(sg.x, sg.y, sg.t, j, p.gapMs[s])) % 360);
+    expect(cog).toBe(Math.round(cogAt(sg.x, sg.y, j)) % 360);
     expect(lines[3]).toBe(heelLabel(sg.roll![j]));
     expect(lines[4]).toBe(a.legs[p.legs[s]].name);
     expect(lines[5]).toBe('Place 2 of 6');

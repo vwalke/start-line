@@ -3,7 +3,6 @@
  * ⚠ caveats, legend swatches) and the bullets of their "How to read this" (ui/info.ts).
  */
 import { START_TRAIL_MS, type RaceAnalysis, type RaceNote } from '../analysis/types';
-import { GUN_GAP_FLAG_S, gapAtGun } from '../analysis/validity';
 import { legSplit, pickedExcluded } from './charts';
 import { warnChip, type Chip, type KeyLine } from './info';
 import type { StartColour } from './sog';
@@ -12,12 +11,9 @@ import { biasBullets, lineChips } from './startLine';
 
 const GESTURES = 'Zoom: pinch, Ctrl/⌘ + scroll or double-tap; drag to pan when zoomed.';
 
-/** Start chart: line, favoured end, wind, scale (+ how many are estimated across a gap at the gun), "line extended"; bullets for the rest. */
+/** Start chart: line, favoured end, wind, scale, "line extended"; bullets for the rest. */
 export function startKey(a: RaceAnalysis, o: { scale: { chip: string; info: string }; highlight?: string | null; colour?: StartColour }): KeyLine {
   const chips = [...lineChips(a), { text: o.scale.chip }];
-  // Only a hole over GUN_GAP_FLAG_S with no Vakaros figure to use instead (validity.ts gapAtGun); a plain chip.
-  const gaps = a.boats.filter((b) => b.start && gapAtGun(b.start)).length;
-  if (gaps) chips.push({ text: `${gaps} with a gap at the gun`, title: `Their GPS track has a hole of over ${GUN_GAP_FLAG_S} s across the gun and Vakaros reported no distance: our ~ figure is interpolated` });
   chips.push({ text: 'line extended', swatch: 'ext' });
   const away = a.boats.filter((b) => b.start?.awayFromLine).length;
   if (away) chips.push({ text: away === 1 ? '1 away from the line' : `${away} away from the line` });
@@ -28,7 +24,7 @@ export function startKey(a: RaceAnalysis, o: { scale: { chip: string; info: stri
     bullets: [
       `Bows at the gun (Vakaros timing); trails: the last ${START_TRAIL_MS / 1000} s${o.colour === 'speed' ? ', shaded by speed' : ''}.`,
       o.scale.info,
-      `Bow numbers: meters behind the line (${vakaros ? 'Vakaros DTL' : 'our GPS check'}; ~ = across a gap).`,
+      `Bow numbers: meters behind the line (${vakaros ? 'Vakaros DTL' : 'our GPS check'}).`,
       ...biasBullets(a),
       'Names: Auto skips overlaps (tap a boat for it); All; Off = selected only.',
       ...(away ? ['Boats far from the line at the gun are listed as away from the line and left out of Fit.'] : []),
@@ -107,7 +103,7 @@ export function mapKey(a: RaceAnalysis, o: { highlight?: string | null; colour: 
     bullets.push("Boat speed: SOG, 4 s mean; colors span the fleet's 5th–95th percentile.");
     if (o.leg == null) bullets.push("Scale: Per leg uses each leg's own range; Whole race, one range.");
   }
-  bullets.push('Hover or tap a track for time, speed, course, heel, place. Estimated sections are lighter.');
+  bullets.push('Hover or tap a track for time, speed, course, heel, place.');
   bullets.push('Select a boat anywhere to highlight it on every chart and table.');
   return { chips, bullets };
 }

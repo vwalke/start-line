@@ -3,7 +3,7 @@
  * a 3–6 word title, the red seconds chip, the window in the venue's clock, at
  * most 3 key-number chips, ⚠ chips when gated, one sentence and one tip — all
  * templates with the detector's numbers filled in, the conditional fragments
- * in code. Then the ✓ Not the problem row (a ✓ on thin data under "Not judged": "Not enough data to judge …") and the
+ * in code. Then the ✓ Not the problem row (a ✓ on thin data under "Not judged", just what it is: "banked gains") and the
  * ➕ Went well list (at most 3, with the seconds gained).
  *
  * An official code is the penalty card (analysis/coach/penalty.ts), pinned above the ranked cards and never
@@ -14,7 +14,7 @@
  * A card's window chip is a toggle button: pressed, the gap chart shades the
  * card's window (a click anywhere on the card does the same).
  */
-import { RACE_MIN_COVERAGE, type CoachDebrief } from '../analysis/coach/debrief';
+import type { CoachDebrief } from '../analysis/coach/debrief';
 import { D3_WINDOW_MS } from '../analysis/coach/detectors/early';
 import { D9_SLOW_S } from '../analysis/coach/detectors/rounding';
 import { D13_TRAFFIC_BOATS } from '../analysis/coach/detectors/gate';
@@ -30,8 +30,6 @@ import { duration, esc, f1, localTime, ordinal, pct } from './format';
 
 /** Show a range (`10–35 s`) rather than `≈ mid` when hi/lo exceeds this. */
 export const RANGE_RATIO = 2;
-/** A low-confidence card names a hole in its window this long or longer, s. */
-export const HOLE_CHIP_S = 60;
 export const KEY_CHIPS_MAX = 3;
 /** The merged start card (D1 + D3) has one more: back at the gun, place over the line, crossing time, early tacks. */
 export const START_CHIPS_MAX = 4;
@@ -432,8 +430,8 @@ function placesText(f: Card['facts']): CardText {
     : '';
   return {
     title: `Lost places at the ${lower}`,
-    chips: [span, `passed by ${r0(f.passers)}`, shift ? `${f.shiftSide} side gained ${f1(num(f.shiftGain))}` : 'sparse data'],
-    sentence: `${where}: lost ${r0(f.lost)} places through the rounding, ${span} (sparse data, timing approximate).${tail}`,
+    chips: [span, `passed by ${r0(f.passers)}`, shift ? `${f.shiftSide} side gained ${f1(num(f.shiftGain))}` : 'read from places'],
+    sentence: `${where}: lost ${r0(f.lost)} places through the rounding, ${span} (read from the places through it).${tail}`,
     tip: shift
       ? `Look up the course before the mark: the boats from the ${f.shiftSide} brought more pressure or a shift in with them.`
       : (ROUNDING_TIPS[String(f.type)] ?? ROUNDING_TIPS.windward),
@@ -589,7 +587,7 @@ function newWent(n: GoodNote): string | null {
   return null;
 }
 
-/** What a thin ✓ could not judge: "Not enough data to judge banked gains (tracker 37%)". */
+/** What a thin ✓ could not judge: "banked gains" (thinWhat), "Not judged: banked gains" (thinText). */
 const THIN_WHAT: Partial<Record<GoodNote['detector'], string>> = {
   D1: 'the start',
   D4: 'the shifts',
@@ -600,7 +598,8 @@ const THIN_WHAT: Partial<Record<GoodNote['detector'], string>> = {
   D9: 'the mark roundings',
   D11: 'heel upwind',
 };
-export const thinText = (n: GoodNote): string => `Not enough data to judge ${THIN_WHAT[n.detector] ?? 'this'} (tracker ${pct(n.coverage ?? 0)})`;
+export const thinWhat = (n: GoodNote): string => THIN_WHAT[n.detector] ?? 'this';
+export const thinText = (n: GoodNote): string => `Not judged: ${thinWhat(n)}`;
 
 /** D8 as a chip: "20% in dirty air vs fleet 2%". */
 export const dirtyChip = (f: Card['facts']): string => `${pct(num(f.share))} in dirty air vs fleet ${pct(num(f.fleetShare))}`;
@@ -622,12 +621,12 @@ const ROUNDING_TIPS: Record<string, string> = {
   reach: 'Turn tight at the reach marks and trim for the new angle as you go round.',
 };
 
-/** The ⚠ chips (spec §5): medium → what capped it (`data 58%`, `marks est.`…); low → `low confidence` and its reason; `wind est.`; race under 25 % → `low data`. */
-export function cardWarnings(c: Card, a: RaceAnalysis, raceCov?: number | null): string[] {
+/** The ⚠ chips (spec §5): medium → what capped it (`marks est.`…; nothing when the tracker's coverage did); low → `low confidence` and its reason; `wind est.`. */
+export function cardWarnings(c: Card): string[] {
   const out: string[] = [];
-  const why = (): string =>
+  const why = (): string | null =>
     c.limit === 'data'
-      ? `data ${pct(c.coverage)}`
+      ? null
       : c.limit === 'marks'
         ? 'marks est.'
         : c.limit === 'wind'
@@ -649,7 +648,7 @@ export function cardWarnings(c: Card, a: RaceAnalysis, raceCov?: number | null):
             : c.kind === 'D9' && c.facts.mode === 'places'
             ? c.facts.shiftSide != null
               ? 'likely a shift'
-              : 'sparse data'
+              : 'read from places'
             : c.kind === 'D9' && c.facts.ref !== 'leaders'
               ? 'no leader data'
               : c.kind === 'D11' && c.facts.ref === 'peers'
@@ -657,17 +656,10 @@ export function cardWarnings(c: Card, a: RaceAnalysis, raceCov?: number | null):
                 : c.kind === 'D11' && c.facts.legKind === 'downwind'
                   ? 'heel on runs: indicative'
                   : 'few boats to compare';
-  if (c.confidence === 'medium') out.push(why());
-  if (c.confidence === 'low') {
-    out.push('low confidence');
-    const h = c.conf.hole;
-    if (h && (h.toMs - h.fromMs) / 1000 >= HOLE_CHIP_S) {
-      const g = a.meta.gunMs;
-      out.push(`no data ${Math.round((h.fromMs - g) / 60_000)}–${Math.round((h.toMs - g) / 60_000)} min`);
-    } else out.push(why());
-  }
+  const reason = c.confidence === 'high' ? null : why();
+  if (c.confidence === 'low') out.push('low confidence');
+  if (reason) out.push(reason);
   if (c.windEst && !out.includes('wind est.')) out.push('wind est.');
-  if (raceCov != null && raceCov < RACE_MIN_COVERAGE) out.push('low data');
   return out;
 }
 
@@ -707,7 +699,7 @@ const chip = (text: string, cls = ''): string => `<li class="chip${cls ? ` ${cls
 const warnLi = (text: string): string => `<li class="chip warn"><span aria-hidden="true">⚠ </span><span class="vh">Warning: </span>${esc(text)}</li>`;
 
 /** One card. `on`: its window is shaded on the chart. */
-export function cardHtml(c: Card, i: number, a: RaceAnalysis, on: boolean, raceCov?: number | null): string {
+export function cardHtml(c: Card, i: number, a: RaceAnalysis, on: boolean): string {
   const t = cardText(c, a.meta.tzOffsetMs);
   const when = windowChip(c, a);
   const secs = secondsChip(c);
@@ -717,7 +709,7 @@ export function cardHtml(c: Card, i: number, a: RaceAnalysis, on: boolean, raceC
     `<li><button type="button" class="chip opp-when" data-opp="${i}" aria-pressed="${on}" title="Show on the gap chart" aria-label="${esc(`${when}: show on the gap chart`)}">${esc(when)}</button></li>`,
     ...(ref ? [chip(ref)] : []),
     ...t.chips.slice(0, chipsMax(c)).map((x) => chip(x)),
-    ...cardWarnings(c, a, raceCov).map(warnLi),
+    ...cardWarnings(c).map(warnLi),
   ].join('');
   return `<article class="card coach-opp${on ? ' on' : ''}" data-opp="${i}" data-kind="${c.kind}" aria-labelledby="coach-opp-${i}">
     <span class="opp-n" aria-hidden="true">${i + 1}</span>
@@ -798,19 +790,17 @@ export function wentWellHtml(lines: readonly { text: string; seconds: number }[]
   return `<section class="card coach-went"><h4>Went well</h4><ul class="went-list">${li}</ul></section>`;
 }
 
-/** The cards, the "only N" line, the ✓ row and the ➕ Went well list; or the no-data line with its coverage chip. */
-export function coachCardsHtml(a: RaceAnalysis, d: CoachDebrief, selected: number | null, trackerCov: number | null): string {
+/** The cards, the "only N" line, the ✓ row and the ➕ Went well list; or, with no debrief to give, a line saying so. */
+export function coachCardsHtml(a: RaceAnalysis, d: CoachDebrief, selected: number | null): string {
   // The penalty is the official result: shown whatever the tracker covered.
-  if (d.noData) {
-    return `${d.penalty ? penaltyHtml(d.penalty, a) : ''}<section class="card coach-nodata"><p>Not enough tracker data for a debrief</p><ul class="chips">${warnLi(`tracker ${pct(trackerCov ?? d.raceCov)}`)}</ul></section>`;
-  }
+  if (d.noData) return `${d.penalty ? penaltyHtml(d.penalty, a) : ''}<section class="card coach-nodata"><p>No debrief for this race</p></section>`;
   const n = d.cards.length;
   const pen = d.penalty ? `${penaltyHtml(d.penalty, a)}<h4 class="coach-ranked-head">${esc(rankedHead(d.penalty))}</h4>` : '';
   const fewer = n < 3 ? `<p class="coach-fewer muted">${n ? esc(fewerLine(n)) : 'No clear gains with this data'}</p>` : '';
-  const cards = n ? `<div class="coach-opps">${d.cards.map((c, i) => cardHtml(c, i, a, selected === i, d.raceCov)).join('')}</div>` : '';
+  const cards = n ? `<div class="coach-opps">${d.cards.map((c, i) => cardHtml(c, i, a, selected === i)).join('')}</div>` : '';
   const ok = d.ok.filter((n) => !n.thin).flatMap(goodTexts).map((x) => chip(`✓ ${x}`, 'good'));
   // Thin data: said as such, never as a ✓.
-  const thin = d.ok.filter((n) => n.thin).map((n) => chip(thinText(n), 'thin'));
+  const thin = d.ok.filter((n) => n.thin).map((n) => chip(thinWhat(n), 'thin'));
   const okRow = ok.length ? `<ul class="chips"><li class="ok-lbl">Not the problem</li>${ok.join('')}</ul>` : '';
   const thinRow = thin.length ? `<ul class="chips"><li class="ok-lbl">Not judged</li>${thin.join('')}</ul>` : '';
   const row = okRow || thinRow ? `<section class="card coach-ok">${okRow}${thinRow}</section>` : '';

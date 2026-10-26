@@ -92,27 +92,24 @@ describe('C31 Gold Cup race 10: start validity', () => {
 describe('C31 race 10: start table', () => {
   const html = startTable(analysis, null) + startNotesHtml(analysis);
 
-  it('Black Pearl: — for Vakaros and rank, ~ for ours, no Late', () => {
+  it('Black Pearl: — for Vakaros and rank; ours and its Late across the hole, shown plainly', () => {
     const c = cells(html, 'GER42');
-    expect(c[START]).toBe('<span class="na" title="No reliable start figure" aria-label="No reliable start figure">—</span>');
+    expect(c[START]).toBe('—');
     expect(c[VAK]).toBe(
       '<span class="na" title="Vakaros reported no start fix (stale race 9 data)" aria-label="Vakaros reported no start fix (stale race 9 data)">—</span>',
     );
-    expect(c[OURS]).toBe(
-      '<span class="gap" title="interpolated across a 17 s data gap" aria-label="interpolated across a 17 s data gap">~-3.1</span>',
-    );
-    expect(c[LATE]).toBe('—');
+    expect(c[OURS]).toBe('-3.1');
+    expect(start('GER42').lateS).toBeNull();
+    expect(c[LATE]).toBe(start('GER42').secsLate.toFixed(1));
   });
 
-  it('Milkwave: ranked 1st by Vakaros (▲), ~ for ours, no ⚠', () => {
+  it('Milkwave: ranked 1st by Vakaros (▲), ours plainly, no ⚠', () => {
     const c = cells(html, 'ITA 78');
     expect(c[START]).toBe('<span class="ic" aria-label="best">▲</span>1 <small class="rk-src" title="Vakaros device">V</small>');
     expect(tdClass(html, 'ITA 78', START)).toBe('num best');
     expect(c[VAK]).toBe('0.4');
-    expect(c[OURS]).toBe(
-      '<span class="gap" title="interpolated across a 32 s data gap" aria-label="interpolated across a 32 s data gap">~-6.0</span>',
-    );
-    expect(c[LATE]).toBe('—');
+    expect(c[OURS]).toBe('-6.0');
+    expect(c[LATE]).toBe(start('ITA 78').secsLate.toFixed(1));
   });
 
   it('Stella Maris: — (not 0.0) for Vakaros, ranked by ours', () => {
@@ -141,24 +138,21 @@ describe('C31 race 10: start table', () => {
   it('lists every boat note in the ⓘ under the table (readable without hover)', () => {
     expect(html).toContain('(V = Vakaros, ours = our check)');
     expect(html).toContain('<p class="info-sub">Per boat</p>');
-    expect(html).toContain(
-      `<li>#GER42 Black Pearl — Vakaros reported no start fix (stale race 9 data); our check interpolated across a 17 s data gap; ${OCS_BLIND_NOTE}.</li>`,
-    );
-    expect(html).toContain('<li>#ITA 78 Milkwave — our check interpolated across a 32 s data gap.</li>');
+    expect(html).toContain(`<li>#GER42 Black Pearl — Vakaros reported no start fix (stale race 9 data); ${OCS_BLIND_NOTE}.</li>`);
+    // Our check across a hole is no caveat: ITA 78 has none.
+    expect(html).not.toContain('<li>#ITA 78');
+    expect(html).not.toMatch(/interpolated|data gap/);
     expect(html).toContain('<li>#AUT 3165 Stella Maris — Vakaros reported no distance for this boat.</li>');
     expect(html).not.toContain('<li>#FRA 901');
   });
 
-  it('keeps the start caveats visible as chips: ⚠ unchecked OCS, ~ gaps, — no Vakaros fix', () => {
+  it('keeps the start caveats visible as chips: ⚠ unchecked OCS, — no Vakaros fix; nothing about holes', () => {
     expect(startTableKey(analysis).chips).toEqual([
       { text: '1 OCS unchecked', warn: true, title: OCS_BLIND_NOTE },
-      { text: '~ 2 across a gap', title: 'Our check is interpolated across a telemetry gap' },
       { text: '— 2 no Vakaros fix' },
     ]);
-    // The start chart flags only GER42 (a 17 s hole, a stale Vakaros row), in a plain chip (not a warning): ITA 78's
-    // 32 s hole has the device's own distance to use instead (validity.ts gapAtGun).
-    const chip = startKey(analysis, { scale: startScale(analysis) }).chips.find((c) => /gap at the gun/.test(c.text));
-    expect(chip).toEqual({ text: '1 with a gap at the gun', title: 'Their GPS track has a hole of over 10 s across the gun and Vakaros reported no distance: our ~ figure is interpolated' });
+    // The start chart flags no boat for a hole at the gun (GER42's 17 s, ITA 78's 32 s).
+    expect(startKey(analysis, { scale: startScale(analysis) }).chips.some((c) => /gap|hole/.test(`${c.text} ${c.title ?? ''}`))).toBe(false);
   });
 
   it('shows ⚠ when Vakaros and ours disagree by more than 3 m, and a genuine 0.0', () => {
@@ -199,21 +193,22 @@ describe('C31 race 10: findings and chart', () => {
 
   it('adds a hedged note for Black Pearl and no over-the-line claim', () => {
     expect(text).toContain(
-      '#GER42 (Black Pearl): Vakaros had no start fix for this race and our track has a 17 s gap at the gun; it may have been over (≈3.1 m over by interpolation), but neither figure is reliable.',
+      '#GER42 (Black Pearl): Vakaros had no start fix for this race; it may have been over (our track: ≈3.1 m over), but neither figure is reliable.',
     );
     expect(text.filter((t) => t.includes('#GER42') && t.includes('over the line'))).toEqual([]);
     expect(text.filter((t) => t.includes(OCS_BLIND_NOTE) || t.includes('Vakaros had no start fix'))).toHaveLength(1);
   });
 
-  it('labels the chart with the ranking value, ~ for gap-only, never a bogus 0.0', () => {
+  it('labels the chart with the ranking value, else ours plainly, never a bogus 0.0', () => {
     const svg = startSnapshot(analysis, null, undefined, 'boat', { names: 'all' });
     const label = (sail: string): string => new RegExp(`>${sail}</text>\\s*<text[^>]*class="sub">([^<]*)</text>`).exec(svg)![1];
     expect(label('ITA 78')).toBe('0.4 m');
-    expect(label('GER42')).toBe('~-3.1 m');
+    expect(label('GER42')).toBe('-3.1 m');
     expect(label('AUT 3165')).toBe('2.1 m');
     expect(label('FRA 901')).toBe('12.6 m');
-    expect(svg).toMatch(/<title>#GER42: no reliable distance \(ours ~-3\.1 m\), SOG 6\.\d kn at the gun<\/title>/);
-    expect(svg).toMatch(/<title>#ITA 78: 0\.4 m behind \(Vakaros; ours ~-6\.0 m\), SOG 5\.6 kn at the gun<\/title>/);
+    expect(svg).toMatch(/<title>#GER42: -3\.1 m behind \(our track check\), -?\d+\.\d s late, SOG 6\.\d kn at the gun<\/title>/);
+    expect(svg).toMatch(/<title>#ITA 78: 0\.4 m behind \(Vakaros; ours -6\.0 m\), -?\d+\.\d s late, SOG 5\.6 kn at the gun<\/title>/);
+    expect(svg).not.toMatch(/~-?\d|no reliable distance/);
   });
 });
 

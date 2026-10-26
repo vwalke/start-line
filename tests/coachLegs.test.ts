@@ -107,15 +107,15 @@ describe('leg stories: Good Trade, race 3', () => {
     // Fleet places gained (not re-ranked within the class): a small mean either way.
     expect(Math.abs(r.bearAway.gain!)).toBeLessThan(3);
   });
-  it('fastest leg time and the boat’s rank; ⚠ low coverage on the collapsed row', () => {
+  it('fastest leg time and the boat’s rank; nothing about its low coverage on the collapsed row', () => {
     const s = fleet[0];
     expect(s.fastest!.id).toBe('USA 328');
     expect(s.myTime!.of).toBeGreaterThan(10);
     expect(s.coverage!).toBeLessThan(0.5);
     const t = legStoryText(s, a, 'USA 96', { kind: 'fleet' });
-    expect(t.summary.some((c) => c.cls === 'warn' && /^tracker \d+%$/.test(c.text))).toBe(true);
+    expect(t.summary.some((c) => /tracker \d+%|no data/.test(c.text))).toBe(false);
     expect(t.lines.flat().some((c) => c.text === 'marks est.')).toBe(true);
-    expect(placeChip(s)).toMatch(/^(gained \d+|lost \d+|even) · ~?\d+(st|nd|rd|th) of 18$/);
+    expect(placeChip(s)).toMatch(/^(gained \d+|lost \d+|even) · \d+(st|nd|rd|th) of 18$/);
   });
   it('renders collapsed <details> cards under a short heading, chips only, no NaN', () => {
     const html = legStoriesHtml(top3, a, 'USA 96', { kind: 'leaders' });
@@ -172,28 +172,28 @@ describe('leg story text (templates)', () => {
     expect(t.summary.map((c) => c.text)).toEqual(['No side paid', 'even · 2nd of 31', 'even with Top 3']);
     expect(JSON.stringify(t)).not.toContain('held');
     expect([placesWord(3), placesWord(-5), placesWord(0)]).toEqual(['gained 3', 'lost 5', 'even']);
-    // Near ±3, a custom group: seconds too; an estimated place carries ~ and says why.
+    // Near ±3, a custom group: seconds too; a place estimated across a rounding not tracked is shown plainly.
     expect(groupSecondsChip({ vsGroup: { deltaS: 7.6, n: 6 } }, { kind: 'near' })).toBe('lost 8 s vs Near ±3');
     const est = legStoryText({ ...base, mine: { id: 'me', gain: -1, from: 4, to: 5, est: true } }, a, 'me', g);
-    expect(est.summary.map((c) => c.text)).toContain('lost 1 · ~5th of 31');
-    expect(est.lines.flat().some((c) => c.text.startsWith('~ place estimated'))).toBe(true);
+    expect(est.summary.map((c) => c.text)).toContain('lost 1 · 5th of 31');
+    expect(JSON.stringify(est)).not.toMatch(/~|estimated|not tracked/);
   });
   it('the coached boat as a mover reads "you"; one exit only: no place delta', () => {
     const t = legStoryText({ ...base, gainers: [{ id: 'me', gain: 1, from: 4, to: 3 }], mine: { id: 'me', gain: 1, from: 4, to: 3 }, rounding: { ...base.rounding!, gybeSet: { n: 0, gain: null }, bearAway: { n: 7, gain: 0 }, mine: 'bear-away' } }, a, 'me', g);
     expect(t.lines[0][0]).toEqual({ text: '▲ you +1', cls: 'me' });
     expect(t.lines[2].map((c) => c.text)).toEqual(['bear-away 7 of 7']);
   });
-  it('a group too small: the fleet chip once; thin tracker: a ⚠ chip on the closed row', () => {
+  it('a group too small: the fleet chip once; a thin tracker or none: nothing said about it', () => {
     const t = legStoryText({ ...base, moversFleet: true, side: { ...base.side!, fleet: true }, coverage: 0.15 }, a, 'me', g);
     expect(t.lines.flat().filter((c) => c.text === 'whole fleet: group too small')).toHaveLength(1);
-    expect(t.summary.some((c) => c.cls === 'warn' && c.text === 'tracker 15%')).toBe(true);
+    expect(t.summary.some((c) => /tracker \d+%|no data/.test(c.text))).toBe(false);
     const empty = legStoryText({ ...base, coverage: null }, a, 'me', g);
-    expect(empty.summary.some((c) => c.cls === 'warn' && c.text === 'no data')).toBe(true);
+    expect(empty.summary.some((c) => /tracker \d+%|no data/.test(c.text))).toBe(false);
   });
 });
 
 describe('progress ratio (legs table)', () => {
-  it('straight line ÷ distance sailed: in (0, 1] on every leg of every fixture, — when missing, ~ across a gap', () => {
+  it('straight line ÷ distance sailed: in (0, 1] on every leg of every fixture, — when missing, plain across a gap', () => {
     const races: RaceData[] = [fixtureRace(), m24Race(), j88Race(), c31Race(), j105Race(1), j105Race(3)];
     let n = 0;
     for (const data of races) {
@@ -214,7 +214,7 @@ describe('progress ratio (legs table)', () => {
     expect(progressCell(null)).toBe('—');
     expect(progressCell({ progress: null } as never)).toBe('—');
     expect(progressCell({ progress: 0.923, distGapS: null } as never)).toBe('92%');
-    expect(progressCell({ progress: 0.7, distGapS: 40 } as never)).toContain('~70%');
+    expect(progressCell({ progress: 0.7, distGapS: 40 } as never)).toBe('70%');
   });
   it('a Prog column per leg, ranked, sortable, best first', () => {
     const a = analyzeRace(fixtureRace());
@@ -230,13 +230,14 @@ describe('progress ratio (legs table)', () => {
 });
 
 describe('leg stories: Good Trade, race 2 (sparse tracker)', () => {
-  it('a collapsed row with 15% coverage shows ⚠ tracker N%, not an empty-looking card', () => {
+  it('a collapsed row with 15% coverage shows its places and seconds, nothing about the coverage', () => {
     const { a, model } = setup(j105Race(2));
     const st = legStories(a, model, 'USA 96', { kind: 'leaders' });
     expect(st.every((s) => s.coverage != null && s.coverage < 0.2)).toBe(true);
     for (const s of st) {
       const t = legStoryText(s, a, 'USA 96', { kind: 'leaders' });
-      expect(t.summary.some((c) => c.cls === 'warn' && c.text === 'tracker 15%')).toBe(true);
+      expect(t.summary.some((c) => /tracker \d+%|no data/.test(c.text))).toBe(false);
+      expect(t.summary.length + t.lines.flat().length > 0 || t.sentence === 'Nothing to show for this leg.').toBe(true);
     }
   });
 });
@@ -332,7 +333,7 @@ describe('fleet places: a fixed fleet when a tracker drops out', () => {
     for (const g of [{ kind: 'leaders' as const }, { kind: 'fleet' as const }]) {
       const st = legStories(a, m, 'C', g);
       expect(st.map((s) => s.placeOf)).toEqual([5, 5, 5]);
-      expect(st.map((s) => placeChip(s))).toEqual(['even · 3rd of 5', 'even · ~3rd of 5', 'even · ~3rd of 5']);
+      expect(st.map((s) => placeChip(s))).toEqual(['even · 3rd of 5', 'even · 3rd of 5', 'even · 3rd of 5']);
       expect(legStoriesHtml(st, a, 'C', g)).not.toContain('held');
     }
     // Against the Top 3 (A, B, D): Beat 1 in 640 s vs their median 620 s → lost 20 s; no time on Run 1 → no chip.

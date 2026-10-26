@@ -7,7 +7,6 @@ import {
   addSogTrack,
   binPos,
   emptySogPaths,
-  hasGaps,
   legRangeList,
   legSogRanges,
   nearestSample,
@@ -15,7 +14,6 @@ import {
   percentile,
   scaleLeg,
   segmentSogRange,
-  segmentTimes,
   sogBin,
   sogHoverLeg,
   SOG_BINS,
@@ -186,33 +184,29 @@ describe('batched SOG paths', () => {
 
   it('joins same-bin steps into one run and starts the next on the shared point', () => {
     const acc = emptySogPaths(10);
-    addSogTrack(acc, xs(5), [0, 0, 0, 0, 0], [0, 1000, 2000, 3000, 4000], [2.2, 2.4, 2.4, 7.5, 7.5], r);
+    addSogTrack(acc, xs(5), [0, 0, 0, 0, 0], [2.2, 2.4, 2.4, 7.5, 7.5], r);
     expect(acc.bins[2]).toBe('M0.0,0.0L1.0,0.0L2.0,0.0');
     // the step 2 → 3 averages 4.95 kn (bin 4), then 7.5 (bin 7): each run begins where the last ended
     expect(acc.bins[4]).toBe('M2.0,0.0L3.0,0.0');
     expect(acc.bins[7]).toBe('M3.0,0.0L4.0,0.0');
-    expect(acc.gap).toBe('');
+    expect(acc).not.toHaveProperty('gap');
   });
 
-  it('leaves steps over 5 s out of every colour run, and blank (no gap chord drawn)', () => {
+  it('draws every step in its colour run, however far apart its fixes (the tracks come with holes filled in): nothing blank', () => {
     const acc = emptySogPaths(10);
-    addSogTrack(acc, xs(4), [0, 0, 0, 0], [0, 1000, 8000, 9000], [5, 5, 5, 5], r);
-    expect(acc.gap).toBe('M1.0,0.0L2.0,0.0');
-    expect(acc.bins[5]).toBe('M0.0,0.0L1.0,0.0M2.0,0.0L3.0,0.0');
+    addSogTrack(acc, xs(4), [0, 0, 0, 0], [5, 5, 5, 5], r);
+    expect(acc.bins[5]).toBe('M0.0,0.0L1.0,0.0L2.0,0.0L3.0,0.0');
     const svg = sogPathsSvg(acc, 1.4, 1);
-    expect(svg).not.toContain('sog-gap');
-    expect(svg).not.toContain('M1.0,0.0L2.0,0.0');
-    expect(hasGaps([[0, 1000, 8000]])).toBe(true);
-    expect(hasGaps([[0, 1000, 6000]])).toBe(false);
+    expect(svg).not.toMatch(/sog-gap|sog-est/);
   });
 
   it('skips steps leaving the clip region', () => {
     const acc = emptySogPaths(10);
-    addSogTrack(acc, xs(4), [0, 0, 0, 0], [0, 1000, 2000, 3000], [5, 5, 5, 5], r, (i) => i !== 2);
+    addSogTrack(acc, xs(4), [0, 0, 0, 0], [5, 5, 5, 5], r, (i) => i !== 2);
     expect(acc.bins[5]).toBe('M0.0,0.0L1.0,0.0');
   });
 
-  it('emits per boat at most one path per bin plus one gap path, however long the track', () => {
+  it('emits per boat at most one path per bin (and one casing), however long the track', () => {
     const a = analyzeRace(fixtureRace());
     const svg = trackMap(a, null, null, { colour: 'sog' });
     expect(svg).not.toContain('<polyline class="trk');
@@ -223,11 +217,10 @@ describe('batched SOG paths', () => {
     expect(samples).toBeGreaterThan(20 * groups.length * (SOG_BINS + 1)); // far more fixes than paths
     for (const [, , body] of groups) {
       const colour = (body.match(/<path class="sog" /g) ?? []).length;
-      const gaps = (body.match(/<path class="sog-gap"/g) ?? []).length;
       const cases = (body.match(/<path class="sog-case"/g) ?? []).length;
       expect(colour).toBeGreaterThan(1);
-      expect(colour + gaps).toBeLessThanOrEqual(SOG_BINS + 1);
-      expect(gaps).toBeLessThanOrEqual(1);
+      expect(colour).toBeLessThanOrEqual(SOG_BINS);
+      expect(body).not.toMatch(/sog-gap|sog-est/);
       expect(cases).toBeLessThanOrEqual(1);
       const bins = [...body.matchAll(/data-bin="(\d+)"/g)].map((m) => m[1]);
       expect(new Set(bins).size).toBe(bins.length); // one path per bin
@@ -242,7 +235,8 @@ describe('batched SOG paths', () => {
     const r1 = trackSogRange(a, 1)!;
     expect(svg).toContain(`colored by boat speed (SOG), ${r1.lo.toFixed(1)} to ${r1.hi.toFixed(1)} kn`);
     expect(svg).toMatch(/aria-label="Race Viewer on [^"]+, tracks colored by boat speed/);
-    expect(sogKey(r1, 'Beat 2', hasGaps(segmentTimes(a, 1)))).toContain(`${r1.lo.toFixed(1)} kn`);
+    expect(sogKey(r1, 'Beat 2')).toContain(`${r1.lo.toFixed(1)} kn`);
+    expect(sogKey(r1, 'Beat 2')).not.toMatch(/no data|spd-none/);
   });
 
   it('puts the selected boat on top, thicker, outlined; the rest dimmed', () => {
@@ -361,7 +355,7 @@ describe('whole race in Boat speed, scaled per leg', () => {
   /** The one bin a 2-fix segment of leg `leg` at a steady `kn` lands in. */
   const binOf = (leg: number, kn: number, scale: 'leg' | 'race'): number => {
     const acc = emptySogPaths();
-    addSogTrack(acc, [0, 1], [0, 0], [0, 1000], [kn, kn], segmentSogRange(a, leg, null, scale)!);
+    addSogTrack(acc, [0, 1], [0, 0], [kn, kn], segmentSogRange(a, leg, null, scale)!);
     return acc.bins.findIndex(Boolean);
   };
 
@@ -457,17 +451,16 @@ describe('whole race in Boat speed, scaled per leg', () => {
     for (const other of [colourControls('sog', 'leg', 1, 'all', 'leg'), colourControls('rank', 'leg', null), colourControls('leg', 'leg', null)]) {
       expect(other).not.toContain('data-sog-scale');
     }
-    const key = sogLegKey(a, hasGaps(segmentTimes(a, null)));
+    const key = sogLegKey(a);
     expect(key).toContain('<span class="sog-lo">slow</span>');
     expect(key).toContain('<span class="sog-hi">fast</span>');
     expect(key).toContain('slow → fast within each leg');
     const list = legs.map((l) => `${l.name} ${l.range!.lo.toFixed(1)}–${l.range!.hi.toFixed(1)}`).join(' · ');
     expect(key).toContain(`<span class="sog-legs">${list} kn</span>`);
     expect(key).not.toContain(' kn</span><span class="spd-bar'); // no knots on the shared bar
-    // Gap note is one flex item, before the 100%-width legs list (not a stray "·" after it).
-    expect(hasGaps(segmentTimes(a, null))).toBe(true);
-    expect(key).toContain('<span class="key-sw" title="Telemetry gap: fixes over 5 s apart"><span class="spd-none" aria-hidden="true"></span> no data</span><span class="sog-legs">');
-    expect(key.indexOf('no data')).toBeLessThan(key.indexOf('class="sog-legs"'));
+    // No "no data" swatch, whatever the feed's holes: the description runs straight into the 100%-width legs list.
+    expect(key).toContain('<span>slow → fast within each leg</span><span class="sog-legs">');
+    expect(key).not.toMatch(/no data|key-sw|spd-none/);
     // The method (4 s mean, percentiles) lives in the map's ⓘ, not the key.
     expect(key).not.toContain('percentile');
     // Whole race keeps the kn-labelled key

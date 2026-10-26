@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { FILL_STEP_MS, SHORT_GAP_S, estSpan, estStep, fillGap, fillTrack, isShortGap, type FillInput, type FilledTrack } from '../src/ui/gapFill';
+import { FILL_STEP_MS, fillGap, fillTrack, type FillInput, type FilledTrack } from '../src/ui/gapFill';
 
 /**
- * Short tracker gaps filled in for display (ui/gapFill.ts): which gaps, the curve between the two fixes (their
+ * Tracker gaps filled in for display (ui/gapFill.ts): every one, at any length; the curve between the two fixes (their
  * velocities from the neighboring steps and SOG, else Catmull-Rom, never swinging wide), and the filled track.
  */
 const KN = 3600 / 1852;
@@ -41,7 +41,7 @@ const off = (p: [number, number], a: [number, number], b: [number, number]): num
   return Math.hypot(p[0] - a[0] - f * vx, p[1] - a[1] - f * vy);
 };
 
-describe('gapFill: which gaps are filled', () => {
+describe('gapFill: every gap is filled, however long', () => {
   const gapMs = 2000;
   /** A 1 Hz track east at 3 m/s with one step of `gapS` seconds after its 5th fix, carrying on along the same line. */
   const withGap = (gapS: number): FillInput => {
@@ -51,44 +51,40 @@ describe('gapFill: which gaps are filled', () => {
     return join(a, b);
   };
 
-  it('SHORT_GAP_S is 30 s: a gap of exactly 30 s is filled, 30.5 s and 31 s are not', () => {
-    expect(SHORT_GAP_S).toBe(30);
-    expect(fillGap(withGap(30), 4, gapMs)).not.toBeNull();
-    expect(fillGap(withGap(30.5), 4, gapMs)).toBeNull();
-    expect(fillGap(withGap(31), 4, gapMs)).toBeNull();
-    expect([isShortGap(30_000, gapMs), isShortGap(30_500, gapMs), isShortGap(31_000, gapMs)]).toEqual([true, false, false]);
+  it('a hole of 10 s, 30 s, 31 s, 8 min or 2 h is filled; no length limit', () => {
+    for (const s of [10, 30, 31, 480, 7200]) {
+      const g = fillGap(withGap(s), 4, gapMs);
+      expect(g, `${s} s`).not.toBeNull();
+      // About one point a second, strictly inside the hole, along the straight line the boat sailed.
+      expect(g!.t.length).toBe(Math.ceil(s) - 1);
+      expect(g!.t.every((t) => t > 4000 && t < 4000 + s * 1000)).toBe(true);
+      g!.x.forEach((x, k) => expect(x).toBeCloseTo((3 * g!.t[k]) / 1000, 3));
+    }
   });
 
   it('no gap, no fill: a step within the gap threshold is left alone, and a clean track is returned as it is', () => {
-    expect(isShortGap(2000, gapMs)).toBe(false);
     expect(fillGap(withGap(2), 4, gapMs)).toBeNull();
     const clean = track(line(30, 0, [0, 0], [1, 0], 3));
     expect(fillTrack(clean, gapMs)).toBe(clean);
-    expect(clean.est).toBeUndefined();
-    // A long gap only: the track as it is too (left blank).
-    const long = track(withGap(40) as ReturnType<typeof line>);
-    expect(fillTrack(long, gapMs)).toBe(long);
+    expect('est' in clean).toBe(false);
   });
 
-  it('fills about every FILL_STEP_MS, flags only the filled points, and keeps every real fix and its time', () => {
+  it('fills about every FILL_STEP_MS, keeps every real fix and its time, flags nothing', () => {
     const src = track(withGap(10) as ReturnType<typeof line>);
     const f = fillTrack(src, gapMs);
     expect(f).not.toBe(src);
     expect(FILL_STEP_MS).toBe(1000);
-    const real = [...f.t].filter((_, i) => f.est![i] === 0);
-    expect(real).toEqual([...src.t]);
-    const filled = [...f.t].filter((_, i) => f.est![i] === 1);
-    expect(filled.length).toBe(9);
-    expect(filled.every((t) => t > 4000 && t < 14_000)).toBe(true);
+    expect([...src.t].every((t) => f.t.includes(t))).toBe(true);
+    expect(f.t.length - src.t.length).toBe(9);
     for (let i = 1; i < f.t.length; i++) expect(f.t[i] - f.t[i - 1]).toBeLessThanOrEqual(FILL_STEP_MS + 1e-9);
-    // The steps to and from the filled points are estimated, the rest not.
-    const k = f.est!.indexOf(1);
-    expect([estStep(f.est, k - 1), estStep(f.est, k), estStep(f.est, k + 9)]).toEqual([false, true, true]);
-    expect(estSpan(f.t, f.est!, k + 3)).toEqual([4000, 14_000]);
+    // Drawn as the rest of the track: no flag on the filled points.
+    expect('est' in f).toBe(false);
     // SOG linear across it; the source untouched; worked out once.
     expect([...f.sog].every((v) => Math.abs(v - 3 * KN) < 1e-3)).toBe(true);
     expect(fillTrack(src, gapMs)).toBe(f);
-    expect(src.est).toBeUndefined();
+    // An 8 min hole: filled too, one point a second.
+    const long = fillTrack(track(withGap(480) as ReturnType<typeof line>), gapMs);
+    expect(long.t.length).toBe(10 + 479);
   });
 });
 

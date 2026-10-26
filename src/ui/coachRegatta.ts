@@ -205,8 +205,8 @@ export const secs = (s: number): string => `${s > 0 ? '+' : s < 0 ? '−' : ''}$
 
 export const LEG_TYPE: Record<LegTypeSummary['kind'], string> = { upwind: 'Beats', downwind: 'Runs', reach: 'Reaches' };
 
-/** A leg-type row's best or worst leg: "R2 Beat 1: −12 s, 3rd of 20" (⚠ low data). */
-export const legExtremeText = (e: LegTypeSummary['best']): string => `${e.label} ${e.leg}: ${secs(e.deltaS)}, ${ordinal(e.rank)} of ${e.of}${e.low ? ' ⚠' : ''}`;
+/** A leg-type row's best or worst leg: "R2 Beat 1: −12 s, 3rd of 20". */
+export const legExtremeText = (e: LegTypeSummary['best']): string => `${e.label} ${e.leg}: ${secs(e.deltaS)}, ${ordinal(e.rank)} of ${e.of}`;
 
 /** What a race's place chip says on hover: "3rd of 20, official", "not analysed yet", "couldn't load: …". */
 export function placeWhat(r: RegattaSummary['rows'][number]): string {
@@ -223,12 +223,10 @@ export function placeWhat(r: RegattaSummary['rows'][number]): string {
 /** The status line: progress while races are analysed, then what was found. */
 export function regattaStatusHtml(s: RegattaSummary, p: RegattaProgress): string {
   if (!s.total) return '<p class="muted coach-none">No races in this event yet.</p>';
-  const low = s.rows.filter((r) => r.low).length;
   const errs = s.rows.filter((r) => r.status === 'error').length;
   const parts: string[] = [];
   if (p.running) parts.push(`Analyzing ${esc(p.running)} (${p.done + 1} of ${p.total})${p.message ? ` · ${esc(p.message)}` : '…'}`);
   else parts.push(`${s.done} of ${s.total} races analyzed`);
-  if (low) parts.push(`⚠ ${low} with low tracker data (marked, counted less)`);
   if (errs) parts.push(`${errs} couldn't be loaded`);
   return `<p class="regatta-status${p.running ? ' busy' : ''}" role="status">${parts.join(' · ')}</p>`;
 }
@@ -241,8 +239,7 @@ export function regattaPlacesHtml(s: RegattaSummary): string {
     const water = r.status === 'done' ? onWaterText(f) : '';
     const of = r.status === 'done' && f ? `<small>of ${f.of}${water ? ` · ${water}` : ''}</small>` : '';
     const what = placeWhat(r);
-    const warn = r.low ? ' <span class="warn" title="Low tracker coverage: counted less">⚠</span>' : '';
-    return `<li class="rp ${r.status}${r.low ? ' low' : ''}" data-race="${r.raceNumber}" title="${esc(`${r.name}: ${what}`)}"><b>${esc(r.label)}</b> <span class="rp-place">${esc(place)}</span>${of}${warn}</li>`;
+    return `<li class="rp ${r.status}" data-race="${r.raceNumber}" title="${esc(`${r.name}: ${what}`)}"><b>${esc(r.label)}</b> <span class="rp-place">${esc(place)}</span>${of}</li>`;
   });
   return `<ol class="regatta-places" aria-label="Place in each race">${li.join('')}</ol>`;
 }
@@ -252,7 +249,7 @@ export function regattaPlacesHtml(s: RegattaSummary): string {
  * races with good data", a chip per race with its seconds) or a one-race finding or leg type; then the tip.
  */
 export function patternCardHtml(t: WorkOn): string {
-  const secs = t.score >= 1 ? `<li class="chip sec" title="Seconds at stake, weighted by each race's tracker coverage">~${Math.round(t.score)} s</li>` : '';
+  const secs = t.score >= 1 ? `<li class="chip sec" title="Seconds at stake over the races, weighted">~${Math.round(t.score)} s</li>` : '';
   const chips = t.chips.map((c) => `<li class="chip">${esc(c)}</li>`).join('');
   return `<article class="card coach-pattern${t.pattern ? ' pattern' : ''}" data-theme="${esc(t.theme)}">
     <h5>${esc(t.title)}</h5>
@@ -312,11 +309,11 @@ export function regattaHtml(s: RegattaSummary, p: RegattaProgress): string {
   const rows = s.findings
     .map(
       (f) =>
-        `<tr><th scope="row">${esc(f.label)}</th><td${f.gated ? ' title="Of the races with the data to measure it"' : ''}>${f.races} of ${f.of}${f.gated ? '*' : ''}</td><td>~${Math.round(f.totalS)} s</td><td>~${Math.round(f.weightedS)} s${f.lowRaces ? ' <span class="warn" title="Includes races with low tracker coverage, counted less">⚠</span>' : ''}</td><td class="muted">${esc(f.raceLabels.join(', '))}</td></tr>`,
+        `<tr><th scope="row">${esc(f.label)}</th><td${f.gated ? ' title="Of the races where it could be measured"' : ''}>${f.races} of ${f.of}${f.gated ? '*' : ''}</td><td>~${Math.round(f.totalS)} s</td><td>~${Math.round(f.weightedS)} s</td><td class="muted">${esc(f.raceLabels.join(', '))}</td></tr>`,
     )
     .join('');
   const findings = rows
-    ? `<div class="regatta-scroll"><table class="regatta-table regatta-findings"><thead><tr><th scope="col">Finding</th><th scope="col">Races</th><th scope="col">At stake</th><th scope="col" title="Seconds weighted by each race's tracker coverage">Weighted</th><th scope="col">Where</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ? `<div class="regatta-scroll"><table class="regatta-table regatta-findings"><thead><tr><th scope="col">Finding</th><th scope="col">Races</th><th scope="col">At stake</th><th scope="col" title="Seconds weighted by how fully each race could be judged">Weighted</th><th scope="col">Where</th></tr></thead><tbody>${rows}</tbody></table></div>`
     : '<p class="muted">No findings yet.</p>';
   const legRows = s.legs
     .map((l) => {
@@ -327,7 +324,7 @@ export function regattaHtml(s: RegattaSummary, p: RegattaProgress): string {
   const legs = legRows
     ? `<div class="regatta-scroll"><table class="regatta-table regatta-legs"><thead><tr><th scope="col">Legs</th><th scope="col">Sailed</th><th scope="col" title="Leg time vs the fleet's median for the leg (+ = slower)">vs fleet median</th><th scope="col">Best</th><th scope="col">Worst</th></tr></thead><tbody>${legRows}</tbody></table></div>`
     : '';
-  const gatedNote = s.findings.some((f) => f.gated) ? '<p class="muted regatta-note">* of the races with the tracker data to measure it (dirty air needs the boats around you; roundings the zone time or the sparse-data place read; gate choice both gate buoys tracked; heel the roll column).</p>' : '';
+  const gatedNote = s.findings.some((f) => f.gated) ? '<p class="muted regatta-note">* of the races where it could be measured (dirty air needs the boats around you; roundings the zone time or the place read; gate choice both gate buoys tracked; heel the roll column).</p>' : '';
   return `${status}${places}${penaltiesHtml(s)}
     <h4>Top 3 to work on</h4>${top}
     ${went}

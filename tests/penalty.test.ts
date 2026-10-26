@@ -161,7 +161,7 @@ describe('IC37 R5 with the official link: USA 016, DPI in every race of the rega
 
   it('shows the result: "DPI 15" (header chip, boat list), the places chart keeps the water', () => {
     expect(codeShort(boat('USA 016'))).toBe('DPI 15');
-    const chips = coachChips(a, boat('USA 016'), null);
+    const chips = coachChips(a, boat('USA 016'));
     expect(chips[0]).toMatchObject({ text: 'DPI 15' });
     expect(chips[0].title).toContain('12th on the water');
     // Behind the winner on the water, like any finisher.
@@ -174,7 +174,7 @@ describe('IC37 R5 with the official link: USA 016, DPI in every race of the rega
     const t = penaltyText(d.penalty!, a);
     expect(t.title).toBe('Cost 3 places — 12th on the water, scored 15th');
     expect(t.sentence).toContain('Discretionary penalty: the protest committee added points instead of disqualifying');
-    const html = coachCardsHtml(a, d, null, null);
+    const html = coachCardsHtml(a, d, null);
     const pen = html.indexOf('coach-penalty');
     expect(pen).toBeGreaterThanOrEqual(0);
     expect(html).toContain('12th on the water, scored 15th');
@@ -199,7 +199,7 @@ describe('IC37 R5 with the official link: USA 016, DPI in every race of the rega
 
   it('the race view’s Ask Coach context carries the penalty, and the server keeps it', () => {
     const d = debrief('USA 016');
-    const ctx = raceAskContext({ a, me: boat('USA 016'), head: coachChips(a, boat('USA 016'), null), deb: d, stories: [], group: { kind: 'leaders' } });
+    const ctx = raceAskContext({ a, me: boat('USA 016'), head: coachChips(a, boat('USA 016')), deb: d, stories: [], group: { kind: 'leaders' } });
     expect(ctx.penalty).toMatchObject({ code: 'DPI', result: 'Cost 3 places — 12th on the water, scored 15th' });
     expect(ctx.penalty!.meaning).toMatch(/Discretionary penalty/);
     expect(sanitizeAskContext(JSON.parse(JSON.stringify(ctx)))!.penalty).toEqual(ctx.penalty);
@@ -211,7 +211,7 @@ describe('IC37 R5 with the official link: USA 016, DPI in every race of the rega
     const d = debrief('USA 016');
     const me = boat('USA 016');
     const group = { kind: 'leaders' } as const;
-    const ctx = raceAskContext({ a, me, head: coachChips(a, me, null, d.totalS, d.raceCov), deb: d, stories: legStories(a, m, me.id, group), group });
+    const ctx = raceAskContext({ a, me, head: coachChips(a, me, d.totalS), deb: d, stories: legStories(a, m, me.id, group), group });
     const p = buildPrompt({ question: 'what was my biggest loss this race?', history: [], ids: {}, context: sanitizeAskContext(JSON.parse(JSON.stringify(ctx)))! });
     expect(p.trimmed).toEqual([]);
     const block = p.system[1].text;
@@ -271,7 +271,7 @@ describe('a scored start code replaces "Over early — cleared" (USA 017, synthe
     expect(t.chips[1]).toBe('back +7 s');
     expect(t.chips[2]).toMatch(/^recrossed \+2[5-7] s$/);
     expect(t.tip).toMatch(/safe gap to the line/);
-    expect(coachCardsHtml(an, d, null, null)).not.toContain('Over early — cleared');
+    expect(coachCardsHtml(an, d, null)).not.toContain('Over early — cleared');
   });
 
   it('OCS (no finish time): "Scored OCS — 16 points; the result is lost", with the same figures', () => {

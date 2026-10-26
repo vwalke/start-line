@@ -17,7 +17,7 @@ import { laneScrubHtml } from '../src/ui/laneSnapshotsView';
 import { c31Race, gateRace, j105Race } from './helpers';
 
 /**
- * The filled-in short gaps (ui/gapFill.ts) are display only: drawing every track view with them leaves the analysis,
+ * The filled-in gaps (ui/gapFill.ts: every hole, at any length) are display only: drawing every track view with them leaves the analysis,
  * its inputs and every Coach card and finding exactly as they were, and nothing outside the drawing code imports it.
  */
 
@@ -32,7 +32,7 @@ function results(data: RaceData) {
 
 /** The boats whose tracks the fill draws in (holes judged on the feed's own fixes: the drawing's FillRule). */
 function filledBoats(a: RaceAnalysis): string[] {
-  const filled = (s: Parameters<typeof fillTrack>[0], d: RaceAnalysis['drawings'][number], thinned: boolean): boolean => !!fillTrack(s, fillRuleOf(d), thinned).est;
+  const filled = (s: Parameters<typeof fillTrack>[0], d: RaceAnalysis['drawings'][number], thinned: boolean): boolean => fillTrack(s, fillRuleOf(d), thinned).t.length > s.t.length;
   return a.drawings.filter((d) => d.segments.some((s) => filled(s, d, true)) || (d.pre != null && filled(d.pre, d, false))).map((d) => d.id);
 }
 
@@ -45,7 +45,7 @@ function drawEverything(r: ReturnType<typeof results>, ids: string[]): string {
   for (const s of [-60, 0, 30, 90, 300, 900, 1800]) {
     const t = gun + s * 1000;
     const f = scrubFrame(a, ids[0], null, { scrub: true }, { t, win: [t - 120_000, t], trailMs: 120_000 });
-    out += f.dots + f.trails.map((x) => [...x.d, ...(x.est ?? [])].join('')).join('');
+    out += f.dots + f.trails.map((x) => x.d.join('')).join('');
     boatsAt(a, ids[0], t);
   }
   out += startSnapshot(a, ids[0]) + startSnapshot(a, null, undefined, 'speed');
@@ -58,7 +58,7 @@ function drawEverything(r: ReturnType<typeof results>, ids: string[]): string {
   return out;
 }
 
-// Races with short gaps to fill (IC37 race 5, the Coach start case, is dense: none by the map's rule).
+// Races with gaps to fill (IC37 race 5, the Coach start case, is dense: none by the map's rule).
 const RACES: [string, () => RaceData][] = [
   ['J/105 CBC race 1 (USA 96, a sparse tracker, filled across the gun)', () => j105Race(1)],
   ['J/105 CBC race 2 (USA 96, a sparse tracker)', () => j105Race(2)],
@@ -73,10 +73,10 @@ describe('gap fill is display only', () => {
       const before = structuredClone(data.boats);
       const r = results(data);
       const ids = filledBoats(r.a);
-      // The race has short gaps to fill, and the fill is drawn (lighter, solid).
+      // The race has gaps to fill, and the fill is drawn as the rest of the track (nothing lighter).
       expect(ids.length).toBeGreaterThan(0);
       const svg = drawEverything(r, [...ids, ...r.a.boats.map((b) => b.id)]);
-      expect(svg).toMatch(/class="[^"]*\b(trk-est|trail-est|sog-est|lane-est)\b/);
+      expect(svg).not.toMatch(/class="[^"]*\b(trk-est|trail-est|sog-est|lane-est)\b/);
       // The inputs and the analysis drawn from are untouched…
       expect(data.boats).toEqual(before);
       const again = results(data);

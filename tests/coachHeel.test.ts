@@ -290,7 +290,7 @@ describe('D11 heel: upwind', () => {
     expect(o.facts.ref).toBe('peers');
     const c = rankOpportunities([o])[0];
     expect(c.confidence).toBe('medium');
-    expect(cardWarnings(c, ctx.a)).toEqual(['no leader heel data']);
+    expect(cardWarnings(c)).toEqual(['no leader heel data']);
     expect(cardText(c).sentence).toMatch(/than the boats near you/);
     expect(cardText(c).chips[0]).toBe('heel 21° vs 15° peers');
   });
@@ -344,7 +344,7 @@ describe('D11 heel: downwind (lower confidence)', () => {
     expect(o.facts.leg).toBe('Run 1');
     const c = rankOpportunities([o])[0];
     expect(c.confidence).toBe('medium');
-    expect(cardWarnings(c, ctx.a)).toEqual(['heel on runs: indicative']);
+    expect(cardWarnings(c)).toEqual(['heel on runs: indicative']);
     const t = cardText(c);
     expect(t.title).toBe('Rolling on Run 1');
     expect(t.chips[0]).toMatch(/^heel ±6° vs ±1° top 3$/);
@@ -389,7 +389,7 @@ describe('D11 in the Regatta view', () => {
     expect(tipOf('D11', 'rolling')).toMatch(/Steady/);
   });
 
-  it('"Over-heeled upwind in 3 of 5 races with good data" (a 6th race had no roll), with the tip', () => {
+  it('"Over-heeled upwind in 3 of 5 races judged" (a 6th race had no roll), with the tip', () => {
     const races = [
       digest(1, { findings: [over], evaluated: heelEval }),
       digest(2, { findings: [{ ...over, seconds: 30 }], evaluated: heelEval }),
@@ -403,7 +403,7 @@ describe('D11 in the Regatta view', () => {
     expect(f).toMatchObject({ races: 3, of: 5, gated: true, label: 'Over-heeled upwind', totalS: 50 });
     const w = s.top.find((x) => x.theme === 'heel-over')!;
     expect(w.pattern).toBe(true);
-    expect(w.why).toBe('Over-heeled upwind in 3 of 5 races with good data, ~50 s total');
+    expect(w.why).toBe('Over-heeled upwind in 3 of 5 races judged, ~50 s total');
     expect(w.tip).toBe(tipOf('D11', 'over'));
     expect(w.chips).toEqual(['R1 20 s', 'R2 30 s', 'R3 (medium)']);
   });

@@ -75,7 +75,7 @@ describe('Coach golden: Good Trade race 1 (gun 11:05 EDT)', () => {
     expect(ok.facts.twa as number).toBeLessThanOrEqual(41);
     expect(ok.facts.fTwa as number).toBeGreaterThanOrEqual(41);
     expect(ok.facts.fTwa as number).toBeLessThanOrEqual(45);
-    const html = coachCardsHtml(a, d, null, 0.27);
+    const html = coachCardsHtml(a, d, null);
     expect(html).toContain('✓ Upwind pointing 40° vs fleet 42°');
     // The start was measured and D1 did not fire (5 m back, 3 s after the front row), but 11th of 18 over the
     // line is no front-row start: no ✓ start (that is for the first third over, on time and close to the line).
@@ -89,7 +89,7 @@ describe('Coach golden: Good Trade race 1 (gun 11:05 EDT)', () => {
   it('the header adds the seconds at stake; a selected card shades its window on the gap chart', () => {
     const me = a.boats.find((b) => b.id === GT)!;
     const l = rivalLadder(model, a, GT, { kind: 'leaders' })!;
-    const text = coachChips(a, me, l, d.totalS).map((c) => c.text);
+    const text = coachChips(a, me, d.totalS).map((c) => c.text);
     expect(text).toContain(`≈ ${Math.round(d.totalS)} s at stake`);
     const svg = ladderChart(a, model, l, { kind: 'leaders' }, { widthPx: 900, highlight: cardSpans(d.cards[0]) });
     expect(svg.match(/class="cl-hl"/g)).toHaveLength(1);
@@ -165,16 +165,15 @@ describe('Coach golden: Good Trade race 2 (gun 12:25 EDT)', () => {
     expect(cardText(c).chips.some((x) => /°/.test(x))).toBe(false);
   });
 
-  it('15 % race coverage still gets a debrief, with ⚠ tracker and a low-data chip on each card', () => {
+  it('15 % race coverage still gets a debrief, with nothing on screen about the tracker coverage', () => {
     const me = a.boats.find((b) => b.id === GT)!;
     expect(me.coverage!).toBeLessThan(0.25);
     expect(d.raceCov).toBeLessThan(0.25);
     expect(d.noData).toBe(false);
     expect(d.cards.length).toBeGreaterThan(0);
-    const html = coachCardsHtml(a, d, null, me.coverage);
-    expect(html.match(/low data/g)?.length).toBe(d.cards.length);
-    const l = rivalLadder(model, a, GT, { kind: 'leaders' })!;
-    expect(coachChips(a, me, l, d.totalS, d.raceCov).some((c) => c.warn && c.text.startsWith('tracker '))).toBe(true);
+    const html = coachCardsHtml(a, d, null);
+    expect(html).not.toMatch(/low data|tracker \d+%|no data/);
+    expect(coachChips(a, me, d.totalS).some((c) => /tracker \d+%|no data/.test(c.text))).toBe(false);
   });
 
   it('no known roundings: one merged leg label, not four stacked on the same x', () => {
@@ -259,7 +258,7 @@ describe('Coach sanity across the other fixtures', () => {
           expect(chipsMax(c)).toBe(c.kind === 'D1' && c.facts.d3S != null ? 4 : 3);
           expect(`${t.sentence} ${t.tip} ${t.chips.join(' ')}`).not.toMatch(/NaN|undefined|null/);
         }
-        expect(coachCardsHtml(a, d, null, null)).not.toMatch(/NaN|undefined/);
+        expect(coachCardsHtml(a, d, null)).not.toMatch(/NaN|undefined/);
       }
       expect(cards).toBeGreaterThanOrEqual(0);
     });

@@ -552,7 +552,7 @@ describe('a picked boat under Top N (M24 race 4)', () => {
   const polylines = (svg: string): string[] => [...svg.matchAll(/<polyline class="trk[^"]*"[^>]*>[\s\S]*?<\/polyline>/g)].map((m) => m[0]);
   const idOf = (p: string): string => /data-id="([^"]+)"/.exec(p)![1];
   const coloured = (p: string): boolean => / stroke="#[0-9a-f]{6}"/.test(p);
-  // A boat's track is split at telemetry gaps (several polylines per leg on this ~2.5 s feed): count boats.
+  // A boat's track can be several polylines (a zoomed view cuts it): count boats.
   const boatsOf = (ps: string[]): number => new Set(ps.map(idOf)).size;
   const labels = (svg: string): string[] => [...svg.matchAll(/<text class="spd-pick-lbl"[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
   const drawn = (id: string, l: number): boolean => a.drawings.some((d) => d.id === id && d.segments.some((s) => s.leg === l && s.x.length > 1));
@@ -583,8 +583,8 @@ describe('a picked boat under Top N (M24 race 4)', () => {
     const mine = ps.filter((p) => idOf(p) === slow);
     expect(mine.length).toBeGreaterThan(0);
     for (const p of mine) {
-      // A stretch filled into a short gap (ui/gapFill.ts) is the same line, lighter (trk-est).
-      expect(p).toMatch(/^<polyline class="trk spd picked on( trk-est)?"/);
+      // A stretch filled into a hole (ui/gapFill.ts) is the same line, drawn as the rest.
+      expect(p).toMatch(/^<polyline class="trk spd picked on"/);
       expect(coloured(p)).toBe(false);
       expect(p).not.toContain('--cd');
       expect(p).not.toContain('<title>');
@@ -652,7 +652,7 @@ describe('a picked boat under Top N (M24 race 4)', () => {
     expect(labels(svg)).toEqual([`#${r.rank}`]);
     const mine = polylines(svg).filter((p) => idOf(p) === id);
     expect(mine.length).toBeGreaterThan(1);
-    expect(mine.every((p) => /^<polyline class="trk spd picked on( trk-est)?"/.test(p))).toBe(true);
+    expect(mine.every((p) => /^<polyline class="trk spd picked on"/.test(p))).toBe(true);
     expect(speedKey(a, null, 'overall', 3, id)).toContain(`picked: ${label(id)} #${r.rank} race time`);
   });
 

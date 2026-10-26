@@ -24,7 +24,7 @@ function raceCtx(n: 1 | 2 | 3 = 1): { ctx: AskContext; a: ReturnType<typeof anal
   const me = a.boats.find((b) => b.id === GT)!;
   const deb = coachDebrief(a, model, GT)!;
   const group = { kind: 'leaders' } as const;
-  const ctx = raceAskContext({ a, me, raceName: `Race ${n}`, head: coachChips(a, me, null, deb.totalS, deb.raceCov), deb, stories: legStories(a, model, GT, group), group });
+  const ctx = raceAskContext({ a, me, raceName: `Race ${n}`, head: coachChips(a, me, deb.totalS), deb, stories: legStories(a, model, GT, group), group });
   return { ctx, a, deb };
 }
 
@@ -48,7 +48,7 @@ describe('Ask Coach context: the Race view', () => {
   const { ctx, a, deb } = raceCtx(1);
   const text = JSON.stringify(ctx);
 
-  it('carries the cards as the page shows them, rounded, with confidence and coverage', () => {
+  it('carries the cards as the page shows them, rounded, with confidence (no tracker coverage)', () => {
     expect(ctx.view).toBe('race');
     expect(ctx.boat.sail).toBe(GT);
     expect(ctx.group).toBe('Top 3');
@@ -57,12 +57,13 @@ describe('Ask Coach context: the Race view', () => {
       const c = deb.cards[i];
       expect(f.title).toBe(cardText(c, a.meta.tzOffsetMs).title);
       expect(f.seconds).toBe(Math.round(c.seconds));
-      expect(Number.isInteger(f.coveragePct)).toBe(true);
+      expect(f).not.toHaveProperty('coveragePct');
       expect(['high', 'medium', 'low']).toContain(f.confidence);
       expect(f.what).toBeTruthy();
     });
-    // The header as shown, ⚠ caveats marked (this boat's tracker covered 27%: no tracked finish).
-    expect(ctx.race?.header).toEqual(expect.arrayContaining(['gun 11:05', '⚠ no tracked finish', '⚠ tracker 27%']));
+    // The header as shown, ⚠ caveats marked; no tracker coverage (it covered 27% of this race: no tracked finish).
+    expect(ctx.race?.header).toEqual(expect.arrayContaining(['gun 11:05', '⚠ no tracked finish']));
+    expect(ctx.race?.header?.some((h) => /tracker \d+%|no data/.test(h))).toBe(false);
     // One card in race 1 on the chart's gap (D5's caught-leader card no longer fires: coachShiftGolden).
     expect(ctx.race?.notes).toEqual(['Only 1 clear gain with this data']);
     expect(ctx.legs?.length).toBe(a.legs.length);

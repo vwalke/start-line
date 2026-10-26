@@ -7,7 +7,7 @@
 import { esc } from './format';
 
 /** Legend swatches, drawn in CSS (style.css `.sw-*`). */
-export type Swatch = 'gap' | 'ext' | 'est' | 'nc' | 'dot' | 'bold' | 'band' | 'line';
+export type Swatch = 'ext' | 'est' | 'nc' | 'dot' | 'bold' | 'band' | 'line';
 
 export interface Chip {
   text: string;

@@ -3,7 +3,7 @@ import { analyzeRace } from '../src/analysis/analyze';
 import type { RaceAnalysis } from '../src/analysis/types';
 import { THOUSANDS, fM, pct } from '../src/ui/format';
 import { attachTopScroll, type ScrollEl } from '../src/ui/hscroll';
-import { dqCell, legsNotesHtml, legsTable, legsTableKey, sortTable, startTable, startTableKey, toggleSort } from '../src/ui/table';
+import { legsNotesHtml, legsTable, legsTableKey, sortTable, startTable, startTableKey, toggleSort } from '../src/ui/table';
 import { c31Race, fixtureRace } from './helpers';
 
 const keysOf = (html: string): string[] => [...html.matchAll(/data-sort="([^"]+)"/g)].map((m) => m[1]);
@@ -69,26 +69,25 @@ describe('C31 race 10: the start and legs tables', () => {
       expect(cellOf(legs, b.id, 'up.sog')).toBe(up.sogKn.toFixed(1));
       expect(cellOf(legs, b.id, 'up.twa')).toBe(`${Math.round(up.twaDeg)}°`);
       expect(cellOf(legs, b.id, 'up.dist')).toContain(fM(up.distM));
-      // ~ when a rounding is timed across a telemetry gap (the C31 tracks are mostly holes).
-      const time = up.timeApprox ? '<span class="gap" title="Approximate: a rounding in a telemetry gap"[^>]*>~\\d+:\\d\\d</span>' : '\\d+:\\d\\d';
-      expect(cellOf(legs, b.id, 'up.time')).toMatch(new RegExp(`^${time} <small class="rk">${up.place}(st|nd|rd|th)</small>$`));
-      expect(cellOf(legs, b.id, 'up.tacks')).toContain(String(up.tacks));
-      expect(cellOf(legs, b.id, 'dn.gybes')).toContain(String(dn.gybes));
-      expect(cellOf(legs, b.id, 'dn.dq')).toContain(pct(dn.coverage));
+      // Shown plainly, a rounding timed inside a hole too (the C31 tracks are mostly holes).
+      expect(cellOf(legs, b.id, 'up.time')).toMatch(new RegExp(`^\\d+:\\d\\d <small class="rk">${up.place}(st|nd|rd|th)</small>$`));
+      expect(cellOf(legs, b.id, 'up.tacks')).toBe(String(up.tacks));
+      expect(cellOf(legs, b.id, 'dn.gybes')).toBe(String(dn.gybes));
+      expect(keysOf(legs)).not.toContain('dn.dq');
     }
   });
 
-  it('flags the C31 legs that are mostly holes as low data, with the gap in the title', () => {
+  it('shows the C31 legs that are mostly holes plainly: no Data % column, no ⚠ low data, no ~ across a gap', () => {
     const b = a.boats.find((x) => x.sail === 'FRA 901')!;
     const l = b.legs[0]!;
-    expect(cellOf(legs, b.id, 'L0.dq')).toBe(
-      `<span class="dq-low" title="Data for ${pct(l.coverage)} of the leg; longest gap ${Math.round(l.maxGapS)} s" aria-label="Low data: Data for ${pct(l.coverage)} of the leg; longest gap ${Math.round(l.maxGapS)} s">⚠ ${pct(l.coverage)}</span>`,
-    );
-    // Tacks across holes: ~ with an explanation.
-    expect(cellOf(legs, b.id, 'L0.tacks')).toMatch(/^<span class="gap" title="Approximate: a tack or gybe here bridges a telemetry gap[^"]*"[^>]*>~4<\/span>$/);
+    expect(l.coverage).toBeLessThan(0.9);
+    expect(l.manoeuvreGap).toBe(true);
+    expect(keysOf(legs).some((k) => k === 'dq' || k.endsWith('.dq'))).toBe(false);
+    expect(cellOf(legs, b.id, 'L0.tacks')).toBe('4');
     expect(cellOf(legs, b.id, 'L2.tacks')).toBe('2');
-    expect(cellOf(legs, b.id, 'tacks')).toContain(`~${b.legs.reduce((s, x) => s + x!.tacks, 0)}`);
-    expect(cellOf(legs, b.id, 'dq')).toContain('class="dq-low"');
+    expect(cellOf(legs, b.id, 'tacks')).toBe(String(b.legs.reduce((s, x) => s + x!.tacks, 0)));
+    expect(cellOf(legs, b.id, 'L0.dist')).toBe(fM(l.distM));
+    expect(legs).not.toMatch(/class="gap"|dq-low|telemetry gap|longest gap|Low data|>~/);
   });
 });
 
@@ -112,7 +111,6 @@ describe('Benelux J70 r8: legs table', () => {
     expect(cellOf(legs, b.id, 'L1.gybes')).toBe('3');
     expect(keysOf(legs)).not.toContain('L0.gybes');
     expect(keysOf(legs)).not.toContain('L1.tacks');
-    expect(cellOf(legs, b.id, 'L0.dq')).toBe('<span title="Data for 100% of the leg">100%</span>');
     expect(cellOf(legs, b.id, 'tacks')).toBe(String(b.legs.reduce((s, l) => s + l!.tacks, 0)));
   });
 
@@ -154,12 +152,12 @@ describe('Benelux J70 r8: legs table', () => {
     expect(startTableKey({ ...a, notes: [{ kind: 'dtl-off', text: w, medianM: 5 }] }).chips[0]).toEqual({ text: 'Vakaros DTL off vs GPS', warn: true, title: w });
   });
 
-  it('explains Data % and its threshold in the ⓘ', () => {
-    expect(legsTableKey().bullets).toContain('Data: share with fixes ≤ 5 s apart; ⚠ under 90%; ~ bridges a gap.');
+  it('the ⓘ says nothing about data coverage or gaps', () => {
+    expect(legsTableKey().bullets.join(' ')).not.toMatch(/Data:|gap|⚠ under/);
     expect(legsNotesHtml()).toContain('<details class="info"><summary>');
   });
 
-  it('keeps only the key line visible: TWA/VMG est., and ~ / partial / ⚠ low data only when present', () => {
+  it('keeps only the key line visible: TWA/VMG est., and partial only when present; never low data or ~ across a gap', () => {
     const texts = (x: RaceAnalysis): string[] => legsTableKey(x).chips.map((c) => `${c.warn ? '⚠ ' : ''}${c.text}`);
     const clean = {
       ...a,
@@ -174,20 +172,11 @@ describe('Benelux J70 r8: legs table', () => {
     };
     expect(texts(clean)).toEqual(['TWA/VMG est.']);
     const holey = { ...clean, boats: clean.boats.map((b, i) => (i ? b : { ...b, legs: b.legs.map((l, j) => (j || !l ? l : { ...l, coverage: 0.5, distGapS: 30 })) })) };
-    expect(texts(holey)).toEqual(['TWA/VMG est.', '⚠ low data', '~ across a gap']);
+    expect(texts(holey)).toEqual(['TWA/VMG est.']);
+    const partial = { ...clean, boats: clean.boats.map((b, i) => (i ? b : { ...b, upwind: b.upwind && { ...b.upwind, complete: false } })) };
+    expect(texts(partial)).toEqual(['TWA/VMG est.', 'partial = not every leg timed']);
     const assumed = { ...clean, wind: { ...clean.wind, method: 'course' as const } };
     expect(texts(assumed)).toEqual(['⚠ TWA/VMG: wind assumed']);
-  });
-});
-
-describe('dqCell', () => {
-  it('flags a synthetic low-coverage leg', () => {
-    expect(dqCell(0.72, 48, 'leg')).toBe(
-      '<span class="dq-low" title="Data for 72% of the leg; longest gap 48 s" aria-label="Low data: Data for 72% of the leg; longest gap 48 s">⚠ 72%</span>',
-    );
-    expect(dqCell(0.9, 12, 'leg')).toBe('<span title="Data for 90% of the leg; longest gap 12 s">90%</span>');
-    expect(dqCell(0.97, 2, 'race')).toBe('<span title="Data for 97% of the race">97%</span>');
-    expect(dqCell(null, null, 'leg')).toBe('—');
   });
 });
 

@@ -387,10 +387,11 @@ describe('the hero (public/landing-hero.svg)', () => {
     expect(simplify([[0, 0]], 1)).toEqual([[0, 0]]);
   });
 
-  it('positionAt interpolates between close fixes, none across a hole', () => {
+  it('positionAt interpolates between the points either side, however far apart; none outside the track', () => {
     const seg = { x: [0, 10, 20], y: [0, 0, 0], t: [0, 1000, 60_000] };
-    expect(positionAt([seg], 500, 30_000)).toEqual([5, 0]);
-    expect(positionAt([seg], 30_000, 30_000)).toBeNull();
-    expect(positionAt([seg], 70_000, 30_000)).toBeNull();
+    expect(positionAt([seg], 500)).toEqual([5, 0]);
+    expect(positionAt([seg], 30_500)).toEqual([15, 0]);
+    expect(positionAt([seg], 70_000)).toBeNull();
+    expect(positionAt([seg], -1)).toBeNull();
   });
 });

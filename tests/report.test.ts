@@ -112,7 +112,7 @@ describe('IC37 R5, USA 016 (DPI): the report', () => {
     expect(fieldOf(m.header, 'Gun').value).toBe('10:05:01 UTC−4');
     expect(fieldOf(m.header, 'Wind (TWD)').value).toMatch(/^\d+° est\.$/);
     expect(fieldOf(m.header, 'Wind (TWD)').note).toMatch(/^estimated from the fleet's tacks 0:30–3:30 after the gun; (high|medium|low) confidence$/);
-    expect(fieldOf(m.header, 'Tracker coverage').value).toMatch(/^\d+%$/);
+    expect(m.header.some((f) => /tracker|coverage/i.test(f.label))).toBe(false);
     // No wind speed anywhere in the data: the one header figure that is —, and it says why.
     expect(m.header.filter((f) => f.value === MISSING).map((f) => f.label)).toEqual(['Wind speed (TWS)']);
     expect(fieldOf(m.header, 'Wind speed (TWS)').note).toBe('no wind speed in the data');
@@ -139,16 +139,16 @@ describe('IC37 R5, USA 016 (DPI): the report', () => {
     const b1 = m.legs[0];
     expect(b1.places).toBe('8th → 14th');
     expect(b1.change).toBe('lost 6 · of 15');
-    expect(b1.time).toMatch(/^~?\d+:\d\d$/);
+    expect(b1.time).toMatch(/^\d+:\d\d$/);
     expect(b1.vsGroup).toMatch(/^[+−]\d+ s$/);
     expect(b1.sog).toMatch(/^\d+\.\d \/ \d+\.\d$/);
     expect(b1.vmg).toMatch(/^\d+\.\d \/ \d+\.\d$/);
-    expect(b1.manoeuvres).toMatch(/^~?\d+ tacks?$/);
-    expect(b1.coverage).toMatch(/^\d+%$/);
+    expect(b1.manoeuvres).toMatch(/^\d+ tacks?$/);
+    expect(b1).not.toHaveProperty('coverage');
     // The side reads positions across the fixture's short holes (legStory.ts SIDE_SPAN_S); the leg ends at no gate.
     expect(b1.side).toMatch(/^\d+ m (left|right) · (Left paid|Right paid|no side paid)$/);
     expect(b1.gate).toBe(MISSING);
-    expect(b1.lowData).toBe(true);
+    expect(b1).not.toHaveProperty('lowData');
   });
 
   it('Coach: the penalty card first, then the findings in coachDebrief’s order with their seconds; work on from their tips', () => {
@@ -221,29 +221,29 @@ describe('IC37 R5, USA 019 (over early, scored AOK)', () => {
   });
 });
 
-describe('sparse and missing data: — and coverage notes, never invented numbers', () => {
+describe('sparse and missing data: — where a figure is missing, never invented numbers, no coverage notes', () => {
   // J/105 CBC R2: Good Trade (USA 96) has a 45 min hole through Run 1 and Beat 2; no official results.
   const j105 = coachOf(j105Race(2));
   const gt = j105.a.boats.find((b) => b.sail === 'USA 96')!;
   const m = buildReport({ a: j105.a, boat: gt.id, model: j105.m, group: LEADERS });
 
-  it('notes the coverage, the place source; no official times; — for what is missing', () => {
+  it('notes the place source, nothing about the tracker’s coverage or its holes; no official times; — for what is missing', () => {
     expect(m.state).toBe('ready');
-    expect(m.notes.some((n) => /^The tracker covered \d+% of this boat’s race/.test(n))).toBe(true);
+    expect(m.notes.some((n) => /tracker covered|longest gap|Low tracker data|lost in a gap|approximate \(~\)/.test(n))).toBe(false);
     expect(m.notes.some((n) => /^Places: /.test(n))).toBe(true);
     expect(fieldOf(m.header, 'Scored')).toMatchObject({ value: MISSING, note: 'no official results linked' });
     expect(fieldOf(m.header, 'Elapsed (official)')).toMatchObject({ value: MISSING, note: 'no official results' });
     expect(fieldOf(m.header, 'Corrected (official)')).toMatchObject({ value: MISSING, note: 'no official results' });
-    expect(fieldOf(m.header, 'Tracker coverage').warn).toBe(true);
-    // A leg with no result is all —, apart from places the leg stories estimate (~).
+    // A leg with no result is all —, apart from the places the leg stories place there (shown plainly).
     gt.legs.forEach((l, k) => {
       const row = m.legs[k];
       if (l) return;
-      expect([row.time, row.sog, row.vmg, row.manoeuvres, row.coverage]).toEqual([MISSING, MISSING, MISSING, MISSING, MISSING]);
-      expect(row.places === MISSING || row.places.includes('~')).toBe(true);
+      expect([row.time, row.sog, row.vmg, row.manoeuvres]).toEqual([MISSING, MISSING, MISSING, MISSING]);
+      expect(row.places).not.toContain('~');
     });
     const html = reportHtml(m);
     expect(html).not.toMatch(/undefined|NaN|null|Infinity|\[object/);
+    expect(html).not.toMatch(/across a gap|a gap in the track|tracker data|Tracker coverage|>Data</);
     expect(html).toContain('class="rp-sec-notes"');
   });
 
@@ -335,7 +335,7 @@ describe('the regatta version (Coach view Regatta)', () => {
       ['R2', '4th', '15', MISSING],
       ['R3', MISSING, MISSING, MISSING],
     ]);
-    expect(p.regatta!.rows[1].low).toBe(true);
+    expect(p.regatta!.rows[1]).not.toHaveProperty('low');
     expect(p.regatta!.rows[2].status).toBe('not analyzed yet');
     expect(p.regatta!.penalties).toEqual(['DPI in 1 of 2 races (R1) · 3 penalty points · ≈ 3 places']);
     const done = buildReport({ ...input('USA 016'), scope: 'regatta', regatta: summarizeRegatta(races.slice(0, 2)) });

@@ -145,13 +145,12 @@ describe('Coach tab on the fixtures', () => {
   const gt = a.boats.find((b) => b.id === GT)!;
   const l = rivalLadder(model, a, GT, { kind: 'leaders' })!;
 
-  it('header chips: no tracked finish, gun 11:05 venue time, ⚠ tracker %, the longest hole (a plain chip), ⚠ heading from GPS course', () => {
-    const chips = coachChips(a, gt, l);
+  it('header chips: no tracked finish, gun 11:05 venue time, ⚠ heading from GPS course; no tracker % or hole', () => {
+    const chips = coachChips(a, gt);
     const text = chips.map((c) => (c.warn ? `⚠ ${c.text}` : c.text));
     expect(text[0]).toBe('⚠ no tracked finish');
     expect(text[1]).toBe('gun 11:05');
-    expect(text.some((t) => /^⚠ tracker \d+%$/.test(t))).toBe(true);
-    expect(text.some((t) => /^no data \d\d:\d\d–\d\d:\d\d$/.test(t))).toBe(true);
+    expect(text.some((t) => /tracker \d+%|no data/.test(t))).toBe(false);
     expect(text).toContain('⚠ heading from GPS course');
     // One line of chips, the ⓘ closed.
     const html = coachHeadHtml(chips);
@@ -159,10 +158,12 @@ describe('Coach tab on the fixtures', () => {
     expect(html.match(/<ul class="chips">/g)).toHaveLength(1);
   });
 
-  it('the chart: the median and each group boat, breaks at holes (several runs), roundings, the wind strip', () => {
+  it('the chart: the median and each group boat, straight across holes (one stroke), roundings, the wind strip', () => {
     const svg = ladderChart(a, model, l, { kind: 'leaders' }, { widthPx: 900 });
     const med = svg.match(/class="cl-med" d="([^"]*)"/)![1];
-    expect((med.match(/M/g) ?? []).length).toBeGreaterThan(1);
+    // The bold line has no value across this boat's holes (l.points), yet is one stroke.
+    expect(l.points.some((p) => p.behindS == null)).toBe(true);
+    expect((med.match(/M/g) ?? []).length).toBe(1);
     expect(svg.match(/class="cl-each"/g)).toHaveLength(l.group.length);
     expect(svg).not.toContain('cl-nodata');
     expect(svg.match(/class="cl-mark"/g)!.length).toBe(l.roundings.length);

@@ -7,7 +7,7 @@
  */
 import type { Vec } from '../analysis/geo';
 import type { RaceAnalysis } from '../analysis/types';
-import { rotator } from '../ui/mapPieces';
+import { filledRanges, rotator } from '../ui/mapPieces';
 
 export interface HeroOptions {
   /** Drawing width in SVG units (the height follows the course's shape). */
@@ -55,8 +55,8 @@ export function simplify(pts: Vec[], tol: number): Vec[] {
   return pts.filter((_, k) => keep[k]);
 }
 
-/** A track's position at `ms` (map metres), interpolated between fixes no more than `hole` apart; null in a hole or outside the track. */
-export function positionAt(segs: readonly { x: ArrayLike<number>; y: ArrayLike<number>; t: ArrayLike<number> }[], ms: number, hole: number): Vec | null {
+/** A track's position at `ms` (map metres), interpolated between the points either side (its holes are filled in: mapPieces.ts filledRanges); null outside the track. */
+export function positionAt(segs: readonly { x: ArrayLike<number>; y: ArrayLike<number>; t: ArrayLike<number> }[], ms: number): Vec | null {
   for (const s of segs) {
     const n = s.t.length;
     if (!n || ms < s.t[0] || ms > s.t[n - 1]) continue;
@@ -64,7 +64,6 @@ export function positionAt(segs: readonly { x: ArrayLike<number>; y: ArrayLike<n
     while (i < n - 1 && s.t[i + 1] < ms) i++;
     if (i === n - 1) return [s.x[i], s.y[i]];
     const dt = s.t[i + 1] - s.t[i];
-    if (dt > hole) return null;
     const f = dt > 0 ? (ms - s.t[i]) / dt : 0;
     return [s.x[i] + f * (s.x[i + 1] - s.x[i]), s.y[i] + f * (s.y[i + 1] - s.y[i])];
   }
@@ -82,17 +81,19 @@ export function heroSvg(a: RaceAnalysis, o: HeroOptions): string {
   const tol = o.tolerance ?? 0.9;
   const rot = rotator(a.wind.twdAtGunDeg);
 
-  // Map coordinates (metres, wind up) of every track, split where the feed has a hole.
-  const HOLE_MS = 30_000;
+  // Each track's legs as the Race tab's map draws them (every hole filled in), and their map coordinates (metres, wind up).
+  const ranges = new Map(
+    a.drawings.map((d) => [
+      d.id,
+      filledRanges(d, false).map((r) => ({ leg: r.leg, t: r.src.t.subarray(r.lo, r.hi), x: r.src.x.subarray(r.lo, r.hi), y: r.src.y.subarray(r.lo, r.hi) })),
+    ]),
+  );
   const tracks = a.drawings.map((d) => ({
     id: d.id,
-    legs: d.segments.map((s) => {
-      const runs: Vec[][] = [[]];
-      for (let i = 0; i < s.x.length; i++) {
-        if (i && s.t[i] - s.t[i - 1] > HOLE_MS) runs.push([]);
-        runs[runs.length - 1].push(rot([s.x[i], s.y[i]]));
-      }
-      return { leg: s.leg, runs: runs.filter((r) => r.length > 1) };
+    legs: ranges.get(d.id)!.map((s) => {
+      const run: Vec[] = [];
+      for (let i = 0; i < s.x.length; i++) run.push(rot([s.x[i], s.y[i]]));
+      return { leg: s.leg, runs: run.length > 1 ? [run] : [] };
     }),
   }));
   const fixed: Vec[] = [rot(a.line.left), rot(a.line.right), ...a.marks.flatMap((m) => m.xy.map(rot))];
@@ -137,7 +138,7 @@ export function heroSvg(a: RaceAnalysis, o: HeroOptions): string {
   const labels: string[] = [];
   const placed: Vec[] = [];
   for (const d of a.drawings) {
-    const p = positionAt(d.segments, atMs, HOLE_MS);
+    const p = positionAt(ranges.get(d.id)!, atMs);
     if (!p) continue;
     const [x, y] = px(rot(p));
     const lead = top.has(d.id);

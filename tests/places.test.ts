@@ -131,29 +131,15 @@ describe('placeChanges (synthetic)', () => {
     expect(of('c').since[3]).toBe(1);
   });
 
-  it('keeps the missing rounding visible as a ⚠ chip with the dashed swatch; none when every time is there', () => {
+  it('says nothing about a missing rounding time: no chip, no swatch, however many marks', () => {
     const a = { ...races.j70, legSource: 'course' } as RaceAnalysis;
+    expect(pc.missing.some((n) => n > 0)).toBe(true);
     const k = placesKey(a, pc);
-    expect(k.chips).toEqual([
-      expect.objectContaining({ text: 'no time at Gate (1)', warn: true }),
-      { text: 'no rounding time', swatch: 'gap' },
-    ]);
+    expect(k.chips).toEqual([]);
     expect(k.bullets).toContain('Marks: rounding order, from the leg splits.');
+    expect(k.bullets.join(' ')).not.toMatch(/no rounding time|dashed|close up/i);
     expect(k.bullets.length).toBeLessThanOrEqual(6);
-    expect(placesKey(a, { ...pc, missing: pc.missing.map(() => 0) }).chips).toEqual([]);
-  });
-
-  it('names one or two missing marks; a longer list becomes a count so the chip stays short', () => {
-    const a = { ...races.j70, legSource: 'course' } as RaceAnalysis;
-    const two = { ...pc, missing: [0, 1, 2, 0, 0] };
-    expect(placesKey(a, two).chips[0]).toEqual(
-      expect.objectContaining({ text: 'no time at M1 (1), Gate (2)', warn: true, title: 'Boats with no rounding time at M1 (1), Gate (2); the others close up' }),
-    );
-    const many = { ...pc, missing: [0, 1, 2, 3, 0] };
-    expect(placesKey(a, many).chips[0]).toEqual(
-      expect.objectContaining({ text: 'no time at 3 marks', warn: true, title: 'Boats with no rounding time at M1 (1), Gate (2), M1 (2) (3); the others close up' }),
-    );
-    expect(placesKey(a, many).chips[0].text.split(/\s+/).length).toBeLessThanOrEqual(6);
+    expect(placesKey(a, { ...pc, missing: [0, 1, 2, 3, 0] }).chips).toEqual([]);
   });
 
   it('a DNF ends at the last mark reached; no start place = no start point', () => {
@@ -206,10 +192,11 @@ describe('placesChart SVG', () => {
     expect(groups.at(-1)).toBe(id);
   });
 
-  it('dashed grey across a missing rounding; a DNF labelled at its last point', () => {
+  it('one solid line straight on across a missing rounding; a DNF labelled at its last point', () => {
     const syn = { ...a, legs, legSource: 'course', boats: synth.boats } as RaceAnalysis;
     const svg = placesChart(syn, null);
-    expect(svg.match(/<path class="pc-gap"/g)).toHaveLength(1);
+    expect(svg).not.toContain('pc-gap');
+    for (const m of svg.matchAll(/class="pc-line" d="([^"]*)"/g)) expect((m[1].match(/M/g) ?? []).length).toBe(1);
     expect(svg).toContain('class="pc-lbl dnf"');
     expect(svg).toContain('>DNF #d</text>');
   });

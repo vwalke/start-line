@@ -3,8 +3,7 @@
  * printable page for the selected boat in the selected race, built only from what Recall already works
  * out — the race analysis (start, legs, results), the Coach model and debrief (the same build and the same
  * group as the Coach tab), the leg stories, the penalty card (D12), the roundings and gate (D9 / D13) and the
- * official results' elapsed / corrected times. Nothing new is measured here: a figure the data lacks is '—',
- * with a coverage note saying why. Pure: reportView.ts renders the model.
+ * official results' elapsed / corrected times. Nothing new is measured here: a figure the data lacks is '—'. Pure: reportView.ts renders the model.
  *
  * Owner and crew names never reach the report: the official rows are read for their times only, and the
  * boat is named by RaceSense's sail and boat name.
@@ -28,14 +27,15 @@ import { biasAngle, lineBias, windSource } from '../analysis/line';
 import { D16_MIN_DEG } from '../analysis/coach/detectors/lineBias';
 import { legCost, type LegCost } from '../analysis/coach/detectors/manoeuvreCost';
 import { finishRank } from '../analysis/result';
+import { shownLateS } from '../analysis/validity';
 import type { BoatResult, LegKind, RaceAnalysis } from '../analysis/types';
 import { codeInfo, pointsText } from '../data/official/codes';
 import type { OfficialRaceInput } from '../data/racesense/adapter';
 import { GROUP_LABEL, coachBoatFor } from './coach';
-import { cardText, cardWarnings, goodTexts, penaltyText, rankedHead, scoredWord, secondsChip, thinText, turnChip, wentText } from './coachCards';
+import { cardText, cardWarnings, goodTexts, penaltyText, rankedHead, scoredWord, secondsChip, thinText, thinWhat, turnChip, wentText } from './coachCards';
 import { gateChip, groupSecondsChip, placesWord } from './coachLegs';
 import { LEG_TYPE, finishShort, penaltyRowText, regattaWentText, secs } from './coachRegatta';
-import { degLabel, duration, f0, f1, localTime, ordinal, pct, tzLabel } from './format';
+import { degLabel, duration, f0, f1, localTime, ordinal, tzLabel } from './format';
 import { codeShort, codeWords } from './resultText';
 
 /** What the report shows for a figure the data doesn't have. */
@@ -93,13 +93,11 @@ export interface ReportLeg {
   /** "6.1 / 6.3": the boat's, then the group's median, kn. */
   sog: string;
   vmg: string;
-  /** "5 tacks", "3 gybes", "2 tacks · 1 gybe" (~ across a gap). */
+  /** "5 tacks", "3 gybes", "2 tacks · 1 gybe". */
   manoeuvres: string;
   /** "120 m right · Left paid"; the gate buoy when it ended at a gate. */
   side: string;
   gate: string;
-  coverage: string;
-  lowData: boolean;
 }
 
 export interface ReportLine {
@@ -131,7 +129,7 @@ export interface ReportCoach {
   totalS: number | null;
   went: { text: string; seconds: string }[];
   ok: string[];
-  /** ✓ notes on thin tracker data ("Not enough data to judge …"). */
+  /** ✓ notes on thin tracker data, under "Not judged:" ("banked gains"). */
   notJudged: string[];
   /** Up to 3: the ranked cards' tips (the race view has no list of its own). */
   workOn: string[];
@@ -144,8 +142,6 @@ export interface ReportRegattaRow {
   place: string;
   of: string;
   onWater: string;
-  coverage: string;
-  low: boolean;
   findings: string;
   status: string;
 }
@@ -185,7 +181,7 @@ export interface ReportModel {
   penalties: ReportLine[];
   coach: ReportCoach;
   regatta: ReportRegatta | null;
-  /** Data coverage and confidence caveats, as sentences. */
+  /** Where the figures come from, and confidence caveats, as sentences. */
   notes: string[];
 }
 
@@ -212,8 +208,6 @@ export interface ReportInput {
 }
 
 const LEG_KIND: Record<LegKind, string> = { upwind: 'Upwind', downwind: 'Downwind', reach: 'Reach' };
-/** Leg-table coverage below this is flagged, as the legs table does (Data %). */
-const LOW_LEG_COVERAGE = 0.9;
 
 const signedS = (s: number): string => secs(s);
 const field = (label: string, value: string, extra: Omit<ReportField, 'label' | 'value'> = {}): ReportField => ({ label, value: value || MISSING, ...extra });
@@ -248,7 +242,7 @@ export function scoredText(b: Pick<BoatResult, 'finishPos' | 'finishCode' | 'sco
   return `${scoredWord(b.scoredPoints)} (${b.finishCode}${n > 0 ? `, +${pointsText(n)} ${n === 1 ? 'place' : 'places'}` : ''})`;
 }
 
-function headerFields(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null, official: OfficialRaceInput | null | undefined): ReportField[] {
+function headerFields(a: RaceAnalysis, b: BoatResult, official: OfficialRaceInput | null | undefined): ReportField[] {
   const tz = a.meta.tzOffsetMs;
   const res = a.meta.results;
   const isOfficial = res?.places === 'official';
@@ -273,13 +267,6 @@ function headerFields(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null, 
   const what = src.method === 'tacks' ? `estimated ${src.from}` : src.method === 'model' ? 'weather model' : 'assumed: first leg dead upwind';
   out.push(field('Wind (TWD)', `${degLabel(a.wind.twdAtGunDeg)} est.`, { note: `${what}; ${src.confidence} confidence`, warn: src.confidence === 'low' }));
   out.push(field('Wind speed (TWS)', MISSING, { note: 'no wind speed in the data' }));
-  const cov = b.coverage ?? deb?.raceCov ?? null;
-  out.push(
-    field('Tracker coverage', pct(cov), {
-      note: b.maxGapS != null ? `longest gap ${duration(b.maxGapS)}` : undefined,
-      warn: cov != null && cov < LOW_LEG_COVERAGE,
-    }),
-  );
   return out;
 }
 
@@ -292,11 +279,11 @@ function startFields(a: RaceAnalysis, m: CoachModel | null | undefined, b: BoatR
   const over = st.over;
   out.push(
     field('Distance to line at gun', over ? `over ${f0(Math.max(1, Math.abs(st.rank?.m ?? st.dtlM)))} m` : `${f0(st.rank?.m ?? st.dtlM)} m`, {
-      note: st.rank ? (st.rank.source === 'vakaros' ? 'Vakaros DTL' : 'bow-corrected, from the track') : (st.dtlNote ?? st.rcNote ?? undefined),
-      warn: !st.rank,
+      note: st.rank?.source === 'vakaros' ? 'Vakaros DTL' : 'bow-corrected, from the track',
     }),
   );
-  out.push(field('Seconds late', st.lateS != null && !over ? `${f1(st.lateS)} s` : MISSING, st.lateS == null ? { note: st.dtlNote ?? 'across a gap in the track' } : over ? { note: 'over at the gun' } : {}));
+  const late = shownLateS(st);
+  out.push(field('Seconds late', late != null && !over ? `${f1(late)} s` : MISSING, over ? { note: 'over at the gun' } : {}));
   out.push(field('Start place', st.startPlace != null ? ordinal(st.startPlace) : MISSING, { note: st.startPlace != null ? 'by distance to the line, clean starters' : over ? 'over at the gun' : st.awayFromLine ? 'away from the line' : 'not ranked' }));
   const bias = biasAngle(lineBias(a.line, a.wind.twdAtGunDeg));
   out.push(
@@ -305,7 +292,6 @@ function startFields(a: RaceAnalysis, m: CoachModel | null | undefined, b: BoatR
       warn: bias >= D16_MIN_DEG,
     }),
   );
-  if (st.startPlace == null && st.estPlace != null) out.push(field('Place at the gun (est.)', `~${ordinal(st.estPlace)}`, { note: 'from its nearest fix: a gap in the track at the gun' }));
   out.push(field('Line position', Number.isFinite(st.linePosPct) ? `${f0(st.linePosPct)}% · ${lineThird(st.linePosPct)}` : MISSING, { note: '0% pin … 100% RC' }));
   out.push(field('Speed at gun', `${f1(st.speedKn)} kn`));
   // The crossing order: the Coach's (the bow's crossing; an over-early boat's when it cleared).
@@ -316,7 +302,7 @@ function startFields(a: RaceAnalysis, m: CoachModel | null | undefined, b: BoatR
   const front = so?.front.some((c) => c.id === b.id) ?? false;
   if (m === undefined) out.push(field('Over the line', MISSING, { note: 'working out the crossings…' }));
   else if (!m?.crossMs) out.push(field('Over the line', MISSING, { note: 'crossings not worked out (no raw fixes)' }));
-  else if (crossMs == null || !rank) out.push(field('Over the line', MISSING, { note: over ? 'never seen to clear' : 'no crossing found (a gap in the track?)' }));
+  else if (crossMs == null || !rank) out.push(field('Over the line', MISSING, { note: over ? 'never seen to clear' : 'no crossing found' }));
   else {
     const t = (crossMs - gun) / 1000;
     out.push(field('Over the line', `${ordinal(rank)} of ${so!.order.length}${front ? ' · front row' : ''}`, { note: `crossed ${t < 0 ? '−' : '+'}${f0(Math.abs(t))} s` }));
@@ -359,9 +345,9 @@ function startVerdict(a: RaceAnalysis, deb: CoachDebrief | null, model: CoachMod
  * "5 tacks", "3 gybes", "2 tacks · 1 gybe" as the legs table counts them (tacks on beats, gybes on runs, both on reaches);
  * with D17's measured cost against the group's when there is one: "6 tacks · ~14 m each (fleet ~8)", "(group ~8)".
  */
-function manoeuvres(kind: LegKind, tacks: number, gybes: number, approx: boolean, cost: LegCost | null = null, ref = 'fleet'): string {
-  const t = `${approx ? '~' : ''}${tacks} ${tacks === 1 ? 'tack' : 'tacks'}`;
-  const g = `${approx ? '~' : ''}${gybes} ${gybes === 1 ? 'gybe' : 'gybes'}`;
+function manoeuvres(kind: LegKind, tacks: number, gybes: number, cost: LegCost | null = null, ref = 'fleet'): string {
+  const t = `${tacks} ${tacks === 1 ? 'tack' : 'tacks'}`;
+  const g = `${gybes} ${gybes === 1 ? 'gybe' : 'gybes'}`;
   const each = cost ? ` · ~${f0(Math.max(0, cost.medM))} m each (${ref} ~${f0(Math.max(0, cost.fMedM))})` : '';
   return kind === 'upwind' ? `${t}${each}` : kind === 'downwind' ? `${g}${each}` : `${t} · ${g}`;
 }
@@ -389,17 +375,15 @@ function legRows(a: RaceAnalysis, b: BoatResult, stories: LegStory[], g: Group, 
       leg: k,
       name: leg.name,
       type: LEG_KIND[leg.kind],
-      places: me ? `${me.est ? '~' : ''}${ordinal(me.from)} → ${me.est ? '~' : ''}${ordinal(me.to)}` : s?.endPlace ? `${MISSING} → ${s.endPlace.est ? '~' : ''}${ordinal(s.endPlace.to)}` : MISSING,
+      places: me ? `${ordinal(me.from)} → ${ordinal(me.to)}` : s?.endPlace ? `${MISSING} → ${ordinal(s.endPlace.to)}` : MISSING,
       change: me ? `${placesWord(me.gain)} · of ${s!.placeOf}` : MISSING,
-      time: l ? `${l.timeGapS != null ? '~' : ''}${duration(l.timeS)}` : MISSING,
+      time: l ? duration(l.timeS) : MISSING,
       vsGroup: s?.vsGroup && vs ? signedS(s.vsGroup.deltaS) : MISSING,
       sog: pair(l?.sogKn, groupMed(k, (x) => x.sogKn)),
       vmg: pair(l?.vmgKn, groupMed(k, (x) => x.vmgKn)),
-      manoeuvres: l ? manoeuvres(leg.kind, l.tacks, l.gybes, l.manoeuvreGap, model ? legCost({ a, m: model, boat: b.id }, k, refIds) : null, g.kind === 'fleet' ? 'fleet' : 'group') : MISSING,
+      manoeuvres: l ? manoeuvres(leg.kind, l.tacks, l.gybes, model ? legCost({ a, m: model, boat: b.id }, k, refIds) : null, g.kind === 'fleet' ? 'fleet' : 'group') : MISSING,
       side: sideText || MISSING,
       gate: s?.gate?.side ? gateChip(s.gate.side) : MISSING,
-      coverage: l ? pct(l.coverage) : MISSING,
-      lowData: l ? l.coverage < LOW_LEG_COVERAGE : true,
     };
   });
 }
@@ -450,17 +434,17 @@ function penaltyLines(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null, 
   return out;
 }
 
-function coachSection(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null, model: CoachModel | null | undefined): ReportCoach {
+function coachSection(a: RaceAnalysis, deb: CoachDebrief | null, model: CoachModel | null | undefined): ReportCoach {
   const none: ReportCoach = { penalty: null, rankedHead: null, findings: [], totalS: null, went: [], ok: [], notJudged: [], workOn: [], empty: null };
   if (model === undefined) return { ...none, empty: 'Working out the wind and the Coach findings…' };
   if (!model || !deb) return { ...none, empty: 'No course to measure against in this race: no Coach findings.' };
   const pen = deb.penalty ? penaltyText(deb.penalty, a) : null;
   const penalty = pen ? { code: pen.code, title: pen.title, chips: pen.chips, sentence: pen.sentence } : null;
-  if (deb.noData) return { ...none, penalty, empty: `Not enough tracker data for a debrief (tracker ${pct(b.coverage ?? deb.raceCov)}).` };
+  if (deb.noData) return { ...none, penalty, empty: 'No debrief for this race.' };
   const tz = a.meta.tzOffsetMs;
   const findings = deb.cards.map((c, i) => {
     const t = cardText(c, tz);
-    return { n: i + 1, title: t.title, seconds: secondsChip(c), sentence: t.sentence, confidence: c.confidence, warnings: cardWarnings(c, a, deb.raceCov), kind: c.kind };
+    return { n: i + 1, title: t.title, seconds: secondsChip(c), sentence: t.sentence, confidence: c.confidence, warnings: cardWarnings(c), kind: c.kind };
   });
   const tips: string[] = [];
   for (const c of deb.cards) {
@@ -474,7 +458,7 @@ function coachSection(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null, 
     totalS: deb.totalS,
     went: deb.plus.map((n) => ({ text: wentText(n), seconds: `+${Math.round(n.seconds ?? 0)} s` })),
     ok: deb.ok.filter((n) => !n.thin).flatMap(goodTexts),
-    notJudged: deb.ok.filter((n) => n.thin).map(thinText),
+    notJudged: deb.ok.filter((n) => n.thin).map(thinWhat),
     workOn: tips.slice(0, 3),
     empty: findings.length ? null : 'No clear gains with this data.',
   };
@@ -484,11 +468,6 @@ function notesOf(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null): stri
   const out: string[] = [];
   const cov = b.coverage ?? deb?.raceCov ?? null;
   if (cov == null) out.push('No timed legs for this boat: leg figures are —.');
-  else if (cov < LOW_LEG_COVERAGE) out.push(`The tracker covered ${pct(cov)} of this boat’s race${b.maxGapS != null ? ` (longest gap ${duration(b.maxGapS)})` : ''}: figures on the thin stretches are approximate (~) or —.`);
-  const lowLegs = a.legs.filter((_, k) => b.legs[k] && b.legs[k]!.coverage < LOW_LEG_COVERAGE).map((l) => l.name);
-  if (lowLegs.length) out.push(`Low tracker data on ${lowLegs.join(', ')}.`);
-  const missing = a.legs.filter((_, k) => !b.legs[k]).map((l) => l.name);
-  if (missing.length && cov != null) out.push(`No timed leg (a rounding lost in a gap, or not sailed): ${missing.join(', ')}; places there are estimated (~) where shown.`);
   const r = a.meta.results;
   out.push(
     r?.places === 'official'
@@ -516,8 +495,6 @@ function regattaSection(s: RegattaSummary): ReportRegatta {
         place: done ? finishShort(f) : MISSING,
         of: done && f ? String(f.of) : MISSING,
         onWater: done && f?.place == null && f?.onWater != null ? ordinal(f.onWater) : MISSING,
-        coverage: done ? pct(r.digest?.coverage) : MISSING,
-        low: r.low,
         findings: done && r.digest && !r.digest.noData ? `${r.digest.findings.length} · ≈ ${Math.round(atStake)} s` : MISSING,
         status: r.status === 'done' ? (r.digest?.tracked ? '' : 'no track') : r.status === 'error' ? `couldn't load` : 'not analyzed yet',
       };
@@ -575,13 +552,13 @@ export function buildReport(inp: ReportInput): ReportModel {
     sail: b.sail,
     boatName: b.name && b.name !== `#${b.sail}` ? b.name : '',
     boatId: b.id,
-    header: headerFields(a, b, deb, inp.official),
+    header: headerFields(a, b, inp.official),
     start: startFields(a, model, b),
     startVerdict: startVerdict(a, deb, model),
     legs: legRows(a, b, stories, group, model),
     roundings: model === undefined ? [{ text: 'Working out the roundings…', kind: 'note' }] : model ? roundingLines(a, deb, stories) : [{ text: 'No course: roundings not measured', kind: 'note' }],
     penalties: penaltyLines(a, b, deb, model),
-    coach: coachSection(a, b, deb, model),
+    coach: coachSection(a, deb, model),
     notes: [...(inp.settling ? ['Checking for official results: the places may still change.'] : []), ...notesOf(a, b, deb)],
   };
 }

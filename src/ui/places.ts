@@ -3,14 +3,14 @@
  * (analysis/places.ts). Place 1 at the top; one line per boat in its colour
  * (slots repeat past eight boats so the lines stay apart; the labels name
  * them), a dot per place, the final place and name at the right. A DNF line
- * stops at the last mark reached, labelled there. A stretch across a mark
- * where the boat has no rounding time is dashed grey, never a guessed place.
- * The selected boat is drawn last, thicker and labelled bold; the rest fade.
+ * stops at the last mark reached, labelled there. Across a mark where the
+ * boat has no rounding time the line runs straight on, with no dot there
+ * (never a guessed place). The selected boat is drawn last, thicker and labelled bold; the rest fade.
  */
 import { placeChanges, type BoatPlaces, type PlaceChanges } from '../analysis/places';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { boatColor } from './charts';
-import { warnChip, type Chip, type KeyLine } from './info';
+import type { KeyLine } from './info';
 import { boatLabel, esc, ordinal } from './format';
 import { textWidth } from './labels';
 
@@ -65,26 +65,14 @@ export function shortName(b: BoatResult, narrow: boolean, max = 16): string {
   return b.name.length > max ? `${b.name.slice(0, max - 1).trimEnd()}…` : b.name;
 }
 
-/** The chart's key line: ⚠ who has no rounding time where (with the dashed swatch); the counting rules in the ⓘ. */
+/** The chart's key line: the counting rules in the ⓘ. */
 export function placesKey(a: RaceAnalysis, pc: PlaceChanges = placeChanges(a)): KeyLine {
-  const gaps = pc.columns.map((c, k) => (pc.missing[k] ? `${c.label} (${pc.missing[k]})` : '')).filter(Boolean);
-  // One or two marks stay named; more would overflow a 390 px chip row, so the count goes on the chip and the names in the title.
-  const chips: Chip[] = gaps.length
-    ? [
-        warnChip(
-          gaps.length <= 2 ? `no time at ${gaps.join(', ')}` : `no time at ${gaps.length} marks`,
-          `Boats with no rounding time at ${gaps.join(', ')}; the others close up`,
-        ),
-        { text: 'no rounding time', swatch: 'gap' },
-      ]
-    : [];
   const marks = pc.columns.length > 2;
   return {
-    chips,
+    chips: [],
     bullets: [
       'Start: place among clean starters (OCS or no start figure: no point).',
       marks ? `Marks: rounding order, ${a.legSource === 'fleet' ? 'placed from where the fleet turned' : 'from the leg splits'}.` : 'One leg: Start → Finish only.',
-      ...(marks ? ['Gray dashed: no rounding time there; the others close up.'] : []),
       'Finish: the finish order. A DNF line stops at the last mark reached.',
       'Hover or tap a dot for place and gain; tap a line to select.',
     ],
@@ -167,25 +155,11 @@ export function placesChart(a: RaceAnalysis, highlight: string | null, opts: Pla
     const on = sel === bp.id;
     const cls = `pc-boat${sel ? (on ? ' on' : ' dim') : ''}`;
     const pts = bp.places.map((p, k) => (p == null ? null : ([x(k), y(p)] as const)));
-    let solid = '';
-    let gaps = '';
-    let all = '';
-    let prev = -1;
-    pts.forEach((pt, k) => {
-      if (!pt) return;
-      const xy = `${r1(pt[0])} ${r1(pt[1])}`;
-      if (prev < 0) {
-        solid += `M${xy}`;
-        all += `M${xy}`;
-      } else {
-        all += `L${xy}`;
-        if (k - prev > 1) {
-          gaps += `M${r1(pts[prev]![0])} ${r1(pts[prev]![1])}L${xy}`;
-          solid += `M${xy}`;
-        } else solid += `L${xy}`;
-      }
-      prev = k;
-    });
+    // One line through every place it has, straight on across a mark without one.
+    const all = pts
+      .filter((pt) => pt != null)
+      .map((pt, i) => `${i ? 'L' : 'M'}${r1(pt[0])} ${r1(pt[1])}`)
+      .join('');
     const w = on ? lineW + 1.6 : lineW;
     const dots = pts
       .map((pt, k) => {
@@ -201,8 +175,8 @@ export function placesChart(a: RaceAnalysis, highlight: string | null, opts: Pla
       ? `<text class="pc-lbl dnf" x="${r1(last[0] + 7)}" y="${r1(last[1] - 6)}" font-size="${fs - 1}" fill="${col}"><title>${full}: did not finish</title>${lbl}</text>`
       : `<text class="pc-lbl" x="${r1(W - padR + 8)}" y="${r1(last[1] + fs * 0.35)}" font-size="${fs}" fill="${col}"><title>${full}</title>${lbl}</text>`;
     return `<g class="${cls}" data-id="${esc(bp.id)}">
-      <path class="pc-hit" d="${all}"/>${gaps ? `<path class="pc-gap" d="${gaps}" stroke-width="${r1(Math.max(1.2, w - 0.8))}"/>` : ''}
-      <path class="pc-line" d="${solid}" stroke="${col}" stroke-width="${r1(w)}"/>${dots}${label}</g>`;
+      <path class="pc-hit" d="${all}"/>
+      <path class="pc-line" d="${all}" stroke="${col}" stroke-width="${r1(w)}"/>${dots}${label}</g>`;
   };
   // The selected boat last, on top.
   const order = [...drawn].sort((p, q) => Number(p.id === sel) - Number(q.id === sel));

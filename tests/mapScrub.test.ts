@@ -16,6 +16,7 @@ import {
   boatAt,
   endHoldBefore,
   drawingPieces,
+  filledRanges,
   legRanges,
   lowerBound,
   nearRanges,
@@ -69,7 +70,7 @@ describe('a boat at a moment (the scrubber dots)', () => {
   const ranges = legRanges(d, true);
 
   it('interpolates linearly between fixes', () => {
-    const b = boatAt('b', ranges, 2500, 2000, 0)!;
+    const b = boatAt('b', ranges, 2500, 0)!;
     expect(b.x).toBeCloseTo(7.5);
     expect(b.y).toBe(0);
     expect(b.sog).toBeCloseTo(5.25);
@@ -82,53 +83,54 @@ describe('a boat at a moment (the scrubber dots)', () => {
   });
 
   it('sits on a fix at its exact time', () => {
-    const b = boatAt('b', ranges, 3000, 2000, 0)!;
+    const b = boatAt('b', ranges, 3000, 0)!;
     expect(b.x).toBe(9);
     expect(b.sog).toBeCloseTo(5.3);
     // The last fix: there, too.
-    expect(boatAt('b', ranges, 9000 + 20_000, 2000, 0)!.x).toBe(27);
+    expect(boatAt('b', ranges, 9000 + 20_000, 0)!.x).toBe(27);
   });
 
-  it('holds at the last fix inside a gap (hollow only in one over SHORT_GAP_S), up to MAP_HOLD_S; none before the first or after the last fix', () => {
-    // The hole runs 4 s → 25 s: held at the 4 s fix all through it, its course and last heading kept (east).
+  it('glides across a hole of any length (linearly between the fixes either side), never held or hollow there; none before the first or after the last fix', () => {
+    // The hole runs 4 s (x 12) → 25 s (x 15).
     for (const t of [5000, 15_000, 24_999]) {
-      const hold = boatAt('b', ranges, t, 2000, 0)!;
-      expect(hold.hold).toBe(true);
-      expect(hold.x).toBe(12);
-      expect(hold.lastFix).toBe(4000);
-      expect(hold.lastDir).toEqual([1, 0]);
+      const b = boatAt('b', ranges, t, 0)!;
+      expect([b.hold, b.stale]).toEqual([false, false]);
+      expect(b.x).toBeCloseTo(12 + (3 * (t - 4000)) / 21_000, 4);
+      expect(b).not.toHaveProperty('lastFix');
+      expect(b.dir).toEqual([1, 0]);
     }
-    // A 21 s hole (up to SHORT_GAP_S: the maps fill it in) is never hollow, however far into it.
-    expect(boatAt('b', ranges, 24_999, 2000, 0)!.stale).toBe(false);
-    expect(boatAt('b', ranges, 4000 + 8000, 10_000, 0)).toMatchObject({ hold: true, stale: false });
-    expect(boatAt('b', ranges, -1, 2000, 0)).toBeNull();
-    expect(boatAt('b', ranges, 29_001, 2000, 0)).toBeNull();
-    // A hole longer than MAP_HOLD_S: held until then, then none.
+    expect(boatAt('b', ranges, -1, 0)).toBeNull();
+    expect(boatAt('b', ranges, 29_001, 0)).toBeNull();
+    // A hole longer than MAP_HOLD_S (204 s): the same, all the way through it.
     const long = legRanges(drawing([seg(10, 0, 0, 5, 200_000)]), true);
     expect(MAP_HOLD_S).toBe(120);
-    // In a hole over SHORT_GAP_S: hollow from its start.
-    expect(boatAt('b', long, 5000, 2000, 0)).toMatchObject({ hold: true, stale: true, lastFix: 4000 });
-    expect(boatAt('b', long, 4000 + MAP_HOLD_S * 1000 - 1, 2000, 0)).toMatchObject({ hold: true, stale: true, lastFix: 4000 });
-    expect(boatAt('b', long, 4000 + MAP_HOLD_S * 1000 + 1, 2000, 0)).toBeNull();
+    for (const t of [5000, 4000 + MAP_HOLD_S * 1000 + 1, 203_999]) {
+      const b = boatAt('b', long, t, 0)!;
+      expect([b.hold, b.stale]).toEqual([false, false]);
+      expect(b.x).toBeGreaterThan(12);
+      expect(b.x).toBeLessThan(15);
+    }
   });
 
-  it('past its final fix (the tracker stopped), held there as in a gap for MAP_HOLD_S, but never past its finish', () => {
+  it('past its final fix (the tracker stopped), held there for MAP_HOLD_S, but never past its finish', () => {
     // The last fix: 29 s, x 27. No finish: held, filled for BOAT_STALE_MS, then hollow, its last heading kept.
     const noFinish = endHoldBefore(null);
-    expect(boatAt('b', ranges, 30_000, 2000, 0, noFinish)).toMatchObject({ hold: true, stale: false, x: 27, lastFix: 29_000, lastDir: [1, 0] });
-    expect(boatAt('b', ranges, 29_000 + BOAT_STALE_MS + 1, 2000, 0, noFinish)).toMatchObject({ hold: true, stale: true, x: 27 });
-    expect(boatAt('b', ranges, 29_000 + MAP_HOLD_S * 1000, 2000, 0, noFinish)).toMatchObject({ hold: true, stale: true });
-    expect(boatAt('b', ranges, 29_000 + MAP_HOLD_S * 1000 + 1, 2000, 0, noFinish)).toBeNull();
+    expect(boatAt('b', ranges, 30_000, 0, noFinish)).toMatchObject({ hold: true, stale: false, x: 27, lastFix: 29_000, lastDir: [1, 0] });
+    expect(boatAt('b', ranges, 29_000 + BOAT_STALE_MS + 1, 0, noFinish)).toMatchObject({ hold: true, stale: true, x: 27 });
+    expect(boatAt('b', ranges, 29_000 + MAP_HOLD_S * 1000, 0, noFinish)).toMatchObject({ hold: true, stale: true });
+    expect(boatAt('b', ranges, 29_000 + MAP_HOLD_S * 1000 + 1, 0, noFinish)).toBeNull();
     // Finished at (or before) its final fix: gone after it, as before.
-    expect(boatAt('b', ranges, 29_001, 2000, 0, endHoldBefore(29_000))).toBeNull();
+    expect(boatAt('b', ranges, 29_001, 0, endHoldBefore(29_000))).toBeNull();
     // A finish after the tracker stopped (an official time): held until the finish, then gone.
-    expect(boatAt('b', ranges, 59_999, 2000, 0, endHoldBefore(60_000))).toMatchObject({ hold: true, stale: true });
-    expect(boatAt('b', ranges, 60_000, 2000, 0, endHoldBefore(60_000))).toBeNull();
-    // Without an end hold (the default), gone after the final fix; between two leg ranges, unchanged.
-    expect(boatAt('b', ranges, 29_001, 2000, 0)).toBeNull();
-    const split = legRanges(drawing([seg(5, 0, 0), seg(5, 10_000, 1)]), true);
-    expect(boatAt('b', split, 6000, 2000, 0, noFinish)).toBeNull();
-    expect(boatAt('b', split, 15_000, 2000, 0, noFinish)).toMatchObject({ hold: true, leg: 1, lastFix: 14_000 });
+    expect(boatAt('b', ranges, 59_999, 0, endHoldBefore(60_000))).toMatchObject({ hold: true, stale: true });
+    expect(boatAt('b', ranges, 60_000, 0, endHoldBefore(60_000))).toBeNull();
+    // Without an end hold (the default), gone after the final fix; between two leg ranges as given, none.
+    expect(boatAt('b', ranges, 29_001, 0)).toBeNull();
+    const split = drawing([seg(5, 0, 0), seg(5, 10_000, 1)]);
+    expect(boatAt('b', legRanges(split, true), 6000, 0, noFinish)).toBeNull();
+    expect(boatAt('b', legRanges(split, true), 15_000, 0, noFinish)).toMatchObject({ hold: true, leg: 1, lastFix: 14_000 });
+    // As the maps draw them (filledRanges), the hole between the two legs (4 s → 10 s) is bridged: the boat glides on leg 0.
+    expect(boatAt('b', filledRanges(split, true), 6000, 0, noFinish)).toMatchObject({ hold: false, stale: false, leg: 0 });
   });
 
   it('reads the leg the boat is on, and before the gun the pre-start track', () => {
@@ -136,14 +138,14 @@ describe('a boat at a moment (the scrubber dots)', () => {
     const two = drawing([seg(5, 0, 0), seg(5, 4000, 1)], pre);
     const r = legRanges(two, true);
     expect(r.map((x) => x.leg)).toEqual([PRE_LEG, 0, 1]);
-    expect(boatAt('b', r, -2500, 2000, 0)!.leg).toBe(PRE_LEG);
-    expect(boatAt('b', r, 2500, 2000, 0)!.leg).toBe(0);
-    expect(boatAt('b', r, 6500, 2000, 0)!.leg).toBe(1);
+    expect(boatAt('b', r, -2500, 0)!.leg).toBe(PRE_LEG);
+    expect(boatAt('b', r, 2500, 0)!.leg).toBe(0);
+    expect(boatAt('b', r, 6500, 0)!.leg).toBe(1);
     // Without the pre-gun track (the full-race view), nothing before the gun.
-    expect(boatAt('b', legRanges(two, false), -2500, 2000, 0)).toBeNull();
+    expect(boatAt('b', legRanges(two, false), -2500, 0)).toBeNull();
     // The shared last pre-start fix is the first beat (the gun), not pre-start.
-    expect(boatAt('b', r, 0, 2000, 0)!.leg).toBe(0);
-    expect(boatAt('b', r, -1, 2000, 0)!.leg).toBe(PRE_LEG);
+    expect(boatAt('b', r, 0, 0)!.leg).toBe(0);
+    expect(boatAt('b', r, -1, 0)!.leg).toBe(PRE_LEG);
   });
 
   it('puts every boat of a real race on the first beat at the gun', () => {
@@ -453,7 +455,7 @@ describe('tooltips at the scrubbed time', () => {
   it('a dot reads the boat interpolated at t, with its place then', () => {
     const t = gun + 5 * 60_000 + 500;
     const f = scrubFrame(a, null, null, {}, { t, win: trailWindow(t, '120', w) });
-    const p = scrubPoints(a, f);
+    const p = scrubPoints(f);
     const b = f.boats[0];
     const pick = pickMapPoint(p, b.mx, b.my, 1, 1, null)!;
     expect(pick).toEqual({ kind: 'dot', d: 0 });
@@ -474,7 +476,7 @@ describe('tooltips at the scrubbed time', () => {
   it('before the gun: "gun −m:ss", pre-start, no leg and no place', () => {
     const t = gun - 45_000;
     const f = scrubFrame(a, null, null, { colour: 'sog' }, { t, win: trailWindow(t, '30', w) });
-    const p = scrubPoints(a, f);
+    const p = scrubPoints(f);
     const b = f.boats[0];
     expect(b.leg).toBe(PRE_LEG);
     const lines = mapTipLines(a, p, pickMapPoint(p, b.mx, b.my, 1, 1, null)!, { placeAt: () => ({ place: 1, of: 6 }), legLine: (l) => `leg ${l}` });
@@ -489,10 +491,10 @@ describe('tooltips at the scrubbed time', () => {
     expect(fl).toContain(PRE_START);
   });
 
-  it('fixes keep their gap notes and roll at the window edge (read from the whole source track)', () => {
+  it('fixes keep their time and roll at the window edge (read from the whole source track)', () => {
     const t = gun + 300_000;
     const f = scrubFrame(a, null, null, {}, { t, win: trailWindow(t, '30', w) });
-    const p = scrubPoints(a, f);
+    const p = scrubPoints(f);
     const s = p.legs.findIndex((l) => l >= 0);
     expect(p.offs[s]).toBeGreaterThan(0);
     const lines = mapTipLines(a, p, { kind: 'fix', i: p.starts[s] });
@@ -529,26 +531,27 @@ describe('the scrubber map', () => {
     expect(scrubFrame(a, null, null, { colour: 'rank' }, { t, win: trailWindow(t, '120', w) }).dots).toMatch(/fill="(#[0-9a-f]{6}|rgb\([^)]+\)|var\(--ink-3\))"/);
   });
 
-  it('draws a boat whose data is lost (a hole over SHORT_GAP_S) hollow, in its own color; in a shorter hole it is a filled hull on the filled-in path', () => {
+  it('draws a boat in a hole of any length as a normal filled hull, moving along the filled-in path; hollow, in its own color, only once its final fix is BOAT_STALE_MS old', () => {
     const frameOf = (holeMs: number) => {
       const d = drawing([seg(10, gun, 0, 5, holeMs)]);
-      const one = { ...a, drawings: [d], boats: [{ ...a.boats[0], id: 'b' }] };
+      const one = { ...a, drawings: [d], boats: [{ ...a.boats[0], id: 'b', finishMs: null }] };
       const w = scrubWindow(one);
       return (t: number) => scrubFrame(one, null, null, {}, { t, win: trailWindow(t, '30', w), trailMs: 30_000 });
     };
-    // A 21 s hole: 2 s in, not held, an estimated position, a normal filled hull.
-    const brief = frameOf(20_000)(gun + 6000);
-    expect(brief.boats[0]).toMatchObject({ hold: false, est: true });
-    expect(brief.dots).toContain('class="dot hull"');
-    expect(brief.dots).not.toContain('var(--surface)');
-    // A 41 s hole: held at its last fix and hollow, outlined in the leg's color, the same hull 2 s and 10 s in.
-    const at = frameOf(40_000);
-    const held = at(gun + 6000);
-    const lost = at(gun + 14_000);
-    expect(held.dots).toContain('class="dot hull hold lost"');
-    expect(lost.dots).toContain('class="dot hull hold lost"');
-    expect(lost.dots.match(/ d="([^"]+)"/)![1]).toBe(held.dots.match(/ d="([^"]+)"/)![1]);
-    expect(lost.dots).toContain('fill="var(--surface)" style="--c:var(--s1)"');
+    for (const holeMs of [20_000, 40_000, 480_000]) {
+      const at = frameOf(holeMs);
+      const [p, q] = [at(gun + 6000), at(gun + 14_000)];
+      for (const f of [p, q]) {
+        expect(f.boats[0]).toMatchObject({ hold: false, stale: false });
+        expect(f.dots).toContain('class="dot hull"');
+        expect(f.dots).not.toMatch(/\blost\b|var\(--surface\)/);
+      }
+      expect(q.dots.match(/ d="([^"]+)"/)![1]).not.toBe(p.dots.match(/ d="([^"]+)"/)![1]);
+    }
+    // Past its final fix (gun + 9 s, no hole, no finish): held there, then hollow, outlined in the leg's color.
+    const ends = frameOf(0);
+    expect(ends(gun + 9000 + BOAT_STALE_MS + 2000).dots).toContain('class="dot hull hold lost"');
+    expect(ends(gun + 9000 + BOAT_STALE_MS + 2000).dots).toContain('fill="var(--surface)" style="--c:var(--s1)"');
   });
 });
 

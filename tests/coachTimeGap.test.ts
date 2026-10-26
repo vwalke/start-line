@@ -142,15 +142,16 @@ describe('the bold group line does not step when boats round or drop out of the 
     expect(run1.every((p) => p.behindS != null && Math.abs(p.behindS) < 20)).toBe(true);
   });
 
-  it('USA 313 keeps its place in the median across its 7 min hole; its own thin line stays broken', () => {
+  it('USA 313 keeps its place in the median across its 7 min hole; its own thin line has no values there (the chart draws straight across)', () => {
     const k = l.group.indexOf('USA 313');
     const hole = l.points.filter((p) => p.tMs >= edt('12:52:00') && p.tMs <= edt('12:55:30'));
     expect(hole.every((p) => p.each[k] == null && p.n === ids.length)).toBe(true);
     expect(7 * 60).toBeLessThan(GROUP_BRIDGE_S);
-    // The readout says so: USA 313 counts as estimated there ("median of 6 boats, 1 estimated", or more where others are bridged too).
+    // Counted as estimated inside (GapPoint.est), but the readout just says the statistic and the boats.
     expect(hole.every((p) => (p.est ?? 0) >= 1)).toBe(true);
     const i = l.points.indexOf(hole.find((p) => p.behindS != null)!);
-    expect(ladderTipHtml(a, m, l, { kind: 'near' }, i)).toMatch(/\(median of 6 boats, \d estimated\)/);
+    expect(ladderTipHtml(a, m, l, { kind: 'near' }, i)).toContain('(median of 6 boats)');
+    expect(ladderTipHtml(a, m, l, { kind: 'near' }, i)).not.toContain('estimated');
   });
 
   it('Cascais R2, USA 833 vs Boats near me at the Run 1 start (13:37:34 venue): level, no climb to +70 s', () => {
@@ -502,7 +503,7 @@ describe('review fixes (#52: thin lines at the zone edges, holes, estimated boat
     expect(progressAt(pt, 530_000, GROUP_DRAW_HOLE_S)).not.toBeNull();
   });
 
-  it('2. the bold line counts the boats read across a hole as estimated (the readout: "median of 6 boats, 1 estimated")', () => {
+  it('2. the bold line counts the boats read across a hole as estimated inside (the readout: just "median of 6 boats")', () => {
     const me = sparse('me', { dt: 1 });
     const lags = [30, 35, 40, -30, -35, -40];
     const group = lags.map((lag, k) => {
@@ -514,7 +515,7 @@ describe('review fixes (#52: thin lines at the zone edges, holes, estimated boat
     // r2 (40 s behind) is out of the tracker from 190 s to 490 s: me got where it was then from 150 s to 450 s.
     const inHole = s.filter((p) => p.tMs >= 160_000 && p.tMs <= 440_000);
     expect(inHole.every((p) => p.n === 6 && p.est === 1 && p.each[2] == null && p.behindS != null)).toBe(true);
-    expect(boatsCount(inHole[0])).toBe('median of 6 boats, 1 estimated');
+    expect(boatsCount(inHole[0])).toBe('median of 6 boats');
     const clear = s.filter((p) => p.tMs >= 600_000 && p.tMs <= 650_000);
     expect(clear.every((p) => p.est === 0)).toBe(true);
     expect(boatsCount(clear[0])).toBe('median of 6 boats');

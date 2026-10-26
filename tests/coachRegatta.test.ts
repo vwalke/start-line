@@ -346,7 +346,7 @@ describe('Regatta summary', () => {
       ['shifts', 1, 9, 40, 40],
     ]);
     expect(s.findings[0].raceLabels).toEqual(['R1', 'R2', 'R3', 'R4']);
-    expect(s.top[0]).toMatchObject({ title: 'Slow at the gun', why: 'Slow at the gun in 4 of 9 races with good data, ~60 s total', pattern: true, chips: ['R1 15 s', 'R2 15 s', 'R3 15 s', 'R4 15 s'], tip: 'Hit the line at full speed. If pinned, foot a length before tacking.' });
+    expect(s.top[0]).toMatchObject({ title: 'Slow at the gun', why: 'Slow at the gun in 4 of 9 races judged, ~60 s total', pattern: true, chips: ['R1 15 s', 'R2 15 s', 'R3 15 s', 'R4 15 s'], tip: 'Hit the line at full speed. If pinned, foot a length before tacking.' });
     // Same weighted seconds: more races first.
     const tie = summarizeRegatta([done(1, { findings: [finding('D6', 'slow', 30), finding('D7', 'deep', 15)] }), done(2, { findings: [finding('D7', 'hot', 15)] })]);
     expect(tie.findings.map((f) => [f.theme, f.races])).toEqual([
@@ -357,7 +357,7 @@ describe('Regatta summary', () => {
     expect(tie.findings[0].tip).toBe('Sail hotter in the lulls and soak low only in the puffs; gybe on the angle.');
   });
 
-  it('low tracker coverage: shown and marked, counted less; a no-data race adds no findings', () => {
+  it('low tracker coverage: counted less, not marked on screen; a no-data race adds no findings', () => {
     expect(coverageWeight(1)).toBe(1);
     expect(coverageWeight(LOW_COVERAGE)).toBe(1);
     expect(coverageWeight(0.4)).toBeCloseTo(0.5, 9);
@@ -374,9 +374,10 @@ describe('Regatta summary', () => {
     ]);
     expect(s.withData).toBe(2);
     expect(s.findings[0]).toMatchObject({ theme: 'upwind', races: 2, of: 2, totalS: 150, weightedS: 100, lowRaces: 1 });
-    expect(s.top[0].why).toBe('Slow upwind in 2 of 2 races with good data, ~150 s total (1 with low tracker data)');
-    expect(regattaPlacesHtml(s)).toContain('class="rp done low" data-race="2"');
-    expect(regattaHtml(s, { running: null, message: '', done: 3, total: 3 })).toContain('⚠ 2 with low tracker data (marked, counted less)');
+    // Counted less, but not shown as low: no mark, no "low tracker data" anywhere.
+    expect(s.top[0].why).toBe('Slow upwind in 2 of 2 races judged, ~150 s total');
+    expect(regattaPlacesHtml(s)).toContain('class="rp done" data-race="2"');
+    expect(regattaHtml(s, { running: null, message: '', done: 3, total: 3 })).not.toMatch(/low tracker|tracker coverage|counted less|⚠/);
   });
 
   it('legs by type: weighted mean vs the fleet median; best and worst from well-covered legs, a hole-timed leg counted less', () => {
@@ -459,7 +460,7 @@ describe('Regatta on J/105 CBC (linked: official places), through the worker’s
 
 describe('Regatta pattern cards, data-gated denominators and Went well (phase 4)', () => {
   const round = (s: number): FindingDigest => finding('D9', 'leeward', s);
-  it('a leeward-rounding finding in 3 races, measured in 4 of 6: "in 3 of 4 races with good data", a chip per race with its seconds', () => {
+  it('a leeward-rounding finding in 3 races, measured in 4 of 6: "in 3 of 4 races judged", a chip per race with its seconds', () => {
     const races = [
       done(1, { findings: [round(12)], evaluated: ['round-leeward'] }),
       done(2, { findings: [round(9)], evaluated: ['round-leeward', 'dirty-air'] }),
@@ -474,13 +475,13 @@ describe('Regatta pattern cards, data-gated denominators and Went well (phase 4)
     expect(f).toMatchObject({ races: 3, of: 4, gated: true, totalS: 36, raceLabels: ['R1', 'R2', 'R4'], raceSeconds: [12, 9, 15] });
     const t = s.top.find((x) => x.theme === 'round-leeward')!;
     expect(t).toMatchObject({ pattern: true, title: 'Leeward mark roundings', chips: ['R1 12 s', 'R2 9 s', 'R4 15 s'] });
-    expect(t.why).toBe('Leeward roundings cost you time in 3 of 4 races with good data, ~36 s total');
+    expect(t.why).toBe('Leeward roundings cost you time in 3 of 4 races judged, ~36 s total');
     expect(t.tip).toMatch(/^Wide in, tight out/);
     const html = regattaHtml(s, { running: null, message: '', done: 6, total: 6 });
     expect(html).toContain('<article class="card coach-pattern pattern" data-theme="round-leeward">');
     expect(html).toContain('<li class="chip">R2 9 s</li>');
-    expect(html).toContain('<td title="Of the races with the data to measure it">3 of 4*</td>');
-    expect(html).toContain('* of the races with the tracker data to measure it');
+    expect(html).toContain('<td title="Of the races where it could be measured">3 of 4*</td>');
+    expect(html).toContain('* of the races where it could be measured');
     // An ungated theme still counts every race with data.
     const g = summarizeRegatta([done(1, { findings: [finding('D6', 'slow', 20)] }), done(2, { findings: [finding('D6', 'slow', 20)] }), done(3)]);
     expect(g.findings[0]).toMatchObject({ theme: 'upwind', of: 3, gated: false });
@@ -499,7 +500,7 @@ describe('Regatta pattern cards, data-gated denominators and Went well (phase 4)
     // A pattern (2 races) even with no seconds of its own; its chips name the races only.
     const t = s.top.find((x) => x.theme === 'dirty-air')!;
     expect(t).toMatchObject({ pattern: true, chips: ['R1 (medium)', 'R2 (medium)'] });
-    expect(t.why).toBe('You sailed in dirty air early on the beats in 2 of 3 races with good data');
+    expect(t.why).toBe('You sailed in dirty air early on the beats in 2 of 3 races judged');
   });
 
   it('D9’s low-resolution (places) findings recur too, with their confidence on each race’s chip', () => {
@@ -512,7 +513,7 @@ describe('Regatta pattern cards, data-gated denominators and Went well (phase 4)
     const t = s.top.find((x) => x.theme === 'round-leeward')!;
     expect(t.pattern).toBe(true);
     expect(t.chips).toEqual(['R1 12 s', 'R2 25 s (medium)', 'R3 18 s (low)']);
-    expect(t.why).toBe('Leeward roundings cost you time in 3 of 3 races with good data, ~55 s total');
+    expect(t.why).toBe('Leeward roundings cost you time in 3 of 3 races judged, ~55 s total');
   });
 
   it('Went well: families over the races, by weighted seconds, at most 3, with the best single one', () => {

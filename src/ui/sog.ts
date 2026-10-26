@@ -10,7 +10,7 @@
  * orange, so the map looks plainly different; it is perceptually uniform,
  * rises monotonically in lightness (reads in greyscale and for colour-blind
  * viewers), and has no grey middle (cividis does) to confuse with the grey
- * dashed telemetry gaps. Slow = dark, fast = bright, as in Rank.
+ * of a boat set aside. Slow = dark, fast = bright, as in Rank.
  *
  * As with plasma, no one slice reads on both backgrounds, so each scheme gets
  * its own (`stroke` = day, `--cd` = night; style.css picks):
@@ -19,14 +19,12 @@
  * - night 0.30–1.00: slowest #355f8d (≈2.6:1 on #171d26), fastest #fde725 (≈13:1).
  *
  * Drawing: SOG is quantised to SOG_BINS colours and each boat gets one <path>
- * per bin present (runs of same-bin steps as M…L…), one dashed grey path for
- * its telemetry gaps and, by day, one casing path: bounded per boat however
- * long the race, never one element per fix.
+ * per bin present (runs of same-bin steps as M…L…) and, by day, one casing
+ * path: bounded per boat however long the race, never one element per fix.
+ * The tracks come with every hole filled in (ui/gapFill.ts), drawn as the rest.
  */
-import { SOG_GAP_MS } from '../analysis/smooth';
 import type { RaceAnalysis } from '../analysis/types';
 import { esc, f1 } from './format';
-import { EST_OPACITY, estStep } from './gapFill';
 import { contrast, SPEED_BG, type SogScale } from './speed';
 
 /** Viridis at 0, 0.1, … 1 (matplotlib). */
@@ -199,54 +197,29 @@ export function startSogRange(a: RaceAnalysis): SogRange | null {
   );
 }
 
-/** Whether any of these fix-time series has a step over `gapMs` (drawn grey dashed). */
-export function hasGaps(series: Iterable<ArrayLike<number>>, gapMs = SOG_GAP_MS): boolean {
-  for (const t of series) for (let i = 1; i < t.length; i++) if (t[i] - t[i - 1] > gapMs) return true;
-  return false;
-}
-
-/** The map's segments for leg `leg` (or all): their fix times, for `hasGaps`. */
-export function* segmentTimes(a: RaceAnalysis, leg: number | null): Generator<Float64Array> {
-  for (const d of a.drawings) for (const s of d.segments) if (leg == null || s.leg === leg) yield s.t;
-}
-
 // ---- batched paths ----------------------------------------------------------
 
-/** One boat's (or a group's) path data: per bin, the casing for pale bins, the gaps; per bin, the stretches filled into short gaps (ui/gapFill.ts). */
+/** One boat's (or a group's) path data: per bin, and the casing for pale bins. */
 export interface SogPaths {
   bins: string[];
   casing: string;
-  gap: string;
-  est: string[];
 }
 
-export const emptySogPaths = (bins = SOG_BINS): SogPaths => ({ bins: Array<string>(bins).fill(''), casing: '', gap: '', est: Array<string>(bins).fill('') });
+export const emptySogPaths = (bins = SOG_BINS): SogPaths => ({ bins: Array<string>(bins).fill(''), casing: '' });
 
 const xy = (x: number, y: number): string => `${x.toFixed(1)},${y.toFixed(1)}`;
 
 /**
  * Append one run of track to `acc`. Each step i → i+1 takes the bin of its
  * mean SOG; consecutive same-bin steps extend one "M…L…" run, and a new run
- * starts on the shared point, so the line stays continuous. Steps longer than
- * `gapMs` go to the gap path instead; steps with an end outside `inside` are skipped.
- * A step to or from a point filled into a short gap (`est`, ui/gapFill.ts) goes to its bin's `est` path (uncased).
+ * starts on the shared point, so the line stays continuous. Steps with an end
+ * outside `inside` are skipped.
  */
-export function addSogTrack(
-  acc: SogPaths,
-  x: ArrayLike<number>,
-  y: ArrayLike<number>,
-  t: ArrayLike<number>,
-  sog: ArrayLike<number>,
-  r: SogRange,
-  inside: (i: number) => boolean = () => true,
-  gapMs = SOG_GAP_MS,
-  est?: ArrayLike<number>,
-): void {
+export function addSogTrack(acc: SogPaths, x: ArrayLike<number>, y: ArrayLike<number>, sog: ArrayLike<number>, r: SogRange, inside: (i: number) => boolean = () => true): void {
   const bins = acc.bins.length;
   let cur = -1;
-  let curEst = false;
   let cased = false;
-  const n = Math.min(x.length, y.length, t.length, sog.length);
+  const n = Math.min(x.length, y.length, sog.length);
   for (let i = 0; i + 1 < n; i++) {
     if (!inside(i) || !inside(i + 1)) {
       cur = -1;
@@ -255,23 +228,9 @@ export function addSogTrack(
     }
     const p = xy(x[i], y[i]);
     const q = xy(x[i + 1], y[i + 1]);
-    if (t[i + 1] - t[i] > gapMs) {
-      acc.gap += `M${p}L${q}`;
-      cur = -1;
-      cased = false;
-      continue;
-    }
     const b = sogBin((sog[i] + sog[i + 1]) / 2, r, bins);
-    const e = estStep(est, i + 1);
-    const into = e ? acc.est : acc.bins;
-    if (b === cur && e === curEst) into[b] += `L${q}`;
-    else into[b] += `M${p}L${q}`;
-    curEst = e;
-    if (e) {
-      cased = false;
-      cur = b;
-      continue;
-    }
+    if (b === cur) acc.bins[b] += `L${q}`;
+    else acc.bins[b] += `M${p}L${q}`;
     if (sogCasedByDay(b, bins)) {
       acc.casing += cased ? `L${q}` : `M${p}L${q}`;
       cased = true;
@@ -280,17 +239,11 @@ export function addSogTrack(
   }
 }
 
-/**
- * The SVG for `acc`: casing (by day), one path per bin present, then each bin's filled-in stretches lighter
- * (EST_OPACITY). The gaps are left blank. `w` is the stroke width in map units, `k` the map's unit.
- */
+/** The SVG for `acc`: casing (by day), then one path per bin present. `w` is the stroke width in map units, `k` the map's unit. */
 export function sogPathsSvg(acc: SogPaths, w: number, k: number): string {
   let s = acc.casing ? `<path class="sog-case" d="${acc.casing}" stroke-width="${((w + 1) * k).toFixed(2)}"/>` : '';
   acc.bins.forEach((d, b) => {
     if (d) s += `<path class="sog" data-bin="${b}" d="${d}" ${sogStroke(b, acc.bins.length)}/>`;
-  });
-  acc.est.forEach((d, b) => {
-    if (d) s += `<path class="sog sog-est" data-bin="${b}" d="${d}" ${sogStroke(b, acc.bins.length)} stroke-opacity="${EST_OPACITY}"/>`;
   });
   return s;
 }
@@ -444,29 +397,21 @@ const gradient = (scheme: 'light' | 'dark'): string =>
 
 const bar = (lo: string, hi: string): string =>
   `<span class="sog-lo">${lo}</span><span class="spd-bar sog-bar" style="--g:${gradient('light')};--gd:${gradient('dark')}" aria-hidden="true"></span><span class="sog-hi">${hi}</span>`;
-/** A legend swatch and its label as one flex item (speed-key wraps), e.g. the dashed grey "no data". */
-export const keySwatch = (cls: string, label: string, title = ''): string =>
-  `<span class="key-sw"${title ? ` title="${esc(title)}"` : ''}><span class="${cls}" aria-hidden="true"></span> ${esc(label)}</span>`;
-
-const SOG_GAP_TITLE = `Telemetry gap: fixes over ${SOG_GAP_MS / 1000} s apart`;
-const gapNote = (gaps: boolean, title = SOG_GAP_TITLE): string => (gaps ? keySwatch('spd-none', 'no data', title) : '');
-
-/** "4.0 kn [bar] 8.0 kn", "SOG · what it spans", and the "no data" swatch when the drawing has gaps (the method is in the ⓘ). */
-export function sogKey(r: SogRange | null, what: string, gaps = false, gapTitle?: string): string {
+/** "4.0 kn [bar] 8.0 kn" and "SOG · what it spans" (the method is in the ⓘ). */
+export function sogKey(r: SogRange | null, what: string): string {
   if (!r) return `<span class="muted">No speed data to color by.</span>`;
   return `${bar(`${f1(r.lo)} kn`, `${f1(r.hi)} kn`)}
-    <span class="muted">SOG · ${esc(what)}</span>${gapNote(gaps, gapTitle)}`;
+    <span class="muted">SOG · ${esc(what)}</span>`;
 }
 
 /**
  * Whole race, Per leg: one bar with no knots on it (its ends mean something
- * different on each leg), "slow → fast within each leg", then each leg's range.
- * The gap swatch stays on the first line with the description; .sog-legs wraps
- * below (flex-basis: 100%).
+ * different on each leg), "slow → fast within each leg", then each leg's range
+ * (.sog-legs wraps below: flex-basis: 100%).
  */
-export function sogLegKey(a: RaceAnalysis, gaps = false, gapTitle?: string): string {
+export function sogLegKey(a: RaceAnalysis): string {
   const list = legRangeList(a);
   if (!list) return `<span class="muted">No speed data to color by.</span>`;
   return `${bar('slow', 'fast')}
-    <span>slow → fast within each leg</span>${gapNote(gaps, gapTitle)}<span class="sog-legs">${esc(list)}</span>`;
+    <span>slow → fast within each leg</span><span class="sog-legs">${esc(list)}</span>`;
 }

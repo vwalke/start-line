@@ -145,11 +145,12 @@ describe('heel on the fixtures', () => {
     }
   });
 
-  it('heel coverage follows the fixes (the lossy C31 feed is flagged low)', () => {
+  it('heel coverage follows the fixes (internal: the lossy C31 feed is low), and the table shows the heel plainly', () => {
     for (const b of races.j70.boats) for (const l of b.legs) expect(l!.heelCoverage!).toBeGreaterThan(0.95);
     const low = races.c31.boats.flatMap((b) => b.legs).filter((l) => l && l.heelCoverage! < 0.9);
     expect(low.length).toBeGreaterThan(0);
-    expect(legsTable(races.c31, null)).toMatch(/class="heel dq-low"[^>]*>⚠ -?\d+\.\d°/);
+    expect(legsTable(races.c31, null)).toMatch(/<span class="heel">-?\d+\.\d°<\/span>/);
+    expect(legsTable(races.c31, null)).not.toMatch(/dq-low|Heel data for/);
   });
 
   it('heel at the gun for boats on a tack at the gun', () => {
@@ -179,11 +180,10 @@ describe('heel columns', () => {
     expect(legsNotesHtml(a)).toContain('Heel: leeward heel');
   });
 
-  it('formats heel with one decimal and flags low heel data', () => {
-    expect(heelCell(15.27, 1, 'leg')).toBe('<span class="heel">15.3°</span>');
-    expect(heelCell(-2, 0.5, 'leg')).toContain('class="heel dq-low"');
-    expect(heelCell(-2, 0.5, 'leg')).toContain('⚠ -2.0°');
-    expect(heelCell(null, 1, 'leg')).toBe('—');
+  it('formats heel with one decimal, plainly', () => {
+    expect(heelCell(15.27)).toBe('<span class="heel">15.3°</span>');
+    expect(heelCell(-2)).toBe('<span class="heel">-2.0°</span>');
+    expect(heelCell(null)).toBe('—');
   });
 
   it('hides every heel column when the feed has no roll, with a note; a saved heel sort is dropped', () => {

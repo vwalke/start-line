@@ -3,7 +3,7 @@
  * (D1, D2 and D8 → D3, D3 → D1 when both fired, D4, D5, D6, D7, D8, D9, D10, D11 → D6 / D7 on a leg they share, D12,
  * D13 with D9's low-resolution places at the same gate as its chip, D14 side of the course (one card a race: sideCard), D15 fast but going nowhere,
  * D16 line bias, D17 manoeuvre cost: one card a race per kind of manoeuvre), ranked and gated (rank.ts), with the ✓ row (detectors that measured the boat as fine; on a stretch
- * the boat's tracker covered under OK_THIN_COVERAGE the note says "not enough data to judge …" instead, `thin`) and
+ * the boat's tracker covered under OK_THIN_COVERAGE the note is "Not judged: …" instead, `thin`) and
  * ➕ Went well (wentWell: legs, roundings, the side that paid, the favoured end and the start where it gained, with
  * seconds; at most WENT_WELL_MAX). D6 / D7's ✓ leaves out a leg D15 found the boat going nowhere on.
  * An official code is the penalty card (penalty.ts), pinned outside the ranking: a scored OCS / UFD / BFD's over-the-line
@@ -48,7 +48,7 @@ export const PLUS_MIN_READ = 0.5;
 export const PLUS_START_S = 5;
 /** The first minutes after the crossing (D3's window) where the gap to the leaders shrank this much are ➕ (D3's mirror), s. */
 export const PLUS_LANE_S = D3_GAP_S;
-/** A ✓ on a stretch the boat's tracker covered under this (coachCoverage) says "not enough data to judge …" (thinNote). */
+/** A ✓ on a stretch the boat's tracker covered under this (coachCoverage) is "Not judged: …" (ui/coachCards.ts thinText). */
 export const OK_THIN_COVERAGE = 0.5;
 /** Went well: at most this many, the most seconds first. */
 export const WENT_WELL_MAX = 3;
@@ -60,7 +60,7 @@ export interface CoachDebrief {
   cards: Card[];
   /** The official code's card (penalty.ts), pinned above `cards`: never ranked, never in `totalS`; null with no code. */
   penalty?: PenaltyFinding | null;
-  /** ✓ Not the problem; `thin` ones: not enough data to judge (thinNote). */
+  /** ✓ Not the problem; `thin` ones: not judged (thinText). */
   ok: GoodNote[];
   /** ➕ Went well (wentWell), the most seconds first. */
   plus: GoodNote[];
@@ -153,7 +153,7 @@ export function wentWell(notes: readonly GoodNote[], max = WENT_WELL_MAX): GoodN
 
 /**
  * A ✓ with the boat's coverage of what it judged (its own `coverage`, else the legs it names, else its window when it
- * has one, else the race): under OK_THIN_COVERAGE it is `thin` ("not enough data to judge …"). D13's gate notes are
+ * has one, else the race): under OK_THIN_COVERAGE it is `thin` ("Not judged: …"). D13's gate notes are
  * moments with their own data gate (both buoys, fixes around the closest approach): left as they are.
  */
 export function thinNote(ctx: CoachCtx, n: GoodNote, raceCov: number): GoodNote {

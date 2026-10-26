@@ -20,8 +20,7 @@ import type { StartReplay } from '../analysis/startReplay';
 import type { RaceAnalysis } from '../analysis/types';
 import { BOAT_PARAM } from './coach';
 import { esc } from './format';
-import { boatAt, legRanges, rotator, timeRange } from './mapPieces';
-import { drawingGapMs } from './mapPoints';
+import { boatAt, filledRanges, rotator, timeRange } from './mapPieces';
 import { REPLAY_PARAM, replayLink, replayPendFromUrl, type ReplayPend } from './replay';
 import { DEFAULT_TRAIL, T_PARAM, TRAIL_PARAM, WINDOW_TRAIL, mapTimeSearch, parseTParam, parseTrail, playFrom, type ScrubWindow, type Trail } from './scrub';
 import { clampView, type Box, type View } from './view';
@@ -88,7 +87,7 @@ export function focusPlayFrom(f: Pick<MapFocus, 'spans'> | null, t: number | nul
 /** Boat `id`'s drawn position at `t` (map coordinates), null where it has none. */
 function posAt(a: RaceAnalysis, id: string, t: number): [number, number] | null {
   const d = a.drawings.find((x) => x.id === id);
-  const b = d ? boatAt(id, legRanges(d, true), t, drawingGapMs(d), a.wind.twdAtGunDeg) : null;
+  const b = d ? boatAt(id, filledRanges(d, true), t, a.wind.twdAtGunDeg) : null;
   return b ? [b.mx, b.my] : null;
 }
 
@@ -304,7 +303,7 @@ export function focusExtent(a: RaceAnalysis, f: MapFocus): Box {
   for (const id of [f.boat, ...f.vs]) {
     const d = a.drawings.find((x) => x.id === id);
     if (!d) continue;
-    for (const g of legRanges(d, true)) {
+    for (const g of filledRanges(d, true)) {
       for (const [t0, t1] of f.spans) {
         const [i0, i1] = timeRange(g.src.t, t0, t1, g.lo, g.hi);
         for (let i = i0; i < i1; i++) grow(rot([g.src.x[i], g.src.y[i]]));
