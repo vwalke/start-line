@@ -152,8 +152,10 @@ describe('start speed axis', () => {
       const s = startSogSeries(bad, w);
       const L = startSogLayout(s);
       const clean = startSogLayout(startSogSeries(a, w));
-      // The whole fleet's axis is 0–9 kn; these 8 boats' slowest is just over 2 kn.
-      expect([L.lo, L.hi]).toEqual([clean.lo, 9]);
+      // The whole fleet's axis is 0–9 kn. Off the course GER 8 also sat on held positions reading 27–31 kn: dropSogSpikes
+      // makes those no reading, filled from the positions (0 kn), so the bottom is 0 here (the 8 boats' own is above it).
+      expect([L.lo, L.hi]).toEqual([0, 9]);
+      expect(clean.lo).toBeGreaterThan(0);
       expect(clean.hi).toBe(9);
       expect(startSogClips(s.boats.find((b) => b.id === 'GER 8')!, L).length).toBeGreaterThan(0);
       for (const o of s.boats.filter((b) => b.id !== 'GER 8')) expect(startSogClips(o, L)).toEqual([]);

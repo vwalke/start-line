@@ -165,16 +165,18 @@ describe('Cascais (J/70 Worlds) R3, USA 833: its cards against its chart', () =>
   const d = debriefOf(r.a, r.m, me.id)!;
   const m: CoachModel = r.m;
 
-  it('the leeward gate places card (D9): its seconds are the chart\'s change for the boats that passed it', () => {
-    const c = d.cards.find((x) => x.kind === 'D9')!;
+  it('the leeward gate places finding (D9): its seconds are the chart\'s change for the boats that passed it', () => {
+    // Found, no longer in the top 3 (a D12 card and a larger D7 rank above it) since the replayed fixes went.
+    const c = d.found.find((x) => x.kind === 'D9' && x.facts.mark === 'Leeward gate')!;
     expect(c.facts.mode).toBe('places');
     const [g] = c.gaps!;
     expect(g.ids).toEqual(c.refBoats);
     const l = rivalLadder(m, r.a, me.id, { kind: 'custom', ids: g.ids })!;
     const at = (t: number) => l.points.find((p) => p.tMs === t)!.behindS!;
     expect(c.seconds).toBeCloseTo(at(g.t1) - at(g.t0), 9);
-    // Got 36.4 s (on distance to go ÷ the fleet's VMG it was 36.8 s).
-    expect(Math.abs(c.seconds - 36.4)).toBeLessThan(1);
+    // Got 33.2 s for 11 places (36.4 s for 12, on distance to go ÷ the fleet's VMG 36.8 s, with 17 trackers' replayed fixes
+    // zig-zagging the fleet: BRA1440 counted among the passers).
+    expect(Math.abs(c.seconds - 33.2)).toBeLessThan(1);
   });
 
   it('the last run (D10): each named boat\'s seconds are its own line on the chart', () => {

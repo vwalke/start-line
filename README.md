@@ -914,7 +914,7 @@ CAP = high ∞, medium ∞, low 60 s                        (IMPACT_CAP_S; LOW_I
 | `racesense.vakaros.com/api/landing` | event list | via our `/api` proxy (no CORS upstream) |
 | `racesense.vakaros.com/api/regatta?event=` | divisions, entries, course & mark trackers, gun time, start line at the gun, OCS, race-control DTL, finishes | via `/api` proxy |
 | `racesense.vakaros.com/api/wind?v=3&…` | modeled wind, used only to cross-check | via `/api` proxy |
-| `teleapi.regatta.app/telemetry/event/{id}` | ~5 Hz GPS tracks for boats and marks, with heel (`roll`) and trim (`pitch`), and each device's `race_number` / `race_stage` | via `/api/telemetry/event/{id}` (same-origin proxy; one race window, paginated with `after`) |
+| `teleapi.regatta.app/telemetry/event/{id}` | ~5 Hz GPS tracks for boats and marks, with heel (`roll`) and trim (`pitch`), and each device's `race_number` / `race_stage` | via `/api/telemetry/event/{id}` (same-origin proxy; one race window, paginated with `after`; the division as the feed tags it, spaces as `_` and dots as `//`: "Female 7.5" is `Female_7//5`) |
 | `api.yachtscoring.com/v1/public/…` | official race numbers, places, codes and (if plausible) finish times | via `/api/ys/…` (allowlisted, owner/crew fields stripped, edge-cached) |
 
 - **Unofficial.** These are public but undocumented feeds, read anonymously,
@@ -958,6 +958,17 @@ CAP = high ∞, medium ∞, low 60 s                        (IMPACT_CAP_S; LOW_I
   speed (a broken compass; leeway and current are a few degrees). Then the
   course over ground stands in, the boat is left out of the wind estimate,
   and the tables show `⚠ heading from GPS course`.
+- **Tracker glitches** are cleaned before anything else (`data/racesense/adapter.ts`),
+  for boats only (marks, committee and coach boats are kept as sent). A sail
+  with two trackers is drawn from the one covering the most ground (~11 m
+  cells), not the one with the most rows: a spare left ashore can send the
+  most. A fix a moving boat (over 1 kn) already sent earlier, at the exact
+  same coordinates, is a held fix replayed among the live ones and is dropped
+  (sending the same fix twice in a row is kept). A boat's fixes over 20 km
+  from the fleet are dropped. A reported speed over 25 kn that is more than
+  twice its positions' speed plus 10 kn is no reading, and the speed comes
+  from the positions instead (single spikes of 1,500–12,000 kn; M32s at
+  25–29 kn keep theirs).
 - **Finishes** whose feed distance is under half the fleet's median, or whose
   max speed is over 1.6× the fleet's, aren't ranked (spare and judge trackers
   that "finish" from a committee boat, a media RIB). The device's distance
@@ -1175,8 +1186,9 @@ functions/_auth.ts, _stripe.ts, _authDb.ts, _entitlements.ts  sign-in, payments,
 src/data/freeRace.ts         race 1 and its free telemetry window (shared by the gate and the page)
 src/ui/paywall.ts            lock card and account sheet (only when /api/auth/me says the paywall is on)
 migrations/0001_paywall.sql  D1 schema for the paywall (not applied: see Paywall)
-tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1–r3, ic37_r5, gate_*, cascais_r2, cascais_r3, vkx/, stripe/: fake webhook events); tests/d1mem.ts runs the paywall's SQL against the migration's schema in memory; tests/setup.ts yields to the event loop after each test (a long run of synchronous tests otherwise times out vitest's worker RPC, 'Timeout calling "onTaskUpdate"')
+tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1–r3, ic37_r5, gate_*, cascais_r2, cascais_r3, anom_*: tracker glitches, vkx/, stripe/: fake webhook events); tests/d1mem.ts runs the paywall's SQL against the migration's schema in memory; tests/setup.ts yields to the event loop after each test (a long run of synchronous tests otherwise times out vitest's worker RPC, 'Timeout calling "onTaskUpdate"')
 scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88|j105|j105r1|j105r3|ic37|gate-*|cascais-r2|cascais-r3)
+scripts/make-anomaly-fixtures.mjs  builds tests/fixtures/anom_* (a stuck tracker, a replayed fix, SOG spikes, M32 speeds) from the raw-feed anomaly scan
 scripts/make-recovery-fixtures.ts  records tests/fixtures/recovery (Yachtscoring, probes, finishing bands; network once)
 scripts/make-vkx-fixture.mjs builds tests/fixtures/vkx from a boat log + regatta doc
 scripts/landing-thumbs.mjs   the landing cards' screenshots (public/landing/*.webp) from a running server; Playwright from PLAYWRIGHT_CORE

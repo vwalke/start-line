@@ -28,6 +28,7 @@ import { MAX_UPSTREAM_BYTES, TELE_UPSTREAM, UA } from './_lib';
 import { PayloadError, decodePayloadRaw, gunzip, readHeader, sha256Hex, type PayloadHeader, type PayloadTrack } from '../src/data/vkx/compact';
 import { CHECK_WINDOWS, MATCH_MIN_POINTS, checkDevice, checkWindows, feedFixes, sameSail, type FeedCheck, type FeedFix } from '../src/data/vkx/match';
 import { DIV_NAME_RE, EVENT_ID_RE, RACE_ID_RE, divKey, payloadProblems } from '../src/data/vkx/validate';
+import { feedDivision } from '../src/data/racesense/api';
 import type { TelemetryPage } from '../src/data/racesense/types';
 
 // ---- the R2 surface we use (structurally what Workers' R2Bucket provides)
@@ -222,7 +223,7 @@ export async function verifyAgainstFeed(track: PayloadTrack, doFetch: typeof fet
   const fixes: FeedFix[] = [];
   let last: FeedCheck = { ok: false, reason: 'too-few', n: 0, medianM: null };
   for (const w of checkWindows(h.t0, h.t1).slice(0, CHECK_WINDOWS)) {
-    const qs = new URLSearchParams({ after: String(w.after), before: String(w.before), limit: '100000', division: h.div });
+    const qs = new URLSearchParams({ after: String(w.after), before: String(w.before), limit: '100000', division: feedDivision(h.div) });
     let page: TelemetryPage;
     try {
       const res = await doFetch(`${TELE_UPSTREAM}${h.event}?${qs}`, { headers: { accept: 'application/json', 'user-agent': UA } });

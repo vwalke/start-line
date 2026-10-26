@@ -207,6 +207,13 @@ export function buildQuery(path: string, search: URLSearchParams): QueryOk | Que
   return { ok: true, qs };
 }
 
+/**
+ * teleapi's division tag (src/data/racesense/api.ts feedDivision): spaces come as '_' and dots as '//'
+ * ("Female_7//5"), so '/' is allowed only as that pair. A 64-character name with a few dots stays under the cap.
+ */
+const DIVISION = /^[A-Za-z0-9](?:[A-Za-z0-9 ._+-]|\/\/)*$/;
+const DIVISION_MAX = 80;
+
 export function buildTelemetryQuery(search: URLSearchParams): QueryOk | QueryErr {
   const after = search.get('after') ?? '';
   const before = search.get('before') ?? '';
@@ -227,7 +234,7 @@ export function buildTelemetryQuery(search: URLSearchParams): QueryOk | QueryErr
   }
   const division = search.get('division');
   if (division != null && division !== '') {
-    if (!/^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,63}$/.test(division)) return { ok: false, status: 400, error: 'Bad division' };
+    if (division.length > DIVISION_MAX || !DIVISION.test(division)) return { ok: false, status: 400, error: 'Bad division' };
     qs.set('division', division);
   }
   return { ok: true, qs };
