@@ -1,13 +1,11 @@
 /**
  * Paints the boats' fading trails (charts.ts scrubFrame `trails`) into the track map's `g.scrub-trails` every frame
  * without rebuilding it: one `<g>` per boat (its color, class and width) holding one `<path>` per fade slice (its
- * opacity, ui/trail.ts TRAIL_FADE), and once it has a filled-in stretch one lighter `<path class="est">` per slice
- * (ui/gapFill.ts EST_OPACITY), created once and kept while the boat has a trail; a frame only sets the `d` (and
+ * opacity, ui/trail.ts TRAIL_FADE), created once and kept while the boat has a trail; a frame only sets the `d` (and
  * any attribute) that changed, and re-appends the groups only when their order changes (the selected boat on top).
  * The map's full redraw replaces the layer, and with it this state.
  */
 import type { BoatTrail } from './charts';
-import { EST_OPACITY } from './gapFill';
 import { TRAIL_FADE } from './trail';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -34,11 +32,10 @@ export interface TrailPaint {
   dSet: number;
 }
 
-/** A slice's path in group `g`: its fade opacity, lighter (class `est`) for a filled-in stretch. */
-function path(g: Element, op: number, est: boolean): Element {
+/** A slice's path in group `g`, at its fade opacity. */
+function path(g: Element, op: number): Element {
   const p = g.ownerDocument.createElementNS(SVG_NS, 'path');
-  if (est) p.setAttribute('class', 'est');
-  p.setAttribute('stroke-opacity', String(est ? +(op * EST_OPACITY).toFixed(3) : op));
+  p.setAttribute('stroke-opacity', String(op));
   g.appendChild(p);
   return p;
 }
@@ -55,14 +52,9 @@ export function paintTrails(layer: Element, trails: readonly BoatTrail[]): Trail
     let s = st.slots.get(tr.id);
     if (!s) {
       const g = doc.createElementNS(SVG_NS, 'g');
-      const paths = TRAIL_FADE.map((op) => path(g, op, false));
+      const paths = TRAIL_FADE.map((op) => path(g, op));
       st.slots.set(tr.id, (s = { g, paths, attrs: '', d: paths.map(() => '') }));
       done.created++;
-    }
-    // The same slices' filled-in stretches, after them: made the first time the boat has one, then kept.
-    if (s.paths.length === TRAIL_FADE.length && tr.est?.some(Boolean)) {
-      for (const op of TRAIL_FADE) s.paths.push(path(s.g, op, true));
-      s.d.push(...TRAIL_FADE.map(() => ''));
     }
     const attrs = `${tr.cls}|${tr.stroke}|${tr.cd ?? ''}|${tr.w}`;
     if (attrs !== s.attrs) {
@@ -74,8 +66,7 @@ export function paintTrails(layer: Element, trails: readonly BoatTrail[]): Trail
       else s.g.removeAttribute('style');
     }
     for (let i = 0; i < s.paths.length; i++) {
-      const n = TRAIL_FADE.length;
-      const d = (i < n ? tr.d[i] : tr.est?.[i - n]) ?? '';
+      const d = tr.d[i] ?? '';
       if (d === s.d[i]) continue;
       s.d[i] = d;
       s.paths[i].setAttribute('d', d);

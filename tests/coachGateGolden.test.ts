@@ -98,7 +98,6 @@ describe('D13 golden: J/24 Nationals R2 (favoured right, confirmed; the wind vee
   });
 
   it("USA 2607's card is the design's example: left mark, 17 m, ~9 s on the beat, ~46 s quicker on the right, ~10 places", () => {
-    const { a } = race('j24r2');
     const d = d13(debOf('j24r2', 'USA 2607'));
     expect(d.card).not.toBeNull();
     expect(d.card!.confidence).toBe('low');
@@ -108,7 +107,7 @@ describe('D13 golden: J/24 Nationals R2 (favoured right, confirmed; the wind vee
     // Four boats rounded the right buoy just ahead of it, and were still ~40 s quicker: no traffic excuse.
     expect(d.card!.facts.traffic).toBe(4);
     expect(t.sentence).toMatch(/The right mark was busy \(4 boats just ahead\), but they were still \d+ s quicker\./);
-    expect(cardWarnings(d.card!, a)).toEqual(['low confidence', 'wind shifting']);
+    expect(cardWarnings(d.card!)).toEqual(['low confidence', 'wind shifting']);
     // Seconds: the side difference; range from the beat-only geometry to its own loss.
     expect(d.card!.secondsLo).toBeGreaterThan(7);
     expect(d.card!.secondsHi).toBeGreaterThan(44);
@@ -198,7 +197,7 @@ describe('D13 golden: J/24 Nationals R5 (favoured left, confirmed, steady wind)'
   it('Ask Coach carries the D13 card like any other', () => {
     const { a } = race('j24r5');
     const deb = debOf('j24r5', 'USA 5208');
-    const f = askFinding(d13(deb).card!, a, deb.raceCov);
+    const f = askFinding(d13(deb).card!, a);
     expect(f.title).toBe('Unfavored gate mark (right)');
     expect(f.what).toContain('took the right mark (looking upwind)');
     expect(f.confidence).toBe('high');

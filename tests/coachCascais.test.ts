@@ -141,7 +141,8 @@ describe('Cascais: start places', () => {
       expect(p.place[0]).toBeLessThan(40);
       const beat1 = legStories(r.a, r.m, me.id, { kind: 'leaders' })[0];
       expect(beat1.mine!.gain).toBeLessThan(42);
-      expect(placeChip(beat1)).toMatch(/^(gained|lost) \d+ · ~\d+(st|nd|rd|th) of 100$/);
+      // Placed at the gun from its nearest fix (estimated inside: est), shown plainly.
+      expect(placeChip(beat1)).toMatch(/^(gained|lost) \d+ · \d+(st|nd|rd|th) of 100$/);
     }
     // R3: at the pin (0% along the line), among the first ten at the gun; it lost places up Beat 1.
     const p3 = fleetPlaces(r3.a).byId.get(r3.id('USA 833'))!;
@@ -285,11 +286,11 @@ describe('Cascais: the line bias (D16) and thin data', () => {
     expect(cards).toBe(17);
     for (const b of r2.a.boats) expect(debriefOf(r2.a, r2.m, b.id)!.found.some((x) => x.kind === 'D16')).toBe(false);
   }, 120_000);
-  it('R2: USA 833 on thin data (37% on the full feed): "not enough data to judge banked gains", never ✓', () => {
+  it('R2: USA 833 on thin data (37% on the full feed): "Not judged: banked gains", never ✓, no tracker %', () => {
     const d = debriefOf(r2.a, r2.m, r2.id('USA 833'))!;
     const d5 = d.ok.find((o) => o.detector === 'D5')!;
     expect(d5.thin).toBe(true);
-    expect(goodTexts(d5)[0]).toMatch(/^Not enough data to judge banked gains \(tracker \d+%\)$/);
+    expect(goodTexts(d5)[0]).toBe('Not judged: banked gains');
     const ask = raceAskContext({ a: r2.a, me: r2.a.boats.find((b) => b.sail === 'USA 833')!, deb: d, stories: [], group: { kind: 'leaders' }, head: [] });
     expect(ask.notJudged).toContain(goodTexts(d5)[0]);
     expect(ask.notTheProblem ?? []).not.toContain('Banked gains');

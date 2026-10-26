@@ -227,7 +227,7 @@ describe('D17 on J/24 Nationals R2 (dense on Beat 2: 38 tacks measured from 26 b
     expect(t.sentence).toBe(
       "Beat 2: your 3 measured tacks cost ~11 m each, the fleet's ~14 m (~7 m less over them). You tacked 3 times, the fleet 1 time: 2 extra × the fleet's ~14 m a tack = ~28 m. ~21 m lost on the fleet in all.",
     );
-    expect(cardWarnings(card, r.a)).toEqual(['few maneuvers measured']);
+    expect(cardWarnings(card)).toEqual(['few maneuvers measured']);
     // Its window: the measured tacks' own stretches only.
     expect(card.spans).toEqual(c.mine.measured.map((x) => lossSpan(x.tMs, 'tack')));
   });
@@ -427,14 +427,13 @@ describe('D17 card text, theme and Ask Coach context', () => {
     expect(only.sentence).toBe("Beat 1: your 5 measured tacks cost ~8 m each, the fleet's ~8 m. You tacked 5 times, the fleet 2 times: 3 extra × the fleet's ~8 m a tack = ~24 m.");
   });
   it('its own ⚠ chip at medium: few manoeuvres measured, or few boats measured (never another detector’s)', () => {
-    const a = { meta: { tzOffsetMs: 0, gunMs: 0 } } as unknown as RaceAnalysis;
     const few = rankOpportunities([d17({ facts: { ...d17().facts, measured: D17_HIGH_MEASURED - 1 }, conf: { boatCov: 1, refCap: 'medium' } })])[0];
     expect(few.confidence).toBe('medium');
-    expect(cardWarnings(few, a)).toEqual(['few maneuvers measured']);
+    expect(cardWarnings(few)).toEqual(['few maneuvers measured']);
     // Five measured, but fewer than 3 fleet boats with D17_MIN_MEASURED: the references cap it.
     const refs = rankOpportunities([d17({ conf: { boatCov: 1, refs: { good: 2, fair: 20, need: 3 } } })])[0];
     expect([refs.confidence, refs.limit]).toEqual(['medium', 'refs']);
-    expect(cardWarnings(refs, a)).toEqual(['few boats measured']);
+    expect(cardWarnings(refs)).toEqual(['few boats measured']);
   });
   it('a medium D17 card needs D17_MEDIUM_MIN_S (measured turn by turn), other medium cards MIN_SECONDS.medium', () => {
     expect(D17_MEDIUM_MIN_S).toBe(MIN_SECONDS.high);
@@ -478,7 +477,7 @@ describe('D17 card text, theme and Ask Coach context', () => {
   it('Ask Coach carries the card as the page shows it', () => {
     const [c] = rankOpportunities([d17()]);
     const a = { meta: { tzOffsetMs: 0, gunMs: 0 } } as unknown as RaceAnalysis;
-    expect(askFinding(c, a, 1)).toMatchObject({ title: 'Costly tacks on Beat 1', seconds: 15, what: "Beat 1: your tacks cost ~14 m each (~6 s), the fleet's ~8 m: ~30 m lost on the fleet over the 5 of 6 measured." });
+    expect(askFinding(c, a)).toMatchObject({ title: 'Costly tacks on Beat 1', seconds: 15, what: "Beat 1: your tacks cost ~14 m each (~6 s), the fleet's ~8 m: ~30 m lost on the fleet over the 5 of 6 measured." });
   });
 });
 

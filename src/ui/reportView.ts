@@ -43,15 +43,15 @@ const linesHtml = (ls: readonly ReportLine[], empty: string): string =>
 
 function legsHtml(m: ReportModel): string {
   if (!m.legs.length) return '<p class="rp-muted">No legs in this race.</p>';
-  const head = ['Leg', 'Type', 'Place in → out', 'Change', 'Time', `vs ${m.groupLabel}`, 'SOG kn', 'VMG kn', 'Tacks / gybes', 'Side', 'Gate', 'Data'];
+  const head = ['Leg', 'Type', 'Place in → out', 'Change', 'Time', `vs ${m.groupLabel}`, 'SOG kn', 'VMG kn', 'Tacks / gybes', 'Side', 'Gate'];
   const rows = m.legs
     .map(
       (l) =>
-        `<tr${l.lowData ? ' class="low"' : ''}><th scope="row">${esc(l.name)}</th><td>${esc(l.type)}</td><td>${missing(l.places)}</td><td>${missing(l.change)}</td><td>${missing(l.time)}</td><td>${missing(l.vsGroup)}</td><td>${missing(l.sog)}</td><td>${missing(l.vmg)}</td><td>${missing(l.manoeuvres)}</td><td>${missing(l.side)}</td><td>${missing(l.gate)}</td><td>${l.lowData && l.coverage !== MISSING ? warnMark : ''}${missing(l.coverage)}</td></tr>`,
+        `<tr><th scope="row">${esc(l.name)}</th><td>${esc(l.type)}</td><td>${missing(l.places)}</td><td>${missing(l.change)}</td><td>${missing(l.time)}</td><td>${missing(l.vsGroup)}</td><td>${missing(l.sog)}</td><td>${missing(l.vmg)}</td><td>${missing(l.manoeuvres)}</td><td>${missing(l.side)}</td><td>${missing(l.gate)}</td></tr>`,
     )
     .join('');
   return `<table class="rp-table rp-legs-t"><thead><tr>${head.map((h) => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
-    <p class="rp-key">SOG / VMG: this boat / ${esc(m.groupLabel)} median; a tack's or gybe's measured cost against the same group's, with ${D17_MIN_REF_BOATS}+ of its boats measured. Places in the whole fleet (fixed fleet); ~ estimated or across a gap in the track.</p>`;
+    <p class="rp-key">SOG / VMG: this boat / ${esc(m.groupLabel)} median; a tack's or gybe's measured cost against the same group's, with ${D17_MIN_REF_BOATS}+ of its boats measured. Places in the whole fleet (fixed fleet).</p>`;
 }
 
 function coachHtml(m: ReportModel): string {
@@ -100,11 +100,11 @@ function regattaHtml(m: ReportModel): string {
   const rows = r.rows
     .map(
       (x) =>
-        `<tr${x.low ? ' class="low"' : ''}><th scope="row">${esc(x.label)}</th><td>${missing(x.place)}</td><td>${missing(x.of)}</td><td>${missing(x.onWater)}</td><td>${x.low ? warnMark : ''}${missing(x.coverage)}</td><td>${missing(x.findings)}</td><td class="rp-muted">${esc(x.status)}</td></tr>`,
+        `<tr><th scope="row">${esc(x.label)}</th><td>${missing(x.place)}</td><td>${missing(x.of)}</td><td>${missing(x.onWater)}</td><td>${missing(x.findings)}</td><td class="rp-muted">${esc(x.status)}</td></tr>`,
     )
     .join('');
-  const table = `<table class="rp-table rp-regatta-t"><thead><tr><th scope="col">Race</th><th scope="col">Place</th><th scope="col">Of</th><th scope="col">On the water</th><th scope="col">Tracker</th><th scope="col">Findings · at stake</th><th scope="col"></th></tr></thead><tbody>${rows}</tbody></table>`;
-  const status = `<p class="rp-key">${r.done} of ${r.total} races analyzed${r.done < r.total ? ' (the rest are still being worked out)' : ''}. ⚠ low tracker data: counted less.</p>`;
+  const table = `<table class="rp-table rp-regatta-t"><thead><tr><th scope="col">Race</th><th scope="col">Place</th><th scope="col">Of</th><th scope="col">On the water</th><th scope="col">Findings · at stake</th><th scope="col"></th></tr></thead><tbody>${rows}</tbody></table>`;
+  const status = `<p class="rp-key">${r.done} of ${r.total} races analyzed${r.done < r.total ? ' (the rest are still being worked out)' : ''}.</p>`;
   const pens = r.penalties.length ? `<h4>Penalties</h4><ul class="rp-lines">${r.penalties.map((p) => `<li class="rp-line warn"><span class="rp-g" aria-hidden="true">⚠</span> ${esc(p)}</li>`).join('')}</ul>` : '';
   const work = r.workOn.length
     ? `<ol class="rp-work">${r.workOn.map((w) => `<li><b>${esc(w.title)}</b>${w.score ? ` <b class="rp-sec">${esc(w.score)}</b>` : ''}<br><span class="rp-sent">${esc(w.why)}.</span>${w.tip ? ` <span class="rp-tip"><b>Tip</b> ${esc(w.tip)}</span>` : ''}</li>`).join('')}</ol>`

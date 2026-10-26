@@ -28,7 +28,7 @@ describe('the page’s own race 1 questions stay free (J/105 race 1, every boat,
     (['leaders', 'fleet'] as const).map((kind) => {
       const deb = coachDebrief(a, model, me.id);
       const group = { kind } as const;
-      const ctx = raceAskContext({ a, me, raceName: 'Race 1', head: coachChips(a, me, null, deb?.totalS ?? null, deb?.raceCov ?? null), deb: deb ?? null, stories: legStories(a, model, me.id, group), group });
+      const ctx = raceAskContext({ a, me, raceName: 'Race 1', head: coachChips(a, me, deb?.totalS ?? null), deb: deb ?? null, stories: legStories(a, model, me.id, group), group });
       // What the server sees: the sanitized copy.
       return { boat: me.id, ctx: sanitizeAskContext(JSON.parse(JSON.stringify(ctx)))! };
     }),

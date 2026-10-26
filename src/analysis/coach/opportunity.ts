@@ -98,7 +98,7 @@ export interface GoodNote {
   seconds?: number;
   /** ✓: the boat's coverage of the stretch judged (coachCoverage), 0–1. */
   coverage?: number;
-  /** ✓ on thin data (coverage under OK_THIN_COVERAGE): the row says "not enough data to judge …", never "fine". */
+  /** ✓ on thin data (coverage under OK_THIN_COVERAGE): the row says "Not judged: …", never "fine". */
   thin?: boolean;
   /** ➕ read off the gap: the chart's points (Opportunity.gaps). */
   gaps?: GapReading[];

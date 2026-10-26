@@ -429,7 +429,7 @@ export function startApp(): void {
   let mapFit: Box | null = null;
   let mapFitFor: { a: RaceAnalysis; leg: number | null } | null = null;
   let mapView: View = { cx: 0, cy: 0, k: 1 };
-  /** Point details: the map's fix and gap lookup for a race and leg, built on first hover or tap. */
+  /** Point details: the map's point lookup for a race and leg, built on first hover or tap. */
   let mapPts: { a: RaceAnalysis; leg: number | null; full: FullRateSet | null; view: View; p: MapPoints } | null = null;
   let fitBox: Box | null = null;
   let view: View = { cx: 0, cy: 0, k: 1 };
@@ -836,9 +836,9 @@ export function startApp(): void {
     const listed = raceList ? findListed(raceList, a.meta.division, a.meta.raceNumber) : undefined;
     const raceTitle = listed ? raceName(listed) : undefined;
     if (!ensureCoach(a)) {
-      askContextNow = () => raceAskContext({ a, me, raceName: raceTitle, head: coachChips(a, me, null), deb: null, stories: [], group: coachGroup });
+      askContextNow = () => raceAskContext({ a, me, raceName: raceTitle, head: coachChips(a, me), deb: null, stories: [], group: coachGroup });
       syncAskStarters(a, me, null);
-      renderKeepOpen(els.coachHead, (open) => coachHeadHtml(coachChips(a, me, null), open));
+      renderKeepOpen(els.coachHead, (open) => coachHeadHtml(coachChips(a, me), open));
       els.coachGroup.innerHTML = '';
       els.coachLadder.innerHTML = '<p class="muted coach-none">Working out the wind…</p>';
       els.coachCards.innerHTML = '';
@@ -854,7 +854,7 @@ export function startApp(): void {
     }
     const deb = model && coachDeb?.model === model ? coachDeb.d : null;
     if (coachSel != null && !deb?.cards[coachSel]) coachSel = null;
-    renderKeepOpen(els.coachHead, (open) => coachHeadHtml(coachChips(a, me, coachLadder, deb?.totalS ?? null, deb?.raceCov ?? null), open));
+    renderKeepOpen(els.coachHead, (open) => coachHeadHtml(coachChips(a, me, deb?.totalS ?? null), open));
     els.coachGroup.innerHTML = coachGroupHtml(a, me.id, coachGroup, coachEach, coachCustomOpen);
     const widthPx = els.coachLadder.clientWidth || undefined;
     const band = deb && coachSel != null ? cardSpans(deb.cards[coachSel]) : undefined;
@@ -864,13 +864,13 @@ export function startApp(): void {
         : '<p class="muted coach-none">No course to measure against in this race.</p>';
     // Each card with a window gets a "Show on map" link (mapLink.ts), appended to the cards as built.
     els.coachCards.innerHTML = deb
-      ? withMapActions(coachCardsHtml(a, deb, coachSel, me.coverage ?? null), deb.noData ? [] : cardMapActions(a, me.id, deb.cards, replaysOf(a), location.search))
+      ? withMapActions(coachCardsHtml(a, deb, coachSel), deb.noData ? [] : cardMapActions(a, me.id, deb.cards, replaysOf(a), location.search))
       : '';
     // Leg stories over the picked group; the legs open now stay open.
     const openLegs = new Set([...els.coachLegs.querySelectorAll<HTMLElement>('details.coach-leg[open]')].map((d) => Number(d.dataset.leg)));
     const stories = model ? legStories(a, model, me.id, coachGroup) : [];
     renderKeepOpen(els.coachLegs, (open) => legStoriesHtml(stories, a, me.id, coachGroup, openLegs, open));
-    const head = coachChips(a, me, coachLadder, deb?.totalS ?? null, deb?.raceCov ?? null);
+    const head = coachChips(a, me, deb?.totalS ?? null);
     const group = coachGroup;
     askContextNow = () => raceAskContext({ a, me, raceName: raceTitle, head, deb, stories, group });
     syncAskStarters(a, me, deb);
@@ -1664,7 +1664,7 @@ export function startApp(): void {
     };
   }
 
-  /** The fix or gap under the pointer (the selected boat's within 40 px, else anyone's within 8; more for a finger): tooltip and dot. */
+  /** The point under the pointer (the selected boat's within 40 px, else anyone's within 8; more for a finger): tooltip and dot. */
   function showMapTip(ev: PointerEvent, touch: boolean): void {
     const a = analysis;
     const svg = els.map.querySelector('svg');
@@ -1683,7 +1683,7 @@ export function startApp(): void {
       dot.setAttribute('class', 'sog-hover');
       svg.append(dot);
     }
-    const [cx, cy] = pickAt(p, pick, x, y);
+    const [cx, cy] = pickAt(p, pick);
     dot.setAttribute('cx', String(cx));
     dot.setAttribute('cy', String(cy));
     dot.setAttribute('r', String(4 * px));
@@ -1703,7 +1703,7 @@ export function startApp(): void {
   /** What the pointer can pick: the scrubber frame's fixes and boats; zoomed in tight, the full-rate fixes near the view; else every drawn fix. */
   function mapPointsNow(a: RaceAnalysis): MapPoints {
     if (scrubT != null && scrubData) {
-      if (scrubPts?.f !== scrubData) scrubPts = { f: scrubData, p: scrubPoints(a, scrubData) };
+      if (scrubPts?.f !== scrubData) scrubPts = { f: scrubData, p: scrubPoints(scrubData) };
       return scrubPts.p;
     }
     const full = mapFullRate(a);

@@ -421,9 +421,6 @@ svg .trail { fill: none; opacity: 0.55; stroke-linejoin: round; }
 svg .trk { fill: none; opacity: 0.8; stroke-linejoin: round; stroke-linecap: round; }
 svg .trk.dim, svg .trail.dim { opacity: 0.12; }
 svg .trk.nc, svg .trail.nc { opacity: 0.9; }
-/* Telemetry gaps: a short one is filled in (ui/gapFill.ts), the same line drawn lighter (its stroke-opacity, set where
-   it is drawn: .trk-est, .trail-est, .sog-est, .btrail .est, .lane-est), solid; a longer one is left blank. */
-svg .trk-est, svg .trail-est, svg .sog-est, svg .btrail .est, svg .lane-est { stroke-dasharray: none; }
 svg .boat { cursor: pointer; }
 svg .boat.dim { opacity: 0.3; }
 svg .boat-min .min-ring { fill: none; }
@@ -515,7 +512,7 @@ svg text.spd-pick-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoi
 }
 
 /* Boat speed (map) and Speed (start trails): per-bin paths, `stroke` = day, `--cd` = night (ui/sog.ts).
-   By day the pale fast bins sit on a thin dark casing; gaps are left blank; a selection dims the rest. */
+   By day the pale fast bins sit on a thin dark casing; a selection dims the rest. */
 svg .sog, svg .sog-case, svg .sog-sel { fill: none; stroke-linejoin: round; stroke-linecap: round; }
 svg .sog-case { stroke: var(--ink); stroke-opacity: 0.45; }
 svg .sog-sel { stroke: var(--ink); }
@@ -575,7 +572,7 @@ svg .btrail.off { opacity: 0.4; }
 /* Both dimmed and off the leg: the two together (0.35 × 0.4), the faintest. */
 svg .btrail.dim.off { opacity: 0.14; }
 svg .dot { stroke: var(--ink); }
-/* Data lost in a long gap (boatShape.ts boatStale): hollow, outlined in the boat's own color (`--c`), kept quiet. */
+/* Held past its final fix, that fix stale (boatShape.ts boatStale): hollow, outlined in the boat's own color (`--c`), kept quiet. */
 svg .dot.lost { stroke: var(--c, var(--ink)); stroke-opacity: 0.55; }
 svg .dot.off { opacity: 0.4; }
 svg .dot-hdg { stroke: var(--ink); stroke-linecap: round; }
@@ -624,11 +621,10 @@ svg .ss-gun { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 3; }
 svg .ss-gun-lbl { fill: var(--ink); font-weight: 600; }
 svg .ss-boat { cursor: pointer; }
 svg .ss-line { fill: none; stroke-linejoin: round; stroke-linecap: round; opacity: 0.9; }
-svg .ss-gap { fill: none; stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 4; opacity: 0.5; }
 svg .ss-hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; }
 svg .ss-cross { stroke: var(--surface); stroke-width: 1.2; }
 svg .ss-clip-mark { stroke: var(--surface); stroke-width: 0.8; stroke-linejoin: round; }
-svg .ss-boat.dim .ss-line, svg .ss-boat.dim .ss-gap, svg .ss-boat.dim .ss-cross, svg .ss-boat.dim .ss-clip-mark { opacity: 0.18; }
+svg .ss-boat.dim .ss-line, svg .ss-boat.dim .ss-cross, svg .ss-boat.dim .ss-clip-mark { opacity: 0.18; }
 svg .ss-boat.on .ss-line { opacity: 1; }
 svg .ss-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 
@@ -641,14 +637,13 @@ svg .pc-axis, svg .pc-head { fill: var(--ink-3); font-variant-numeric: tabular-n
 svg .pc-head { fill: var(--ink-2); }
 svg .pc-boat { cursor: pointer; }
 svg .pc-line { fill: none; stroke-linejoin: round; stroke-linecap: round; opacity: 0.9; }
-svg .pc-gap { fill: none; stroke: var(--ink-3); stroke-dasharray: 4 4; stroke-linecap: butt; }
 /* A wide invisible stroke makes a thin line easy to hit with a finger. */
 svg .pc-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
 svg .pc-dot { stroke: var(--surface); stroke-width: 1.2; }
 svg .pc-lbl { font-weight: 500; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
 svg .pc-lbl.dnf { font-style: italic; }
 /* With a selection the others fade, their names less than their lines so they stay readable. */
-svg .pc-boat.dim .pc-line, svg .pc-boat.dim .pc-dot, svg .pc-boat.dim .pc-gap { opacity: 0.2; }
+svg .pc-boat.dim .pc-line, svg .pc-boat.dim .pc-dot { opacity: 0.2; }
 svg .pc-boat.dim .pc-lbl { opacity: 0.55; }
 svg .pc-boat.on .pc-line { opacity: 1; }
 svg .pc-boat.on .pc-lbl { font-weight: 700; }
@@ -686,8 +681,7 @@ table.metrics {
   /* Keep the sticky Boat column narrow on a phone: long names are cut, the sidebar has them in full. */
   .metrics td.boat .bname { display: inline-block; max-width: 6.5em; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 }
-/* Data % below LOW_COVERAGE, and upwind/downwind sums missing a leg. */
-.metrics .dq-low { color: var(--bad); font-weight: 600; }
+/* Upwind/downwind sums missing a leg. */
 .metrics .partial { color: var(--ink-3); font-style: italic; }
 .metrics .partial b { font-weight: 400; }
 .metrics th { font-size: 0.75rem; font-weight: 600; color: var(--ink-2); text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; vertical-align: bottom; }
@@ -774,8 +768,8 @@ ul.findings li.hl .start-cmp tbody, ul.findings li.hl .cmp-note { font-weight: 4
 .race-notes { margin-top: 8px; }
 footer { font-size: 0.75rem; color: var(--ink-3); margin-top: 24px; }
 
-/* Start-figure validity: greyed gap values, unavailable fixes, disagreement marks, notes under the table. */
-.metrics .gap, .metrics .na { color: var(--ink-3); }
+/* Start-figure validity: unavailable fixes, disagreement marks, notes under the table. */
+.metrics .na { color: var(--ink-3); }
 .metrics .warn { color: var(--bad); margin-right: 3px; }
 .metrics .rk-src { font-size: 0.7rem; color: var(--ink-3); }
 .metrics .rk-over { font-size: 0.75rem; color: var(--bad); }
@@ -804,12 +798,10 @@ footer { font-size: 0.75rem; color: var(--ink-3); margin-top: 24px; }
 .info-sub { margin: 6px 0 2px; font-weight: 600; color: var(--ink); }
 /* Swatches drawn as the charts draw them. */
 .chip i { flex: none; display: inline-block; }
-.sw-gap, .sw-nc { width: 18px; height: 0; border-top: 2px dashed var(--ink-3); }
-.sw-gap { border-top-width: 1px; opacity: 0.6; }
+.sw-nc { width: 18px; height: 0; border-top: 2px dashed var(--ink-3); }
 .sw-ext { width: 18px; height: 0; border-top: 1.5px dashed var(--ink-3); }
 .sw-est { width: 9px; height: 9px; border-radius: 50%; border: 1.5px dashed var(--ink-2); }
 .sw-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-2); box-shadow: 0 0 0 1px var(--surface); }
-.speed-key .key-sw { display: inline-flex; align-items: center; gap: 4px; }
 /* Read by screen readers, not shown. */
 .vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 @media (prefers-color-scheme: dark) {
@@ -958,8 +950,6 @@ html.fs-on { overflow: hidden; }
 .regatta-places .rp { padding: 3px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); }
 .regatta-places .rp small { margin-left: 3px; color: var(--ink-3); }
 .regatta-places .rp.pending, .regatta-places .rp.running { color: var(--ink-3); border-style: dashed; }
-.regatta-places .rp.low { border-color: var(--bad); }
-.regatta-places .warn, .regatta-table .warn { color: var(--bad); }
 .regatta-note { margin: 4px 0 0; font-size: 0.78rem; }
 .regatta-scroll { overflow-x: auto; }
 .regatta-table { border-collapse: collapse; font-size: 0.82rem; width: 100%; color: var(--ink); }
@@ -1099,7 +1089,7 @@ svg .cl-clip-mark { opacity: 0.7; }
 svg .cl-med { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 svg .cl-dot { fill: var(--ink); }
 svg .cl-wind { fill: none; stroke: var(--ink-3); stroke-width: 1.6; stroke-linejoin: round; }
-/* Estimated between minutes: the same line, solid and lighter (as the maps draw an estimated stretch). */
+/* Wind estimated between minutes: the same line, solid and lighter. */
 svg .cl-wind.est { stroke-opacity: 0.45; }
 svg .cl-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 
@@ -1256,7 +1246,6 @@ body.report-on .content > :not(#report) { display: none !important; }
 .rp-muted { color: var(--ink-3); margin: 2px 0; }
 .rp-sec-notes ul { margin: 0; padding-left: 1.2em; font-size: 0.75rem; color: var(--ink-2); }
 .report .rp-foot { margin-top: 10px; padding-top: 4px; border-top: 1px solid var(--rule); font-size: 0.7rem; color: var(--ink-3); }
-.rp-table tr.low td:last-child { color: var(--bad); }
 @media (max-width: 720px) {
   .rp-row { flex-direction: column; }
   .rp-thumb { width: 100%; max-width: 320px; }

@@ -21,15 +21,12 @@ const j70 = analyzeRace(fixtureRace());
 const c31 = analyzeRace(c31Race());
 const gapS = SOG_GAP_MS / 1000;
 
-/** Every run's steps are within the gap threshold, and every gap between runs is longer. */
-function expectSplitAtGaps(s: StartSogSeries): void {
+/** Every boat one run (or none), its fixes in time order: one line however far apart they are. */
+function expectOneLine(s: StartSogSeries): void {
   for (const b of s.boats) {
-    for (const r of b.runs) for (let i = 1; i < r.t.length; i++) expect(r.t[i] - r.t[i - 1]).toBeLessThanOrEqual(gapS);
-    b.gaps.forEach(([p, q], k) => {
-      expect(q[0] - p[0]).toBeGreaterThan(gapS);
-      expect(p[0]).toBe(b.runs[k].t.at(-1));
-      expect(q[0]).toBe(b.runs[k + 1].t[0]);
-    });
+    expect(b.runs.length).toBeLessThanOrEqual(1);
+    expect(b).not.toHaveProperty('gaps');
+    for (const r of b.runs) for (let i = 1; i < r.t.length; i++) expect(r.t[i]).toBeGreaterThan(r.t[i - 1]);
   }
 }
 
@@ -69,7 +66,7 @@ describe('startSogSeries', () => {
       expect(Math.min(...ts)).toBeGreaterThanOrEqual(-w);
       expect(Math.min(...ts)).toBeLessThan(-w + 1);
       expect(Math.max(...ts)).toBeLessThanOrEqual(20);
-      expectSplitAtGaps(s);
+      expectOneLine(s);
     });
   }
 
@@ -88,19 +85,20 @@ describe('startSogSeries', () => {
     expect(startSogKey(s60, 60).chips[0]).toEqual({ text: `${secsLabel(s60.t0)} → ${secsLabel(s60.t1)}` });
   });
 
-  it('keys the crossing dot and, when a track has a hole, the "no data" swatch', () => {
+  it('keys the crossing dot, and nothing about holes even on the patchy C31 feed', () => {
     const swatches = (s: StartSogSeries): (string | undefined)[] => startSogKey(s, 120).chips.map((c) => c.swatch);
     const patchy = startSogSeries(c31, 120);
-    expect(swatches(patchy)).toEqual([undefined, 'dot', 'gap']);
-    const clean = { ...patchy, boats: patchy.boats.map((b) => ({ ...b, gaps: [] })) };
-    expect(swatches(clean)).toEqual([undefined, 'dot']);
-    expect(startSogKey(patchy, 120).bullets.length).toBeLessThanOrEqual(6);
+    expect(swatches(patchy)).toEqual([undefined, 'dot']);
+    const k = startSogKey(patchy, 120);
+    expect([...k.chips.map((c) => c.text), ...k.bullets].join(' ')).not.toMatch(/no data|gray dashed|apart|gap/i);
+    expect(k.bullets.length).toBeLessThanOrEqual(6);
   });
 
-  it('splits at the real gaps of the patchy C31 feed, dropping no fix', () => {
+  it('one line through every fix of the patchy C31 feed, its holes bridged, dropping no fix', () => {
     const s = startSogSeries(c31, 120);
-    expectSplitAtGaps(s);
-    expect(s.boats.some((b) => b.gaps.length > 0)).toBe(true);
+    expectOneLine(s);
+    // The feed has holes over SOG_GAP_MS in the window: drawn straight across.
+    expect(s.boats.some((b) => b.runs[0].t.some((t, i) => i > 0 && t - b.runs[0].t[i - 1] > gapS))).toBe(true);
     for (const b of s.boats) {
       const d = c31.drawings.find((x) => x.id === b.id)!;
       const inWin = [...d.startSog.t].filter((t) => (t - c31.meta.gunMs) / 1000 >= -120 && (t - c31.meta.gunMs) / 1000 <= 20);
@@ -108,20 +106,22 @@ describe('startSogSeries', () => {
     }
   });
 
-  it('a synthetic hole: two runs, a dashed join, no speed inside it', () => {
+  it('a synthetic 10 s hole: one run straight across it, the speed there on that line; nothing dashed', () => {
     const id = j70.boats[0].id;
     const s = startSogSeries(withHole(j70, id, -20, -10), 60);
     const b = s.boats.find((x) => x.id === id)!;
-    expect(b.runs).toHaveLength(2);
-    expect(b.gaps).toHaveLength(1);
-    expect(b.runs[0].t.at(-1)!).toBeLessThan(-20);
-    expect(b.runs[1].t[0]).toBeGreaterThan(-10);
-    expect(sogAt(b, -15)).toBeNull();
+    expect(b.runs).toHaveLength(1);
+    const r = b.runs[0];
+    const k = r.t.findIndex((t) => t > -10);
+    const [t0, t1, v0, v1] = [r.t[k - 1], r.t[k], r.sog[k - 1], r.sog[k]];
+    expect([t0 < -20, t1 > -10]).toEqual([true, true]);
+    expect(sogAt(b, -15)).toBeCloseTo(v0 + ((v1 - v0) * (-15 - t0)) / (t1 - t0), 6);
     expect(sogAt(b, -30)).not.toBeNull();
-    expectSplitAtGaps(s);
+    expectOneLine(s);
     const svg = startSogChart({ ...j70, drawings: withHole(j70, id, -20, -10).drawings }, null, 60);
     const g = new RegExp(`<g class="ss-boat" data-id="${id}">.*?</g>`).exec(svg)![0];
-    expect(g).toContain('class="ss-gap"');
+    expect(g).not.toContain('ss-gap');
+    expect((/class="ss-line" d="([^"]*)"/.exec(g)![1].match(/M/g) ?? []).length).toBe(1);
   });
 
   it('crossing markers sit at the start table late seconds', () => {
@@ -173,7 +173,7 @@ describe('the chart', () => {
     expect(svg).toContain('viewBox="0 0 390 230"');
   });
 
-  it('hover: the selected boat speed at the time, else the nearest line; nothing in a gap', () => {
+  it('hover: the selected boat speed at the time, else the nearest line; in a hole, the line drawn there', () => {
     const s = startSogSeries(j70, 60);
     const L = startSogLayout(s, 720);
     const id = j70.boats[1].id;
@@ -187,7 +187,8 @@ describe('the chart', () => {
     expect(Math.abs(L.y(near.sogKn) - py)).toBeLessThanOrEqual(Math.abs(L.y(sogAt(b, -10)!) - py) + 1e-9);
     expect(startSogHover(s, L, L.x(-10), -500, null)).toBeNull();
     const holed = startSogSeries(withHole(j70, id, -20, -10), 60);
-    expect(startSogHover(holed, startSogLayout(holed, 720), L.x(-15), 0, id)).toBeNull();
+    const hh = startSogHover(holed, startSogLayout(holed, 720), L.x(-15), 0, id)!;
+    expect(hh.sogKn).toBeCloseTo(sogAt(holed.boats.find((x) => x.id === id)!, hh.tS)!, 9);
   });
 });
 

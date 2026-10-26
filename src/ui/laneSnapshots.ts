@@ -9,12 +9,11 @@
  * Everything is worked out once per race and selection (laneScrub): each boat's position and course on the 1 s
  * grid LANE_START_S … LANE_END_S and its trail points up to LANE_END_S; a frame (frame(s)) only slices those.
  *
- * Positions are the scrubber's (mapPieces.ts boatAt, over the tracks with their short gaps filled in for display:
- * mapPieces.ts filledRanges, ui/gapFill.ts, so a boat in one is placed on the curve, filled): linear between fixes, held at the last fix for MAP_HOLD_S
- * inside a gap over SHORT_GAP_S (hollow: boatShape.ts boatStale), else none (the boat is missing at that second, never placed); its course is the scrubber's too (the step
- * it is on), none while held or between fixes too close. Trails come from the same drawn tracks
- * (the pre-gun track and the legs), broken wherever consecutive fixes are a gap apart (mapPoints.ts's rule), a filled-in
- * stretch drawn lighter.
+ * Positions are the scrubber's (mapPieces.ts boatAt, over the tracks with every hole filled in for display:
+ * mapPieces.ts filledRanges, ui/gapFill.ts, so a boat in one glides along the curve): linear between points; past its
+ * final fix held there for MAP_HOLD_S (hollow once stale: boatShape.ts boatStale), before its first fix none (never
+ * placed); its course is the scrubber's too (the step it is on), none while held or between points too close. Trails
+ * come from the same drawn tracks (the pre-gun track and the legs), through the filled-in holes as through the rest.
  *
  * The view is wind-up (the analysis's wind at the gun, as the start chart) and fixed for the whole slider: fitted
  * once to everything drawn at any second of it (laneView), so it never rescales while scrubbing (zooming is the
@@ -32,10 +31,9 @@ import type { ClassDims } from '../data/classes';
 import { startClass } from './charts';
 import { degLabel } from './format';
 import { boatAt, endHoldBefore, filledRanges, lastHeadingAt, legRanges, lowerBound, rotator, rotTrack, timeRange, type LegRange } from './mapPieces';
-import { drawingGapMs } from './mapPoints';
 import { ocsStretch, type OcsStretch } from './ocsStyle';
 import { gunRel } from './scrub';
-import { BOAT_TRAIL_MS, trailSlices } from './trail';
+import { BOAT_TRAIL_MS, trailPaths } from './trail';
 import type { Box } from './view';
 
 /** The slider's start and end, s from the gun (−1:30 … +3:00), in steps of LANE_STEP_S. */
@@ -60,8 +58,8 @@ export const LANE_SNAP_MS = 1000;
  * Boat `id` at `t`: the scrubber's position (boatAt, held past its final fix before `endHold` as the Race Viewer
  * holds it), else its track's end fix within LANE_SNAP_MS; east/north and map coordinates.
  */
-export function placeAt(id: string, ranges: readonly LegRange[], t: number, gapMs: number, twd: number, endHold = -Infinity): { x: number; y: number; mx: number; my: number; hold: boolean; stale: boolean } | null {
-  const at = boatAt(id, ranges, t, gapMs, twd, endHold);
+export function placeAt(id: string, ranges: readonly LegRange[], t: number, twd: number, endHold = -Infinity): { x: number; y: number; mx: number; my: number; hold: boolean; stale: boolean } | null {
+  const at = boatAt(id, ranges, t, twd, endHold);
   if (at) return at;
   let best: { i: number; r: LegRange; dt: number } | null = null;
   for (const r of ranges) {
@@ -86,7 +84,7 @@ export interface LaneBoat {
   sail: string;
   /** Map coordinates (wind-up, y down) at the frame's time; null: no fix near enough (missing at this second). */
   pos: Vec | null;
-  /** In a gap, held at the fix before it. */
+  /** Past its final fix, held there. */
   hold: boolean;
   /** Held and that fix is stale (boatShape.ts boatStale): drawn hollow. */
   stale: boolean;
@@ -98,12 +96,10 @@ export interface LaneBoat {
   sog: number;
   /** The boat has a track (any fix) in the race; false: never tracked. */
   tracked: boolean;
-  /** The trail over the BOAT_TRAIL_MS before the frame (from LANE_TRAIL_FROM_S at the earliest), map coordinates, one polyline per stretch without a gap. */
+  /** The trail over the BOAT_TRAIL_MS before the frame (from LANE_TRAIL_FROM_S at the earliest), map coordinates, as polylines (one, or none). */
   trail: Vec[][];
-  /** The same trail as path data per fade slice, head first (ui/trail.ts trailPaths)… */
+  /** The same trail as path data per fade slice, head first (ui/trail.ts trailPaths). */
   fade: string[];
-  /** …and its stretches filled into a short gap, per slice (drawn lighter: ui/gapFill.ts). */
-  fadeEst: string[];
   role: LaneRole;
   /** OCS at the frame's time (until clearedMs); 'cleared': cleared by then, within the trail. */
   over: LaneOver;
@@ -130,7 +126,7 @@ export interface LaneFrame {
   empty: boolean;
   /** Placed boats (for "of n"). */
   placed: number;
-  /** The selected boat's place to windward, or its one gap / not-tracked note; "No tracks at this time." when empty; else ''. */
+  /** The selected boat's place to windward, or its one no-position / not-tracked note; "No tracks at this time." when empty; else ''. */
   caption: string;
   /** The frame's accessible description. */
   label: string;
@@ -228,20 +224,14 @@ function windWords(a: RaceAnalysis, windUp: boolean): { label: string; title: st
 interface TrailPt {
   t: number;
   p: Vec;
-  /** Filled into a short gap (ui/gapFill.ts). */
-  est?: boolean;
 }
 
-/**
- * A boat's trail points over [from, to]: its drawn track there (map coordinates, short gaps filled in), with its position at
- * both ends where it has one; not yet broken at gaps.
- */
+/** A boat's trail points over [from, to]: its drawn track there (map coordinates, holes filled in), with its position at both ends where it has one. */
 function trailPts(d: RaceAnalysis['drawings'][number], twd: number, from: number, to: number): TrailPt[] {
-  const gapMs = drawingGapMs(d);
   const ranges = filledRanges(d, true);
   const pts: TrailPt[] = [];
-  const start = boatAt(d.id, ranges, from, gapMs, twd);
-  if (start && !start.hold) pts.push({ t: from, p: [start.mx, start.my], ...(start.est ? { est: true } : {}) });
+  const start = boatAt(d.id, ranges, from, twd);
+  if (start && !start.hold) pts.push({ t: from, p: [start.mx, start.my] });
   for (const r of ranges) {
     const [i0, i1] = timeRange(r.src.t, from, to, r.lo, r.hi);
     const rot = rotTrack(twd, r.src);
@@ -249,38 +239,26 @@ function trailPts(d: RaceAnalysis['drawings'][number], twd: number, from: number
       const t = r.src.t[i];
       // Ranges share a fix where one leg ends and the next begins: keep it once.
       if (pts.length && t <= pts[pts.length - 1].t) continue;
-      pts.push({ t, p: [rot.x[i], rot.y[i]], ...(r.src.est?.[i] === 1 ? { est: true } : {}) });
+      pts.push({ t, p: [rot.x[i], rot.y[i]] });
     }
   }
-  const end = boatAt(d.id, ranges, to, gapMs, twd);
-  if (end && !end.hold && (!pts.length || pts[pts.length - 1].t < to)) pts.push({ t: to, p: [end.mx, end.my], ...(end.est ? { est: true } : {}) });
+  const end = boatAt(d.id, ranges, to, twd);
+  if (end && !end.hold && (!pts.length || pts[pts.length - 1].t < to)) pts.push({ t: to, p: [end.mx, end.my] });
   return pts;
 }
 
-/** Trail points as polylines, broken wherever consecutive points are over `gapMs` apart (single points dropped). */
-function breakAtGaps(pts: readonly TrailPt[], gapMs: number): Vec[][] {
-  const out: Vec[][] = [];
-  let cur: Vec[] = [];
-  for (let i = 0; i < pts.length; i++) {
-    if (i > 0 && pts[i].t - pts[i - 1].t > gapMs) {
-      if (cur.length > 1) out.push(cur);
-      cur = [];
-    }
-    cur.push(pts[i].p);
-  }
-  if (cur.length > 1) out.push(cur);
-  return out;
-}
+/** Trail points as polylines: one, or none for a single point. */
+const polylines = (pts: readonly TrailPt[]): Vec[][] => (pts.length > 1 ? [pts.map((q) => q.p)] : []);
 
 /** A boat's trail over [from, to], worked out directly (the reference the sliced trails match). */
 export function laneTrail(a: RaceAnalysis, id: string, twd: number, from: number, to: number): Vec[][] {
   const d = a.drawings.find((x) => x.id === id);
-  return d ? breakAtGaps(trailPts(d, twd, from, to), drawingGapMs(d)) : [];
+  return d ? polylines(trailPts(d, twd, from, to)) : [];
 }
 
 /**
  * The frame's caption: "USA 016: ≈ 6 of 15" for the selected boat's place (approximate), or its one note ("…: no position
- * (tracker gap)." / "…: not tracked."); "No tracks at this time." for an empty frame; '' with no boat selected.
+ * at this time." / "…: not tracked."); "No tracks at this time." for an empty frame; '' with no boat selected.
  * `spoken`: the same for the frame's screen-reader label, the place said as "USA 016: ≈ 6 of 15 upwind.".
  */
 function frameCaption(f: Omit<LaneFrame, 'caption' | 'label'>, me: string | null): { caption: string; spoken: string } {
@@ -289,7 +267,7 @@ function frameCaption(f: Omit<LaneFrame, 'caption' | 'label'>, me: string | null
   const mine = me != null ? f.boats.find((b) => b.id === me) : undefined;
   if (!mine) return note('');
   if (!mine.tracked) return note(`${mine.sail}: not tracked.`);
-  if (!mine.pos) return note(`${mine.sail}: no position (tracker gap).`);
+  if (!mine.pos) return note(`${mine.sail}: no position at this time.`);
   if (mine.rank == null) return note('');
   const place = `${mine.sail}: ≈ ${mine.rank} of ${f.placed}`;
   const hold = mine.hold ? ' (last fix)' : '';
@@ -328,8 +306,6 @@ interface GridPos {
   dir: Vec | null;
   lastDir: Vec | null;
   sog: number;
-  /** Placed on a stretch filled into a short gap (ui/gapFill.ts). */
-  est: boolean;
 }
 
 /** `s` (s from the gun) as a second of the slider: rounded to the step, clamped to `start` … `end` (not a number: the gun). */
@@ -366,16 +342,14 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
     const d = drawn.get(b.id);
     const grid: (GridPos | null)[] = [];
     let pts: TrailPt[] = [];
-    let gapMs = Infinity;
     let ranges: LegRange[] = [];
     if (d) {
       ranges = filledRanges(d, true);
-      gapMs = drawingGapMs(d);
       for (let s = start; s <= end; s += LANE_STEP_S) {
         const t = gun + s * 1000;
-        const at = placeAt(b.id, ranges, t, gapMs, twd, endHoldBefore(b.finishMs));
+        const at = placeAt(b.id, ranges, t, twd, endHoldBefore(b.finishMs));
         // The trail ends at the boat only where the scrubber itself places it (not held, not snapped to an end fix); so does its course.
-        const own = at && !at.hold ? boatAt(b.id, ranges, t, gapMs, twd) : null;
+        const own = at && !at.hold ? boatAt(b.id, ranges, t, twd) : null;
         grid.push(
           at
             ? {
@@ -385,9 +359,8 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
                 stale: at.stale,
                 ends: own != null,
                 dir: own?.dir ?? null,
-                lastDir: lastHeadingAt(ranges, t, gapMs, twd),
+                lastDir: lastHeadingAt(ranges, t, twd),
                 sog: own ? own.sog : NaN,
-                est: !!own?.est,
               }
             : null,
         );
@@ -399,7 +372,7 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
       for (const g of grid) if (g) allPts.push(g.pos);
       for (const q of pts) allPts.push(q.p);
     }
-    return { b, grid, pts, gapMs, ranges };
+    return { b, grid, pts, ranges };
   });
   const line: [Vec, Vec] = [rot(left), rot(right)];
   // Downwind in map coordinates: the upwind axis turned as the view is, reversed (straight down when wind-up).
@@ -410,10 +383,10 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
 
   const build = (s: number): LaneFrame => {
     const t = gun + s * 1000;
-    const boats: LaneBoat[] = pre.map(({ b, grid, pts, gapMs, ranges }) => {
+    const boats: LaneBoat[] = pre.map(({ b, grid, pts, ranges }) => {
       const g = grid[(s - start) / LANE_STEP_S] ?? null;
       // Its trail: from BOAT_TRAIL_MS back (its position there, as laneTrail) through its points up to t, then its
-      // position at t, broken at gaps.
+      // position at t.
       const tail = Math.max(from, t - BOAT_TRAIL_MS);
       let i0 = 0;
       while (i0 < pts.length && pts[i0].t < tail) i0++;
@@ -421,13 +394,12 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
       while (n < pts.length && pts[n].t <= t) n++;
       const upTo: TrailPt[] = [];
       if (tail > from) {
-        const at = boatAt(b.id, ranges, tail, gapMs, twd);
-        if (at && !at.hold && (i0 >= n || pts[i0].t > tail)) upTo.push({ t: tail, p: [at.mx, at.my], ...(at.est ? { est: true } : {}) });
+        const at = boatAt(b.id, ranges, tail, twd);
+        if (at && !at.hold && (i0 >= n || pts[i0].t > tail)) upTo.push({ t: tail, p: [at.mx, at.my] });
       }
       for (let i = i0; i < n; i++) upTo.push(pts[i]);
-      if (g?.ends && (!upTo.length || upTo[upTo.length - 1].t < t)) upTo.push({ t, p: g.pos, ...(g.est ? { est: true } : {}) });
-      const est = upTo.some((q) => q.est) ? { est: upTo.map((q) => (q.est ? 1 : 0)) } : {};
-      const fade = trailSlices([{ t: upTo.map((q) => q.t), x: upTo.map((q) => q.p[0]), y: upTo.map((q) => q.p[1]), i0: 0, i1: upTo.length, ...est }], t, BOAT_TRAIL_MS, gapMs);
+      if (g?.ends && (!upTo.length || upTo[upTo.length - 1].t < t)) upTo.push({ t, p: g.pos });
+      const fade = trailPaths([{ t: upTo.map((q) => q.t), x: upTo.map((q) => q.p[0]), y: upTo.map((q) => q.p[1]), i0: 0, i1: upTo.length }], t, BOAT_TRAIL_MS);
       const r = repOf.get(b.id);
       let over: LaneOver = null;
       if (r) {
@@ -444,14 +416,13 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
         lastDir: g?.lastDir ?? null,
         sog: g ? g.sog : NaN,
         tracked: tracked.has(b.id),
-        trail: breakAtGaps(upTo, gapMs),
-        fade: fade.d,
-        fadeEst: fade.est,
+        trail: polylines(upTo),
+        fade,
         role: b.id === o.me ? 'me' : group.has(b.id) ? 'group' : 'other',
         over,
         clearedMs: over === 'cleared' ? r!.clearedMs : null,
         // Its track over the line and back, as far as the frame and within the trail: the track map's replay styling.
-        ocs: r && over ? ocsStretch(r, ranges, gapMs, twd, t, [from, t]) : null,
+        ocs: r && over ? ocsStretch(r, ranges, twd, t, [from, t]) : null,
         windwardM: g && up ? dot(sub(g.en, mid), up) : null,
         rank: null,
       };

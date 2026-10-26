@@ -197,17 +197,13 @@ describe('disagreement, OCS-blind and ranking rules', () => {
     expect(assessStart({ ...base, ocs: true }).over).toBe(true);
   });
 
-  it('lists notes in order', () => {
+  it('lists notes in order; our check across a hole is no caveat (shown plainly)', () => {
     const s = {
       rcNote: 'Vakaros reported no start fix (stale race 9 data)',
       dtlNote: 'interpolated across a 17 s data gap',
       warn: null,
       ocsBlind: true,
     } as StartResult;
-    expect(startNotes(s)).toEqual([
-      'Vakaros reported no start fix (stale race 9 data)',
-      'our check interpolated across a 17 s data gap',
-      OCS_BLIND_NOTE,
-    ]);
+    expect(startNotes(s)).toEqual(['Vakaros reported no start fix (stale race 9 data)', OCS_BLIND_NOTE]);
   });
 });

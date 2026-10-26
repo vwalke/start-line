@@ -6,11 +6,10 @@
  * tables sort independently, and their column keys are unique across both. Once sorted, a sticky Rank
  * column (leftmost) gives each boat's place in that sort.
  */
-import { LOW_COVERAGE } from '../analysis/coverage';
 import { finishRank } from '../analysis/result';
 import { codeShort, codeWords } from './resultText';
 import type { BoatResult, KindSummary, LegKind, LegResult, RaceAnalysis, StartResult } from '../analysis/types';
-import { OCS_BLIND_NOTE, SPAN_MS, startNotes } from '../analysis/validity';
+import { OCS_BLIND_NOTE, shownLateS, startNotes } from '../analysis/validity';
 import { boatColor, pickedExcluded } from './charts';
 import { duration, esc, f0, f1, f2, fM, localTime, ordinal, pct, twaLabel } from './format';
 import { capHtml, infoHtml, warnChip, type Chip, type KeyLine } from './info';
@@ -140,7 +139,7 @@ function startCell(b: BoatResult): string {
   const s = b.start;
   if (!s) return '—';
   if (s.over) return '<span class="rk-over">over</span>';
-  if (s.startPlace == null) return '<span class="na" title="No reliable start figure" aria-label="No reliable start figure">—</span>';
+  if (s.startPlace == null) return '—';
   const src = s.rank!.source === 'vakaros' ? ['V', 'Vakaros device'] : ['ours', 'our track check'];
   return `${s.startPlace} <small class="rk-src" title="${src[1]}">${src[0]}</small>`;
 }
@@ -155,60 +154,26 @@ function rcCell(b: BoatResult): string {
 function oursCell(b: BoatResult): string {
   const s = b.start;
   if (!s) return '—';
-  if (s.dtlNote) return `<span class="gap" title="${esc(s.dtlNote)}" aria-label="${esc(s.dtlNote)}">~${f1(s.dtlM)}</span>`;
   return f1(s.dtlM);
 }
 
-const APPROX = `More than ${SPAN_MS / 1000} s between GPS fixes; that stretch counts as a straight line`;
-const gapSpan = (title: string, body: string): string => `<span class="gap" title="${esc(title)}" aria-label="${esc(title)}">~${body}</span>`;
-
-function legDistCell(l: LegResult): string {
-  if (l.distGapS == null) return fM(l.distM);
-  return gapSpan(`Approximate: a ${Math.round(l.distGapS)} s telemetry gap in this leg. ${APPROX}.`, fM(l.distM));
-}
-
-function raceDistCell(b: BoatResult): string {
-  if (b.distM == null) return '—';
-  if (!b.distApprox) return fM(b.distM);
-  const gaps = b.legs.map((l) => l?.distGapS).filter((g): g is number => g != null);
-  return gapSpan(
-    `Approximate: ${gaps.length ? `telemetry gaps in the track (longest ${Math.round(Math.max(...gaps))} s)` : 'a telemetry gap in the track'}. ${APPROX}.`,
-    fM(b.distM),
-  );
-}
-
-/** The progress ratio as "92%", ~ when the distance bridges a telemetry gap; — with none. */
+/** The progress ratio as "92%"; — with none. */
 export function progressCell(l: LegResult | null | undefined): string {
   if (!l || l.progress == null || !Number.isFinite(l.progress)) return '—';
-  return l.distGapS == null ? pct(l.progress) : gapSpan(`Approximate: a ${Math.round(l.distGapS)} s telemetry gap in this leg. ${APPROX}.`, pct(l.progress));
+  return pct(l.progress);
 }
 
-const MANOEUVRE_GAP = 'Approximate: a tack or gybe here bridges a telemetry gap, so its timing (and a quick double turn) may be missed';
-
-/** A tack or gybe count, ~ when one bridges a telemetry gap. */
-const countCell = (n: number | null | undefined, approx: boolean): string => (n == null ? '—' : approx ? gapSpan(MANOEUVRE_GAP, String(n)) : String(n));
-
-/** "97%"; below LOW_COVERAGE flagged ⚠ (class dq-low) with what's missing. */
-export function dqCell(coverage: number | null | undefined, maxGapS: number | null | undefined, what: string): string {
-  if (coverage == null || !Number.isFinite(coverage)) return '—';
-  const gap = maxGapS != null && maxGapS > SPAN_MS / 1000 ? `; longest gap ${Math.round(maxGapS)} s` : '';
-  const title = `Data for ${pct(coverage)} of the ${what}${gap}`;
-  if (coverage >= LOW_COVERAGE) return `<span title="${esc(title)}">${pct(coverage)}</span>`;
-  return `<span class="dq-low" title="${esc(title)}" aria-label="${esc(`Low data: ${title}`)}">⚠ ${pct(coverage)}</span>`;
-}
+/** A tack or gybe count. */
+const countCell = (n: number | null | undefined): string => (n == null ? '—' : String(n));
 
 const HEEL_TITLE = 'average leeward heel, time-weighted; excludes maneuvers (± 5 s of each tack or gybe). Negative = heeled to windward';
 
-/** Mean leeward heel "15.3°"; heel readings for under LOW_COVERAGE of the time flagged ⚠ (class dq-low), as Data %. */
-export function heelCell(heelDeg: number | null | undefined, cover: number | null | undefined, what: string): string {
+/** Mean leeward heel "15.3°". */
+export function heelCell(heelDeg: number | null | undefined): string {
   if (heelDeg == null || !Number.isFinite(heelDeg)) return '—';
-  const body = `${f1(heelDeg)}°`;
-  if (cover == null || cover >= LOW_COVERAGE) return `<span class="heel">${body}</span>`;
-  const title = `Heel data for ${pct(cover)} of the ${what}`;
-  return `<span class="heel dq-low" title="${esc(title)}" aria-label="${esc(`Low data: ${title}`)}">⚠ ${body}</span>`;
+  return `<span class="heel">${f1(heelDeg)}°</span>`;
 }
 
-const LOW_PCT = Math.round(LOW_COVERAGE * 100);
 const SORT_NOTE = 'Tap a heading to sort (↑/↓), again to reverse. ▲ best, ▼ worst.';
 const RANK_NOTE = 'Rank: place in the current sort; =3 tied at the shown figure; — none.';
 
@@ -218,7 +183,7 @@ export const heelNote = (a: RaceAnalysis, which: TableId): string =>
     ? 'Heel: not in this feed, so the heel columns are hidden.'
     : which === 'start'
       ? 'Heel: leeward heel (+) at the gun, from the fix within 2 s.'
-      : `Heel: leeward heel (+), time-weighted, turns left out. ⚠ under ${LOW_PCT}% data.`;
+      : 'Heel: leeward heel (+), time-weighted, turns left out.';
 
 const tag = (b: BoatResult): string => `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}`;
 
@@ -233,21 +198,19 @@ export function headingChip(a: RaceAnalysis): Chip | null {
   );
 }
 
-/** The start table's key line: ⚠ disagreements and unchecked OCS, ~ and — when present; column definitions and each boat's caveats in the ⓘ. */
+/** The start table's key line: ⚠ disagreements and unchecked OCS, — when present; column definitions and each boat's caveats in the ⓘ. */
 export function startTableKey(a: RaceAnalysis): KeyLine & { notes: string[] } {
   const starts = a.boats.flatMap((b) => (b.start ? [b.start] : []));
   const count = (f: (s: StartResult) => unknown): number => starts.filter(f).length;
   const chips: Chip[] = [];
   const warn = count((s) => s.warn);
   const blind = count((s) => s.ocsBlind);
-  const gap = count((s) => s.dtlNote);
   const noFix = count((s) => s.rcDtlM == null && s.rcNote);
   // The race-wide warning (with Race Analysis, on the Race tab) belongs by the DTL columns too.
   const fleetOff = a.notes.find((n) => n.kind === 'dtl-off');
   if (fleetOff) chips.push(warnChip('Vakaros DTL off vs GPS', fleetOff.text));
   if (warn) chips.push(warnChip(`${warn} Vakaros ≠ ours`, 'Vakaros and our check disagree by more than 3 m'));
   if (blind) chips.push(warnChip(`${blind} OCS unchecked`, OCS_BLIND_NOTE));
-  if (gap) chips.push({ text: `~ ${gap} across a gap`, title: 'Our check is interpolated across a telemetry gap' });
   if (noFix) chips.push({ text: `— ${noFix} no Vakaros fix` });
   const hdg = headingChip(a);
   if (hdg) chips.push(hdg);
@@ -263,7 +226,7 @@ export function startTableKey(a: RaceAnalysis): KeyLine & { notes: string[] } {
     bullets: [
       'Start: place among clean starters (V = Vakaros, ours = our check).',
       'DTL (Vakaros): the device figure, bow-corrected; the primary number.',
-      'Check: our GPS estimate; ~ = across a gap; ⚠ = disagrees.',
+      'Check: our GPS estimate; ⚠ = disagrees.',
       'Late: our DTL ÷ speed to the line. Line pos: 0% pin, 100% RC.',
       heelNote(a, 'start'),
       SORT_NOTE,
@@ -273,32 +236,23 @@ export function startTableKey(a: RaceAnalysis): KeyLine & { notes: string[] } {
   };
 }
 
-/** The legs table's key line: TWA/VMG are estimates (⚠ when the wind is low confidence), ⚠ low data, ~ and partial when present. */
+/** The legs table's key line: TWA/VMG are estimates (⚠ when the wind is low confidence), and partial when present. */
 export function legsTableKey(a?: RaceAnalysis): KeyLine {
   const chips: Chip[] = [];
   if (a) {
     const wind = windChip(a);
     chips.push(wind.warn ? { ...wind, text: `TWA/VMG: ${wind.text}` } : { text: 'TWA/VMG est.', title: wind.title });
     const sums = a.boats.flatMap((b) => [b.upwind, b.downwind]).filter((s): s is KindSummary => s != null);
-    const legs = a.boats.flatMap((b) => b.legs).filter((l): l is LegResult => l != null);
-    const low = (c: number | null | undefined): boolean => c != null && Number.isFinite(c) && c < LOW_COVERAGE;
-    const lowData =
-      legs.some((l) => low(l.coverage) || (a.hasHeel && l.heelDeg != null && low(l.heelCoverage))) ||
-      sums.some((s) => low(s.coverage) || (a.hasHeel && s.heelDeg != null && low(s.heelCoverage))) ||
-      a.boats.some((b) => low(b.coverage));
-    if (lowData) chips.push(warnChip('low data', `Data for under ${LOW_PCT}% of a leg (cells marked ⚠)`));
     const hdg = headingChip(a);
     if (hdg) chips.push(hdg);
-    if (legs.some((l) => l.distGapS != null || l.timeGapS != null || l.manoeuvreGap) || a.boats.some((b) => b.distApprox)) chips.push({ text: '~ across a gap' });
-    if (sums.some((s) => !s.complete)) chips.push({ text: 'partial = a leg missing' });
+    if (sums.some((s) => !s.complete)) chips.push({ text: 'partial = not every leg timed' });
   }
   return {
     chips,
     bullets: [
       "TWA / VMG: estimates vs the wind from the fleet's tacks; TWA = steady median.",
       'Dist: meters sailed; Prog: straight line ÷ Dist. Time: leg, place at mark.',
-      `Data: share with fixes ≤ ${SPAN_MS / 1000} s apart; ⚠ under ${LOW_PCT}%; ~ bridges a gap.`,
-      'Upwind / Downwind: beats or runs summed; partial = a leg missing, no place.',
+      'Upwind / Downwind: beats or runs summed; partial = not every leg timed, no place.',
       'Tacks on beats, gybes on runs (both on reaches); a side held 10 s.',
       ...(a ? [heelNote(a, 'legs')] : []),
       SORT_NOTE,
@@ -380,7 +334,7 @@ function startColumns(a: RaceAnalysis): Col[] {
           key: 'ours',
           head: 'Check<br><small>ours m</small>',
           title:
-            "Our independent estimate from the GPS track (bow offset along heading, sampled at the device's start fix). A check on the Vakaros figure, not the official number. ~ = interpolated across a telemetry gap.",
+            "Our independent estimate from the GPS track (bow offset along heading, sampled at the device's start fix). A check on the Vakaros figure, not the official number.",
           sort: (b) => b.start?.dtlM,
           first: 'asc',
           prec: 1 as const,
@@ -392,7 +346,7 @@ function startColumns(a: RaceAnalysis): Col[] {
         {
           key: 'ours',
           head: 'DTL<br><small>@gun m</small>',
-          title: 'Bow distance behind the line at the gun (bow-corrected). Negative = over. ~ = interpolated across a telemetry gap.',
+          title: 'Bow distance behind the line at the gun (bow-corrected). Negative = over.',
           sort: (b) => b.start?.dtlM,
           first: 'asc',
           prec: 1 as const,
@@ -407,13 +361,13 @@ function startColumns(a: RaceAnalysis): Col[] {
     {
       key: 'late',
       head: 'Late<br><small>s</small>',
-      title: 'Our DTL ÷ speed toward the line at the gun (blank when our DTL is interpolated across a gap)',
+      title: 'Our DTL ÷ speed toward the line at the gun',
       rank: (b) => (b.start?.startPlace != null ? b.start.lateS : null),
       better: 'low',
-      sort: (b) => b.start?.lateS,
+      sort: (b) => (b.start ? shownLateS(b.start) : null),
       first: 'asc',
       prec: 1 as const,
-      cell: (b) => f1(b.start?.lateS),
+      cell: (b) => f1(b.start ? shownLateS(b.start) : null),
     },
     {
       key: 'line',
@@ -518,24 +472,24 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
           {
             key: `${id}.heel`,
             head: 'Heel<br><small>°</small>',
-            title: `${label}: ${HEEL_TITLE}; over every ${kind} leg. ⚠ = heel data for under ${Math.round(LOW_COVERAGE * 100)}% of the time`,
+            title: `${label}: ${HEEL_TITLE}; over every ${kind} leg`,
             group,
             sort: (b: BoatResult) => S(b)?.heelDeg,
             first: 'desc' as const,
             prec: 1 as const,
-            cell: val((s) => heelCell(s.heelDeg, s.heelCoverage, `${kind} legs`)),
+            cell: val((s) => heelCell(s.heelDeg)),
           },
         ]
       : []),
     {
       key: `${id}.dist`,
       head: 'Dist<br><small>m</small>',
-      title: `${label}: distance sailed, meters. ~ = bridges a telemetry gap over ${SPAN_MS / 1000} s`,
+      title: `${label}: distance sailed, meters`,
       group,
       sort: (b) => S(b)?.distM,
       first: 'asc',
       prec: 0 as const,
-      cell: val((s) => (s.distApprox ? gapSpan(`Approximate: a ${kind} leg bridges a telemetry gap. ${APPROX}.`, fM(s.distM)) : fM(s.distM))),
+      cell: val((s) => fM(s.distM)),
     },
     {
       key: `${id}.time`,
@@ -547,45 +501,35 @@ function summaryCols(kind: 'upwind' | 'downwind', hasHeel: boolean): Col[] {
       sort: (b) => S(b)?.timeS,
       first: 'asc',
       prec: 0 as const,
-      cell: val((s) => `${s.timeApprox ? gapSpan('Approximate: a rounding in a telemetry gap', duration(s.timeS)) : duration(s.timeS)} <small class="rk">${s.place != null ? ordinal(s.place) : s.complete ? '' : `partial ${s.legs}/${s.of}`}</small>`),
+      cell: val((s) => `${duration(s.timeS)} <small class="rk">${s.place != null ? ordinal(s.place) : s.complete ? '' : `partial ${s.legs}/${s.of}`}</small>`),
     },
     kind === 'upwind'
       ? {
           key: `${id}.tacks`,
           head: 'Tacks',
-          title: `${label}: tacks on every beat. ~ = one bridges a telemetry gap`,
+          title: `${label}: tacks on every beat`,
           group,
           sort: (b) => S(b)?.tacks,
           first: 'asc',
-          cell: val((s) => countCell(s.tacks, s.manoeuvreApprox)),
+          cell: val((s) => countCell(s.tacks)),
         }
       : {
           key: `${id}.gybes`,
           head: 'Gybes',
-          title: `${label}: gybes on every run. ~ = one bridges a telemetry gap`,
+          title: `${label}: gybes on every run`,
           group,
           sort: (b) => S(b)?.gybes,
           first: 'asc',
-          cell: val((s) => countCell(s.gybes, s.manoeuvreApprox)),
+          cell: val((s) => countCell(s.gybes)),
         },
-    {
-      key: `${id}.dq`,
-      head: 'Data<br><small>%</small>',
-      title: `${label}: share of the time with GPS fixes at most ${SPAN_MS / 1000} s apart. ⚠ below ${Math.round(LOW_COVERAGE * 100)}%`,
-      group,
-      sort: (b) => S(b)?.coverage,
-      first: 'desc',
-      prec: '%',
-      cell: val((s) => dqCell(s.coverage, s.maxGapS, `${kind} legs`)),
-    },
   ];
   return cols;
 }
 
 /** Race totals of tacks / gybes over the boat's legs; null with none. */
-function raceCount(b: BoatResult, f: (l: LegResult) => number): { n: number; approx: boolean } | null {
+function raceCount(b: BoatResult, f: (l: LegResult) => number): number | null {
   const ls = b.legs.filter((l): l is LegResult => l != null);
-  return ls.length ? { n: ls.reduce((s, l) => s + f(l), 0), approx: ls.some((l) => l.manoeuvreGap) } : null;
+  return ls.length ? ls.reduce((s, l) => s + f(l), 0) : null;
 }
 
 /** The legs table: start place, each leg, upwind / downwind, the race. */
@@ -638,24 +582,24 @@ function legColumns(a: RaceAnalysis): Col[] {
       cols.push({
         key: `L${i}.heel`,
         head: 'Heel<br><small>°</small>',
-        title: `${leg.name}: ${HEEL_TITLE}. ⚠ = heel data for under ${Math.round(LOW_COVERAGE * 100)}% of the leg`,
+        title: `${leg.name}: ${HEEL_TITLE}`,
         group,
         sort: (b) => L(b)?.heelDeg,
         first: 'desc',
         prec: 1 as const,
-        cell: (b) => (L(b) ? heelCell(L(b)!.heelDeg, L(b)!.heelCoverage, 'leg') : '—'),
+        cell: (b) => (L(b) ? heelCell(L(b)!.heelDeg) : '—'),
       });
     }
     cols.push(
       {
         key: `L${i}.dist`,
         head: 'Dist<br><small>m</small>',
-        title: `${leg.name}: distance sailed along the GPS track, meters. ~ = bridges a telemetry gap over ${SPAN_MS / 1000} s`,
+        title: `${leg.name}: distance sailed along the GPS track, meters`,
         group,
         sort: (b) => L(b)?.distM,
         first: 'asc',
         prec: 0 as const,
-        cell: (b) => (L(b) ? legDistCell(L(b)!) : '—'),
+        cell: (b) => (L(b) ? fM(L(b)!.distM) : '—'),
       },
       {
         key: `L${i}.prog`,
@@ -680,7 +624,7 @@ function legColumns(a: RaceAnalysis): Col[] {
         cell: (b) => {
           const l = L(b);
           if (!l) return '—';
-          const t = l.timeGapS == null ? duration(l.timeS) : gapSpan(`Approximate: a rounding in a ${Math.round(l.timeGapS)} s telemetry gap`, duration(l.timeS));
+          const t = duration(l.timeS);
           const side = gate?.get(b.id);
           const g = side ? ` <small class="gate" title="Rounded the ${side} buoy of the gate, looking upwind">${gateChip(side)}</small>` : '';
           return `${t}${l.rankAtEnd ? ` <small class="rk">${ordinal(l.rankAtEnd)}</small>` : ''}${g}`;
@@ -691,34 +635,24 @@ function legColumns(a: RaceAnalysis): Col[] {
       cols.push({
         key: `L${i}.tacks`,
         head: 'Tacks',
-        title: `${leg.name}: tacks (through head-to-wind, from the GPS track). ~ = one bridges a telemetry gap`,
+        title: `${leg.name}: tacks (through head-to-wind, from the GPS track)`,
         group,
         sort: (b) => L(b)?.tacks,
         first: 'asc',
-        cell: (b) => countCell(L(b)?.tacks, !!L(b)?.manoeuvreGap),
+        cell: (b) => countCell(L(b)?.tacks),
       });
     }
     if (showsGybes(leg.kind)) {
       cols.push({
         key: `L${i}.gybes`,
         head: 'Gybes',
-        title: `${leg.name}: gybes (through dead downwind, from the GPS track). ~ = one bridges a telemetry gap`,
+        title: `${leg.name}: gybes (through dead downwind, from the GPS track)`,
         group,
         sort: (b) => L(b)?.gybes,
         first: 'asc',
-        cell: (b) => countCell(L(b)?.gybes, !!L(b)?.manoeuvreGap),
+        cell: (b) => countCell(L(b)?.gybes),
       });
     }
-    cols.push({
-      key: `L${i}.dq`,
-      head: 'Data<br><small>%</small>',
-      title: `${leg.name}: share of the leg with GPS fixes at most ${SPAN_MS / 1000} s apart. ⚠ below ${Math.round(LOW_COVERAGE * 100)}%`,
-      group,
-      sort: (b) => L(b)?.coverage,
-      first: 'desc',
-      prec: '%',
-      cell: (b) => (L(b) ? dqCell(L(b)!.coverage, L(b)!.maxGapS, 'leg') : '—'),
-    });
   }
   for (const kind of ['upwind', 'downwind'] as const) if (a.legs.some((l) => l.kind === kind)) cols.push(...summaryCols(kind, a.hasHeel));
   const race = { id: 'race', label: 'Race', title: 'Gun to finish' };
@@ -728,12 +662,12 @@ function legColumns(a: RaceAnalysis): Col[] {
     {
       key: 'dist',
       head: 'Dist<br><small>m</small>',
-      title: `Distance sailed gun → finish along the GPS track, meters (the sum of the legs). ~ = some leg bridges a telemetry gap over ${SPAN_MS / 1000} s`,
+      title: 'Distance sailed gun → finish along the GPS track, meters (the sum of the legs)',
       group: race,
       sort: (b) => b.distM,
       first: 'asc',
       prec: 0 as const,
-      cell: raceDistCell,
+      cell: (b) => fM(b.distM),
     },
     {
       key: 'race',
@@ -762,30 +696,20 @@ function legColumns(a: RaceAnalysis): Col[] {
     {
       key: 'tacks',
       head: 'Tacks',
-      title: 'Tacks over every leg sailed. ~ = one bridges a telemetry gap',
+      title: 'Tacks over every leg sailed',
       group: race,
-      sort: (b) => tacks(b)?.n,
+      sort: (b) => tacks(b),
       first: 'asc',
-      cell: (b) => countCell(tacks(b)?.n, !!tacks(b)?.approx),
+      cell: (b) => countCell(tacks(b)),
     },
     {
       key: 'gybes',
       head: 'Gybes',
-      title: 'Gybes over every leg sailed. ~ = one bridges a telemetry gap',
+      title: 'Gybes over every leg sailed',
       group: race,
-      sort: (b) => gybes(b)?.n,
+      sort: (b) => gybes(b),
       first: 'asc',
-      cell: (b) => countCell(gybes(b)?.n, !!gybes(b)?.approx),
-    },
-    {
-      key: 'dq',
-      head: 'Data<br><small>%</small>',
-      title: `Share of the race (gun → finish) with GPS fixes at most ${SPAN_MS / 1000} s apart. ⚠ below ${Math.round(LOW_COVERAGE * 100)}%`,
-      group: race,
-      sort: (b) => b.coverage,
-      first: 'desc',
-      prec: '%',
-      cell: (b) => dqCell(b.coverage, b.maxGapS, 'race'),
+      cell: (b) => countCell(gybes(b)),
     },
   );
   return cols;

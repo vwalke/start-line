@@ -122,10 +122,9 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
     out.push({
       kind: 'start',
       boatIds: [b.id],
-      text:
-        gapAtGun(s)
-          ? `${tag(b)}: ${rc} and our track has a ${r0(s.dtlGapS!)} s gap at the gun; it may have been over (${pos} by interpolation), but neither figure is reliable.`
-          : `${tag(b)}: ${rc}, and our track puts the bow ${pos} the line at the start; it may have been over without race control's OCS check seeing it (GPS and bow offset are approximate).`,
+      text: gapAtGun(s)
+        ? `${tag(b)}: ${rc}; it may have been over (our track: ${pos}), but neither figure is reliable.`
+        : `${tag(b)}: ${rc}, and our track puts the bow ${pos} the line at the start; it may have been over without race control's OCS check seeing it (GPS and bow offset are approximate).`,
     });
   }
 

@@ -200,7 +200,7 @@ describe('D9 mark rounding', () => {
     const t = cardText(card);
     expect(t.sentence).toMatch(/^Windward mark, 1st rounding: \d+ s slower than your other windward roundings through the zone/);
     expect(t.chips).toContain('vs your own roundings: no leader data');
-    expect(cardWarnings(card, ctx.a)).toEqual(['no leader data']);
+    expect(cardWarnings(card)).toEqual(['no leader data']);
   });
 
   it('no leader data and no other rounding: two other boats with data, capped at low', () => {
@@ -434,11 +434,11 @@ describe('Went well in the race view', () => {
       dirtyAir: { opp: null, chip: null, evaluated: false, share: null, fleetShare: null },
       quality: { D8: false, D9: [] },
     };
-    const html = coachCardsHtml({ meta: { gunMs: 0, tzOffsetMs: 0 } } as unknown as RaceAnalysis, d, null, 1);
+    const html = coachCardsHtml({ meta: { gunMs: 0, tzOffsetMs: 0 } } as unknown as RaceAnalysis, d, null);
     expect(html).toContain('<h4>Went well</h4>');
     expect(html).toContain('<li><span class="went-s">+34 s</span> Beat 2: gained 34 s on the top 3</li>');
     expect(html).toContain('<li><span class="went-s">+6 s</span> Start: crossed the line 6 s ahead of the top 3</li>');
-    expect(coachCardsHtml({ meta: { gunMs: 0, tzOffsetMs: 0 } } as unknown as RaceAnalysis, { ...d, plus: [] }, null, 1)).not.toContain('Went well');
+    expect(coachCardsHtml({ meta: { gunMs: 0, tzOffsetMs: 0 } } as unknown as RaceAnalysis, { ...d, plus: [] }, null)).not.toContain('Went well');
   });
 });
 
@@ -559,9 +559,9 @@ describe('D9 fallback: places through the rounding on sparse data', () => {
     const [card] = rankOpportunities([o]);
     const t = cardText(card);
     expect(t.title).toBe('Lost places at the windward mark');
-    expect(t.sentence).toBe(`Windward mark: lost ${pl.lost} places through the rounding, 10th → ${pl.after}th of 100 (sparse data, timing approximate).`);
-    expect(t.chips).toEqual([`10th → ${pl.after}th of 100`, `passed by ${pl.lost}`, 'sparse data']);
-    expect(cardWarnings(card, ctx.a)).toEqual(['sparse data']);
+    expect(t.sentence).toBe(`Windward mark: lost ${pl.lost} places through the rounding, 10th → ${pl.after}th of 100 (read from the places through it).`);
+    expect(t.chips).toEqual([`10th → ${pl.after}th of 100`, `passed by ${pl.lost}`, 'read from places']);
+    expect(cardWarnings(card)).toEqual(['read from places']);
   });
 
   it('a 2-place loss does not fire (threshold 5 in a fleet of 100; 3 in a fleet of 20); 3+ does in the fleet of 20', () => {
@@ -590,7 +590,7 @@ describe('D9 fallback: places through the rounding on sparse data', () => {
     const card = { ...o, score: 0, confidence: 'low' as const, limit: 'refs' as const };
     const t = cardText(card);
     expect(t.sentence).toMatch(/Boats coming in from the right \(looking upwind\) gained \d+\.\d places on average through it too: more likely a shift than the rounding\.$/);
-    expect(cardWarnings(card, ctx.a)).toEqual(['low confidence', 'likely a shift']);
+    expect(cardWarnings(card)).toEqual(['low confidence', 'likely a shift']);
   });
 
   it('a fleet tracked too sparsely to place (most places interpolated from the roundings): not judged, not counted', () => {

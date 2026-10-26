@@ -3,23 +3,22 @@
  * cards, one collapsed card per leg. Closed, a card shows the leg, which side
  * paid, the coached boat's places gained or lost in the whole fleet with its
  * place at the leg's end (always out of the same fleet), its seconds against
- * the group's median leg time (Top 3, Near), and a ⚠ coverage chip when the
- * tracker is thin; open, one line of chips per item — movers, side,
+ * the group's median leg time (Top 3, Near); open, one line of chips per item — movers, side,
  * the windward-mark exit (runs), leg times — and ⚠ caveats. The rules sit
  * behind the section's one ⓘ. No restating sentence: chips carry the facts.
  */
 import { GROUP_LABEL } from './coach';
 import type { Group } from '../analysis/coach/groups';
 import { HEEL_DIFF_DEG, HEEL_WINDOW_MS } from '../analysis/coach/detectors/heel';
-import { ROUND_LEAD_MS, ROUND_WINDOW_MS, SIDE_MIN_BOATS, SIDE_MIN_EFFECT, STORY_LOW_COVERAGE, STORY_MIN_GROUP, type HeelChip, type LegStory } from '../analysis/coach/legStory';
+import { ROUND_LEAD_MS, ROUND_WINDOW_MS, SIDE_MIN_BOATS, SIDE_MIN_EFFECT, STORY_MIN_GROUP, type HeelChip, type LegStory } from '../analysis/coach/legStory';
 import type { RaceAnalysis } from '../analysis/types';
-import { duration, esc, ordinal, pct } from './format';
+import { duration, esc, ordinal } from './format';
 import { infoHtml } from './info';
 
 export const LEG_STORY_BULLETS: readonly string[] = [
   'Places: in the whole fleet, out of every boat that started, the same all race.',
-  'A boat missing at a mark is placed from its times either side (~); none drop out.',
-  'Start: a gap at the gun is placed from the nearest fix (~); with none close enough, —.',
+  'Every boat that started is placed at every mark; none drop out.',
+  'Start: places at the gun, by distance to the line.',
   'Vs Top 3 / Near: your leg time against the median of theirs.',
   `Side: each boat's mean position across the wind over the leg, left/right looking upwind.`,
   `Left/Right paid: that third of the boats gained ${SIDE_MIN_EFFECT}+ places more than the other third (${SIDE_MIN_BOATS}+ boats).`,
@@ -61,12 +60,12 @@ export interface LegStoryText {
   sentence: string;
 }
 
-/** The boat's fleet places on the leg and its place at the leg's end, out of the fixed fleet: "gained 3 · 12th of 33" (~ when estimated). */
+/** The boat's fleet places on the leg and its place at the leg's end, out of the fixed fleet: "gained 3 · 12th of 33". */
 export function placeChip(s: Pick<LegStory, 'mine' | 'placeOf' | 'endPlace'>): string | null {
   const me = s.mine;
   // The start place unknown (no position at the gun): no change, only where it ended up.
-  if (!me) return s.endPlace ? `— · ${s.endPlace.est ? '~' : ''}${ordinal(s.endPlace.to)} of ${s.placeOf}` : null;
-  return `${placesWord(me.gain)} · ${me.est ? '~' : ''}${ordinal(me.to)} of ${s.placeOf}`;
+  if (!me) return s.endPlace ? `— · ${ordinal(s.endPlace.to)} of ${s.placeOf}` : null;
+  return `${placesWord(me.gain)} · ${ordinal(me.to)} of ${s.placeOf}`;
 }
 
 /** Against a group: "lost 12 s vs Top 3" / "gained 8 s vs Top 3" / "even with Top 3" (the leg time vs the group's median). */
@@ -172,10 +171,9 @@ export function legStoryText(s: LegStory, a: RaceAnalysis, boat: string, g: Grou
     lines.push([hc]);
   }
 
-  // Caveats: coverage is on the summary (a collapsed row with 15% data must not look empty).
+  // Caveats.
   const warn: StoryChip[] = [];
   if (s.marksEstimated) warn.push({ text: 'marks est.', cls: 'warn' });
-  if (me?.est) warn.push({ text: '~ place estimated: a rounding not tracked', cls: 'muted' });
   if (warn.length) lines.push(warn);
 
   const places = placeChip(s);
@@ -184,11 +182,9 @@ export function legStoryText(s: LegStory, a: RaceAnalysis, boat: string, g: Grou
   if (secs) summary.push({ text: secs, cls: 'me' });
   if (gate?.side) summary.push({ text: gateChip(gate.side), cls: 'me' });
   if (s.heel?.fired) summary.push({ text: heelStoryChip(s.heel), cls: 'me' });
-  if (s.coverage != null && s.coverage < STORY_LOW_COVERAGE) summary.push({ text: `tracker ${pct(s.coverage)}`, cls: 'warn' });
-  else if (s.coverage == null) summary.push({ text: 'no data', cls: 'warn' });
 
   const hasBody = lines.some((l) => l.length) || summary.length > 0;
-  return { summary, lines, sentence: hasBody ? '' : 'Too little data on this leg.' };
+  return { summary, lines, sentence: hasBody ? '' : 'Nothing to show for this leg.' };
 }
 
 const li = (c: { text: string; cls?: string }): string =>

@@ -93,8 +93,8 @@ describe('Coach gap chart: the group line on Fall Brawl J/70 race 3', () => {
     expect(ladderStatLabel([], 3)).toBe('mean');
   });
 
-  it('the readout says which statistic a point uses', () => {
-    expect(boatsCount({ n: 3, est: 0 })).toBe('mean of 3 boats');
-    expect(boatsCount({ n: 8, est: 2 })).toBe('median of 8 boats, 2 estimated');
+  it('the readout says which statistic a point uses, and over how many boats (none called estimated)', () => {
+    expect(boatsCount({ n: 3 })).toBe('mean of 3 boats');
+    expect(boatsCount({ n: 8 })).toBe('median of 8 boats');
   });
 });

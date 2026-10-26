@@ -17,7 +17,6 @@ import {
 } from '../src/ui/boatShape';
 import { boatsAt, scrubFrame, startClass, trackMapView } from '../src/ui/charts';
 import { legRanges } from '../src/ui/mapPieces';
-import { drawingGapMs } from '../src/ui/mapPoints';
 import { ocsStretch, ocsSvg } from '../src/ui/ocsStyle';
 import { laneScrub } from '../src/ui/laneSnapshots';
 import { laneScrubHtml, lanePxPerUnit } from '../src/ui/laneSnapshotsView';
@@ -172,7 +171,7 @@ describe('over early: one styling for the track map replay and Around the gun (I
     const f = scrubFrame(a, r.boat, null, { replay: r }, { t, win });
     const { view } = trackMapView(a, null);
     const unit = Math.max(view.x1 - view.x0, view.y1 - view.y0) / 600;
-    const want = ocsSvg(ocsStretch(r, legRanges(d, true), drawingGapMs(d), a.wind.twdAtGunDeg, t, win), { unit });
+    const want = ocsSvg(ocsStretch(r, legRanges(d, true), a.wind.twdAtGunDeg, t, win), { unit });
     expect(want.tracks).toContain('class="ocs-over"');
     expect(want.tracks).toContain('class="ocs-dip"');
     expect(f.ocs).toBe(want.tracks);
@@ -184,7 +183,7 @@ describe('over early: one styling for the track map replay and Around the gun (I
     const s = 40;
     const t = gun + s * 1000;
     const lane = L.frame(s).boats.find((b) => b.id === r.boat)!;
-    const stretch = ocsStretch(r, legRanges(d, true), drawingGapMs(d), a.wind.twdAtGunDeg, t, [L.frame(s).from, t]);
+    const stretch = ocsStretch(r, legRanges(d, true), a.wind.twdAtGunDeg, t, [L.frame(s).from, t]);
     expect(lane.ocs).toEqual(stretch);
     const html = laneScrubHtml(a, L, undefined, s);
     const ppu = lanePxPerUnit(L.view);

@@ -28,7 +28,6 @@ import {
   type MapFocus,
 } from '../src/ui/mapLink';
 import { boatAt, legRanges, rotator, timeRange } from '../src/ui/mapPieces';
-import { drawingGapMs } from '../src/ui/mapPoints';
 import { REPLAY_PARAM, parseReplayParam } from '../src/ui/replay';
 import { T_PARAM, TRAIL_PARAM, parseTParam, parseTrail, scrubWindow, trailWindow } from '../src/ui/scrub';
 import { viewBox } from '../src/ui/view';
@@ -183,7 +182,7 @@ describe('IC37 R5: a D6 upwind card on the map', () => {
     const at = f.spans.at(-1)![1];
     const pos = (bid: string): [number, number] | null => {
       const d = a.drawings.find((x) => x.id === bid)!;
-      const b = boatAt(bid, legRanges(d, true), at, drawingGapMs(d), a.wind.twdAtGunDeg);
+      const b = boatAt(bid, legRanges(d, true), at, a.wind.twdAtGunDeg);
       return b ? [b.mx, b.my] : null;
     };
     const me = pos(id)!;
@@ -319,7 +318,7 @@ describe('IC37 R5: the cards get one "Show on map" each, and are otherwise uncha
     it(`${b.sail}`, () => {
       const d = coachDebrief(a, m, b.id);
       if (!d) return;
-      const html = coachCardsHtml(a, d, null, b.coverage ?? null);
+      const html = coachCardsHtml(a, d, null);
       const actions = cardMapActions(a, b.id, d.cards, replays, SEARCH);
       const out = withMapActions(html, actions);
       // Exactly one per card (every card has a window), inside it, at its end.
@@ -341,7 +340,7 @@ describe('IC37 R5: the cards get one "Show on map" each, and are otherwise uncha
     cards[0] = { ...cards[0], t0: NaN, t1: NaN };
     const actions = cardMapActions(a, idOf('USA 027'), cards, replays, SEARCH);
     expect(actions[0]).toBe('');
-    const html = coachCardsHtml(a, d, 0, null);
+    const html = coachCardsHtml(a, d, 0);
     expect(html).toContain('class="card coach-opp on"');
     const out = withMapActions(html, cardMapActions(a, idOf('USA 027'), d.cards, replays, SEARCH));
     expect(out.match(/class="opp-map-link"/g)).toHaveLength(d.cards.length);

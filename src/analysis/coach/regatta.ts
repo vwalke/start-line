@@ -247,7 +247,7 @@ export interface Theme {
   label: string;
   /** "slow at the gun" in "slow at the gun in 4 of 9 races". */
   phrase: string;
-  /** A pattern card's lead: "Leeward roundings cost you time" (in 3 of 4 races with good data). */
+  /** A pattern card's lead: "Leeward roundings cost you time" (in 3 of 4 races judged). */
   pattern: string;
 }
 
@@ -423,7 +423,7 @@ export interface WorkOn {
   tip: string;
   /** What ranks it: weighted seconds over the regatta. */
   score: number;
-  /** A finding in RECUR_RACES or more races: shown as a pattern card ("… in 3 of 4 races with good data"). */
+  /** A finding in RECUR_RACES or more races: shown as a pattern card ("… in 3 of 4 races judged"). */
   pattern: boolean;
   /** Per-race chips: "R1 32 s". */
   chips: string[];
@@ -634,11 +634,10 @@ export function summarizeRegatta(races: readonly RegattaRace[]): RegattaSummary 
     .map((f) => {
       const pattern = f.races >= RECUR_RACES;
       const total = f.totalS >= 1 ? `, ~${Math.round(f.totalS)} s total` : '';
-      const low = f.lowRaces ? ` (${f.lowRaces} with low tracker data)` : '';
       return {
         theme: f.theme,
         title: f.label,
-        why: pattern ? `${themeOf(f.theme).pattern} in ${f.races} of ${f.of} races with good data${total}${low}` : `${cap(f.phrase)} in ${f.races} of ${f.of} races${total}${low}`,
+        why: pattern ? `${themeOf(f.theme).pattern} in ${f.races} of ${f.of} races judged${total}` : `${cap(f.phrase)} in ${f.races} of ${f.of} races${total}`,
         tip: f.tip,
         score: f.weightedS,
         pattern,

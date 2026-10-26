@@ -2,7 +2,7 @@
  * How a boat over early is drawn, one way for the track map's "Replay start" (Map C) and the Start tab's
  * "Start Playback" view: its track over the line (warning red, on a surface casing) and its dip back (red
  * dashed), each up to the moment shown and within the trail, cut at the facts' times (ui/replay.ts replaySpans,
- * from analysis/startReplay.ts), broken at gaps as the track is; a hollow red ring where it went back and a red
+ * from analysis/startReplay.ts); a hollow red ring where it went back and a red
  * dot where it recrossed (cleared), once reached. Pure: the stretches, and their SVG at either view's sizes.
  */
 import type { Vec } from '../analysis/geo';
@@ -12,7 +12,7 @@ import { replaySpans } from './replay';
 
 /** What of an over-early start is drawn at one moment, map coordinates. */
 export interface OcsStretch {
-  /** Over the line: polylines, broken at gaps. */
+  /** Over the line: polylines. */
   over: Vec[][];
   /** Going back (the dip, back → recrossed): polylines. */
   dip: Vec[][];
@@ -21,29 +21,14 @@ export interface OcsStretch {
   clear: Vec | null;
 }
 
-/** `t`-stamped points as polylines, broken wherever consecutive points are over `gapMs` apart (single points dropped). */
-function runsOf(p: readonly { t: number; p: Vec }[], gapMs: number): Vec[][] {
-  const out: Vec[][] = [];
-  let cur: Vec[] = [];
-  for (let i = 0; i < p.length; i++) {
-    if (i > 0 && p[i].t - p[i - 1].t > gapMs) {
-      if (cur.length > 1) out.push(cur);
-      cur = [];
-    }
-    cur.push(p[i].p);
-  }
-  if (cur.length > 1) out.push(cur);
-  return out;
-}
-
 /**
  * Over-early start `r` as drawn at time `now` with the trail `win` ([from, to], ms): boat `r.boat`'s track
- * (`ranges`, its leg ranges in time order, as the view draws them; gaps by `gapMs`) over each span, its ends at
+ * (`ranges`, its leg ranges in time order, as the view draws them) over each span, its ends at
  * the span's times (the scrubber's position there), the fixes between.
  */
-export function ocsStretch(r: StartReplay, ranges: readonly LegRange[], gapMs: number, twd: number, now: number, win: [number, number]): OcsStretch {
+export function ocsStretch(r: StartReplay, ranges: readonly LegRange[], twd: number, now: number, win: [number, number]): OcsStretch {
   const at = (t: number): Vec | null => {
-    const b = boatAt(r.boat, ranges, t, gapMs, twd);
+    const b = boatAt(r.boat, ranges, t, twd);
     return b && !b.hold ? [b.mx, b.my] : null;
   };
   const stretch = (span: [number, number] | null): Vec[][] => {
@@ -62,7 +47,7 @@ export function ocsStretch(r: StartReplay, ranges: readonly LegRange[], gapMs: n
       for (let i = i0; i < i1; i++) if (g.src.t[i] > from && g.src.t[i] < to) push([rot.x[i], rot.y[i]], g.src.t[i]);
     }
     push(at(to), to);
-    return runsOf(pts, gapMs);
+    return pts.length > 1 ? [pts.map((q) => q.p)] : [];
   };
   const mark = (t: number | null): Vec | null => (t == null || t > now || t < win[0] ? null : at(t));
   const { over, dip } = replaySpans(r);

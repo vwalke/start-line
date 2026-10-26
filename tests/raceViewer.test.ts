@@ -8,11 +8,9 @@ import { laneScrub } from '../src/ui/laneSnapshots';
 import { laneScrubHtml } from '../src/ui/laneSnapshotsView';
 import { mapPaint } from '../src/ui/mapPaint';
 import { MAP_HOLD_S, lastHeadingAt, legRanges, type LegRange } from '../src/ui/mapPieces';
-import { drawingGapMs } from '../src/ui/mapPoints';
 import { DEFAULT_TRAIL, fadingTrailMs, scrubWindow, trailWindow } from '../src/ui/scrub';
 import { BOAT_TRAIL_MS, fadeSlice, TRAIL_FADE, TRAIL_MAX_PTS, trailPaths, type TrailStretch } from '../src/ui/trail';
 import { paintTrails } from '../src/ui/trailLayer';
-import { SHORT_GAP_S } from '../src/ui/gapFill';
 import { clampView, type View } from '../src/ui/view';
 import { j105Race } from './helpers';
 
@@ -31,7 +29,7 @@ function line(n: number, holeAt = n, holeMs = 0): TrailStretch {
 const pts = (d: string): Vec[] => [...d.matchAll(/[ML]([-\d.]+),([-\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
 const moves = (d: string): number => (d.match(/M/g) ?? []).length;
 
-describe('the trail: its length, fade and gap breaks (trail.ts trailPaths)', () => {
+describe('the trail: its length and fade (trail.ts trailPaths)', () => {
   it('BOAT_TRAIL_MS is 2 minutes and the default trail; 30 s is still offered; All and Window draw the tracks', () => {
     expect(BOAT_TRAIL_MS).toBe(120_000);
     expect(fadingTrailMs(DEFAULT_TRAIL)).toBe(BOAT_TRAIL_MS);
@@ -45,7 +43,7 @@ describe('the trail: its length, fade and gap breaks (trail.ts trailPaths)', () 
   it('reaches back exactly the trail length, up to now and the boat', () => {
     // Half a second after the 300 s fix, the boat 1.5 m on.
     const now = 300_500;
-    const d = trailPaths([line(400)], now, BOAT_TRAIL_MS, 2000, [901.5, 0]);
+    const d = trailPaths([line(400)], now, BOAT_TRAIL_MS, [901.5, 0]);
     const all = d.flatMap(pts);
     // From the first fix inside the 2 min (181 s), nothing before it.
     expect(Math.min(...all.map((p) => p[0]))).toBe(181 * 3);
@@ -59,7 +57,7 @@ describe('the trail: its length, fade and gap breaks (trail.ts trailPaths)', () 
     for (let i = 1; i < TRAIL_FADE.length; i++) expect(TRAIL_FADE[i]).toBeLessThan(TRAIL_FADE[i - 1]);
     expect([0, 29_999, 30_001, 60_001, 119_999, 200_000, -5].map((age) => fadeSlice(age, BOAT_TRAIL_MS))).toEqual([0, 0, 1, 2, 3, 3, 0]);
     const now = 300_000;
-    const d = trailPaths([line(400)], now, BOAT_TRAIL_MS, 2000);
+    const d = trailPaths([line(400)], now, BOAT_TRAIL_MS);
     expect(d).toHaveLength(TRAIL_FADE.length);
     // Each slice one unbroken run over its 30 s (31 fixes at 1 Hz, sharing its ends with the next slice).
     for (const s of d) expect(moves(s)).toBe(1);
@@ -70,52 +68,45 @@ describe('the trail: its length, fade and gap breaks (trail.ts trailPaths)', () 
     for (let i = 0; i < 3; i++) expect(xs[i][0]).toBe(xs[i + 1].at(-1));
   });
 
-  it('breaks at a gap (a step over the gap threshold), never bridging it; a short step is no gap', () => {
-    // Fixes 0 … 249 s, then the rest 10 s later: a 11 s step at 250 s.
+  it('runs on across a step of any length (the maps fill holes in first): one stroke per slice', () => {
+    // Fixes 0 … 249 s, then the rest 10 s later: an 11 s step at 250 s, drawn straight on (x 747 → 780).
     const now = 300_000;
-    const d = trailPaths([line(300, 250, 10_000)], now, BOAT_TRAIL_MS, 2000);
-    const segs = d.flatMap((s) => s.split('M').filter(Boolean).map((r) => pts(`M${r}`)));
-    for (const run of segs) for (let i = 1; i < run.length; i++) expect(run[i][0] - run[i - 1][0]).toBeLessThanOrEqual(3 * 2 + 1e-9);
-    // The gap's two ends: 249 s and 260 s (x 747 and 780), in different runs.
-    expect(segs.some((r) => r.at(-1)![0] === 747)).toBe(true);
-    expect(segs.some((r) => r[0][0] === 780)).toBe(true);
-    // With a threshold over the step, one run.
-    const joined = trailPaths([line(300, 250, 10_000)], now, BOAT_TRAIL_MS, 20_000);
-    expect(joined.join('').split('M').filter(Boolean).length).toBe(TRAIL_FADE.length);
-    // The head isn't joined across a gap either (the last fix older than the threshold).
-    const held = trailPaths([line(100)], 110_000, BOAT_TRAIL_MS, 2000, [500, 0]);
-    expect(held.join('')).not.toContain('L500.0,0.0');
+    const d = trailPaths([line(300, 250, 10_000)], now, BOAT_TRAIL_MS);
+    expect(d.join('').split('M').filter(Boolean).length).toBe(TRAIL_FADE.length);
+    expect(d.join('')).toContain('747.0,0.0L780.0,0.0');
+    // The head joins on too, however old the last fix.
+    const head = trailPaths([line(100)], 110_000, BOAT_TRAIL_MS, [500, 0]);
+    expect(head.join('')).toContain('L500.0,0.0');
   });
 
   it('takes a fix shared by two stretches once, and stretches in time order', () => {
     const a = line(61);
     // The next stretch starts on the first one's last fix (60 s, x 180).
     const b: TrailStretch = { t: [60_000, 61_000, 62_000], x: [180, 183, 186], y: [0, 0, 0], i0: 0, i1: 3 };
-    const d = trailPaths([a, b], 62_000, BOAT_TRAIL_MS, 2000);
+    const d = trailPaths([a, b], 62_000, BOAT_TRAIL_MS);
     const all = d.flatMap(pts).map((p) => p[0]);
     expect(all.filter((x) => x === 180)).toHaveLength(1);
     expect(pts(d[0]).at(-1)![0]).toBe(186);
   });
 
-  it('a 10 Hz log is thinned to about TRAIL_MAX_PTS points; its ends and gaps kept', () => {
+  it('a 10 Hz log is thinned to about TRAIL_MAX_PTS points; its ends kept', () => {
     const n = 1500;
     const t = Array.from({ length: n }, (_, i) => i * 100 + (i >= 800 ? 5000 : 0));
     const s: TrailStretch = { t, x: t.map((ms) => ms / 100), y: t.map(() => 0), i0: 0, i1: n };
     const now = t[n - 1];
-    const d = trailPaths([s], now, BOAT_TRAIL_MS, 500);
+    const d = trailPaths([s], now, BOAT_TRAIL_MS);
     const all = d.flatMap(pts);
     expect(all.length).toBeLessThanOrEqual(TRAIL_MAX_PTS + 2 * TRAIL_FADE.length + 4);
     expect(all.length).toBeGreaterThan(TRAIL_MAX_PTS / 2);
     const xs = all.map((p) => p[0]);
-    // The fixes either side of the 5 s gap (at 799 and 800) are both drawn, and never joined.
-    expect(xs).toContain(799);
-    expect(xs).toContain(850);
+    // From the trail's first fix to the last, the 5 s step at 800 drawn straight on.
+    expect(Math.min(...xs)).toBe((now - BOAT_TRAIL_MS) / 100);
     expect(pts(d[0]).at(-1)![0]).toBe(now / 100);
   });
 
   it('zoomed in, only steps near the view', () => {
     const clip = { x0: 600, y0: -10, x1: 700, y1: 10 };
-    const d = trailPaths([line(400)], 300_000, BOAT_TRAIL_MS, 2000, null, clip);
+    const d = trailPaths([line(400)], 300_000, BOAT_TRAIL_MS, null, clip);
     const xs = d.flatMap(pts).map((p) => p[0]);
     expect(Math.min(...xs)).toBeGreaterThanOrEqual(597);
     expect(Math.max(...xs)).toBeLessThanOrEqual(703);
@@ -125,10 +116,10 @@ describe('the trail: its length, fade and gap breaks (trail.ts trailPaths)', () 
     // Two fixes 60 s apart, 300 m either side of a 20 m view (a slow feed: no gap at a 120 s threshold).
     const s: TrailStretch = { t: [0, 60_000], x: [-300, 300], y: [-5, 5], i0: 0, i1: 2 };
     const clip = { x0: -10, y0: -10, x1: 10, y1: 10 };
-    expect(trailPaths([s], 60_000, BOAT_TRAIL_MS, 120_000, null, clip).join('')).toBe('M-300.0,-5.0L300.0,5.0');
+    expect(trailPaths([s], 60_000, BOAT_TRAIL_MS, null, clip).join('')).toBe('M-300.0,-5.0L300.0,5.0');
     // Wholly beside the view (its box clear of it): left out.
     const beside: TrailStretch = { ...s, y: [50, 60] };
-    expect(trailPaths([beside], 60_000, BOAT_TRAIL_MS, 120_000, null, clip).join('')).toBe('');
+    expect(trailPaths([beside], 60_000, BOAT_TRAIL_MS, null, clip).join('')).toBe('');
   });
 });
 
@@ -140,19 +131,14 @@ describe('the boat: filled while its data is fresh, hollow once lost, the last h
     expect(boatMark(base)).toEqual({ shape: [0, -1], dims: J70, hollow: false });
   });
 
-  it('hollow only in a hole over SHORT_GAP_S (or BOAT_STALE_MS past a final fix); a hole up to that stays filled', () => {
-    expect(BOAT_STALE_MS).toBe(SHORT_GAP_S * 1000);
-    // In a hole of 30 s or less: filled, however far in.
-    expect(boatStale(true, 10_000, 10_000 + 1000, 30_000)).toBe(false);
-    expect(boatStale(true, 10_000, 10_000 + 29_000, 30_000)).toBe(false);
-    // In one of 30.5 s or 31 s: hollow from its start.
-    expect(boatStale(true, 10_000, 10_000 + 1000, 30_500)).toBe(true);
-    expect(boatStale(true, 10_000, 10_000 + 1000, 31_000)).toBe(true);
-    // Past a final fix (the hole's length unknown: 0): hollow after BOAT_STALE_MS.
-    expect(boatStale(true, 10_000, 10_000 + BOAT_STALE_MS, 0)).toBe(false);
-    expect(boatStale(true, 10_000, 10_000 + BOAT_STALE_MS + 1, 0)).toBe(true);
+  it('hollow only past a final fix, once it is BOAT_STALE_MS old (in a hole the boat glides: never held)', () => {
+    expect(BOAT_STALE_MS).toBe(30_000);
+    expect(boatStale(true, 10_000, 10_000 + 1000)).toBe(false);
+    expect(boatStale(true, 10_000, 10_000 + 29_000)).toBe(false);
+    expect(boatStale(true, 10_000, 10_000 + BOAT_STALE_MS)).toBe(false);
+    expect(boatStale(true, 10_000, 10_000 + BOAT_STALE_MS + 1)).toBe(true);
     // Not held: never stale.
-    expect(boatStale(false, 10_000, 60_000, 60_000)).toBe(false);
+    expect(boatStale(false, 10_000, 60_000)).toBe(false);
     // Held, not stale yet: the hull along its last heading, filled; stale: the same hull, hollow.
     expect(boatMark({ ...base, hold: true })).toEqual({ shape: [1, 0], dims: J70, hollow: false });
     expect(boatMark({ ...base, hold: true, stale: true })).toEqual({ shape: [1, 0], dims: J70, hollow: true });
@@ -182,9 +168,9 @@ describe('the boat: filled while its data is fresh, hollow once lost, the last h
     const x = Float32Array.from([...Array.from({ length: 21 }, (_, i) => Math.min(i, 10) * 3), 30]);
     const src = { t, x, y: new Float32Array(t.length), sog: Float32Array.from(t, (_, i) => (i <= 10 ? 6 : 0)) };
     const ranges: LegRange[] = [{ leg: 0, src, lo: 0, hi: t.length }];
-    expect(lastHeadingAt(ranges, -1, 2000, 0)).toBeNull();
-    expect(lastHeadingAt(ranges, 0, 2000, 0)).toBeNull();
-    for (const ms of [5000, 15_000, 20_000, 35_000, 49_999]) expect(lastHeadingAt(ranges, ms, 2000, 0)).toEqual([1, 0]);
+    expect(lastHeadingAt(ranges, -1, 0)).toBeNull();
+    expect(lastHeadingAt(ranges, 0, 0)).toBeNull();
+    for (const ms of [5000, 15_000, 20_000, 35_000, 49_999]) expect(lastHeadingAt(ranges, ms, 0)).toEqual([1, 0]);
   });
 });
 
@@ -243,18 +229,9 @@ describe('the Race Viewer while scrubbing: each boat its own fading trail', () =
     expect(found).toBe(true);
   });
 
-  it('broken at each boat’s gaps as the map breaks its tracks', () => {
+  it('runs on across each boat’s holes as the map bridges its tracks: one stroke per fade slice', () => {
     const f = frame(null);
-    for (const tr of f.trails) {
-      const d = a.drawings.find((x) => x.id === tr.id)!;
-      const gapM = (drawingGapMs(d) / 1000) * 12; // no boat makes 12 m/s
-      for (const s of tr.d) {
-        for (const run of s.split('M').filter(Boolean)) {
-          const p = pts(`M${run}`);
-          for (let i = 1; i < p.length; i++) expect(Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1])).toBeLessThan(gapM);
-        }
-      }
-    }
+    for (const tr of f.trails) for (const d of tr.d) expect((d.match(/M/g) ?? []).length).toBeLessThanOrEqual(1);
   });
 });
 
@@ -442,7 +419,7 @@ describe('Around the gun: the same trail and the same filled / hollow boat', () 
     return { leg, t: Float64Array.from(s, sec), x: Float32Array.from(s, () => x), y: Float32Array.from(s, (v) => -100 + 2 * v), sog: Float32Array.from(s, () => 4) };
   };
   const drawing = (id: string, x: number, holes: [number, number][] = []) => ({ id, pre: seg(x, -1, (s) => s <= 0, holes), segments: [seg(x, 0, (s) => s >= 0, holes)] });
-  // OCS's tracker has a 40 s hole, +50 … +90 (over SHORT_GAP_S: left blank, the boat held there hollow).
+  // OCS's tracker stops at +50 (no finish: held at its last fix, hollow from +80); H's has a 40 s hole, +50 … +90 (bridged).
   const a = {
     meta: { gunMs: GUN, tzOffsetMs: 0, boatClass: 'J/70' },
     line: { left: [-100, 0], right: [100, 0], lengthM: 200 },
@@ -450,41 +427,42 @@ describe('Around the gun: the same trail and the same filled / hollow boat', () 
     legs: [{ index: 0, name: 'Beat 1', kind: 'upwind', to: 'Mark 1' }],
     marks: [{ name: 'Mark 1', xy: [[0, 1000]] }],
     wind: { method: 'tacks', estimates: [], twdAtGunDeg: 0, model: null },
-    boats: ['A', 'OCS'].map((id, i) => ({ id, sail: id, colorSlot: i, finishPos: i + 1, legs: [] })),
-    drawings: [drawing('A', 0), drawing('OCS', 30, [[50, 90]])],
+    boats: ['A', 'OCS', 'H'].map((id, i) => ({ id, sail: id, colorSlot: i, finishPos: i + 1, legs: [] })),
+    drawings: [drawing('A', 0), drawing('OCS', 30, [[50, 999]]), drawing('H', 60, [[50, 90]])],
   } as unknown as Parameters<typeof laneScrub>[0];
   const rep = { boat: 'OCS', gunMs: GUN, flagged: true, early: true, firstCrossMs: sec(-2), over: [sec(-2), sec(10)], wentBackMs: sec(10), clearedMs: null, maxOverM: 5, maxOverAtMs: GUN, lostS: null } as never;
   const L = laneScrub(a, { me: 'A', replays: [rep] });
 
-  it('its trail: the last 2 min, fading in the same four slices, broken at gaps', () => {
+  it('its trail: the last 2 min, fading in the same four slices, straight on across a hole', () => {
     const b = L.frame(180).boats.find((x) => x.id === 'A')!;
     expect(b.fade).toHaveLength(TRAIL_FADE.length);
     const ys = b.fade.flatMap(pts).map((p) => -p[1]);
     expect(Math.min(...ys)).toBeCloseTo(-100 + 2 * 60, 6);
     const html = laneScrubHtml(a, L, undefined, 180);
     for (const op of TRAIL_FADE) expect(html).toContain(`stroke-opacity="${op}"`);
-    // The boat past the gap +50 … +90: its trail broken there.
-    const ocs = L.frame(100).boats.find((x) => x.id === 'OCS')!;
-    expect(ocs.trail.length).toBe(2);
+    // The boat past its hole +50 … +90: one trail across it, and in the hole it glides.
+    const h = L.frame(100).boats.find((x) => x.id === 'H')!;
+    expect(h.trail.length).toBe(1);
+    expect(L.frame(70).boats.find((x) => x.id === 'H')).toMatchObject({ hold: false, stale: false });
   });
 
   it('an over-early boat keeps its over-early styling and its color when hollow', () => {
     const at = (s: number): string => laneScrubHtml(a, L, undefined, s).match(/<g class="lane-boat[^"]*" data-id="OCS">[\s\S]*?<\/g>/)![0];
     const filled = at(40);
-    const hollow = at(60);
-    expect(L.frame(60).boats.find((x) => x.id === 'OCS')).toMatchObject({ over: 'over', hold: true, stale: true });
+    const hollow = at(90);
+    expect(L.frame(90).boats.find((x) => x.id === 'OCS')).toMatchObject({ over: 'over', hold: true, stale: true });
     expect(filled).toContain('over early (OCS)');
     expect(hollow).toContain('over early (OCS)');
     expect(hollow).toMatch(/class="lane-dot lane-hull lost"[^>]*fill="var\(--surface\)" stroke="var\(--ink-3\)"/);
     expect(filled).toMatch(/class="lane-dot lane-hull"[^>]*fill="var\(--ink-3\)"/);
     // The over-the-line track still drawn, as when it was filled.
-    expect(laneScrubHtml(a, L, undefined, 60)).toContain('class="ocs-over"');
+    expect(laneScrubHtml(a, L, undefined, 90)).toContain('class="ocs-over"');
   });
 
   it('the race map and Around the gun draw a held boat the same way: the hull at its last fix and last heading', () => {
     const d = a.drawings.find((x) => x.id === 'OCS')!;
     const ranges = legRanges(d, true);
-    const lastDir = lastHeadingAt(ranges, sec(60), drawingGapMs(d), 0)!;
+    const lastDir = lastHeadingAt(ranges, sec(60), 0)!;
     expect(lastDir[0]).toBeCloseTo(0, 9);
     expect(lastDir[1]).toBeCloseTo(-1, 9);
     const b = L.frame(60).boats.find((x) => x.id === 'OCS')!;

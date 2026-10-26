@@ -29,7 +29,6 @@ import { esc } from './format';
 import { textWidth, type Rect } from './labels';
 import { laneScrub, laneSecond, LANE_START_S, type LaneBoat, type LaneFrame, type LaneScrub } from './laneSnapshots';
 import { ocsLegend, ocsSvg } from './ocsStyle';
-import { EST_OPACITY } from './gapFill';
 import { TRAIL_FADE } from './trail';
 import { attachPanZoom } from './panzoom';
 import { FOLLOW_COURSE_S, followAfter, followCam, followStep, followTarget, reducedMotion, resetFollow, type FollowInput } from './follow';
@@ -190,16 +189,13 @@ const plusS = (ms: number, gun: number): string => {
 function boatSvg(L: LaneScrub, b: LaneBoat, colour: string, faded: boolean, label: LabelAt | null, u: number, gun: number): { trail: string; ocs: string; dot: string; flag: string } {
   const cls = `lane-${b.role}${faded ? ' dim' : ''}`;
   const sw = b.role === 'me' ? 2.4 : b.role === 'group' ? 1.6 : 1.1;
-  // The stretches filled into a short gap (ui/gapFill.ts) the same, lighter.
-  const paths = (ds: readonly string[] | undefined, est: boolean): string =>
-    (ds ?? [])
-      .map((d, i) =>
-        d
-          ? `<path class="lane-trail ${cls}${est ? ' lane-est' : ''}" d="${d}" stroke="${faded ? 'var(--ink-3)' : colour}" stroke-opacity="${est ? +(TRAIL_FADE[i] * EST_OPACITY).toFixed(3) : TRAIL_FADE[i]}" stroke-width="${sw}" vector-effect="non-scaling-stroke"/>`
-          : '',
-      )
-      .join('');
-  const trail = paths(b.fade, false) + paths(b.fadeEst, true);
+  const trail = b.fade
+    .map((d, i) =>
+      d
+        ? `<path class="lane-trail ${cls}" d="${d}" stroke="${faded ? 'var(--ink-3)' : colour}" stroke-opacity="${TRAIL_FADE[i]}" stroke-width="${sw}" vector-effect="non-scaling-stroke"/>`
+        : '',
+    )
+    .join('');
   const o = b.ocs ? ocsSvg(b.ocs, { unit: u, nonScaling: true }) : { tracks: '', marks: '' };
   if (!b.pos) return { trail, ocs: o.tracks, dot: '', flag: o.marks };
   const [x, y] = [b.pos[0].toFixed(1), b.pos[1].toFixed(1)];
@@ -215,7 +211,7 @@ function boatSvg(L: LaneScrub, b: LaneBoat, colour: string, faded: boolean, labe
   const mark = hull
     ? `<path class="lane-dot lane-hull${lost}" d="${hullPathAt(b.pos, hull.dir, hull.dims)}" ${fill} stroke-width="${b.stale ? (b.role === 'me' ? 2 : 1.6) : b.role === 'me' ? 1.4 : 1}" vector-effect="non-scaling-stroke"/>`
     : `<circle class="lane-dot${b.hold ? ' hold' : ''}${lost}" cx="${x}" cy="${y}" r="${r.toFixed(2)}" ${fill} stroke-width="${b.stale ? 1.6 : 1}" vector-effect="non-scaling-stroke"/>`;
-  const dot = `<g class="lane-boat ${cls}" data-id="${esc(b.id)}"><title>${esc(b.sail)}${b.hold ? ' (last fix, in a gap)' : ''}${state}</title>${mark}${text}</g>`;
+  const dot = `<g class="lane-boat ${cls}" data-id="${esc(b.id)}"><title>${esc(b.sail)}${b.hold ? ' (last fix)' : ''}${state}</title>${mark}${text}</g>`;
   return { trail, ocs: o.tracks, dot, flag: o.marks };
 }
 

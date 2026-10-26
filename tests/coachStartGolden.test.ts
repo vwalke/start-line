@@ -147,9 +147,9 @@ describe('IC37 R5: start cards', () => {
     // The seconds chip: the D3 half leans on the wind across ~400 m, so the range shows (⚠ wind est.).
     expect(secondsChip(c)).toMatch(/^\d+–\d+ s$/);
     // The page and Ask Coach carry all four chips.
-    const html = coachCardsHtml(a, d, null, d.raceCov);
+    const html = coachCardsHtml(a, d, null);
     for (const x of t.chips) expect(html).toContain(x);
-    expect(askFinding(c, a, d.raceCov).chips).toEqual(t.chips);
+    expect(askFinding(c, a).chips).toEqual(t.chips);
     // No ✓ start for it.
     expect(startTick('USA 027')).toBeUndefined();
     expect(html).not.toContain('✓ Start');

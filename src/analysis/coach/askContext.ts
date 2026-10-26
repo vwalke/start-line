@@ -59,7 +59,7 @@ export interface AskRaceInfo {
   name?: string;
   /** The header chips as shown (place, behind the winner, gun, at stake, ⚠ caveats). */
   header?: string[];
-  /** "Not enough tracker data for a debrief", "Only 2 clear gains with this data". */
+  /** "No debrief for this race", "Only 2 clear gains with this data". */
   notes?: string[];
 }
 
@@ -99,7 +99,7 @@ export interface AskLegType {
 }
 
 export interface AskRegatta {
-  /** "4 of 6 races analysed · ⚠ 1 with low tracker data". */
+  /** "4 of 6 races analysed". */
   status?: string;
   places?: AskRegattaRace[];
   /** The Penalties row: "DPI in 8 of 8 races · 24 penalty points · ≈ 24 places" (never a theme). */
@@ -122,7 +122,7 @@ export interface AskContext {
   penalty?: AskPenalty;
   findings?: AskFinding[];
   notTheProblem?: string[];
-  /** ✓ notes on thin tracker data: "Not enough data to judge banked gains (tracker 37%)" (never "not the problem"). */
+  /** ✓ notes on thin tracker data: "Not judged: banked gains" (never "not the problem"). */
   notJudged?: string[];
   wentWell?: { text: string; seconds?: number }[];
   legs?: AskLeg[];
