@@ -267,7 +267,7 @@ function median(xs: number[]): number {
  * committee boat log 1–2 km against the fleet's 7–15 km.
  */
 export const FINISH_MIN_DIST_FRAC = 0.5;
-/** …and its max speed is at most this multiple of the race's median max (a media RIB logged 23 kt vs ~14). */
+/** …and its max speed is at most this multiple of the race's median max (a media RIB logged 23 kt vs ~14; see FINISH_CROSS_MS). */
 export const FINISH_MAX_SPEED_X = 1.6;
 /** Fewer finishes than this with a figure and the race has no usable median for that test. */
 const FINISH_MEDIAN_MIN = 3;
@@ -288,6 +288,17 @@ export const FINISH_MIN_REACH_FRAC = 0.5;
 /** Fixes further apart than this leave a hole (as analysis SPAN_MS), ms. */
 export const FINISH_HOLE_MS = 5_000;
 
+/**
+ * The device's max speed is a summary that can carry one bad reading: C31 Gold Cup race 2, GER 80's
+ * said 30.4 kt against the fleet's 14.2 kt while its own track topped out at 14.2 kt and crossed the
+ * finish line ~8 m inside its end at the reported time. So in the race with telemetry a fast device
+ * max is excused when the track itself (after dropFleetOutliers, dropSogSpikes…) tops out within
+ * FINISH_MAX_SPEED_X of the fleet's tracks and crosses the finish line between its ends within this
+ * of the reported finish (trackExplainsSpeed). A media RIB's track is as fast as its summary, and a
+ * spare on a committee boat never sails the course (it also fails the distance test): both stay implausible.
+ */
+export const FINISH_CROSS_MS = 30_000;
+
 /** What one boat's own track shows from the gun to its finish. */
 export interface TrackEvidence {
   /** Path length, holes bridged by a straight line (a lower bound), m. */
@@ -296,42 +307,71 @@ export interface TrackEvidence {
   holeMs: number;
   /** Furthest distance from `from` (the start line's middle), m. */
   reachM: number;
+  /** Highest reported SOG, kt; null with no reading. */
+  topKn: number | null;
+  /** Does the track cross the finish line within FINISH_CROSS_MS of the finish? (false with no line given) */
+  crossesLine: boolean;
 }
 
-/** A track's path, holes and reach over [gunMs, finishMs]; null with no fix in that window. */
-export function trackEvidence(rows: { ts: number; lat: number; lon: number }[], gunMs: number, finishMs: number, from: LatLon): TrackEvidence | null {
+/** A track's path, holes, reach and top speed over [gunMs, finishMs] (and its crossing of `lineAt` near finishMs); null with no fix in that window. */
+export function trackEvidence(
+  rows: { ts: number; lat: number; lon: number; sog?: number }[],
+  gunMs: number,
+  finishMs: number,
+  from: LatLon,
+  lineAt?: ((t: number) => Line | null) | null,
+): TrackEvidence | null {
   const w = rows.filter((r) => r.ts >= gunMs && r.ts <= finishMs);
   if (!w.length) return null;
   let pathM = 0;
   let reachM = 0;
   let holeMs = 0;
+  let topKn: number | null = null;
   const hole = (ms: number): number => (ms > FINISH_HOLE_MS ? ms : 0);
   w.forEach((r, i) => {
     reachM = Math.max(reachM, metresBetween(from, r));
+    if (r.sog != null && Number.isFinite(r.sog)) topKn = Math.max(topKn ?? 0, r.sog);
     if (i) {
       pathM += metresBetween(w[i - 1], r);
       holeMs += hole(r.ts - w[i - 1].ts);
     }
   });
   holeMs += hole(w[0].ts - gunMs) + hole(finishMs - w[w.length - 1].ts);
-  return { pathM, holeMs, reachM };
+  const crossesLine = !!lineAt && crossings(rows, lineAt, finishMs - FINISH_CROSS_MS, finishMs + FINISH_CROSS_MS).length > 0;
+  return { pathM, holeMs, reachM, topKn, crossesLine };
+}
+
+/**
+ * Does the track excuse a device max speed over FINISH_MAX_SPEED_X × the fleet's (see FINISH_CROSS_MS)? It sailed
+ * the course (FINISH_MIN_REACH_FRAC of the fleet's reach: a tracker parked on the line can jitter across it), its
+ * top speed is within FINISH_MAX_SPEED_X of `medTopKn` (the finishers' median track top speed), and it crossed.
+ */
+export function trackExplainsSpeed(ev: Pick<TrackEvidence, 'topKn' | 'crossesLine' | 'reachM'>, medTopKn: number | null, medReach: number | null): boolean {
+  if (!ev.crossesLine || ev.topKn == null || medTopKn == null || medReach == null) return false;
+  return ev.reachM >= FINISH_MIN_REACH_FRAC * medReach && ev.topKn <= FINISH_MAX_SPEED_X * medTopKn;
 }
 
 /** Does the track excuse a device distance `deviceM` under FINISH_MIN_DIST_FRAC × `medDist` (see FINISH_MIN_REACH_FRAC)? */
-export function trackExplainsDistance(ev: TrackEvidence, deviceM: number, raceMs: number, medDist: number, medReach: number | null): boolean {
+export function trackExplainsDistance(ev: Pick<TrackEvidence, 'pathM' | 'holeMs' | 'reachM'>, deviceM: number, raceMs: number, medDist: number, medReach: number | null): boolean {
   if (medReach == null || !(raceMs > 0) || ev.reachM < FINISH_MIN_REACH_FRAC * medReach) return false;
   const holesM = (ev.holeMs * medDist) / raceMs;
   return Math.min(deviceM, ev.pathM) + holesM >= FINISH_MIN_DIST_FRAC * medDist;
 }
 
-/** Why a finish looks wrong against its race's medians, or null when it looks like a real one; `excuse` may waive a short distance. */
-function implausibleFinish(f: Finish, medDist: number | null, medMax: number | null, excuse?: (deviceM: number, medDist: number) => boolean): string | null {
+/** Waivers from the race's own tracks: a short device distance, a fast device max speed. */
+export interface FinishExcuse {
+  distance?: (sail: string, deviceM: number, medDist: number) => boolean;
+  speed?: (sail: string) => boolean;
+}
+
+/** Why a finish looks wrong against its race's medians, or null when it looks like a real one; `excuse` may waive either test. */
+function implausibleFinish(f: Finish, medDist: number | null, medMax: number | null, excuse?: FinishExcuse): string | null {
   const d = num(f.distanceTraveled);
   const v = num(f.maxSpeed);
-  if (d != null && medDist != null && d < FINISH_MIN_DIST_FRAC * medDist && !excuse?.(d, medDist)) {
+  if (d != null && medDist != null && d < FINISH_MIN_DIST_FRAC * medDist && !excuse?.distance?.(f.sailNumber, d, medDist)) {
     return `the feed has it sailing ${(d / 1000).toFixed(1)} km against the fleet's ${(medDist / 1000).toFixed(1)} km`;
   }
-  if (v != null && medMax != null && v > FINISH_MAX_SPEED_X * medMax) {
+  if (v != null && medMax != null && v > FINISH_MAX_SPEED_X * medMax && !excuse?.speed?.(f.sailNumber)) {
     return `the feed has a max speed of ${Math.round(v)} kt against the fleet's ${Math.round(medMax)} kt`;
   }
   return null;
@@ -339,14 +379,10 @@ function implausibleFinish(f: Finish, medDist: number | null, medMax: number | n
 
 /**
  * Event-wide results per sail number: every non-practice race of the division
- * that has finishes. `excuse(sail, deviceM, medDist)` may waive a short distance in
- * this race (the only one with telemetry: see trackExplainsDistance).
+ * that has finishes. `excuse` may waive a short distance or a fast max speed in
+ * this race (the only one with telemetry: see trackExplainsDistance, trackExplainsSpeed).
  */
-export function entryResults(
-  div: Division,
-  race: Race,
-  excuse?: (sail: string, deviceM: number, medDist: number) => boolean,
-): Map<string, EntryResults> {
+export function entryResults(div: Division, race: Race, excuse?: FinishExcuse): Map<string, EntryResults> {
   const out = new Map<string, EntryResults>();
   const get = (sail: string): EntryResults => {
     let e = out.get(sail);
@@ -366,7 +402,7 @@ export function entryResults(
       e.racesWithResults++;
       const f = bySail.get(sail);
       if (!f) continue;
-      const why = implausibleFinish(f, medDist, medMax, r === race && excuse ? (d, m) => excuse(sail, d, m) : undefined);
+      const why = implausibleFinish(f, medDist, medMax, r === race ? excuse : undefined);
       if (!why) e.plausibleFinishes++;
       if (r === race) {
         e.finishPlausible = !why;
@@ -701,6 +737,30 @@ function finishDevices(course: Course | null): { left: string; right: string } |
   return null;
 }
 
+/** A mark tracker's fixes from the rows. */
+function markSeries(rows: Row[], hex: string): MarkSeries {
+  const sn = snFromHex(hex);
+  const s: MarkSeries = { t: [], lat: [], lon: [] };
+  for (const r of rows) {
+    if (r.role !== 'mark' || r.sn !== sn) continue;
+    s.t.push(r.ts);
+    s.lat.push(r.lat);
+    s.lon.push(r.lon);
+  }
+  return s;
+}
+
+/** The finish line over time: its two trackers where they were (finishDevices), else the fixed `finishLine`; null with neither. */
+function finishLineAt(course: Course | null, rows: Row[], finishLine: Line | null): ((t: number) => Line | null) | null {
+  const dev = finishDevices(course);
+  if (dev) {
+    const l = markSeries(rows, dev.left);
+    const r = markSeries(rows, dev.right);
+    if (l.t.length && r.t.length) return lineFrom(l, r);
+  }
+  return finishLine ? () => finishLine : null;
+}
+
 /** The committee boat's tracker: the start line's right end. */
 function committeeDevice(course: Course | null): string | null {
   const a = course?.achievements?.find((x) => x.type === 'startLine');
@@ -737,28 +797,8 @@ function resolveResults(
   if (!official && ctx.rsFinishes > 0) return {};
   const lastTs = rows.length ? rows[rows.length - 1].ts : gunMs;
   const endMs = Math.min(lastTs, ctx.nextGunMs != null ? ctx.nextGunMs - 30_000 : Infinity);
-  const dev = finishDevices(ctx.course);
-  const series = (hex: string): MarkSeries => {
-    const sn = snFromHex(hex);
-    const s: MarkSeries = { t: [], lat: [], lon: [] };
-    for (const r of rows) {
-      if (r.role !== 'mark' || r.sn !== sn) continue;
-      s.t.push(r.ts);
-      s.lat.push(r.lat);
-      s.lon.push(r.lon);
-    }
-    return s;
-  };
-  let lineAt: ((t: number) => Line | null) | null = null;
-  if (dev) {
-    const l = series(dev.left);
-    const r = series(dev.right);
-    if (l.t.length && r.t.length) lineAt = lineFrom(l, r);
-  }
-  if (!lineAt && ctx.finishLine) {
-    const fl = ctx.finishLine;
-    lineAt = () => fl;
-  }
+  const series = (hex: string): MarkSeries => markSeries(rows, hex);
+  const lineAt = finishLineAt(ctx.course, rows, ctx.finishLine);
   const fixes = new Map<string, Row[]>();
   for (const b of boats) fixes.set(b.id, rowsOf(b.sail) ?? []);
   const feedRn = feedRaceNumber(fixes.values(), gunMs);
@@ -999,22 +1039,32 @@ export function buildRaceData(
     const serial = stats.get(sail)?.serialNumber || finishes.get(sail)?.serialNumber;
     return serial ? bySn.get(snFromHex(serial)) : undefined;
   };
-  // Each finisher's own track gun → finish, to excuse a device distance counter that skipped dropouts.
+  // Each finisher's own track gun → finish, to excuse a device distance counter that skipped dropouts
+  // or a device max speed its track doesn't show.
   const [sLat, sLon] = st.startLine.leftEnd;
   const [eLat, eLon] = st.startLine.rightEnd;
   const lineMid = { lat: (sLat + eLat) / 2, lon: (sLon + eLon) / 2 };
+  const finishAt = finishLineAt(course, rows, finishLine);
   const evidence = new Map<string, TrackEvidence>();
   for (const [sail, f] of finishes) {
     const rows = rowsOf(sail);
     const fms = Date.parse(f.finishingTime);
-    const ev = rows && Number.isFinite(fms) ? trackEvidence(rows, gunMs, fms, lineMid) : null;
+    const ev = rows && Number.isFinite(fms) ? trackEvidence(rows, gunMs, fms, lineMid, finishAt) : null;
     if (ev) evidence.set(sail, ev);
   }
   const reaches = [...evidence.values()].map((e) => e.reachM);
   const medReach = reaches.length >= FINISH_MEDIAN_MIN ? median(reaches) : null;
-  const entries = entryResults(div, race, (sail, deviceM, medDist) => {
-    const ev = evidence.get(sail);
-    return !!ev && trackExplainsDistance(ev, deviceM, Date.parse(finishes.get(sail)!.finishingTime) - gunMs, medDist, medReach);
+  const tops = [...evidence.values()].map((e) => e.topKn).filter((x): x is number => x != null && x > 0);
+  const medTop = tops.length >= FINISH_MEDIAN_MIN ? median(tops) : null;
+  const entries = entryResults(div, race, {
+    distance: (sail, deviceM, medDist) => {
+      const ev = evidence.get(sail);
+      return !!ev && trackExplainsDistance(ev, deviceM, Date.parse(finishes.get(sail)!.finishingTime) - gunMs, medDist, medReach);
+    },
+    speed: (sail) => {
+      const ev = evidence.get(sail);
+      return !!ev && trackExplainsSpeed(ev, medTop, medReach);
+    },
   });
 
   const boats: Boat[] = [];
@@ -1068,11 +1118,12 @@ export function buildRaceData(
   };
   if (opts.classLabel) data.classLabel = opts.classLabel;
   if (untracked.length) data.courseUntracked = untracked;
+  const axisDeg = courseAxisDeg(startLine, st.windDirection, boats.map((b) => rowsOf(b.sail) ?? []), gunMs);
   const { results, estimated } = resolveResults(boats, rowsOf, rows, {
     gunMs,
     startMid: mid,
     startLine,
-    axisDeg: courseAxisDeg(startLine, st.windDirection, boats.map((b) => rowsOf(b.sail) ?? []), gunMs),
+    axisDeg,
     course,
     finishLine,
     // Only with no finish line anywhere in the feed and no mark trackers (they would place the course).
@@ -1085,6 +1136,21 @@ export function buildRaceData(
   if (estimated) {
     data.finishLine = estimated;
     data.finishLineEstimated = true;
+  }
+  // Display only: a boat with no accepted finish is drawn to its own crossing of the finish line (Boat.lineCrossMs),
+  // found as tracker finishes are (the stage onset, else its last visit to the far end), not its first pass of the line.
+  const open = boats.filter((b) => b.finishMs == null || b.entry?.finishPlausible === false);
+  const lineAt = open.length ? (estimated ? () => estimated : finishLineAt(course, rows, finishLine)) : null;
+  if (lineAt) {
+    const all = boats.map((b) => rowsOf(b.sail) ?? []);
+    const feedRn = feedRaceNumber(all, gunMs);
+    const floor = fleetOnsetFloor(all, gunMs, feedRn);
+    const lastTs = rows.length ? rows[rows.length - 1].ts : gunMs;
+    const endMs = Math.min(lastTs, opts.nextGunMs != null ? opts.nextGunMs - 30_000 : Infinity);
+    for (const b of open) {
+      const t = trackerFinish(rowsOf(b.sail) ?? [], lineAt, gunMs, endMs, feedRn, floor, axisDeg);
+      if (t != null) b.lineCrossMs = t;
+    }
   }
   if (ws?.length) {
     data.windModel = { label: opts.wind?.modelLabel ?? opts.wind?.model ?? 'weather model', samples: ws };
