@@ -368,7 +368,7 @@ describe('print CSS and the page', () => {
   });
 
   it('index.html has the Report button and the report section (hidden until opened)', () => {
-    expect(html).toMatch(/<button type="button" id="report-open" class="report-open"[^>]*>Report<\/button>/);
+    expect(html).toMatch(/<button type="button" id="report-open" class="report-open act act-chip"[^>]*>Report<\/button>/);
     expect(html).toMatch(/<section id="report" class="report-wrap" aria-label="Boat report" hidden><\/section>/);
   });
 });

@@ -111,7 +111,7 @@ describe('sorted metrics table (Benelux race 8)', () => {
   it('keeps sorted rows selectable and the best/worst marks on the same boats', () => {
     const plain = legsTable(a, '3');
     const sorted = legsTable(a, '3', { key: 'L0.sog', dir: 'desc' });
-    expect(sorted).toContain('<tr data-id="3" class="sel" tabindex="0">');
+    expect(sorted).toContain('<tr data-id="3" class="act-row sel" tabindex="0">');
     const marks = (html: string) => [...html.matchAll(/<tr data-id="([^"]+)"[^>]*>(.*?)<\/tr>/g)].map((m) => `${m[1]}:${(m[2].match(/aria-label="(best|worst)"/g) ?? []).join()}`).sort();
     expect(marks(sorted)).toEqual(marks(plain));
     // Sort glyphs (↑/↓) never reuse the best/worst marks (▲/▼).
@@ -250,8 +250,8 @@ describe('Rank column', () => {
     const picked = legsTable(m24, nc, sort);
     expect(rankCol(plain)).toEqual(m24.boats.map((_, i) => String(i + 1)));
     expect(rankCol(picked)).toEqual([...rankCol(plain), '—']);
-    expect(picked).toMatch(new RegExp(`<tr data-id="${nc}" class="sel nc"[^>]*><td class="num rank">—</td>`));
-    expect(legsTable(m24, '874', sort)).toContain('<tr data-id="874" class="sel" tabindex="0"><td class="num rank">2</td>');
+    expect(picked).toMatch(new RegExp(`<tr data-id="${nc}" class="act-row sel nc"[^>]*><td class="num rank">—</td>`));
+    expect(legsTable(m24, '874', sort)).toContain('<tr data-id="874" class="act-row sel" tabindex="0"><td class="num rank">2</td>');
   });
 
   it('ranks by an upwind summary like any column (partial sums included)', () => {

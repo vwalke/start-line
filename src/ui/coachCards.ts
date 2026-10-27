@@ -26,6 +26,7 @@ import type { PenaltyTurn } from '../analysis/coach/detectors/penaltyTurn';
 import { pointsText } from '../data/official/codes';
 import type { Card } from '../analysis/coach/rank';
 import type { RaceAnalysis } from '../analysis/types';
+import { ACT_CHIP } from './act';
 import { duration, esc, f1, localTime, ordinal, pct } from './format';
 
 /** Show a range (`10–35 s`) rather than `≈ mid` when hi/lo exceeds this. */
@@ -706,7 +707,7 @@ export function cardHtml(c: Card, i: number, a: RaceAnalysis, on: boolean): stri
   const ref = c.kind === 'D5' ? d5RefChip(c.facts) : null;
   const chips = [
     `<li class="chip sec" title="Seconds at stake">${esc(secs)}</li>`,
-    `<li><button type="button" class="chip opp-when" data-opp="${i}" aria-pressed="${on}" title="Show on the gap chart" aria-label="${esc(`${when}: show on the gap chart`)}">${esc(when)}</button></li>`,
+    `<li><button type="button" class="chip opp-when ${ACT_CHIP}" data-opp="${i}" aria-pressed="${on}" title="Show on the gap chart" aria-label="${esc(`${when}: show on the gap chart`)}">${esc(when)}</button></li>`,
     ...(ref ? [chip(ref)] : []),
     ...t.chips.slice(0, chipsMax(c)).map((x) => chip(x)),
     ...cardWarnings(c).map(warnLi),

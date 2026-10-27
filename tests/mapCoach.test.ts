@@ -313,7 +313,7 @@ describe('trail and URL rules', () => {
 });
 
 describe('IC37 R5: the cards get one "Show on map" each, and are otherwise unchanged', () => {
-  const ACTION = /\n {4}<p class="opp-map"><a class="opp-map-link" [^>]*>Show on map <span aria-hidden="true">→<\/span><\/a><\/p>/g;
+  const ACTION = /\n {4}<p class="opp-map"><a class="opp-map-link act" [^>]*>Show on map <span aria-hidden="true">→<\/span><\/a><\/p>/g;
   for (const b of a.boats) {
     it(`${b.sail}`, () => {
       const d = coachDebrief(a, m, b.id);
@@ -325,7 +325,7 @@ describe('IC37 R5: the cards get one "Show on map" each, and are otherwise uncha
       expect(out.match(ACTION)?.length ?? 0).toBe(d.cards.length);
       for (let i = 0; i < d.cards.length; i++) {
         const card = new RegExp(`<article class="card coach-opp[^"]*" data-opp="${i}"[\\s\\S]*?</article>`).exec(out)![0];
-        expect(card.match(/class="opp-map-link"/g)).toHaveLength(1);
+        expect(card.match(/class="opp-map-link act"/g)).toHaveLength(1);
         expect(card).toMatch(/<\/a><\/p>\s*<\/article>$/);
         expect(card).toContain(`data-map-opp="${i}"`);
       }
@@ -343,7 +343,7 @@ describe('IC37 R5: the cards get one "Show on map" each, and are otherwise uncha
     const html = coachCardsHtml(a, d, 0);
     expect(html).toContain('class="card coach-opp on"');
     const out = withMapActions(html, cardMapActions(a, idOf('USA 027'), d.cards, replays, SEARCH));
-    expect(out.match(/class="opp-map-link"/g)).toHaveLength(d.cards.length);
+    expect(out.match(/class="opp-map-link act"/g)).toHaveLength(d.cards.length);
     expect(withMapActions(html, [])).toBe(html);
   });
 

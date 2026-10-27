@@ -18,6 +18,7 @@
 import type { Card } from '../analysis/coach/rank';
 import type { StartReplay } from '../analysis/startReplay';
 import type { RaceAnalysis } from '../analysis/types';
+import { ACT } from './act';
 import { BOAT_PARAM } from './coach';
 import { esc } from './format';
 import { boatAt, filledRanges, rotator, timeRange } from './mapPieces';
@@ -258,7 +259,7 @@ export function cardMapAction(i: number, a: RaceAnalysis, boat: string, c: Windo
   const href = routeHref(search, a, route);
   const title =
     route.kind === 'replay' ? 'Replay the start on the track map' : `On the track map${route.focus.vs.length ? `, vs ${route.focus.vs.map((id) => sailOf(a, id)).join(' · ')}` : ''}`;
-  return `<p class="opp-map"><a class="opp-map-link" href="${esc(href)}" data-map-opp="${i}" title="${esc(title)}">Show on map <span aria-hidden="true">→</span></a></p>`;
+  return `<p class="opp-map"><a class="opp-map-link ${ACT}" href="${esc(href)}" data-map-opp="${i}" title="${esc(title)}">Show on map <span aria-hidden="true">→</span></a></p>`;
 }
 
 /** The actions for `cards` (boat `boat`'s), by card index. */

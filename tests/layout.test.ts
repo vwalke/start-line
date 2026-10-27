@@ -112,9 +112,9 @@ describe('Race Viewer: the legend selects a leg', () => {
 describe('boat list and findings share the selection', () => {
   it('lists boats in finish order with swatch, sail, name and place', () => {
     const html = boatList(a, null);
-    expect([...html.matchAll(/class="boat-item" data-id="([^"]+)"/g)].map((m) => m[1])).toEqual(a.boats.map((b) => b.id));
+    expect([...html.matchAll(/class="boat-item act-row" data-id="([^"]+)"/g)].map((m) => m[1])).toEqual(a.boats.map((b) => b.id));
     const b = a.boats[0];
-    expect(html).toContain(`<i class="sw" style="background:var(--s${b.colorSlot + 1})"></i><b class="sail">${b.sail}</b>`);
+    expect(html).toContain(`<i class="sw" style="background:var(--s${b.colorSlot + 1})"></i><b class="sail act-key">${b.sail}</b>`);
     expect(html).toContain('<span class="pos">1</span>');
     expect(html).toContain('data-clear disabled');
     expect(html).not.toContain('aria-pressed="true"');

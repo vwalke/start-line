@@ -7,6 +7,7 @@
  * column (leftmost) gives each boat's place in that sort.
  */
 import { finishRank } from '../analysis/result';
+import { ACT_KEY, ACT_ROW } from './act';
 import { codeShort, codeWords } from './resultText';
 import type { BoatResult, KindSummary, LegKind, LegResult, RaceAnalysis, StartResult } from '../analysis/types';
 import { OCS_BLIND_NOTE, shownLateS, startNotes } from '../analysis/validity';
@@ -296,7 +297,7 @@ function boatCol(a: RaceAnalysis, key: string): Col {
     cls: 'boat sticky1',
     role: 'boat',
     cell: (b) =>
-      `<i class="sw" style="background:${boatColor(b, a.boats.length)}"></i>#${esc(b.sail)}${
+      `<i class="sw" style="background:${boatColor(b, a.boats.length)}"></i><span class="${ACT_KEY}">#${esc(b.sail)}</span>${
         b.name !== `#${b.sail}` ? ` <span class="bname">${esc(b.name)}</span>` : ''
       }${b.start?.ocs ? ' <span class="flag" title="Flagged OCS by race control">OCS</span>' : ''}`,
   };
@@ -804,7 +805,7 @@ function renderTable(a: RaceAnalysis, cols: Col[], id: TableId, highlight: strin
           return `<td class="${colCls(cols, j, sortKey)}${hl ? ' ' + hl : ''}">${icon}${c.cell(b)}</td>`;
         })
         .join('');
-      return `<tr data-id="${esc(b.id)}" class="${highlight === b.id ? 'sel' : ''}" tabindex="0">${rank}${tds}</tr>`;
+      return `<tr data-id="${esc(b.id)}" class="${ACT_ROW}${highlight === b.id ? ' sel' : ''}" tabindex="0">${rank}${tds}</tr>`;
     })
     .join('');
   return `<table class="metrics ${id}${ranks ? ' ranked' : ''}" data-table="${id}"><thead>${header(cols, sort, by)}</thead><tbody>${rows}${excludedRow(a, cols, highlight, !!ranks, sortKey)}</tbody></table>`;
@@ -831,5 +832,5 @@ function excludedRow(a: RaceAnalysis, cols: Col[], highlight: string | null, ran
     })
     .join('');
   const rank = ranked ? '<td class="num rank">—</td>' : '';
-  return `<tr data-id="${esc(b.id)}" class="sel nc" tabindex="0" title="${esc(`Not racing: ${why}`)}">${rank}${tds}</tr>`;
+  return `<tr data-id="${esc(b.id)}" class="${ACT_ROW} sel nc" tabindex="0" title="${esc(`Not racing: ${why}`)}">${rank}${tds}</tr>`;
 }

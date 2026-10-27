@@ -797,7 +797,7 @@ describe('templates and cards (spec §6, mockup)', () => {
     const html = cardHtml(c, 0, a, true);
     expect(html).toContain('class="card coach-opp on"');
     expect(html).toContain('<li class="chip sec" title="Seconds at stake">≈ 47 s</li>');
-    expect(html).toMatch(/<button type="button" class="chip opp-when" data-opp="0" aria-pressed="true"/);
+    expect(html).toMatch(/<button type="button" class="chip opp-when act act-chip" data-opp="0" aria-pressed="true"/);
     expect(fewerLine(1)).toBe('Only 1 clear gain with this data');
     expect(fewerLine(2)).toBe('Only 2 clear gains with this data');
     const d = { cards: [c], ok: [{ kind: 'ok' as const, detector: 'D6' as const, variant: 'upwind', facts: { twa: 39, fTwa: 43, vmg: 5, fVmg: 4.7 }, t0: 0, t1: 1 }], plus: [], totalS: 47, raceCov: 0.4, noData: false, found: [c], dirtyAir: { opp: null, chip: null, evaluated: false, share: null, fleetShare: null }, quality: { D8: false, D9: [] } };

@@ -12,6 +12,7 @@ import type { Group } from '../analysis/coach/groups';
 import { HEEL_DIFF_DEG, HEEL_WINDOW_MS } from '../analysis/coach/detectors/heel';
 import { ROUND_LEAD_MS, ROUND_WINDOW_MS, SIDE_MIN_BOATS, SIDE_MIN_EFFECT, STORY_MIN_GROUP, type HeelChip, type LegStory } from '../analysis/coach/legStory';
 import type { RaceAnalysis } from '../analysis/types';
+import { ACT_MORE } from './act';
 import { duration, esc, ordinal } from './format';
 import { infoHtml } from './info';
 
@@ -196,7 +197,7 @@ const li = (c: { text: string; cls?: string }): string =>
 export function legStoryHtml(s: LegStory, a: RaceAnalysis, boat: string, g: Group, open = false): string {
   const t = legStoryText(s, a, boat, g);
   return `<details class="card coach-leg" data-leg="${s.leg}"${open ? ' open' : ''}>
-    <summary><span class="leg-name">${esc(s.name)}</span><ul class="chips">${t.summary.map(li).join('')}</ul></summary>
+    <summary class="${ACT_MORE}"><span class="leg-name">${esc(s.name)}</span><ul class="chips">${t.summary.map(li).join('')}</ul></summary>
     ${t.lines.map((l) => `<ul class="chips">${l.map(li).join('')}</ul>`).join('')}
     ${t.sentence ? `<p class="leg-what">${esc(t.sentence)}</p>` : ''}
   </details>`;

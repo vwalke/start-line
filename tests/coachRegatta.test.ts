@@ -72,11 +72,11 @@ describe('the Coach panel follows the app: no race chips, no boat select', () =>
     const panel = index.slice(index.indexOf('<div id="panel-coach"'), index.indexOf('id="coach-ask"'));
     expect(panel.indexOf('<div id="coach-pick" class="coach-pick"></div>')).toBeGreaterThan(0);
     expect(panel.indexOf('id="coach-pick"')).toBeLessThan(panel.indexOf('id="coach-head-card"'));
-    // Tap targets ≥ 44 px, full width on a phone, a filled selected state.
+    // Tap targets ≥ 44 px, full width on a phone, a filled selected state (a neutral tint: the accent is for data actions).
     const css = read('../src/style.css');
     expect(css).toMatch(/\.coach-view button \{[^}]*min-height: 48px/);
     expect(css).toMatch(/\.coach-view \{ display: flex; width: 100%;/);
-    expect(css).toMatch(/\.seg button\[aria-pressed='true'\] \{ background: var\(--accent\)/);
+    expect(css).toMatch(/\.seg button\[aria-pressed='true'\] \{ background: var\(--sel-bg\)/);
     // The paywall is unchanged: a regatta race the viewer can't open is still marked locked in the Regatta view.
     const row = { raceNumber: 2, label: 'R2', name: 'Race 2', status: 'error', error: '402 pass needed', low: false, weight: 1 } as Parameters<typeof placeWhat>[0];
     expect(placeWhat(row)).toBe('locked: unlock this regatta to see it');
