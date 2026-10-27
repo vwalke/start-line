@@ -1,0 +1,70 @@
+/* The Feedback button and sheet (src/feedback/sheet.ts). The sheet borrows the Account sheet's look
+   (.switcher, .account-form, .lock-primary in style.css); only what's its own is here. */
+
+.feedback-open {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--on-carbon-line);
+  border-radius: 4px;
+  background: none;
+  color: var(--on-carbon);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.feedback-open:hover { border-color: var(--on-carbon); }
+/* Side by side with the Account button (it otherwise pushes itself right). */
+.feedback-open + .account-open { margin-left: 0; }
+
+/* Phones: a small round button at the bottom right, inside the safe area; lifted (--fb-lift) clear of the map's controls. */
+.feedback-fab {
+  display: none;
+  position: fixed;
+  z-index: 15;
+  right: max(12px, calc(env(safe-area-inset-right, 0px) + 8px));
+  bottom: calc(max(12px, calc(env(safe-area-inset-bottom, 0px) + 8px)) + var(--fb-lift, 0px));
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--on-carbon-line);
+  border-radius: 50%;
+  background: var(--carbon);
+  color: var(--on-carbon);
+  box-shadow: 0 2px 8px color-mix(in srgb, #000 28%, transparent);
+  cursor: pointer;
+  transition: bottom 0.15s ease-out;
+}
+.feedback-fab svg { width: 20px; height: 20px; display: block; margin: auto; }
+.feedback-fab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) {
+  .feedback-open { display: none; }
+  .feedback-fab { display: grid; place-items: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .feedback-fab { transition: none; }
+}
+@media print {
+  .feedback-open, .feedback-fab { display: none !important; }
+}
+
+.fb-types { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 0; border: 0; }
+.fb-types legend { padding: 0; margin-bottom: 4px; font-size: 0.85rem; color: var(--ink-2); }
+.account-form .fb-type, .account-form .fb-check { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; font-size: 0.95rem; color: var(--ink); }
+.fb-type input, .fb-check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.account-form textarea {
+  font: inherit;
+  font-size: 16px;
+  padding: 9px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+  color: var(--ink);
+  resize: vertical;
+  min-height: 7em;
+}
+.account-form input[type='file'] { font-size: 0.9rem; color: var(--ink-2); }
+.fb-count { margin: -4px 0 0; font-size: 0.75rem; color: var(--ink-3); text-align: right; font-variant-numeric: tabular-nums; }
+.fb-form .lock-small { margin: 4px 0 0; }
+.fb-form .account-actions { margin-top: 4px; }
+.account-note[hidden] { display: none; }

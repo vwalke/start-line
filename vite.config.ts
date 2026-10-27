@@ -1,4 +1,17 @@
+import { execSync } from 'node:child_process';
 import { defineConfig } from 'vitest/config';
+
+/** The build's commit for the Feedback sheet (src/feedback/build.ts): Cloudflare Pages' own, else git's, else 'dev'. */
+function appCommit(): string {
+  const cf = process.env.CF_PAGES_COMMIT_SHA?.trim();
+  if (cf && /^[0-9a-f]{7,40}$/i.test(cf)) return cf.slice(0, 12);
+  try {
+    const sha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    return /^[0-9a-f]{4,40}$/i.test(sha) ? sha : 'dev';
+  } catch {
+    return 'dev';
+  }
+}
 
 // In production /api/* is served by the Cloudflare Pages Function in
 // functions/api/. Locally (vite dev / vite preview) we proxy the same
@@ -26,6 +39,7 @@ const apiProxy = {
 };
 
 export default defineConfig({
+  define: { __APP_COMMIT__: JSON.stringify(appCommit()), __APP_BUILT_AT__: JSON.stringify(new Date().toISOString()) },
   server: { proxy: apiProxy },
   preview: { proxy: apiProxy },
   worker: { format: 'es' },
