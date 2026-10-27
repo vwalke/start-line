@@ -1497,6 +1497,20 @@ body.report-on .content > :not(#report) { display: none !important; }
 .account-device-name { font-weight: 600; }
 .account-device-when { font-size: 0.85rem; flex: 1 1 auto; }
 .account-device .lock-secondary { margin-left: auto; }
+/* Race emails (ui/notify.ts): the sheet's list, the quiet toggle after the race's gun line, and why a change didn't go through. */
+.account-alerts { list-style: none; margin: 0; padding: 0; }
+.account-alert { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.account-alert-name { font-weight: 600; }
+.account-alert .muted { font-size: 0.85rem; flex: 1 1 auto; }
+.account-alert .lock-secondary { margin-left: auto; }
+.notify-quiet { font-size: inherit; color: var(--ink-3); }
+.notify-status { color: var(--accent); font-weight: 600; }
+.notify-status.notify-quiet { font-weight: inherit; }
+.notify-on:not(.notify-quiet) { font-size: 0.9rem; }
+.notify-note { font-size: 0.85rem; color: var(--ink-3); }
+/* Back from a sign-in with notify=1: the question, and the button highlighted (nothing is on until it's clicked). */
+.notify-ask { font-weight: 600; }
+.notify-btn.notify-ask-btn { outline: 2px solid var(--accent); outline-offset: 2px; color: var(--accent); }
 
 /* The welcome toast after a sign-in (paywall.ts createToast): its own fixed element, above the full-screen view (20). */
 .toast {

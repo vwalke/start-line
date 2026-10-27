@@ -14,6 +14,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "worker:alerts": "esbuild workers/race-alerts/src/index.ts --bundle --format=esm --platform=neutral --target=es2022 --log-level=warning --outfile=dist/workers/race-alerts.js",
     "test": "vitest run",
     "make-fixture": "node scripts/make-fixture.mjs",
     "icons": "node scripts/icons.mjs",

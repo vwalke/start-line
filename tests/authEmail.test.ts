@@ -128,6 +128,22 @@ describe('cloudflare-api provider', () => {
     expect(JSON.parse(String(api.calls[1].init.body)).from).toBe('signin@walkeforward.com');
   });
 
+  it('passes List-Unsubscribe and List-Unsubscribe-Post through with an https link; drops both with an http one, and anything else always', async () => {
+    const api = cloudflareApi(() => Response.json({ success: true, errors: [], messages: [], result: {} }));
+    const unsub = 'https://recall.walkeforward.com/api/alerts/unsubscribe?t=abc.def';
+    const mail = (headers: Record<string, string>) => ({ ...signInMail('a@example.com', 'https://x.example/l'), headers });
+    const bodyOf = (n: number) => JSON.parse(String(api.calls[n].init.body)) as Record<string, unknown>;
+    await sendEmail(cfEnv(), 'recall.walkeforward.com', mail({ 'List-Unsubscribe': `<${unsub}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click', 'X-Other': 'no' }), deps(api));
+    expect(bodyOf(0).headers).toEqual({ 'List-Unsubscribe': `<${unsub}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' });
+    expect(Object.keys(bodyOf(0)).sort()).toEqual(['from', 'headers', 'html', 'subject', 'text', 'to']);
+    await sendEmail(cfEnv(), 'localhost', mail({ 'List-Unsubscribe': '<http://localhost:8788/api/alerts/unsubscribe?t=abc.def>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }), deps(api));
+    expect(bodyOf(1)).not.toHaveProperty('headers');
+    await sendEmail(cfEnv(), 'recall.walkeforward.com', mail({ 'List-Unsubscribe': `<${unsub}>`, 'List-Unsubscribe-Post': 'yes' }), deps(api));
+    expect(bodyOf(2).headers).toEqual({ 'List-Unsubscribe': `<${unsub}>` });
+    await sendEmail(cfEnv(), 'recall.walkeforward.com', mail({ 'X-Other': 'no' }), deps(api));
+    expect(bodyOf(3)).not.toHaveProperty('headers');
+  });
+
   it('the EMAIL binding still gets a named sender as { email, name }', async () => {
     const sent: unknown[] = [];
     const env = cfEnv({ EMAIL_PROVIDER: 'cloudflare', EMAIL: { send: async (msg) => void sent.push(msg) } });

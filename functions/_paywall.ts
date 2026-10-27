@@ -26,7 +26,7 @@ import { DIV_NAME_RE, EVENT_ID_RE } from '../src/data/vkx/validate';
  * for a Worker (or a service binding to one) later; on Pages the provider is `cloudflare-api`.
  */
 export interface EmailBindingLike {
-  send(message: { from: string | { email: string; name: string }; to: string; subject: string; html: string; text: string }): Promise<unknown>;
+  send(message: { from: string | { email: string; name: string }; to: string; subject: string; html: string; text: string; headers?: Record<string, string> }): Promise<unknown>;
 }
 
 export interface PaywallEnv {
