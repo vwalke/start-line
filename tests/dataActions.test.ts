@@ -136,7 +136,7 @@ describe('quiet controls never look like data', () => {
 
 describe('data-action colours clear WCAG AA in both schemes', () => {
   const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
-  const dark = css.slice(css.indexOf('@media (prefers-color-scheme: dark)'));
+  const dark = css.slice(css.indexOf(":root[data-theme='dark'] {"));
   const token = (src: string, name: string): string => new RegExp(`--${name}: (#[0-9a-f]{6});`).exec(src)![1];
   const rgb = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   /** color-mix(in srgb, x p%, y). */

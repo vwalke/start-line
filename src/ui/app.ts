@@ -9,7 +9,7 @@ import { progressAt, progressBase, type ProgressBase } from '../analysis/coach/p
 import type { Group } from '../analysis/coach/groups';
 import { splitFindings } from '../analysis/findings';
 import { fullRateWants } from '../analysis/fullRate';
-import { START_TRAIL_MS, type BoatResult, type FullRateTrack, type RaceAnalysis } from '../analysis/types';
+import { type BoatResult, type FullRateTrack, type RaceAnalysis } from '../analysis/types';
 import type { StartReplay } from '../analysis/startReplay';
 import { linkOfficial, type LinkOutcome } from '../data/official/link';
 import { httpYsSource, parseYsEventId } from '../data/official/yachtscoring';
@@ -551,7 +551,7 @@ export function startApp(): void {
     els.startColour.innerHTML = startColourControls(startColour) + startNamesControls(startNames);
     els.startKey.innerHTML =
       startColour === 'speed'
-        ? sogKey(startSogRange(a), `last ${START_TRAIL_MS / 1000} s, hull at the gun`)
+        ? sogKey(startSogRange(a))
         : '';
     els.startKey.hidden = startColour !== 'speed';
     renderFullKey();

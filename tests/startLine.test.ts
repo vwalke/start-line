@@ -93,7 +93,7 @@ describe.each(fixtures)('%s', (_name, a) => {
     // At Fit the "(n lengths)" part is dropped to fit the extension; zoomed in it comes back.
     expect(fav[2]).toBe(favouredTexts(a, startClass(a)!.dims)[1]);
     expect(fav[2]).toMatch(/^(Pin|RC) favored \d+° · \d+ m$/);
-    expect(fav[1]).toContain('±5° of wind ≈ ±');
+    expect(fav[1]).toMatch(/^Wind about \d+° at the gun, estimated from how the fleet tacked in the first few minutes\. (High|Medium) confidence\.$/);
     const zoomed = startSnapshot(a, null, { ...fitView(startFitBox(a)), k: 4 });
     expect(zoomed).toContain(`>${favouredText(a, startClass(a)!.dims)}</text>`);
   });
@@ -205,27 +205,31 @@ describe('favoured end text', () => {
     const [len, fav, wind] = lineChips(j70);
     expect(len.text).toMatch(/^Line \d+ m$/);
     expect(fav.text).toMatch(/^Pin fav\. \d+° · 20 m$/);
-    expect(wind).toMatchObject({ text: 'wind est. (high)' });
+    expect(wind).toMatchObject({ text: 'wind est.', title: expect.stringMatching(/ High confidence\.$/) });
     expect(wind.warn).toBeUndefined();
-    // The C31's weather model is ~60° off the tacks: medium, still a plain chip; the detail is its title.
-    expect(windChip(c31)).toMatchObject({ text: 'wind est. (medium)' });
+    // The C31's weather model is ~60° off the tacks: medium, still a plain chip; how sure is in its title, in plain words.
+    expect(windChip(c31)).toMatchObject({ text: 'wind est.' });
     expect(windChip(c31).title).toBe(biasBasis(c31));
-    expect(biasBasis(c31)).toMatch(/fleet's tacks 0:30–3:30 after the gun \(262 close-hauled headings of 325 steady, 134 \/ 128 a tack, tack angle 66°; weather model \d+° off\)/);
+    expect(biasBasis(c31)).toBe('Wind about 303° at the gun, estimated from how the fleet tacked in the first few minutes. Medium confidence.');
+    expect(biasBasis(c31)).not.toMatch(/headings|tack angle|weather model|±/);
   });
 
   it('puts the wind source and the sensitivity in the ⓘ bullet', () => {
     // Benelux R8's wind at the gun is the start window's (wind.ts readStartTwd).
-    expect(biasBullets(j70)).toEqual([expect.stringMatching(/^Favored end vs wind \d+° \(tacks, gun \+0:30–3:30\); ±5° of wind ≈ ±9 m\.$/)]);
-    expect(biasBasis(j70)).toMatch(/^Wind \d+° at the gun, wind estimated from the fleet's tacks 0:30–3:30 after the gun \([\d,]+ close-hauled headings of [\d,]+ steady, [\d,]+ \/ [\d,]+ a tack, tack angle \d+°/);
+    expect(biasBullets(j70)).toEqual(['Favored end vs the wind at the gun; 5° of wind moves it 9 m.']);
+    expect(biasBasis(j70)).toMatch(/^Wind about \d+° at the gun, estimated from how the fleet tacked in the first few minutes\. High confidence\.$/);
+    // No start-window estimate: the first beat's.
+    expect(biasBasis({ ...j70, wind: { ...j70.wind, startWindow: null } })).toMatch(/tacked on the first beat\./);
   });
 
   it('promotes a low-confidence wind to a ⚠ chip', () => {
     const course = { ...j70, wind: { ...j70.wind, method: 'course' as const } };
     expect(windChip(course)).toMatchObject({ text: 'wind assumed', warn: true });
     expect(lineChips(course)[2].warn).toBe(true);
-    expect(biasBullets(course)[0]).toContain('(first leg assumed upwind)');
+    expect(biasBasis(course)).toMatch(/^Wind assumed from the course, with the first leg straight upwind \(\d+°\)\. Low confidence\.$/);
     const model = { ...j70, wind: { ...j70.wind, method: 'model' as const } };
-    expect(windChip(model)).toMatchObject({ text: 'model wind (medium)' });
+    expect(windChip(model)).toMatchObject({ text: 'model wind' });
+    expect(biasBasis(model)).toMatch(/^Wind about \d+° at the gun, from the weather model\. Medium confidence\.$/);
     expect(windChip(model).warn).toBeUndefined();
   });
 });

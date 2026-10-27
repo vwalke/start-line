@@ -119,9 +119,9 @@ export function startSogHover(
   return best;
 }
 
-/** The key line: the window shown (⚠ when the tracks start later than asked), the dot swatch, the caret when a speed is off the top; the method in the ⓘ. */
+/** The key line: ⚠ when the tracks start later than the window asked, the dot swatch, the caret when a speed is off the top; the method in the ⓘ. */
 export function startSogKey(s: StartSogSeries, w: StartSogWindow): KeyLine {
-  const chips: Chip[] = [s.clamped ? warnChip(`data from ${secsLabel(s.t0)} only`) : { text: `${secsLabel(s.t0)} → ${secsLabel(s.t1)}` }];
+  const chips: Chip[] = s.clamped ? [warnChip(`starts at ${secsLabel(s.t0)}`)] : [];
   chips.push({ text: 'crossed the line', swatch: 'dot' });
   const L = startSogLayout(s);
   if (s.boats.some((b) => startSogClips(b, L).length)) chips.push({ text: '▲ off scale', title: 'Speed above the top of the chart (a tracker glitch)' });
@@ -129,7 +129,7 @@ export function startSogKey(s: StartSogSeries, w: StartSogWindow): KeyLine {
     chips,
     bullets: [
       `Speed over ground (${SOG_SMOOTH_MS / 1000} s mean) around the gun.`,
-      ...(s.clamped ? [`The tracks only go back to ${secsLabel(s.t0)} here, so the ${w} s window starts there.`] : []),
+      ...(s.clamped ? [`The tracks start at ${secsLabel(s.t0)} here, so the ${w} s window does too.`] : []),
       "Dot: where the boat crossed the line (the table's Late), and its speed.",
       'Hover or tap to read a speed; tap a line to select the boat.',
     ],

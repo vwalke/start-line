@@ -11,10 +11,9 @@ import { biasBullets, lineChips } from './startLine';
 
 const GESTURES = 'Zoom: pinch, Ctrl/⌘ + scroll or double-tap; drag to pan when zoomed.';
 
-/** Start chart: line, favoured end, wind, scale, "line extended"; bullets for the rest. */
+/** Start chart: line, favoured end, wind, scale; bullets for the rest. */
 export function startKey(a: RaceAnalysis, o: { scale: { chip: string; info: string }; highlight?: string | null; colour?: StartColour }): KeyLine {
   const chips = [...lineChips(a), { text: o.scale.chip }];
-  chips.push({ text: 'line extended', swatch: 'ext' });
   const away = a.boats.filter((b) => b.start?.awayFromLine).length;
   if (away) chips.push({ text: away === 1 ? '1 away from the line' : `${away} away from the line` });
   if (pickedExcluded(a, o.highlight ?? null)) chips.push({ text: 'not racing', swatch: 'nc' });
@@ -90,7 +89,7 @@ export function mapKey(a: RaceAnalysis, o: { highlight?: string | null; colour: 
   if (a.marks.some((m) => m.estimated)) chips.push({ text: 'estimated mark', swatch: 'est' });
   if (pickedExcluded(a, o.highlight ?? null)) chips.push({ text: 'not racing', swatch: 'nc' });
   const logged = a.boats.filter((b) => b.log);
-  for (const b of logged) chips.push({ text: `${b.sail} from boat log · ${b.log!.rateHz} Hz` });
+  for (const b of logged) chips.push({ text: `${b.sail} from boat log`, title: `${b.log!.rateHz} Hz` });
   const bullets = ['GPS tracker tracks; the few-meter bow offset is left out.', split.info];
   if (logged.length) bullets.push("A boat marked 'from boat log' is drawn from its own uploaded Vakaros log where it covers the race (shared publicly), not the public feed.");
   if (o.colour === 'leg') bullets.push('Pick a leg above to show only that leg.');

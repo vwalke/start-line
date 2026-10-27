@@ -101,12 +101,12 @@ describe('key lines stay short', () => {
 });
 
 describe('start chart key line', () => {
-  it('chips the facts and the extended line; the explanations go in the ⓘ', () => {
+  it('chips the facts; the explanations go in the ⓘ; no "line extended" legend', () => {
     const k = startKey(j70, { scale: startScale(j70) });
-    expect(k.chips.map((c) => c.text)).toEqual([expect.stringMatching(/^Line \d+ m$/), expect.stringMatching(/^Pin fav\. \d+° · \d+ m$/), 'wind est. (high)', 'hulls to scale', 'line extended']);
-    expect(k.chips.find((c) => c.swatch === 'ext')?.text).toBe('line extended');
+    expect(k.chips.map((c) => c.text)).toEqual([expect.stringMatching(/^Line \d+ m$/), expect.stringMatching(/^Pin fav\. \d+° · \d+ m$/), 'wind est.', 'hulls to scale']);
+    expect(k.chips.some((c) => c.swatch === 'ext')).toBe(false);
     const info = k.bullets.join(' ');
-    for (const s of ['Bows at the gun', 'meters behind the line', '±5° of wind', 'Names: Auto', 'Hulls to scale (J/70, 6.93 m)', 'pinch']) expect(info).toContain(s);
+    for (const s of ['Bows at the gun', 'meters behind the line', '5° of wind moves it', 'Names: Auto', 'Hulls to scale (J/70, 6.93 m)', 'pinch']) expect(info).toContain(s);
   });
   it('a picked not-racing boat gets the "not racing" swatch, here and on the map', () => {
     const id = m24.excluded[0].result.id;

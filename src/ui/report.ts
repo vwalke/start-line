@@ -264,9 +264,8 @@ function headerFields(a: RaceAnalysis, b: BoatResult, official: OfficialRaceInpu
   out.push(field('Corrected (official)', longDuration(ot?.correctedS), ot?.correctedS == null ? { note: ot ? 'not in the official results' : 'no official results' } : {}));
   out.push(field('Gun', `${localTime(a.meta.gunMs, tz)} ${tzLabel(tz)}`));
   const src = windSource(a.wind);
-  const what = src.method === 'tacks' ? `estimated ${src.from}` : src.method === 'model' ? 'weather model' : 'assumed: first leg dead upwind';
+  const what = src.method === 'tacks' ? 'from how the fleet tacked' : src.method === 'model' ? 'from the weather model' : 'assumed from the course';
   out.push(field('Wind (TWD)', `${degLabel(a.wind.twdAtGunDeg)} est.`, { note: `${what}; ${src.confidence} confidence`, warn: src.confidence === 'low' }));
-  out.push(field('Wind speed (TWS)', MISSING, { note: 'no wind speed in the data' }));
   return out;
 }
 
@@ -301,7 +300,7 @@ function startFields(a: RaceAnalysis, m: CoachModel | null | undefined, b: BoatR
   const rank = so ? so.order.findIndex((c) => c.id === b.id) + 1 : 0;
   const front = so?.front.some((c) => c.id === b.id) ?? false;
   if (m === undefined) out.push(field('Over the line', MISSING, { note: 'working out the crossings…' }));
-  else if (!m?.crossMs) out.push(field('Over the line', MISSING, { note: 'crossings not worked out (no raw fixes)' }));
+  else if (!m?.crossMs) out.push(field('Over the line', MISSING, { note: 'crossings not worked out' }));
   else if (crossMs == null || !rank) out.push(field('Over the line', MISSING, { note: over ? 'never seen to clear' : 'no crossing found' }));
   else {
     const t = (crossMs - gun) / 1000;
@@ -423,7 +422,7 @@ function penaltyLines(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null, 
     return out;
   }
   const turns = model?.turns;
-  if (!turns) out.push({ text: 'Penalty turns not checked (no raw fixes)', kind: 'note' });
+  if (!turns) out.push({ text: 'Penalty turns not checked', kind: 'note' });
   else {
     const mine = turns.get(b.id) ?? [];
     if (!mine.length) out.push({ text: 'No penalty turns found on the track', kind: 'ok' });
@@ -480,7 +479,6 @@ function notesOf(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null): stri
   );
   for (const n of a.notes) if (n.kind === 'legs-fleet' || n.kind === 'wind-assumed' || n.kind === 'marks-moved' || n.kind === 'shortened') out.push(n.text);
   if (b.headingSource === 'cog') out.push('This boat’s compass disagrees with its track: angles use its course over ground.');
-  out.push('Wind is estimated from the fleet’s tacks (no wind sensor); there is no wind speed in the data.');
   return out;
 }
 

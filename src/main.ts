@@ -2,7 +2,9 @@ import './style.css';
 import { startSwitcher } from './apps';
 import { startLanding } from './landing/landing';
 import { REGATTAS_PATH, routeOf } from './landing/route';
+import { watchTheme } from './theme';
 
+watchTheme();
 startSwitcher();
 // `/` with no app parameters is the landing page; everything else is the app (landing/route.ts).
 // index.html's inline script made the same call before first paint.

@@ -33,7 +33,7 @@ describe('one boat rule for both maps (ui/boatShape.ts boatMark)', () => {
     spy.mockClear();
     const me = a.boats[0].id;
     const L = laneScrub(a, { me });
-    laneScrubHtml(a, L, undefined, 60);
+    laneScrubHtml(a, L, 60);
     const placed = L.frame(60).boats.filter((b) => b.pos).length;
     expect(placed).toBeGreaterThan(0);
     expect(spy.mock.calls.length).toBeGreaterThanOrEqual(placed);
