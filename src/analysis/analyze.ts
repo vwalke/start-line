@@ -92,6 +92,20 @@ export const MARK_NEAR_M = 40;
 
 export const marksNear = (a: Vec[], b: Vec[], m = MARK_NEAR_M): boolean => a.some((p) => b.some((q) => len(sub(p, q)) < m));
 
+/** A boat with no accepted finish is drawn to its own crossing of the finish line (Boat.lineCrossMs) plus this, not on to where it sailed after. */
+export const FINISH_TAIL_MS = 15_000;
+
+/**
+ * Where the last leg (from `fromMs`) of a boat with no accepted finish is drawn to: FINISH_TAIL_MS past its own
+ * crossing of the finish line when that falls in the leg, else its last fix.
+ */
+export function unfinishedDrawEnd(b: Pick<Boat, 'track' | 'lineCrossMs'>, fromMs: number): number {
+  const n = b.track.t.length;
+  const lastFix = n ? b.track.t[n - 1] : fromMs;
+  const cross = b.lineCrossMs;
+  return cross != null && cross > fromMs ? Math.min(lastFix, cross + FINISH_TAIL_MS) : lastFix;
+}
+
 /**
  * Add a mark unless one is already drawn there. A real tracker may replace an
  * estimate at the same place (`replaceEstimate`); unused course marks must not
@@ -608,9 +622,11 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     };
 
     const segments: TrackSegment[] = [];
+    // With no finish, the last leg runs to the boat's own crossing of the finish line (plus a short tail), else to its last fix.
+    const openEnd = (from: number): number => (ranked && b.finishMs == null ? unfinishedDrawEnd(b, from) : tr.t[tr.t.length - 1]);
     for (let li = 0; li < nLegs; li++) {
       const a = drawTt[li];
-      const e = drawTt[li + 1] ?? (li === nLegs - 1 && drawTt[li] != null ? tr.t[tr.t.length - 1] : null);
+      const e = drawTt[li + 1] ?? (li === nLegs - 1 && a != null ? openEnd(a) : null);
       if (a == null || e == null) continue;
       const [i0, i1] = rangeIdx(tr.t, a, e);
       const xs: number[] = [];

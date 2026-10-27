@@ -903,8 +903,9 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
 
   const L = rot(a.line.left);
   const R = rot(a.line.right);
-  const labelAt: Vec[] = [];
-  const labelMin = 22 * unit;
+  // Mark labels drawn so far, as boxes (anchor + text width, a font-size high, padded): one that would overlap is skipped.
+  const labelBoxes: Rect[] = [];
+  const labelPad = 3 * unit;
   const marks = a.marks
     .map((m) => {
       const ps = m.xy.map(rot);
@@ -915,8 +916,10 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
       const top = ps.reduce((x, y) => (y[0] > x[0] ? y : x));
       const name = m.estimated ? `${m.name.replace(/ mark$/i, '')} (est.)` : m.name;
       const at: Vec = [top[0] + 9 * unit, top[1] + 4 * unit];
-      if (labelAt.some((p) => Math.hypot(p[0] - at[0], p[1] - at[1]) < labelMin)) return c;
-      labelAt.push(at);
+      const fs = 12 * k;
+      const r: Rect = { x0: at[0] - labelPad, y0: at[1] - fs - labelPad, x1: at[0] + textWidth(name, fs) + labelPad, y1: at[1] + labelPad };
+      if (labelBoxes.some((q) => r.x0 < q.x1 && q.x0 < r.x1 && r.y0 < q.y1 && q.y0 < r.y1)) return c;
+      labelBoxes.push(r);
       return `${c}<text x="${at[0]}" y="${at[1]}" font-size="${12 * k}" class="lbl${m.estimated ? ' est' : ''}">${esc(name)}</text>`;
     })
     .join('');

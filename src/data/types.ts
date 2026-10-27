@@ -54,6 +54,11 @@ export interface Boat {
   entry?: EntryResults;
   /** Where `finishMs` came from, when the race's results were resolved (see RaceData.results). */
   finishSource?: FinishSource;
+  /**
+   * Display only, for a boat with no accepted finish (none, or one shown implausible): where its own track crossed
+   * the finish line (data/finishes.ts trackerFinish), so its last leg is drawn to there and not on past it.
+   */
+  lineCrossMs?: number;
   /** Official place in class (null: coded or not in the official results); set only with official results. */
   officialPlace?: number | null;
   /** Official scoring code (DNF, DNS, DNC, OCS, DSQ, RET, …); null for an official finisher. */

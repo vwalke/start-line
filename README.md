@@ -994,7 +994,13 @@ CAP = high ∞, medium ∞, low 60 s                        (IMPACT_CAP_S; LOW_I
   that "finish" from a committee boat, a media RIB). The device's distance
   counter skips its own dropouts, so a short distance is excused when the
   boat's track has holes that make up the difference and it went at least
-  half as far from the line as the fleet.
+  half as far from the line as the fleet. A fast max speed is excused when the
+  boat's own track tops out within 1.6× the fleet's tracks, went at least half
+  as far from the line as the fleet, and crossed the finish line within 30 s
+  of the reported finish (C31 Gold Cup race 2: GER 80's device said 30 kt, its
+  track 14 kt). A boat with no accepted finish is drawn to its own crossing
+  of the finish line plus 15 s (found as tracker finishes are), or to its
+  last fix if it never crosses.
 - **DTL** comes from each boat's Vakaros device when its start row is valid.
   Our own figure, from the GPS antenna plus the class bow offset, is shown
   alongside as a check. The app flags it when the two disagree widely, which
