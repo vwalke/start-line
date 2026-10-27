@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Me } from '../src/data/paywall';
 import type { LandingEvent, RegattaDoc } from '../src/data/racesense/types';
-import { UPCOMING_DAYS, dateRangeText, startsInText, upcomingEvents } from '../src/data/upcoming';
+import { UPCOMING_DAYS, dateRangeText, eventDayNo, eventStarted, startsInText, upcomingEvents } from '../src/data/upcoming';
 import { showUpcoming, upcomingCardsHtml } from '../src/landing/landing';
 import { UNDERWAY_TEXT, eventCardHtml, eventCardView } from '../src/ui/eventCard';
 import { pickerOptions } from '../src/ui/eventSearch';
-import { createAlerts, eventPath, handleNotify, notifyButtonHtml, notifyHref, withNotify } from '../src/ui/notify';
+import { SAVE_FAILED, createAlerts, eventPath, handleNotify, handleNotifyParam, notifyButtonHtml, notifyHref, watchAlerts, withNotify } from '../src/ui/notify';
 
 const DAY = 86_400_000;
 const ms = (iso: string): number => Date.parse(iso);
@@ -34,10 +34,43 @@ describe('upcomingEvents', () => {
     expect(upcomingEvents([later, farOff, running, northAmericans], NOW).map((e) => e.eventId)).toEqual([NA, 'later-1']);
   });
 
-  it('has exclusive-now and inclusive-end edges', () => {
-    const at = (t: number, id: string): LandingEvent => ({ eventId: id, title: id, startMs: t, endMs: t });
-    const list = [at(NOW, 'now'), at(NOW + 1, 'next'), at(NOW + UPCOMING_DAYS * DAY, 'edge'), at(NOW + UPCOMING_DAYS * DAY + 1, 'past-edge')];
-    expect(upcomingEvents(list, NOW).map((e) => e.eventId)).toEqual(['next', 'edge']);
+  it('counts whole days at the event: from tomorrow through the 14th day after today, not today', () => {
+    const day = (iso: string, id: string): LandingEvent => ev(id, id, `${iso}T00:00:00Z`);
+    // NOW is Oct 27 in New York.
+    const list = [day('2026-10-27', 'today'), day('2026-10-28', 'tomorrow'), day('2026-11-10', 'edge'), day('2026-11-11', 'past-edge')];
+    expect(upcomingEvents(list, NOW).map((e) => e.eventId)).toEqual(['tomorrow', 'edge']);
+    expect(ms('2026-11-10T00:00:00Z') - ms('2026-10-27T00:00:00Z')).toBe(UPCOMING_DAYS * DAY);
+  });
+
+  it('keeps an event through the whole evening before it starts in New York (8 pm EDT is already the next day in UTC)', () => {
+    // 8:30 pm EDT on Oct 27 is 00:30 UTC on Oct 28, the event's first day in UTC.
+    const evening = ms('2026-10-28T00:30:00Z');
+    expect(upcomingEvents([northAmericans], evening).map((e) => e.eventId)).toEqual([NA]);
+    expect(eventStarted(northAmericans.startMs, evening)).toBe(false);
+    expect(upcomingEvents([northAmericans], ms('2026-10-28T03:59:00Z'))).toHaveLength(1);
+    // Midnight in New York: it has started, and leaves Upcoming.
+    expect(upcomingEvents([northAmericans], ms('2026-10-28T04:00:00Z'))).toEqual([]);
+    expect(eventStarted(northAmericans.startMs, ms('2026-10-28T04:00:00Z'))).toBe(true);
+  });
+
+  it('follows daylight saving time: midnight is 05:00 UTC after the change', () => {
+    // Clocks went back on Nov 1, 2026: 11:30 pm EST on Nov 1 is 04:30 UTC on Nov 2.
+    const nov2 = ev('nov-2', 'Fall Brawl', '2026-11-02T00:00:00Z');
+    expect(upcomingEvents([nov2], ms('2026-11-02T04:30:00Z'))).toHaveLength(1);
+    expect(upcomingEvents([nov2], ms('2026-11-02T05:00:00Z'))).toEqual([]);
+    // And forward on Mar 8, 2026: 11:30 pm EDT on Mar 8 is 03:30 UTC on Mar 9.
+    const mar9 = ev('mar-9', 'Spring Series', '2026-03-09T00:00:00Z');
+    expect(upcomingEvents([mar9], ms('2026-03-09T03:30:00Z'))).toHaveLength(1);
+    expect(upcomingEvents([mar9], ms('2026-03-09T04:00:00Z'))).toEqual([]);
+  });
+
+  it('reads the day in another time zone or a fixed offset when one is known; an unknown zone is New York', () => {
+    const t = ms('2026-10-28T00:30:00Z');
+    expect(eventDayNo(t, 'Europe/Lisbon')).toBe(Math.floor(ms('2026-10-28T00:00:00Z') / DAY));
+    expect(eventDayNo(t, 'America/Los_Angeles')).toBe(Math.floor(ms('2026-10-27T00:00:00Z') / DAY));
+    expect(eventDayNo(t, 3_600_000)).toBe(Math.floor(ms('2026-10-28T00:00:00Z') / DAY));
+    expect(eventDayNo(t, 'Not/AZone')).toBe(eventDayNo(t));
+    expect(eventStarted(northAmericans.startMs, t, 'Europe/Lisbon')).toBe(true);
   });
 
   it('breaks a tie on the title, and leaves the input alone', () => {
@@ -145,9 +178,15 @@ describe('the event card (no races yet)', () => {
     expect(eventCardView(NA, d, northAmericans, NOW).when).toBe('Racing starts Thu, Oct 29.');
   });
 
-  it('underway: says races show up as they’re posted', () => {
+  it('underway: says races show up as they’re posted, from the first day at the event (not 8 pm the night before)', () => {
     const v = eventCardView(NA, doc(), northAmericans, ms('2026-10-28T18:00:00Z'));
     expect(v.when).toBe(UNDERWAY_TEXT);
+    expect(eventCardView(NA, doc(), northAmericans, ms('2026-10-28T00:30:00Z')).when).toBe('Racing starts Wed, Oct 28.');
+    expect(eventCardView(NA, doc(), northAmericans, ms('2026-10-28T04:00:00Z')).when).toBe(UNDERWAY_TEXT);
+    // The venue's offset when a race gives one (UTC−7 here: still the evening before at 05:00 UTC).
+    const west = doc();
+    west.divisions[0].races = [{ raceNumber: 1, timezoneOffset: -7 * 3_600_000, starts: [{ startTime: ms('2026-10-28T18:00:00Z') }], finishes: [] }];
+    expect(eventCardView(NA, west, northAmericans, ms('2026-10-28T05:00:00Z')).when).toBe('Racing starts Wed, Oct 28.');
     expect(UNDERWAY_TEXT).toBe("Racing is underway. Races will show up here as they're posted.");
   });
 
@@ -180,11 +219,16 @@ describe('Notify me', () => {
     expect(notifyButtonHtml('bad id"><x', OUT)).toBe('');
   });
 
-  it('shows the state: Notify me, or Emails on ✓ (which turns them off), and why a change failed', () => {
+  it('shows the state: Notify me, or "You’ll get an email…" with Turn off, and why a change failed; hidden signed in while unavailable', () => {
     expect(notifyButtonHtml(NA, IN, undefined, { on: false })).toContain('>Notify me</button>');
-    const on = notifyButtonHtml(NA, IN, undefined, { on: true });
-    expect(on).toContain('>Emails on ✓</button>');
-    expect(on).toContain('aria-label="Emails on: turn off race emails"');
+    const on = notifyButtonHtml(NA, IN, 'event-card-title', { on: true });
+    expect(on).toContain('<span class="notify-status" role="status">You\'ll get an email when races are posted.</span>');
+    expect(on).toContain('aria-label="Turn off race emails" aria-describedby="event-card-title">Turn off</button>');
+    expect(notifyButtonHtml(NA, IN, undefined, { on: true }, { quiet: true })).toContain('>Race emails on</span>');
+    expect(notifyButtonHtml(NA, IN, undefined, { on: false, hidden: true })).toBe('');
+    expect(notifyButtonHtml(NA, IN, undefined, { on: true, hidden: true })).toBe('');
+    // Signed out the button only signs in, so it shows whatever the store knows.
+    expect(notifyButtonHtml(NA, OUT, undefined, { on: false, hidden: true })).toContain('>Notify me</button>');
     expect(notifyButtonHtml(NA, OUT, undefined, { on: true })).toContain('>Notify me</button>');
     expect(notifyButtonHtml(NA, IN, undefined, { on: false, busy: true })).toContain(' disabled>');
     expect(notifyButtonHtml(NA, IN, undefined, { on: false, note: 'Too <many>' })).toContain('<span class="notify-note" role="status">Too &lt;many&gt;</span>');
@@ -199,7 +243,7 @@ describe('Notify me', () => {
     expect(alerts.set).not.toHaveBeenCalled();
   });
 
-  it('signed in: turns the emails on, or off when on; `ensure` only ever turns them on; paywall off: nothing', () => {
+  it('signed in: a click turns the emails on, or off when on; paywall off: nothing', () => {
     const signIn = vi.fn();
     let on = false;
     const alerts = { state: () => ({ on }), set: vi.fn(async () => true) };
@@ -208,11 +252,47 @@ describe('Notify me', () => {
     on = true;
     handleNotify(NA, IN, { signIn, alerts });
     expect(alerts.set).toHaveBeenLastCalledWith(NA, false);
-    handleNotify(NA, IN, { signIn, alerts, ensure: true });
-    expect(alerts.set).toHaveBeenCalledTimes(2);
     expect(handleNotify(NA, OFF, { signIn, alerts })).toBe('hidden');
     expect(signIn).not.toHaveBeenCalled();
     expect(alerts.set).toHaveBeenCalledTimes(2);
+  });
+
+  it('notify=1 never turns emails on: signed out it opens sign-in, signed in it asks, and only the click subscribes', async () => {
+    const signIn = vi.fn();
+    const methods: string[] = [];
+    let list: unknown[] = [];
+    const f = vi.fn(async (_u: RequestInfo | URL, init: RequestInit = {}) => {
+      methods.push(init.method ?? 'GET');
+      if (init.method === 'POST') list = [{ eventId: NA, title: '2026 J/70 North Americans', startMs: 1, endMs: 2, createdAt: 3 }];
+      return new Response(JSON.stringify({ ok: true, alerts: list }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const alerts = createAlerts(f);
+    expect(handleNotifyParam(NA, OUT, { signIn, alerts, title: '2026 J/70 North Americans' })).toBe('signin');
+    expect(signIn).toHaveBeenCalledWith(NA);
+    expect(alerts.state(NA).ask).toBeUndefined();
+    await alerts.load(IN);
+    expect(handleNotifyParam(NA, IN, { signIn, alerts, title: '2026 J/70 North Americans' })).toBe('notify');
+    expect(methods).toEqual(['GET']);
+    const html = notifyButtonHtml(NA, IN, 'event-card-title', alerts.state(NA));
+    expect(html).toContain('<span class="notify-ask" role="status">Email me when races are posted for <strong>2026 J/70 North Americans</strong>?</span>');
+    expect(html).toContain('notify-ask-btn');
+    expect(html).toContain('>Notify me</button>');
+    // The click.
+    handleNotify(NA, IN, { signIn, alerts });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(methods).toEqual(['GET', 'POST']);
+    expect(alerts.state(NA)).toEqual({ on: true, busy: false, note: undefined });
+    expect(notifyButtonHtml(NA, IN, undefined, alerts.state(NA))).not.toContain('notify-ask');
+    expect(handleNotifyParam(NA, OFF, { signIn, alerts, title: 'x' })).toBe('hidden');
+  });
+
+  it('asks only of a signed-in viewer whose emails are off, escaped, and "this regatta" without a title', () => {
+    expect(notifyButtonHtml(NA, IN, undefined, { on: false, ask: '<b>Cup</b>' })).toContain('<strong>&lt;b&gt;Cup&lt;/b&gt;</strong>');
+    expect(notifyButtonHtml(NA, IN, undefined, { on: true, ask: 'Cup' })).not.toContain('notify-ask');
+    expect(notifyButtonHtml(NA, OUT, undefined, { on: false, ask: 'Cup' })).not.toContain('notify-ask');
+    const a = createAlerts((async () => new Response('{}')) as unknown as typeof fetch);
+    a.ask(NA, '  ');
+    expect(a.state(NA).ask).toBe('this regatta');
   });
 
   it('links: the event, the landing page’s carry-on, and a sign-in’s way back', () => {
@@ -239,9 +319,11 @@ describe('Notify me', () => {
     a.onChange(seen);
     await a.load(OUT);
     expect(f).not.toHaveBeenCalled();
-    expect(a.list()).toEqual([]);
+    expect(a.status()).toBe('out');
+    expect(a.list()).toBeNull();
     await a.load(IN);
     expect(calls.at(-1)?.method).toBe('GET');
+    expect(a.list()).toEqual([]);
     expect(await a.set(NA, true)).toBe(true);
     expect(a.state(NA)).toEqual({ on: true, busy: false, note: undefined });
     expect(await a.set(NA, false)).toBe(true);
@@ -249,6 +331,136 @@ describe('Notify me', () => {
     expect(await a.set('full-event', true)).toBe(false);
     expect(a.state('full-event')).toEqual({ on: false, busy: false, note: 'Race emails are on for 50 regattas already.' });
     expect(seen).toHaveBeenCalled();
+  });
+
+  /** /api/alerts, faked: the list, and POST / DELETE answered by `reply` (default: saved); each answer waits for `gate`. */
+  function fakeApi(o: { list?: unknown[]; get?: number; reply?: () => Response | null } = {}) {
+    let list = o.list ?? [];
+    let open: () => void = () => undefined;
+    let gate = Promise.resolve();
+    const f = vi.fn(async (_u: RequestInfo | URL, init: RequestInit = {}) => {
+      const m = init.method ?? 'GET';
+      if (m === 'GET') return o.get ? new Response(JSON.stringify({ error: 'x' }), { status: o.get }) : new Response(JSON.stringify({ alerts: list }));
+      await gate;
+      const r = o.reply?.();
+      if (r) return r;
+      const id = (JSON.parse(String(init.body)) as { eventId: string }).eventId;
+      list = m === 'POST' ? [{ eventId: id, title: '2026 J/70 North Americans', startMs: 1, endMs: 2, createdAt: 3 }] : [];
+      return new Response(JSON.stringify({ ok: true, alerts: list }));
+    }) as unknown as typeof fetch;
+    return { f, hold: () => (gate = new Promise((r) => (open = r))), release: () => open() };
+  }
+
+  it('a click shows the subscribed state at once, before the server answers; turning off too', async () => {
+    const api = fakeApi();
+    const a = createAlerts(api.f);
+    await a.load(IN);
+    api.hold();
+    const saving = a.set(NA, true);
+    expect(a.state(NA)).toMatchObject({ on: true, busy: true });
+    expect(notifyButtonHtml(NA, IN, undefined, a.state(NA))).toContain("You'll get an email when races are posted.");
+    api.release();
+    expect(await saving).toBe(true);
+    expect(a.state(NA)).toEqual({ on: true, busy: false, note: undefined });
+    api.hold();
+    const off = a.set(NA, false);
+    expect(a.state(NA).on).toBe(false);
+    expect(a.list()).toEqual([]);
+    api.release();
+    expect(await off).toBe(true);
+    expect(a.state(NA).on).toBe(false);
+  });
+
+  it('a failed save is put back, with a quiet note; the server’s own words for too many or too often', async () => {
+    let reply: Response | null = new Response('oops', { status: 500 });
+    const api = fakeApi({ reply: () => reply });
+    const a = createAlerts(api.f);
+    await a.load(IN);
+    expect(await a.set(NA, true)).toBe(false);
+    expect(a.state(NA)).toEqual({ on: false, busy: false, note: SAVE_FAILED });
+    expect(SAVE_FAILED).toBe("Couldn't save that. Try again.");
+    expect(notifyButtonHtml(NA, IN, undefined, a.state(NA))).toContain(`>Notify me</button> <span class="notify-note" role="status">Couldn&#39;t save that. Try again.</span>`);
+    reply = null;
+    expect(await a.set(NA, true)).toBe(true);
+    expect(a.state(NA).note).toBeUndefined();
+    reply = new Response(JSON.stringify({ error: 'rate_limited', message: "That's a lot of changes in one hour. Try again later." }), { status: 429 });
+    expect(await a.set(NA, false)).toBe(false);
+    expect(a.state(NA)).toMatchObject({ on: true, note: "That's a lot of changes in one hour. Try again later." });
+    expect(a.list()!.map((x) => x.eventId)).toEqual([NA]);
+    // A network failure.
+    const down = createAlerts((async (_u: RequestInfo | URL, init: RequestInit = {}) => {
+      if ((init.method ?? 'GET') === 'GET') return new Response(JSON.stringify({ alerts: [] }));
+      throw new Error('offline');
+    }) as unknown as typeof fetch);
+    await down.load(IN);
+    expect(await down.set(NA, true)).toBe(false);
+    expect(down.state(NA)).toEqual({ on: false, busy: false, note: SAVE_FAILED });
+  });
+
+  it('keeps the subscribed state across a reload (from GET /api/alerts)', async () => {
+    const a = createAlerts(fakeApi({ list: [{ eventId: NA, title: '2026 J/70 North Americans', startMs: 1, endMs: 2, createdAt: 3 }] }).f);
+    await a.load(IN);
+    expect(a.state(NA).on).toBe(true);
+    expect(eventCardHtml(eventCardView(NA, null, northAmericans, NOW), { me: IN, free: false, notify: a.state(NA) })).toContain('>Turn off</button>');
+  });
+
+  it('a view drawn before /api/auth/me answers gets its toggle once it does (and the list is in)', async () => {
+    const a = createAlerts(fakeApi().f);
+    let me: Me = OFF;
+    let resolve: (m: Me) => void = () => undefined;
+    const ready = new Promise<Me>((r) => (resolve = r));
+    let html = '';
+    const render = (): void => void (html = eventCardHtml(eventCardView(NA, null, northAmericans, NOW), { me, free: false, notify: a.state(NA) }));
+    render();
+    watchAlerts(ready, a, render);
+    expect(html).not.toContain('data-notify');
+    me = IN;
+    resolve(IN);
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(a.status()).toBe('ok');
+    expect(html).toContain('>Notify me</button>');
+  });
+
+  it('hidden for a signed-in viewer while the list loads and when /api/alerts isn’t available (404 or 503)', async () => {
+    for (const code of [404, 503]) {
+      const a = createAlerts(fakeApi({ get: code }).f);
+      const loading = a.load(IN);
+      expect(a.state(NA).hidden).toBe(true);
+      await loading;
+      expect(a.status()).toBe('unavailable');
+      expect(a.state(NA).hidden).toBe(true);
+      expect(notifyButtonHtml(NA, IN, undefined, a.state(NA))).toBe('');
+      expect(a.list()).toBeNull();
+      expect(await a.set(NA, true)).toBe(false);
+    }
+    // A save that finds the route gone hides the control too.
+    const gone = createAlerts(fakeApi({ reply: () => new Response('{}', { status: 404 }) }).f);
+    await gone.load(IN);
+    await gone.set(NA, true);
+    expect(gone.state(NA)).toMatchObject({ on: false, hidden: true });
+  });
+
+  it('the landing page’s cards: hidden while alerts aren’t available, the subscribed state at once after a click', async () => {
+    const run = async (api: ReturnType<typeof fakeApi>) => {
+      const alerts = createAlerts(api.f);
+      const ul = { innerHTML: '' };
+      let click: ((ev: unknown) => void) | null = null;
+      const section = { hidden: true, querySelector: () => ul, addEventListener: (_: string, fn: (ev: unknown) => void) => (click = fn) };
+      const doc = { getElementById: (id: string) => (id === 'land-upcoming' ? section : null) } as unknown as Document;
+      await showUpcoming(doc, { landing: async () => ({ events: [northAmericans] }), me: async () => IN, now: () => NOW, alerts });
+      return { ul, click: () => click!({ target: { closest: () => ({ dataset: { notify: NA } }) } }) };
+    };
+    const off = await run(fakeApi({ get: 404 }));
+    expect(off.ul.innerHTML).toContain('2026 J/70 North Americans');
+    expect(off.ul.innerHTML).not.toContain('data-notify');
+    const api = fakeApi();
+    const on = await run(api);
+    expect(on.ul.innerHTML).toContain('>Notify me</button>');
+    api.hold();
+    on.click();
+    expect(on.ul.innerHTML).toContain("You'll get an email when races are posted.");
+    api.release();
   });
 });
 

@@ -1504,8 +1504,13 @@ body.report-on .content > :not(#report) { display: none !important; }
 .account-alert .muted { font-size: 0.85rem; flex: 1 1 auto; }
 .account-alert .lock-secondary { margin-left: auto; }
 .notify-quiet { font-size: inherit; color: var(--ink-3); }
-.notify-quiet.notify-on { color: var(--accent); text-decoration: none; }
+.notify-status { color: var(--accent); font-weight: 600; }
+.notify-status.notify-quiet { font-weight: inherit; }
+.notify-on:not(.notify-quiet) { font-size: 0.9rem; }
 .notify-note { font-size: 0.85rem; color: var(--ink-3); }
+/* Back from a sign-in with notify=1: the question, and the button highlighted (nothing is on until it's clicked). */
+.notify-ask { font-weight: 600; }
+.notify-btn.notify-ask-btn { outline: 2px solid var(--accent); outline-offset: 2px; color: var(--accent); }
 
 /* The welcome toast after a sign-in (paywall.ts createToast): its own fixed element, above the full-screen view (20). */
 .toast {

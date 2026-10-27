@@ -301,20 +301,35 @@ export function themeHtml(pref: ThemePref): string {
   return `<h3 class="account-sub">Theme</h3><div class="seg account-theme" role="group" aria-label="Theme">${btns}</div>`;
 }
 
-/** The sheet's Race emails section: each event with emails on, its dates, and Turn off ('' for none). */
-export function raceAlertsHtml(alerts: readonly RaceAlert[] | null | undefined): string {
-  if (!alerts?.length) return '';
-  const rows = alerts
-    .map((a) => {
-      const dates = dateRangeText(a.startMs, a.endMs);
-      return `<li class="account-alert"><span class="account-alert-name">${esc(a.title)}</span>${dates ? ` <span class="muted">${esc(dates)}</span>` : ''}
-        <button type="button" class="lock-secondary" data-pw="alert-off" data-id="${esc(a.eventId)}" aria-label="Turn off race emails for ${esc(a.title)}">Turn off</button></li>`;
-    })
-    .join('');
-  return `<h3 class="account-sub">Race emails</h3><ul class="account-alerts">${rows}</ul>`;
+/** What the sheet's Notifications section shows: the race emails that are on, and why a removal didn't go through. */
+export interface NotificationsView {
+  list: readonly RaceAlert[];
+  note?: (eventId: string) => string | undefined;
 }
 
-export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => string, theme: ThemePref = 'system', alerts: readonly RaceAlert[] | null = null): string {
+export const NOTIFICATIONS_EMPTY = "You're not getting race emails for any regattas. Use Notify me on an upcoming regatta to get one when races are posted.";
+
+/** The sheet's Notifications section: each event with race emails on, its dates, and Remove; or the empty state. '' (hidden) without a view: race emails aren't available. */
+export function notificationsHtml(v: NotificationsView | null | undefined): string {
+  if (!v) return '';
+  const rows = v.list
+    .map((a) => {
+      const dates = dateRangeText(a.startMs, a.endMs);
+      const note = v.note?.(a.eventId);
+      return `<li class="account-alert"><span class="account-alert-name">${esc(a.title)}</span>${dates ? ` <span class="muted">${esc(dates)}</span>` : ''}
+        <button type="button" class="lock-secondary" data-pw="alert-off" data-id="${esc(a.eventId)}" aria-label="Stop race emails for ${esc(a.title)}">Remove</button>${note ? `<span class="notify-note" role="status">${esc(note)}</span>` : ''}</li>`;
+    })
+    .join('');
+  return `<h3 class="account-sub">Notifications</h3>${rows ? `<ul class="account-alerts">${rows}</ul>` : `<p class="muted">${NOTIFICATIONS_EMPTY}</p>`}`;
+}
+
+/** The Notifications section's view of the race emails store (null: not available, so no section). */
+export const notificationsView = (alerts: Pick<Alerts, 'list' | 'state'> | undefined): NotificationsView | null => {
+  const list = alerts?.list();
+  return list && alerts ? { list, note: (id) => alerts.state(id).note } : null;
+};
+
+export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => string, theme: ThemePref = 'system', notifications: NotificationsView | null = null): string {
   if (!me.paywall) return '';
   const note = s.note ? `<p class="account-note" role="status">${esc(s.note)}</p>` : '';
   const head = (title: string): string =>
@@ -345,7 +360,7 @@ export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => str
     const manage = me.entitlements.some((p) => p.scope === 'season' && p.owner && !p.gift) ? `<button type="button" class="lock-secondary" data-pw="portal"${s.busy ? ' disabled' : ''}>Manage subscription</button>` : '';
     return `${head('Your account')}${note}<p>Signed in as <strong>${esc(me.user.email)}</strong></p>
       <h3 class="account-sub">Passes</h3>${passes}
-      ${raceAlertsHtml(alerts)}
+      ${notificationsHtml(notifications)}
       ${devicesHtml(me.devices, s.busy)}
       ${themeHtml(theme)}
       <p class="account-actions">${manage}${email ? '<button type="button" class="lock-secondary" data-pw="restore">Restore access</button>' : ''}<button type="button" class="lock-secondary" data-pw="signout"${s.busy ? ' disabled' : ''}>Sign out</button></p>`;
@@ -652,7 +667,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
   const renderSheet = (): void => {
     const box = dialog?.querySelector('.switcher-sheet');
     if (!box) return;
-    box.innerHTML = sheetHtml(me, sheet, o.eventTitle, themePref(), o.alerts?.list() ?? null);
+    box.innerHTML = sheetHtml(me, sheet, o.eventTitle, themePref(), notificationsView(o.alerts));
     syncTurnstile(box);
   };
   o.alerts?.onChange(() => {

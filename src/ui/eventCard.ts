@@ -6,7 +6,7 @@
 import type { Me } from '../data/paywall';
 import { tzOffsetMs } from '../data/racesense/adapter';
 import type { LandingEvent, RegattaDoc } from '../data/racesense/types';
-import { dateRangeText, dayText } from '../data/upcoming';
+import { dateRangeText, dayText, eventStarted } from '../data/upcoming';
 import { esc } from './format';
 import { notifyButtonHtml, type NotifyState } from './notify';
 
@@ -42,7 +42,10 @@ export function eventCardView(eventId: string, doc: RegattaDoc | null | undefine
     .filter(Number.isFinite)
     .sort((a, b) => a - b)[0];
   const racingMs = firstStart ?? startMs;
-  const when = startMs > 0 && now >= startMs ? UNDERWAY_TEXT : racingMs > 0 ? `Racing starts ${dayText(racingMs)}.` : '';
+  // Underway from the event's first day where it's sailed (the venue's offset when a race gives one).
+  const venueRace = divisions.flatMap((d) => d.races ?? []).find((r) => r.timezoneOffset != null);
+  const zone = venueRace ? tzOffsetMs(venueRace.timezoneOffset) : undefined;
+  const when = startMs > 0 && eventStarted(startMs, now, zone) ? UNDERWAY_TEXT : racingMs > 0 ? `Racing starts ${dayText(racingMs)}.` : '';
   return {
     eventId,
     title: doc?.name || landing?.title || eventId,

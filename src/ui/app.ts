@@ -195,8 +195,8 @@ import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, presetAc
 import { createVkxUpload } from './vkxUpload';
 import { createPaywall, hereWithout, lockedRange, startRace } from './paywall';
 import { eventCardHtml, eventCardView } from './eventCard';
-import { NOTIFY_PARAM, createAlerts, handleNotify, notifyButtonHtml, withNotify } from './notify';
-import { upcomingEvents } from '../data/upcoming';
+import { NOTIFY_PARAM, createAlerts, handleNotify, handleNotifyParam, notifyButtonHtml, watchAlerts, withNotify } from './notify';
+import { eventStarted, upcomingEvents } from '../data/upcoming';
 import { appPath } from '../landing/route';
 import { setPageState } from '../feedback/state';
 import { freeRacesOf, type FreeRaces } from '../data/freeRace';
@@ -317,14 +317,16 @@ export function startApp(): void {
     eventTitle: (id) => titleOf(id),
     alerts,
   });
-  void paywall.ready.then((me) => alerts.load(me));
-  alerts.onChange(() => {
+  // paywall.ready doesn't call onChange: the toggles re-render through the store instead, when /api/auth/me
+  // answers (load starts) and again when the list is in. A card drawn before then has no toggle yet.
+  watchAlerts(paywall.ready, alerts, () => {
     if (cardEventId) renderEventCard();
     else renderSummary();
   });
-  /** A Notify me click (or `notify=1` back from a sign-in, `ensure`): signed out, the sheet, coming back here with `notify=1`. */
-  const notify = (id: string, ensure = false): void =>
-    void handleNotify(id, paywall.me(), { signIn: () => paywall.signIn(withNotify(hereWithout(location.href))), alerts, ensure });
+  /** Signed out: the sheet, coming back here with `notify=1`. */
+  const notifySignIn = (): void => paywall.signIn(withNotify(hereWithout(location.href)));
+  /** A Notify me click: the only way the emails are turned on. */
+  const notify = (id: string): void => void handleNotify(id, paywall.me(), { signIn: notifySignIn, alerts });
   const freeMemo = new WeakMap<RegattaResponse, FreeRaces>();
   /** Race 1 of each division, from the regatta as fetched (rebuilt races are never free). */
   const freeOf = (r: RegattaResponse): FreeRaces => {
@@ -2655,7 +2657,7 @@ export function startApp(): void {
       const now = Date.now();
       const recency = (e: LandingEvent): number => (e.capturedRaceTime ? Date.parse(e.capturedRaceTime) : Math.min(e.endMs, now));
       listed = landing.events;
-      events = landing.events.filter((e) => e.startMs <= now).sort((a, b) => recency(b) - recency(a));
+      events = landing.events.filter((e) => eventStarted(e.startMs, now)).sort((a, b) => recency(b) - recency(a));
       upcoming = upcomingEvents(landing.events, now);
     } catch (e) {
       setStatus('');
@@ -2667,10 +2669,12 @@ export function startApp(): void {
     if (explicit && !events.some((e) => e.eventId === explicit) && !upcoming.some((e) => e.eventId === explicit)) {
       events.unshift(listed.find((e) => e.eventId === explicit) ?? { eventId: explicit, title: explicit, startMs: 0, endMs: 0 });
     }
-    // Notify me from the landing page or back from its sign-in (notify.ts): drop the marker, then sign in or turn the emails on.
+    // Notify me from the landing page or back from its sign-in (notify.ts): drop the marker, then sign in or ask (never turn the emails on without a click).
     if (explicit && new URLSearchParams(location.search).has(NOTIFY_PARAM)) {
       setUrl({ [NOTIFY_PARAM]: null });
-      void paywall.ready.then(() => notify(explicit, true));
+      // An event the list doesn't name yet: "this regatta" rather than its id.
+      const title = titleOf(explicit) === explicit ? '' : titleOf(explicit);
+      void paywall.ready.then((me) => handleNotifyParam(explicit, me, { signIn: notifySignIn, alerts, title }));
     }
     renderEventOptions();
     void paywall.ready.then(renderEventOptions);

@@ -242,8 +242,9 @@ export interface Mail {
   replyTo?: string;
   /**
    * Extra headers (the race emails' List-Unsubscribe and List-Unsubscribe-Post): passed on by `resend`
-   * and the `cloudflare` binding; the `cloudflare-api` REST call leaves them out (its schema has no
-   * documented headers field, and an unknown field fails the send).
+   * and the `cloudflare` binding. The `cloudflare-api` REST call passes only those two, and only with an
+   * https List-Unsubscribe URL (cloudflareHeaders): it fails the whole send on a header off its allowlist
+   * or an http one (developers.cloudflare.com/email-service/reference/headers/).
    */
   headers?: Record<string, string>;
 }
@@ -288,6 +289,18 @@ function cloudflareErrors(body: { errors?: unknown } | null): string {
   return parts.length ? parts.join(', ') : 'no errors listed';
 }
 
+/**
+ * The headers the Cloudflare Email Sending API gets: List-Unsubscribe as `<https://...>` and
+ * List-Unsubscribe-Post as exactly `List-Unsubscribe=One-Click`, else neither (an http link, on localhost,
+ * would fail the send). Nothing else is passed: a header off its allowlist fails the send too.
+ */
+export function cloudflareHeaders(h: Record<string, string> | undefined): Record<string, string> | null {
+  const unsub = h?.['List-Unsubscribe'];
+  if (!unsub || !/^<https:\/\/[^<>\s]+>$/.test(unsub)) return null;
+  const post = h?.['List-Unsubscribe-Post'];
+  return post === 'List-Unsubscribe=One-Click' ? { 'List-Unsubscribe': unsub, 'List-Unsubscribe-Post': post } : { 'List-Unsubscribe': unsub };
+}
+
 export async function sendEmail(env: PaywallEnv, host: string, m: Mail, deps: AuthDeps): Promise<SendResult> {
   const provider = emailProvider(env, host);
   if (!provider) return notSetUp('EMAIL_PROVIDER');
@@ -308,12 +321,13 @@ export async function sendEmail(env: PaywallEnv, host: string, m: Mail, deps: Au
       const key = env.CF_EMAIL_API_TOKEN?.trim();
       if (!key) return notSetUp('CF_EMAIL_API_TOKEN');
       const from = sender.name ? { address: sender.email, name: sender.name } : sender.email;
+      const headers = cloudflareHeaders(m.headers);
       let res: Response;
       try {
         res = await (deps.fetch ?? fetch)(cloudflareEmailUrl(account), {
           method: 'POST',
           headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ to: m.to, from, subject: m.subject, html: m.html, text: m.text }),
+          body: JSON.stringify({ to: m.to, from, subject: m.subject, html: m.html, text: m.text, ...(headers ? { headers } : {}) }),
         });
       } catch (e) {
         console.error(`[recall auth] cloudflare email send threw: ${e instanceof Error ? e.name : 'error'}`);

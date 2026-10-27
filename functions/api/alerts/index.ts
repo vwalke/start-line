@@ -4,6 +4,7 @@ import { handleAlerts, type AlertsEnv } from '../../_alerts';
 interface PagesCtx {
   request: Request;
   env: AlertsEnv;
+  waitUntil(p: Promise<unknown>): void;
 }
 
 export const onRequest = (ctx: PagesCtx): Promise<Response> => handleAlerts(ctx);
