@@ -5,7 +5,7 @@ import { UPCOMING_DAYS, dateRangeText, startsInText, upcomingEvents } from '../s
 import { showUpcoming, upcomingCardsHtml } from '../src/landing/landing';
 import { UNDERWAY_TEXT, eventCardHtml, eventCardView } from '../src/ui/eventCard';
 import { pickerOptions } from '../src/ui/eventSearch';
-import { eventPath, handleNotify, notifyButtonHtml, notifyHref, notifyMe } from '../src/ui/notify';
+import { createAlerts, eventPath, handleNotify, notifyButtonHtml, notifyHref, withNotify } from '../src/ui/notify';
 
 const DAY = 86_400_000;
 const ms = (iso: string): number => Date.parse(iso);
@@ -180,33 +180,75 @@ describe('Notify me', () => {
     expect(notifyButtonHtml('bad id"><x', OUT)).toBe('');
   });
 
+  it('shows the state: Notify me, or Emails on ✓ (which turns them off), and why a change failed', () => {
+    expect(notifyButtonHtml(NA, IN, undefined, { on: false })).toContain('>Notify me</button>');
+    const on = notifyButtonHtml(NA, IN, undefined, { on: true });
+    expect(on).toContain('>Emails on ✓</button>');
+    expect(on).toContain('aria-label="Emails on: turn off race emails"');
+    expect(notifyButtonHtml(NA, OUT, undefined, { on: true })).toContain('>Notify me</button>');
+    expect(notifyButtonHtml(NA, IN, undefined, { on: false, busy: true })).toContain(' disabled>');
+    expect(notifyButtonHtml(NA, IN, undefined, { on: false, note: 'Too <many>' })).toContain('<span class="notify-note" role="status">Too &lt;many&gt;</span>');
+    expect(notifyButtonHtml(NA, IN, undefined, { on: false }, { quiet: true })).toContain('class="linkish notify-btn notify-quiet"');
+  });
+
   it('signed out: opens sign-in for that event, and nothing else', () => {
     const signIn = vi.fn();
-    const notify = vi.fn();
-    expect(handleNotify(NA, OUT, { signIn, notify })).toBe('signin');
+    const alerts = { state: () => ({ on: false }), set: vi.fn(async () => true) };
+    expect(handleNotify(NA, OUT, { signIn, alerts })).toBe('signin');
     expect(signIn).toHaveBeenCalledWith(NA);
-    expect(notify).not.toHaveBeenCalled();
+    expect(alerts.set).not.toHaveBeenCalled();
   });
 
-  it('signed in: calls the hook; paywall off: nothing', () => {
+  it('signed in: turns the emails on, or off when on; `ensure` only ever turns them on; paywall off: nothing', () => {
     const signIn = vi.fn();
-    const notify = vi.fn();
-    expect(handleNotify(NA, IN, { signIn, notify })).toBe('notify');
-    expect(notify).toHaveBeenCalledWith(NA);
-    expect(handleNotify(NA, OFF, { signIn, notify })).toBe('hidden');
+    let on = false;
+    const alerts = { state: () => ({ on }), set: vi.fn(async () => true) };
+    expect(handleNotify(NA, IN, { signIn, alerts })).toBe('notify');
+    expect(alerts.set).toHaveBeenLastCalledWith(NA, true);
+    on = true;
+    handleNotify(NA, IN, { signIn, alerts });
+    expect(alerts.set).toHaveBeenLastCalledWith(NA, false);
+    handleNotify(NA, IN, { signIn, alerts, ensure: true });
+    expect(alerts.set).toHaveBeenCalledTimes(2);
+    expect(handleNotify(NA, OFF, { signIn, alerts })).toBe('hidden');
     expect(signIn).not.toHaveBeenCalled();
-    expect(notify).toHaveBeenCalledTimes(1);
+    expect(alerts.set).toHaveBeenCalledTimes(2);
   });
 
-  it('the default hook opens the event page (nothing when it is already open)', async () => {
-    const assign = vi.fn();
-    await notifyMe(NA, { search: '', assign });
-    expect(assign).toHaveBeenCalledWith(`/?event=${NA}`);
-    assign.mockClear();
-    await notifyMe(NA, { search: `?event=${NA}`, assign });
-    expect(assign).not.toHaveBeenCalled();
+  it('links: the event, the landing page’s carry-on, and a sign-in’s way back', () => {
     expect(eventPath(NA)).toBe(`/?event=${NA}`);
     expect(notifyHref(NA)).toBe(`/?event=${NA}&notify=1`);
+    expect(withNotify(`/?event=${NA}&div=J70&race=3#race`)).toBe(`/?event=${NA}&div=J70&race=3&notify=1#race`);
+  });
+
+  it('the store: loads the list signed in, turns emails on and off, and keeps a failure’s message', async () => {
+    const calls: { method: string; body?: string }[] = [];
+    let list: unknown[] = [];
+    const f = vi.fn(async (_u: RequestInfo | URL, init: RequestInit = {}) => {
+      calls.push({ method: init.method ?? 'GET', body: init.body as string | undefined });
+      if (init.method === 'POST') {
+        const id = (JSON.parse(String(init.body)) as { eventId: string }).eventId;
+        if (id === 'full-event') return new Response(JSON.stringify({ error: 'too_many', message: 'Race emails are on for 50 regattas already.' }), { status: 409 });
+        list = [{ eventId: id, title: '2026 J/70 North Americans', startMs: 1, endMs: 2, createdAt: 3 }];
+      }
+      if (init.method === 'DELETE') list = [];
+      return new Response(JSON.stringify({ ok: true, alerts: list }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const a = createAlerts(f);
+    const seen = vi.fn();
+    a.onChange(seen);
+    await a.load(OUT);
+    expect(f).not.toHaveBeenCalled();
+    expect(a.list()).toEqual([]);
+    await a.load(IN);
+    expect(calls.at(-1)?.method).toBe('GET');
+    expect(await a.set(NA, true)).toBe(true);
+    expect(a.state(NA)).toEqual({ on: true, busy: false, note: undefined });
+    expect(await a.set(NA, false)).toBe(true);
+    expect(a.state(NA).on).toBe(false);
+    expect(await a.set('full-event', true)).toBe(false);
+    expect(a.state('full-event')).toEqual({ on: false, busy: false, note: 'Race emails are on for 50 regattas already.' });
+    expect(seen).toHaveBeenCalled();
   });
 });
 

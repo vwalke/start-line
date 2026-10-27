@@ -38,10 +38,8 @@ is the viewer's. Events further ahead stay out of the picker, as before, but an 
 still opens. Opening an event with no races yet (upcoming, or started with nothing posted) shows its
 card in place of the digest (`src/ui/eventCard.ts`): dates, venue, class, boats entered, and "Racing
 starts Wed, Oct 28." (the first scheduled start, else the first day) or "Racing is underway. Races will
-show up here as they're posted." Both cards carry **Notify me** (`src/ui/notify.ts`), only with the
-paywall on: signed out it opens the sign-in sheet, which comes back to the event (from the landing page
-it goes to `/?event=…&notify=1`, and the app opens the sheet and drops `notify`); signed in it calls
-`notifyMe(eventId)`, which for now just opens the event page.
+show up here as they're posted." Both cards carry **Notify me**, the race emails' toggle (see
+[Race emails](#race-emails)), only with the paywall on.
 
 **Landing thumbnails.** `scripts/landing-thumbs.mjs` drives headless Chrome with Playwright against a running
 Recall server and writes `public/landing/<slug>-thumb.webp`, `<slug>-thumb@2x.webp` and `<slug>.webp` for each
@@ -2199,6 +2197,94 @@ node scripts/feedback.mjs list [--limit 50] [--since 2026-10-01] [--type bug|ide
 node scripts/feedback.mjs show 79733007-b065-4920-b85d-51fc2d817d9a
 # A picture: npx wrangler r2 object get <bucket>/feedback/<id>/image.webp --remote --file shot.webp
 ```
+
+## Race emails
+
+"Email me when races are posted": a signed-in sailor turns emails on per regatta, and gets one email
+per race as it's posted. Paywall on only (with `PAYWALL_ENABLED` off the toggle is hidden and the
+session routes answer 404).
+
+**The toggle** (`src/ui/notify.ts`): **Notify me** on the landing page's Upcoming cards and the app's
+event card (an event with no races yet), and small after the race's gun line inside an event (not on a
+regatta that's over, unless emails are on). On, it reads **Emails on ✓**; clicking it turns them off.
+Signed out it opens the sign-in sheet, which comes back to the event with `notify=1`, and the app then
+turns the emails on and drops `notify` (from the landing page it goes to `/?event=…&notify=1` first,
+where the app opens the sheet). The Account sheet lists **Race emails** (title, dates, Turn off).
+
+**The API** (`functions/_alerts.ts`, routes in `functions/api/alerts/`):
+
+| Route | What |
+| --- | --- |
+| `GET /api/alerts` | `{ alerts: [{ eventId, title, startMs, endMs, createdAt }] }` |
+| `POST /api/alerts` `{ eventId }` | on (idempotent): `{ ok, alerts }`; 400 bad id, 404 unknown event, 409 `too_many` (50 per user) or `event_over`, 502 RaceSense down for an event not seen before |
+| `DELETE /api/alerts` `{ eventId }` | off: `{ ok, alerts }` |
+| `GET /api/alerts/unsubscribe?t=` | the email's link: a small page with a **Turn off race emails** button; changes nothing (mail scanners prefetch links) |
+| `POST /api/alerts/unsubscribe?t=` | the button, or a mail client's RFC 8058 one-click POST (`List-Unsubscribe=One-Click`): off |
+
+The session routes read the session cookie, answer 401 `sign_in_required` signed out, and want an
+Origin from this site (or walkeforward.com) on POST / DELETE. The unsubscribe routes take no cookie and
+work with the flag on or off: the token is the authority. It is `payload.signature`, both base64url:
+the payload is `{"p":"race-alert-unsub","u":<user id>,"e":<event id>}`, the signature an HMAC-SHA256
+under `AUTH_SECRET` of `race-alert-unsub:` + payload, compared in constant time. It doesn't expire;
+changing `AUTH_SECRET` voids every link already sent.
+
+**Posted races.** A race in the list Recall builds from the RaceSense document (`src/data/raceList.ts`,
+without official results), not practice, with its gun at or before now, and at least one finish, or an
+end time, or a gun four hours ago. Its key is `<division>|<RaceSense race number>`, stable while the
+shown number can still change (an ordinal, a race later called practice). The email shows the number
+the picker shows without official results; the link opens the race by its RaceSense number.
+
+**Who gets what.** Subscribing fetches the event's document and records its posted races in
+`race_alert_seen` (and, the first time, marks the event baselined), so the races already up are never
+mailed. Each Worker run records new races with `first_seen_at` = now; a subscriber gets a race only if
+it was first seen after the event's baseline and after they subscribed, and within a day (no catch-up
+mail after an outage). An event the Worker finds not baselined (subscribed while RaceSense was down)
+is baselined first, mailing no one. De-dup: a `race_alert_sent` row (user, event, race) is inserted
+(`INSERT OR IGNORE`, `pending`) before the send and then marked `sent` or `failed`, so a second run, a
+retry or a crash in between never mails twice (a failed or interrupted send is not retried).
+
+**The email**: "Race 3 is up: 2026 J/70 North Americans" (with the division in the subject when the
+event has more than one), the division, race number and gun time on the venue's clock, a link to
+`https://recall.walkeforward.com/?event=…&div=…&race=…`, and the unsubscribe link. Plain text and
+simple HTML, everything escaped; no names and no boats. It goes out through the sign-in mailer
+(`functions/_auth.ts` `sendEmail`). `List-Unsubscribe` and `List-Unsubscribe-Post` headers go with
+`resend` and the `cloudflare` (send_email binding) providers; the `cloudflare-api` REST call has no
+documented headers field, so with it the emails carry the link in the body only.
+
+**The Worker** `recall-race-alerts` (`workers/race-alerts/`, `wrangler.toml` there): cron
+`*/10 * * * *`. Each run takes the subscribed events whose dates fall in the window (a day before the
+first day to two days after the last), least recently checked first, fetches each one's document from
+RaceSense (the Pages proxy's upstream and user agent) and mails as above. Bounds per run: 25 events,
+200 emails, 25 s (`DEFAULT_LIMITS` in `src/run.ts`); what's left goes next run. Any other request to it
+is a 404. `npm run worker:alerts` bundles it with esbuild (to `dist/workers/`) as a check;
+`npx tsc --noEmit` typechecks it with the rest.
+
+**Setting it up** (none of this is done yet; the owner's OK first):
+
+1. Apply `migrations/0005_race_alerts.sql` (additive: `race_alert_events`, `race_alert_subs`,
+   `race_alert_seen`, `race_alert_sent`) to Preview, then production, **before** deploying this code:
+   `npx wrangler d1 migrations apply recall-auth --remote` (Preview's database first).
+2. In `workers/race-alerts/wrangler.toml`, set `database_id` (`npx wrangler d1 list`) and
+   `CF_EMAIL_ACCOUNT_ID`; check `EMAIL_PROVIDER` and `EMAIL_FROM`.
+3. Secrets, from `workers/race-alerts/`:
+   `npx wrangler secret put AUTH_SECRET` (**the same value as the Pages project's**: Pages checks the
+   tokens the Worker signs), and `npx wrangler secret put CF_EMAIL_API_TOKEN` (or `RESEND_API_KEY` with
+   `EMAIL_PROVIDER = "resend"`).
+4. Deploy: `cd workers/race-alerts && npx wrangler deploy`.
+
+| Worker setting | Kind | Value |
+| --- | --- | --- |
+| `AUTH_DB` | D1 binding | `recall-auth` (the Pages project's `AUTH_DB`) |
+| `PAYWALL_ENABLED` | var | `true` (the Worker sends nothing while it's off) |
+| `APP_ORIGIN` | var | `https://recall.walkeforward.com` (where the links point) |
+| `EMAIL_PROVIDER` | var | `cloudflare-api`, `resend` or `cloudflare` (a `[[send_email]]` binding named `EMAIL`) |
+| `EMAIL_FROM` | var | e.g. `Recall <signin@walkeforward.com>` |
+| `CF_EMAIL_ACCOUNT_ID` | var | `cloudflare-api` only |
+| `AUTH_SECRET` | secret | same as Pages |
+| `CF_EMAIL_API_TOKEN` | secret | `cloudflare-api` only |
+| `RESEND_API_KEY` | secret | `resend` only |
+
+The Pages project needs nothing new: the routes use its `AUTH_DB`, `AUTH_SECRET` and `PAYWALL_ENABLED`.
 
 ## Local development
 

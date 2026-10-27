@@ -1,0 +1,36 @@
+# recall-race-alerts: emails a sailor when a race is posted for a regatta they asked about.
+# README "Race emails". Deploy from this folder: npx wrangler deploy
+# Before the first deploy: migrations/0005_race_alerts.sql applied (Preview first, then production),
+# database_id below filled in, and the secrets set (wrangler secret put …; see the README).
+name = "recall-race-alerts"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+workers_dev = false
+
+[triggers]
+crons = ["*/10 * * * *"]
+
+# The sign-in database the Pages project binds as AUTH_DB (recall-auth).
+[[d1_databases]]
+binding = "AUTH_DB"
+database_name = "recall-auth"
+database_id = "REPLACE_WITH_RECALL_AUTH_DATABASE_ID" # wrangler d1 list
+
+[vars]
+# The Worker sends only while this is on (as the paywall's routes are only there with it on).
+PAYWALL_ENABLED = "true"
+# Where the email's links point.
+APP_ORIGIN = "https://recall.walkeforward.com"
+# The sign-in mailer's provider and sender (functions/_auth.ts): cloudflare-api | resend | cloudflare.
+EMAIL_PROVIDER = "cloudflare-api"
+EMAIL_FROM = "Recall <signin@walkeforward.com>"
+# cloudflare-api only: the account id (not a secret).
+CF_EMAIL_ACCOUNT_ID = "REPLACE_WITH_ACCOUNT_ID"
+
+# Secrets (never here): wrangler secret put AUTH_SECRET   (the same value as the Pages project's)
+#                       wrangler secret put CF_EMAIL_API_TOKEN   (cloudflare-api)
+#                       wrangler secret put RESEND_API_KEY       (resend)
+
+# EMAIL_PROVIDER = "cloudflare" uses a send_email binding instead (a Worker can bind one, Pages can't):
+# [[send_email]]
+# name = "EMAIL"

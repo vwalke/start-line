@@ -240,6 +240,12 @@ export interface Mail {
   html: string;
   /** Reply-To (the feedback sender's address); only the `resend` provider passes it on. */
   replyTo?: string;
+  /**
+   * Extra headers (the race emails' List-Unsubscribe and List-Unsubscribe-Post): passed on by `resend`
+   * and the `cloudflare` binding; the `cloudflare-api` REST call leaves them out (its schema has no
+   * documented headers field, and an unknown field fails the send).
+   */
+  headers?: Record<string, string>;
 }
 
 export type SendResult = { ok: true } | { ok: false; status: number; error: string };
@@ -324,14 +330,22 @@ export async function sendEmail(env: PaywallEnv, host: string, m: Mail, deps: Au
       const res = await (deps.fetch ?? fetch)(RESEND_URL, {
         method: 'POST',
         headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ from: `${sender.name ?? 'Recall'} <${sender.email}>`, to: [m.to], subject: m.subject, text: m.text, html: m.html, ...(m.replyTo ? { reply_to: m.replyTo } : {}) }),
+        body: JSON.stringify({
+          from: `${sender.name ?? 'Recall'} <${sender.email}>`,
+          to: [m.to],
+          subject: m.subject,
+          text: m.text,
+          html: m.html,
+          ...(m.replyTo ? { reply_to: m.replyTo } : {}),
+          ...(m.headers ? { headers: m.headers } : {}),
+        }),
       });
       await res.body?.cancel().catch(() => undefined);
       return res.ok ? { ok: true } : SEND_FAILED;
     }
     if (!env.EMAIL) return notSetUp('EMAIL binding');
     const from = sender.name ? { email: sender.email, name: sender.name } : sender.email;
-    await env.EMAIL.send({ from, to: m.to, subject: m.subject, html: m.html, text: m.text });
+    await env.EMAIL.send({ from, to: m.to, subject: m.subject, html: m.html, text: m.text, ...(m.headers ? { headers: m.headers } : {}) });
     return { ok: true };
   } catch {
     return SEND_FAILED;
@@ -883,14 +897,15 @@ async function logoutRoute(ctx: AuthCtx): Promise<Response> {
 
 // ---- OAuth (Google, Microsoft, Apple): the signed state cookie
 
-const b64url =(bytes: Uint8Array): string => {
+export const b64url = (bytes: Uint8Array): string => {
   let s = '';
   for (const x of bytes) s += String.fromCharCode(x);
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 };
-const fromB64url = (s: string): string => atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4));
+export const fromB64url = (s: string): string => atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4));
 
-async function hmac(secret: string, data: string): Promise<string> {
+/** HMAC-SHA256 of `data` under `secret`, base64url (the state, the buy marker, the race emails' unsubscribe token). */
+export async function hmac(secret: string, data: string): Promise<string> {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   return b64url(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data))));
 }

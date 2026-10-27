@@ -1,6 +1,6 @@
 /**
  * The card for an event opened before any race is posted (an Upcoming one, or one just underway): its
- * title, dates, venue, class, how many boats are entered, when racing starts, and Notify me (notify.ts).
+ * title, dates, venue, class, how many boats are entered, when racing starts, and the race emails' toggle (notify.ts).
  * Boats are counted, never named. Pure (tested in node); the app shows it in place of the digest.
  */
 import type { Me } from '../data/paywall';
@@ -8,7 +8,7 @@ import { tzOffsetMs } from '../data/racesense/adapter';
 import type { LandingEvent, RegattaDoc } from '../data/racesense/types';
 import { dateRangeText, dayText } from '../data/upcoming';
 import { esc } from './format';
-import { notifyButtonHtml } from './notify';
+import { notifyButtonHtml, type NotifyState } from './notify';
 
 export interface EventCardView {
   eventId: string;
@@ -57,11 +57,11 @@ export function eventCardView(eventId: string, doc: RegattaDoc | null | undefine
 /** "24 boats entered" ('' for none). */
 export const entriesText = (n: number): string => (n > 0 ? `${n} boat${n === 1 ? '' : 's'} entered` : '');
 
-/** The card; `free`: the "Free" badge (paywall.free). */
-export function eventCardHtml(v: EventCardView, o: { me: Me; free: boolean }): string {
+/** The card; `free`: the "Free" badge (paywall.free); `notify`: the race emails' toggle state. */
+export function eventCardHtml(v: EventCardView, o: { me: Me; free: boolean; notify?: NotifyState }): string {
   const meta = [v.classLabel, v.dates, v.venue].filter(Boolean).map(esc).join(' · ');
   const entries = entriesText(v.entries);
-  const notify = notifyButtonHtml(v.eventId, o.me, 'event-card-title');
+  const notify = notifyButtonHtml(v.eventId, o.me, 'event-card-title', o.notify);
   return `<section class="card event-card" aria-labelledby="event-card-title">
     <h2 id="event-card-title">${esc(v.title)}${o.free ? ' <span class="free-tag">Free</span>' : ''}</h2>
     ${meta ? `<p class="event-card-meta">${meta}</p>` : ''}

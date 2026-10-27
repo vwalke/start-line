@@ -42,6 +42,8 @@ import {
 } from '../data/paywall';
 import { THEME_PREFS, parseThemePref, setThemePref, themePref, type ThemePref } from '../theme';
 import { createTurnstile, type Turnstile } from './turnstile';
+import { dateRangeText } from '../data/upcoming';
+import type { Alerts, RaceAlert } from './notify';
 import type { ListedRace } from '../data/raceList';
 import { findRace, tzOffsetMs, type RaceListItem } from '../data/racesense/adapter';
 import type { RegattaDoc } from '../data/racesense/types';
@@ -299,7 +301,20 @@ export function themeHtml(pref: ThemePref): string {
   return `<h3 class="account-sub">Theme</h3><div class="seg account-theme" role="group" aria-label="Theme">${btns}</div>`;
 }
 
-export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => string, theme: ThemePref = 'system'): string {
+/** The sheet's Race emails section: each event with emails on, its dates, and Turn off ('' for none). */
+export function raceAlertsHtml(alerts: readonly RaceAlert[] | null | undefined): string {
+  if (!alerts?.length) return '';
+  const rows = alerts
+    .map((a) => {
+      const dates = dateRangeText(a.startMs, a.endMs);
+      return `<li class="account-alert"><span class="account-alert-name">${esc(a.title)}</span>${dates ? ` <span class="muted">${esc(dates)}</span>` : ''}
+        <button type="button" class="lock-secondary" data-pw="alert-off" data-id="${esc(a.eventId)}" aria-label="Turn off race emails for ${esc(a.title)}">Turn off</button></li>`;
+    })
+    .join('');
+  return `<h3 class="account-sub">Race emails</h3><ul class="account-alerts">${rows}</ul>`;
+}
+
+export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => string, theme: ThemePref = 'system', alerts: readonly RaceAlert[] | null = null): string {
   if (!me.paywall) return '';
   const note = s.note ? `<p class="account-note" role="status">${esc(s.note)}</p>` : '';
   const head = (title: string): string =>
@@ -330,6 +345,7 @@ export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => str
     const manage = me.entitlements.some((p) => p.scope === 'season' && p.owner && !p.gift) ? `<button type="button" class="lock-secondary" data-pw="portal"${s.busy ? ' disabled' : ''}>Manage subscription</button>` : '';
     return `${head('Your account')}${note}<p>Signed in as <strong>${esc(me.user.email)}</strong></p>
       <h3 class="account-sub">Passes</h3>${passes}
+      ${raceAlertsHtml(alerts)}
       ${devicesHtml(me.devices, s.busy)}
       ${themeHtml(theme)}
       <p class="account-actions">${manage}${email ? '<button type="button" class="lock-secondary" data-pw="restore">Restore access</button>' : ''}<button type="button" class="lock-secondary" data-pw="signout"${s.busy ? ' disabled' : ''}>Sign out</button></p>`;
@@ -473,8 +489,8 @@ export interface Paywall {
   lockShown(): boolean;
   /** Re-read /api/auth/me; true when it changed (onChange has run). */
   refresh(): Promise<boolean>;
-  /** The sign-in sheet (Notify me, signed out): it comes back to this page. Nothing with the paywall off or signed in. */
-  signIn(): void;
+  /** The sign-in sheet (Notify me, signed out): it comes back to `back` (default this page). Nothing with the paywall off or signed in. */
+  signIn(back?: string): void;
 }
 
 export type NoteStore = Pick<Storage, 'getItem' | 'setItem'>;
@@ -550,7 +566,7 @@ const sessionStore = (): Storage | null => {
   }
 };
 
-export function createPaywall(o: { onChange: () => void; notice: (text: string) => void; eventTitle: (id: string) => string }): Paywall {
+export function createPaywall(o: { onChange: () => void; notice: (text: string) => void; eventTitle: (id: string) => string; alerts?: Alerts }): Paywall {
   let me: Me = PAYWALL_OFF;
   let lockEl: HTMLElement | null = null;
   let target: LockTarget | null = null;
@@ -560,6 +576,9 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
   let sheet: SheetState = { mode: 'signin' };
   /** The pass clicked while signed out: carried through the sign-in the sheet starts. */
   let pendingBuy: BuyIntent | null = null;
+  /** Where the sheet's sign-in comes back to, when not this page (Notify me's `notify=1`). */
+  let pendingBack: string | null = null;
+  const back = (): string => pendingBack ?? hereWithout(location.href);
   let autoStarted = false;
   /** Turnstile on the email forms: made the first time a form shows with a site key (never with the paywall off). */
   let turnstile: Turnstile | null = null;
@@ -633,14 +652,18 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
   const renderSheet = (): void => {
     const box = dialog?.querySelector('.switcher-sheet');
     if (!box) return;
-    box.innerHTML = sheetHtml(me, sheet, o.eventTitle, themePref());
+    box.innerHTML = sheetHtml(me, sheet, o.eventTitle, themePref(), o.alerts?.list() ?? null);
     syncTurnstile(box);
   };
+  o.alerts?.onChange(() => {
+    if (dialog?.open) renderSheet();
+  });
   /** Signed out from elsewhere: open the sign-in sheet once, saying why. */
   const sayWhySignedOut = (): void => {
     if (!me.paywall || me.user || !me.signedOutReason || reasonShown) return;
     reasonShown = true;
     pendingBuy = null;
+    pendingBack = null;
     openSheet({ mode: 'signin', note: signedOutNote(me.signedOutReason) });
   };
   /** Just signed in and that bumped a device: say which, until dismissed or the account sheet opens. */
@@ -687,6 +710,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     }
     if (!me.user) {
       pendingBuy = eventId ? { product: 'regatta', eventId } : null;
+      pendingBack = null;
       return openSheet({ mode: 'signin', note: 'Sign in first: checkout opens right after.' });
     }
     if (!eventId) return;
@@ -733,8 +757,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
         return renderSheet();
       }
     }
-    const back = hereWithout(location.href);
-    const r = action === 'signin' ? await sendSignInLink(email, back, undefined, pendingBuy, token) : await sendRestoreLink(email, back, undefined, token);
+    const r = action === 'signin' ? await sendSignInLink(email, back(), undefined, pendingBuy, token) : await sendRestoreLink(email, back(), undefined, token);
     // A token is good once: ask for a fresh one whatever the answer.
     turnstile?.reset();
     if (r.ok) sheet = { mode: action === 'signin' ? 'sent' : 'restore-sent', email };
@@ -758,7 +781,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     const a = el.dataset.pw;
     if (a === 'google' || a === 'microsoft' || a === 'apple') {
       ev.preventDefault();
-      location.assign(oauthStartUrl(a, hereWithout(location.href), pendingBuy));
+      location.assign(oauthStartUrl(a, back(), pendingBuy));
     } else if (a === 'buy-regatta') void buy();
     else if (a === 'signin') {
       pendingBuy = null;
@@ -775,6 +798,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     else if (a === 'portal') void manage();
     else if (a === 'revoke' && el.dataset.id) void revoke(el.dataset.id);
     else if (a === 'revoke-others') void revoke(null);
+    else if (a === 'alert-off' && el.dataset.id) void o.alerts?.set(el.dataset.id, false);
     else if (a === 'signout') {
       sheet = { ...sheet, busy: true };
       renderSheet();
@@ -806,6 +830,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     document.body.appendChild(dialog);
     openBtn.addEventListener('click', () => {
       pendingBuy = null;
+      pendingBack = null;
       openSheet({ mode: me.paywall && me.user ? 'account' : 'signin' });
     });
     dialog.addEventListener('close', () => {
@@ -911,9 +936,10 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     },
     lockShown: () => !!lockEl && !lockEl.hidden,
     refresh,
-    signIn() {
+    signIn(to) {
       if (!me.paywall || me.user) return;
       pendingBuy = null;
+      pendingBack = to ?? null;
       openSheet({ mode: 'signin' });
     },
   };

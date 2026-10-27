@@ -14,7 +14,7 @@ import { PRICE_REGATTA } from '../data/price';
 import { fetchLanding } from '../data/racesense/api';
 import type { LandingEvent } from '../data/racesense/types';
 import { dateRangeText, startsInText, upcomingEvents } from '../data/upcoming';
-import { eventPath, handleNotify, notifyButtonHtml, notifyHref } from '../ui/notify';
+import { createAlerts, eventPath, handleNotify, notifyButtonHtml, notifyHref, type Alerts } from '../ui/notify';
 import { startLightbox } from './lightbox';
 import { REGATTAS_PATH } from './route';
 
@@ -63,13 +63,13 @@ const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"
 const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => ESC[c]);
 
 /** The Upcoming cards ('' for none): title (a link to the event), class and venue, dates, "Starts in …", Free, Notify me. */
-export function upcomingCardsHtml(events: readonly LandingEvent[], me: Me, now: number, tzOffsetMin?: number): string {
+export function upcomingCardsHtml(events: readonly LandingEvent[], me: Me, now: number, tzOffsetMin?: number, alerts?: Pick<Alerts, 'state'>): string {
   return upcomingEvents(events, now)
     .map((e) => {
       const id = `up-${e.eventId}`;
       const free = me.paywall && isFreeEvent(e.eventId, now) ? ' <span class="free-tag">Free</span>' : '';
       const meta = [e.classLabel?.trim(), e.venue?.trim()].filter((x): x is string => !!x).map(esc).join(' · ');
-      const notify = notifyButtonHtml(e.eventId, me, id);
+      const notify = notifyButtonHtml(e.eventId, me, id, alerts?.state(e.eventId));
       return `<li class="land-card land-up">
         <h3 id="${esc(id)}"><a href="${esc(eventPath(e.eventId))}">${esc(e.title)}</a>${free}</h3>
         ${meta ? `<p class="land-up-meta">${meta}</p>` : ''}
@@ -83,7 +83,7 @@ export function upcomingCardsHtml(events: readonly LandingEvent[], me: Me, now: 
 /** Fill in "Upcoming regattas" (hidden until there is one); any failure leaves it hidden. */
 export async function showUpcoming(
   doc: Document,
-  o: { landing?: () => Promise<{ events: LandingEvent[] }>; me?: () => Promise<Me>; now?: () => number; go?: (href: string) => void } = {},
+  o: { landing?: () => Promise<{ events: LandingEvent[] }>; me?: () => Promise<Me>; now?: () => number; go?: (href: string) => void; alerts?: Alerts } = {},
 ): Promise<void> {
   const section = doc.getElementById('land-upcoming');
   const list = section?.querySelector<HTMLElement>('.land-upcoming-list');
@@ -95,15 +95,21 @@ export async function showUpcoming(
   } catch {
     return;
   }
-  const html = upcomingCardsHtml(events, me, (o.now ?? Date.now)());
-  list.innerHTML = html;
-  section.hidden = !html;
+  const alerts = o.alerts ?? createAlerts();
+  const render = (): void => {
+    const html = upcomingCardsHtml(events, me, (o.now ?? Date.now)(), undefined, alerts);
+    list.innerHTML = html;
+    section.hidden = !html;
+  };
+  render();
+  alerts.onChange(render);
   const go = o.go ?? ((href: string) => location.assign(href));
   section.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest<HTMLElement>('button[data-notify]');
     // Signed out: to the event, where the app opens the sign-in sheet (which comes back there).
-    if (b?.dataset.notify) handleNotify(b.dataset.notify, me, { signIn: (id) => go(notifyHref(id)) });
+    if (b?.dataset.notify) handleNotify(b.dataset.notify, me, { signIn: (id) => go(notifyHref(id)), alerts });
   });
+  if (me.paywall && me.user && section.hidden === false) await alerts.load(me);
 }
 
 export function startLanding(doc: Document = document): void {

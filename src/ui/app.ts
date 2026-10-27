@@ -193,9 +193,9 @@ import { mapPaint } from './mapPaint';
 import { paintTrails } from './trailLayer';
 import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
 import { createVkxUpload } from './vkxUpload';
-import { createPaywall, lockedRange, startRace } from './paywall';
+import { createPaywall, hereWithout, lockedRange, startRace } from './paywall';
 import { eventCardHtml, eventCardView } from './eventCard';
-import { NOTIFY_PARAM, handleNotify } from './notify';
+import { NOTIFY_PARAM, createAlerts, handleNotify, notifyButtonHtml, withNotify } from './notify';
 import { upcomingEvents } from '../data/upcoming';
 import { appPath } from '../landing/route';
 import { setPageState } from '../feedback/state';
@@ -309,11 +309,22 @@ export function startApp(): void {
   const params = plan.params;
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   /** Paywall (only when /api/auth/me says it is on): a lock card instead of the digest for a race the viewer can't open. */
+  /** The signed-in user's race emails (notify.ts): the toggles and the account sheet's list. */
+  const alerts = createAlerts();
   const paywall = createPaywall({
     onChange: () => paywallChanged(),
     notice: (text) => setNotice(text),
     eventTitle: (id) => titleOf(id),
+    alerts,
   });
+  void paywall.ready.then((me) => alerts.load(me));
+  alerts.onChange(() => {
+    if (cardEventId) renderEventCard();
+    else renderSummary();
+  });
+  /** A Notify me click (or `notify=1` back from a sign-in, `ensure`): signed out, the sheet, coming back here with `notify=1`. */
+  const notify = (id: string, ensure = false): void =>
+    void handleNotify(id, paywall.me(), { signIn: () => paywall.signIn(withNotify(hereWithout(location.href))), alerts, ensure });
   const freeMemo = new WeakMap<RegattaResponse, FreeRaces>();
   /** Race 1 of each division, from the regatta as fetched (rebuilt races are never free). */
   const freeOf = (r: RegattaResponse): FreeRaces => {
@@ -547,6 +558,16 @@ export function startApp(): void {
     els.raceHead.hidden = !m;
   }
 
+  /** The race emails' toggle, small, after the gun line: while the event is on (or the emails are), never on a finished one. */
+  function raceEmailsToggle(id: string | null | undefined): string {
+    if (!id) return '';
+    const state = alerts.state(id);
+    const end = landingOf(id)?.endMs ?? 0;
+    if (!state.on && end > 0 && Date.now() > end + 2 * 86_400_000) return '';
+    const html = notifyButtonHtml(id, paywall.me(), undefined, state, { quiet: true });
+    return html ? ` · ${html}` : '';
+  }
+
   /** The race title and gun line (`#summary`): re-run whenever the race list is relabelled, as well as on every render. */
   function renderSummary(): void {
     const a = analysis;
@@ -556,7 +577,7 @@ export function startApp(): void {
     els.summary.innerHTML = `${raceTitleHtml(m, listed, paywall.free(m.eventId ?? eventId))}
       <p>${esc(gunTimeLine(m.gunMs, m.tzOffsetMs))} ·
       ${a.boats.length} boats · ${legCount(a.legs.length)} ·
-      <span class="muted">${esc(m.sourceLabel)}</span></p>`;
+      <span class="muted">${esc(m.sourceLabel)}</span>${raceEmailsToggle(m.eventId ?? eventId)}</p>`;
     renderRaceHead();
     vkx.mount(els.raceHead, a);
   }
@@ -2317,6 +2338,7 @@ export function startApp(): void {
 
   /** Signed in or out, or a pass arrived: reload the race on screen if its lock changed. */
   function paywallChanged(): void {
+    void alerts.load(paywall.me());
     // The "Free" badges follow the paywall (on or off).
     if (events.length || upcoming.length) renderEventOptions();
     if (cardEventId) return renderEventCard();
@@ -2542,7 +2564,7 @@ export function startApp(): void {
   function renderEventCard(): void {
     if (!cardEventId) return;
     const v = eventCardView(cardEventId, cardDoc, landingOf(cardEventId), Date.now());
-    cardEl.innerHTML = eventCardHtml(v, { me: paywall.me(), free: paywall.free(cardEventId) });
+    cardEl.innerHTML = eventCardHtml(v, { me: paywall.me(), free: paywall.free(cardEventId), notify: alerts.state(cardEventId) });
     cardEl.hidden = false;
   }
 
@@ -2557,7 +2579,11 @@ export function startApp(): void {
 
   cardEl.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest<HTMLButtonElement>('button[data-notify]');
-    if (b?.dataset.notify) handleNotify(b.dataset.notify, paywall.me(), { signIn: () => paywall.signIn() });
+    if (b?.dataset.notify) notify(b.dataset.notify);
+  });
+  els.summary.addEventListener('click', (ev) => {
+    const b = (ev.target as HTMLElement).closest<HTMLButtonElement>('button[data-notify]');
+    if (b?.dataset.notify) notify(b.dataset.notify);
   });
 
   /** A user pick (select, or Enter in the search). On failure the select goes back to the loaded event. */
@@ -2641,10 +2667,10 @@ export function startApp(): void {
     if (explicit && !events.some((e) => e.eventId === explicit) && !upcoming.some((e) => e.eventId === explicit)) {
       events.unshift(listed.find((e) => e.eventId === explicit) ?? { eventId: explicit, title: explicit, startMs: 0, endMs: 0 });
     }
-    // Notify me from the landing page (notify.ts): drop the marker, then sign in or carry on, as a click here would.
+    // Notify me from the landing page or back from its sign-in (notify.ts): drop the marker, then sign in or turn the emails on.
     if (explicit && new URLSearchParams(location.search).has(NOTIFY_PARAM)) {
       setUrl({ [NOTIFY_PARAM]: null });
-      void paywall.ready.then((me) => handleNotify(explicit, me, { signIn: () => paywall.signIn() }));
+      void paywall.ready.then(() => notify(explicit, true));
     }
     renderEventOptions();
     void paywall.ready.then(renderEventOptions);
