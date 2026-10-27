@@ -58,7 +58,7 @@ describe('Ask Coach starter questions', () => {
 
   it('chips send the question (data-ask-suggest), disabled while busy', () => {
     const html = askStartersHtml(['Why did I lose places on Beat 1?']);
-    expect(html).toBe('<li><button type="button" class="chip ask-sug" data-ask-suggest="Why did I lose places on Beat 1?">Why did I lose places on Beat 1?</button></li>');
+    expect(html).toBe('<li><button type="button" class="chip ask-sug act act-chip" data-ask-suggest="Why did I lose places on Beat 1?">Why did I lose places on Beat 1?</button></li>');
     expect(askStartersHtml(['x'], true)).toContain(' disabled>');
   });
 });

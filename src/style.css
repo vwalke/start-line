@@ -55,13 +55,21 @@
   /* Sorted metrics column: a light accent wash, readable on both schemes. */
   --sorted-bg: color-mix(in srgb, var(--accent) 11%, var(--surface));
   /* Data actions (ui/act.ts): the accent pulled a little toward the ink, so it clears 4.5:1 on its own tint in both
-     schemes; the underline and tint at rest, a stronger tint on hover. Controls' selected state: an ink tint, never the accent. */
+     schemes; the underline and tint at rest (the underline 3:1 on every background it sits on), a stronger tint on
+     hover; on (pressed): a solid fill under light text in both schemes. The over-early Replay start: the same in red.
+     Controls' selected state: an ink tint inside an ink-2 ring, never the accent. */
   --act-ink: color-mix(in srgb, var(--accent) 85%, var(--ink));
-  --act-line: color-mix(in srgb, var(--act-ink) 50%, transparent);
+  --act-line: color-mix(in srgb, var(--act-ink) 80%, var(--surface));
   --act-bg: color-mix(in srgb, var(--accent) 8%, var(--surface));
   --act-bg-hover: color-mix(in srgb, var(--accent) 15%, var(--surface));
   --act-press: color-mix(in srgb, var(--accent) 60%, var(--ink));
-  --sel-bg: color-mix(in srgb, var(--ink) 12%, var(--surface));
+  --act-on: var(--accent);
+  --act-on-ink: var(--surface);
+  --bad-line: color-mix(in srgb, var(--bad) 75%, var(--surface));
+  --bad-bg-hover: color-mix(in srgb, var(--bad) 20%, var(--surface));
+  --bad-on: var(--bad);
+  --sel-bg: color-mix(in srgb, var(--ink) 18%, var(--surface));
+  --sel-line: var(--ink-2);
 
   --carbon: #16181c;
   --on-carbon: #f2f4f7;
@@ -105,6 +113,10 @@
     --bad: #ff9c9c;
     --notice-bg: #3a2f12;
     --sorted-bg: color-mix(in srgb, var(--accent) 18%, var(--surface));
+    /* On: the accent and the red darkened toward the page, under the ink, so a pressed chip reads as in Day. */
+    --act-on: color-mix(in srgb, var(--accent) 75%, var(--page));
+    --act-on-ink: var(--ink);
+    --bad-on: color-mix(in srgb, var(--bad) 50%, var(--page));
     --s1: #3987e5;
     --s2: #d95926;
     --s3: #199e70;
@@ -334,7 +346,7 @@ input[type='search']:disabled, select:disabled { opacity: 0.6; }
   cursor: pointer;
 }
 .tabs [role='tab']:hover { border-color: var(--ink-3); color: var(--ink); }
-.tabs [role='tab'][aria-selected='true'] { background: var(--sel-bg); border-color: var(--ink-2); color: var(--ink); }
+.tabs [role='tab'][aria-selected='true'] { background: var(--sel-bg); border-color: var(--sel-line); box-shadow: inset 0 0 0 1px var(--sel-line); color: var(--ink); }
 .panel[hidden] { display: none; }
 .panel:focus { outline: none; }
 
@@ -436,7 +448,7 @@ svg .boat.dim { opacity: 0.3; }
 svg .boat-min .min-ring { fill: none; }
 .zoom { display: flex; gap: 4px; margin: 0 0 6px; }
 .zoom button { font: inherit; font-size: 0.8rem; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2); cursor: pointer; }
-.zoom button[aria-pressed='true'] { background: var(--sel-bg); border-color: var(--ink-2); color: var(--ink); }
+.zoom button[aria-pressed='true'] { background: var(--sel-bg); border-color: var(--sel-line); box-shadow: inset 0 0 0 1px var(--sel-line); color: var(--ink); }
 .zoom button:focus-visible { border-radius: 6px; }
 /* At Fit one finger scrolls the page (pan-y) and pinch reaches the chart; zoomed, the chart takes every touch. */
 .panzoom { touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; border-radius: 4px; }
@@ -475,7 +487,7 @@ svg .scalebar text { fill: var(--ink-2); }
 
 .legend { display: flex; flex-wrap: wrap; gap: 4px; font-size: 0.8rem; color: var(--ink-2); margin-bottom: 4px; }
 .legend .key { font: inherit; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2); cursor: pointer; }
-.legend .key[aria-pressed='true'] { background: var(--sel-bg); border-color: var(--ink-2); color: var(--ink); font-weight: 600; }
+.legend .key[aria-pressed='true'] { background: var(--sel-bg); border-color: var(--sel-line); box-shadow: inset 0 0 0 1px var(--sel-line); color: var(--ink); font-weight: 600; }
 .legend .key i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
 /* Colour: Rank or Boat speed. Swatches would read as a key for the tracks, so they go; the leg buttons stay. */
 .legend.speed .key i { display: none; }
@@ -492,7 +504,7 @@ svg .scalebar text { fill: var(--ink-2); }
 .seg button:last-of-type { border-radius: 0 6px 6px 0; }
 /* The trail's "Window" (last) shows only with a Coach card's window open; without it, All ends the group. */
 #map-trail button[data-trail='all']:has(+ button[hidden]) { border-radius: 0 6px 6px 0; }
-.seg button[aria-pressed='true'] { background: var(--sel-bg); border-color: var(--ink-2); color: var(--ink); position: relative; }
+.seg button[aria-pressed='true'] { background: var(--sel-bg); border-color: var(--sel-line); box-shadow: inset 0 0 0 1px var(--sel-line); color: var(--ink); position: relative; }
 .seg button:focus-visible { position: relative; z-index: 1; }
 .speed-key { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 0.8rem; color: var(--ink-2); margin: 2px 0 4px; }
 .speed-key[hidden] { display: none; }
@@ -827,36 +839,52 @@ footer { font-size: 0.75rem; color: var(--ink-3); margin-top: 24px; }
   border: 0;
   background: none;
   color: var(--act-ink);
+  text-align: inherit;
   text-decoration-line: underline;
   text-decoration-thickness: 1.5px;
   text-decoration-color: var(--act-line);
   text-underline-offset: 3px;
-  white-space: nowrap;
   cursor: pointer;
 }
-.act:hover { text-decoration-color: currentColor; }
+.act:hover { text-decoration-color: currentColor; text-decoration-thickness: 2.5px; }
 .act:active { color: var(--act-press); }
+/* The pill is painted from these, so a variant (the over-early Replay start) only swaps the tone. Its edge is an inset
+   ring, not the border, so on touch the border can grow the hit area while the pill keeps its size. */
 .act-chip {
+  --chip-ink: var(--act-ink);
+  --chip-line: var(--act-line);
+  --chip-bg: var(--act-bg);
+  --chip-bg-hover: var(--act-bg-hover);
+  --chip-press: var(--act-press);
+  --chip-on: var(--act-on);
   display: inline-flex;
   align-items: center;
   gap: 4px;
   min-height: 24px;
   padding: 1px 10px;
-  border: 1px solid var(--act-line);
+  border: 0 solid transparent;
   border-radius: 999px;
-  background: var(--act-bg);
+  background: var(--chip-bg) padding-box;
+  box-shadow: inset 0 0 0 1px var(--chip-line);
+  color: var(--chip-ink);
   line-height: 1.35;
   text-decoration: none;
 }
-.act-chip:hover { border-color: var(--act-ink); background: var(--act-bg-hover); }
-.act-chip:active { background: var(--act-bg-hover); color: var(--act-press); }
-/* On: its data is showing (a card's window on the gap chart, a replay on the map). */
-.act-chip[aria-pressed='true'] { border-color: var(--accent); background: var(--accent); color: var(--surface); }
+.act-chip:not(:disabled, [aria-pressed='true']):hover { background-color: var(--chip-bg-hover); box-shadow: inset 0 0 0 1.5px var(--chip-ink); }
+.act-chip:not(:disabled, [aria-pressed='true']):active { background-color: var(--chip-bg-hover); color: var(--chip-press); }
+.act-chip:disabled { cursor: default; }
+/* On: its data is showing (a card's window on the gap chart, a replay on the map). Light text on a solid fill in both schemes. */
+.act-chip[aria-pressed='true'] { background-color: var(--chip-on); box-shadow: inset 0 0 0 1px var(--chip-ink); color: var(--act-on-ink); }
+/* The map's Replay start is offered for boats over early: the same pill in the over-early red. */
+.replay-btn.act-chip { --chip-ink: var(--bad); --chip-line: var(--bad-line); --chip-bg: var(--bad-bg); --chip-bg-hover: var(--bad-bg-hover); --chip-press: var(--bad); --chip-on: var(--bad-on); }
 .act-row { cursor: pointer; }
 .act-row .act-key { color: var(--act-ink); text-decoration-line: underline; text-decoration-thickness: 1.5px; text-decoration-color: var(--act-line); text-underline-offset: 3px; }
-.act-row:hover .act-key { text-decoration-color: currentColor; }
+.act-row:hover .act-key { text-decoration-color: currentColor; text-decoration-thickness: 2.5px; }
+/* No marker in any engine (list-style, ::marker, Safari's own), and the summary keeps a visible focus ring. */
 .act-more { list-style: none; cursor: pointer; }
+.act-more::marker { content: ''; }
 .act-more::-webkit-details-marker { display: none; }
+.act-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 /* A drawn chevron: right when closed, down when open. */
 .act-more::before {
   content: '';
@@ -871,16 +899,18 @@ footer { font-size: 0.75rem; color: var(--ink-3); margin-top: 24px; }
 }
 details[open] > .act-more::before { transform: translateY(-0.15em) rotate(45deg); }
 @media (prefers-reduced-motion: no-preference) {
-  .act-chip { transition: background-color 0.12s, border-color 0.12s; }
+  .act-chip { transition: background-color 0.12s, box-shadow 0.12s; }
   .act-more::before { transition: transform 0.15s cubic-bezier(0.22, 1, 0.36, 1); }
 }
-/* Touch: a 44 px hit area around the small ones, without moving anything (an explicit position, e.g. Report's, wins). */
+/* Touch: every data action is at least 44 px in the layout itself, so no hit area reaches over a neighbour. Text
+   actions become 44 px boxes in their line (and wrap inside it), pills take 9 px of clear border above and below
+   (the pill keeps its size), summaries take the height. Table rows: on a cell, height is a minimum, so a two-line
+   cell still grows. */
 @media (pointer: coarse) {
-  :where(.act, .act-more) { position: relative; }
-  .act::after, .act-more::after { content: ''; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
-  /* Among the map's controls the hit area would overlap the row above: these take the real height instead. */
-  .replay .act-chip { min-height: 44px; }
-  .replay .act-chip::after { content: none; }
+  .act:not(.act-chip) { display: inline-flex; align-items: center; column-gap: 0.25em; min-height: 44px; min-width: 44px; max-width: 100%; }
+  .act-chip { border-width: 9px 0; min-height: 44px; min-width: 44px; max-width: 100%; }
+  :where(.act-more) { display: flex; align-items: center; column-gap: 0.3em; }
+  details > summary.act-more { min-height: 44px; }
   .metrics tbody tr.act-row > td { height: 44px; }
 }
 
@@ -1035,7 +1065,7 @@ html.fs-on { overflow: hidden; }
 .coach-custom summary { cursor: pointer; padding: 3px 9px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); list-style: none; }
 .coach-custom summary::-webkit-details-marker { display: none; }
 .coach-custom summary::after { content: ' ▾'; }
-.coach-custom summary.on { background: var(--sel-bg); border-color: var(--ink-2); color: var(--ink); }
+.coach-custom summary.on { background: var(--sel-bg); border-color: var(--sel-line); box-shadow: inset 0 0 0 1px var(--sel-line); color: var(--ink); }
 .coach-custom ul { list-style: none; margin: 4px 0 0; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); max-height: 240px; overflow: auto; columns: 2 180px; }
 .coach-custom li { break-inside: avoid; padding: 1px 0; }
 .coach-none { margin: 12px 0; }
@@ -1045,8 +1075,11 @@ html.fs-on { overflow: hidden; }
 .coach-opps { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
 @media (max-width: 900px) { .coach-opps { grid-template-columns: minmax(0, 1fr); } }
 .coach-opps > .card + .card { margin-top: 0; }
-.coach-opp { position: relative; padding-left: 50px; cursor: pointer; }
-.coach-opp.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+/* The whole card is a data action (it shades its window on the gap chart): an accent edge down its left at rest, a
+   stronger edge on hover, a tint while pressed; on, the accent ring. */
+.coach-opp { position: relative; padding-left: 50px; cursor: pointer; box-shadow: inset 3px 0 0 var(--act-line); }
+.coach-opp:active:not(.on) { background: var(--act-bg); }
+.coach-opp.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), inset 3px 0 0 var(--accent); }
 .coach-opp .opp-n { position: absolute; left: 13px; top: 12px; width: 26px; height: 26px; border-radius: 50%; background: var(--ink); color: var(--surface); display: grid; place-items: center; font-weight: 800; font-size: 0.9rem; }
 .coach-opp h4 { margin: 2px 0 6px; font-size: 1rem; line-height: 1.25; }
 .coach-opp .chips { font-size: 0.78rem; }
@@ -1057,9 +1090,9 @@ html.fs-on { overflow: hidden; }
 .coach-cards .chip.sec { background: var(--bad-bg); color: var(--bad); font-weight: 700; font-size: 0.85rem; box-shadow: none; }
 .coach-cards .chip.warn { background: var(--notice-bg); color: var(--ink); }
 .coach-cards .chip.good { background: var(--good-bg); color: var(--good); font-weight: 600; box-shadow: none; }
-/* The whole card shades its window too (ui/app.ts); its window chip (.act-chip) is the visible cue and the keyboard's way in. */
+/* Its window chip (.act-chip) is the keyboard's way in (ui/app.ts). */
 @media (hover: hover) {
-  .coach-opp:hover:not(.on) { border-color: var(--act-line); }
+  .coach-opp:hover:not(.on) { border-color: var(--act-line); box-shadow: inset 4px 0 0 var(--act-ink); }
 }
 /* The penalty card (an official code): pinned above the ranked cards, never numbered; the code in the loss colour. */
 .coach-penalty { margin-bottom: 12px; border-left: 4px solid var(--bad); }
@@ -1101,15 +1134,18 @@ html.fs-on { overflow: hidden; }
 /* Ask Coach (ui/coachAsk.ts, optional): a collapsed card under the cards in both views. */
 /* Ask Coach: a distinct accent panel at the top of the Coach tab. */
 .card.coach-ask { border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
-.coach-ask-box > summary h3 { color: var(--accent); }
+/* The summary opens onto data (.act-more, its chevron); the starter questions are data-action pills (.act-chip). */
+.coach-ask-box > summary h3 { color: var(--act-ink); }
 .coach-ask-box > summary .ask-sub { color: var(--ink-2); }
-.coach-ask .ask-sugs button.chip { padding: 6px 12px; border-color: color-mix(in srgb, var(--accent) 55%, var(--rule)); text-align: left; white-space: normal; }
+.coach-ask .ask-sugs button.chip { padding: 6px 12px; font-weight: 500; text-align: left; white-space: normal; }
+@media (pointer: coarse) {
+  /* Their own padding already makes a tall pill: less clear border, the 44 px minimum still holds. */
+  .coach-ask .ask-sugs button.chip { border-width: 7px 0; }
+}
 .coach-ask-box > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; cursor: pointer; min-height: 28px; }
 .coach-ask-box > summary h3 { margin: 0; font-size: 1rem; }
 .coach-ask-box > summary .ask-sub { font-size: 0.85rem; }
 .coach-ask .ask-sugs { margin: 10px 0 0; font-size: 0.82rem; gap: 6px; }
-.coach-ask button.chip { border: 1px solid var(--rule); font: inherit; cursor: pointer; background: var(--surface); color: var(--ink); }
-.coach-ask button.chip:hover:not(:disabled) { border-color: var(--accent); }
 .coach-ask button:disabled { opacity: 0.55; cursor: default; }
 .coach-ask button:focus-visible, .coach-ask textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .ask-log { margin: 10px 0 0; }
@@ -1258,6 +1294,13 @@ svg .lane-empty { fill: var(--ink-3); }
 /* A data action (.act-chip): it opens the boat's one-page report. */
 .report-open { position: absolute; top: 2px; right: 0; z-index: 1; font-size: 0.85rem; min-height: 32px; padding: 3px 14px; }
 .report-open ~ #summary h2 { padding-right: 5.5em; }
+/* Touch: 44 px tall (6 px of clear border round the 32 px pill), floated in the flow instead of laid over it, so
+   the title and the gun line wrap around it rather than sit under its hit area. */
+@media (pointer: coarse) {
+  .report-open { position: static; float: right; margin: 2px 0 4px 10px; min-height: 44px; border-width: 6px 0; }
+  .report-open ~ #summary h2 { padding-right: 0; }
+  .report-open ~ #summary::after { content: ''; display: block; clear: both; }
+}
 /* On screen the report stands in for the race header and the tabs; the boat list stays, to switch boats. */
 body.report-on .content > :not(#report) { display: none !important; }
 .report-wrap[hidden] { display: none; }
@@ -1267,7 +1310,9 @@ body.report-on .content > :not(#report) { display: none !important; }
 .report h4 { font-size: 0.8rem; margin: 8px 0 3px; }
 .rp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
 .rp-bar > button { font: inherit; font-size: 0.85rem; min-height: 32px; padding: 3px 12px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
-.rp-bar .rp-print { margin-left: auto; background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+/* Print / Save PDF: a quiet control like Back, never louder than Report. */
+.rp-bar .rp-print { margin-left: auto; }
+.rp-bar > button:hover:not(:disabled) { border-color: var(--ink-3); }
 .rp-bar .rp-print:disabled { opacity: 0.5; cursor: default; }
 .rp-sub { margin: 0; color: var(--ink-2); font-size: 0.8rem; }
 .rp-name { font-weight: 500; color: var(--ink-2); }

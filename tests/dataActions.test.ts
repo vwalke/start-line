@@ -9,6 +9,7 @@ import { ACT, ACT_CHIP, ACT_KEY, ACT_MORE, ACT_ROW } from '../src/ui/act';
 import { boatList } from '../src/ui/boats';
 import { legLegend } from '../src/ui/charts';
 import { coachGroupHtml, coachViewHtml } from '../src/ui/coach';
+import { askPanelHtml } from '../src/ui/coachAsk';
 import { coachCardsHtml } from '../src/ui/coachCards';
 import { legStoriesHtml } from '../src/ui/coachLegs';
 import { infoHtml } from '../src/ui/info';
@@ -84,6 +85,22 @@ describe('data actions: the shared classes', () => {
     expect(start.map(nameOf)).toEqual(replays.map((r) => `Replay start → ${a.boats.find((b) => b.id === r.boat)!.sail}`));
   });
 
+  it('the Not racing group: its summary, and both switches as inline actions', () => {
+    const one = { ...a, excluded: [{ result: a.boats[0], drawing: {} as never, reasons: ['spare tracker'] }] };
+    const html = boatList(one, null);
+    expect(html).toContain('<summary class="act-more">Not racing (1)</summary>');
+    expect(tagged(html, 'button', ACT).filter((b) => /data-nc=/.test(b.attrs)).map(nameOf)).toEqual(['Show all as competitors']);
+    const all = boatList({ ...a, allCompetitors: { flagged: 2 } }, null);
+    expect(tagged(all, 'button', ACT).filter((b) => /data-nc=/.test(b.attrs)).map(nameOf)).toEqual(['Hide them']);
+    expect(`${html}${all}`).not.toContain('linkish');
+  });
+
+  it('Ask Coach: its summary opens onto data, its starter questions are pills', () => {
+    const html = askPanelHtml('race', false, ['Why did I lose places on Beat 1?']);
+    expect(html).toContain('<summary class="act-more"><h3 id="coach-ask-title">Ask Coach</h3>');
+    expect(tagged(html, 'button', 'act-chip').map(nameOf)).toEqual(['Why did I lose places on Beat 1?']);
+  });
+
   it('sections that open onto data: each leg story, Start Playback', () => {
     const stories = legStories(a, m, boat, { kind: 'leaders' });
     const html = legStoriesHtml(stories, a, boat, { kind: 'leaders' });
@@ -127,27 +144,158 @@ describe('data-action colours clear WCAG AA in both schemes', () => {
     const [c, d] = [rgb(x), rgb(y)];
     return `#${c.map((v, i) => Math.round(v * p + d[i] * (1 - p)).toString(16).padStart(2, '0')).join('')}`;
   };
+  /** Light text on a darker fill (not the other way round): the text is the one further from black. */
+  const lightOn = (text: string, bg: string): boolean => contrast(text, '#000000') > contrast(bg, '#000000');
+  const AA = 4.5;
+  const UI = 3;
   for (const [scheme, src] of [
     ['day', css],
     ['night', dark],
   ] as const) {
-    it(scheme, () => {
-      const accent = token(src, 'accent');
-      const ink = token(src, 'ink');
-      const surface = token(src, 'surface');
-      const page = token(src, 'page');
-      const actInk = mix(accent, 0.85, ink);
-      // Text on the page, a card, the chip at rest and hovered; the pressed chip's text on the accent.
-      for (const bg of [page, surface, mix(accent, 0.08, surface), mix(accent, 0.15, surface)]) expect(contrast(actInk, bg)).toBeGreaterThanOrEqual(4.5);
-      expect(contrast(surface, accent)).toBeGreaterThanOrEqual(4.5);
-      // A selected control: its ink on the neutral tint.
-      expect(contrast(ink, mix(ink, 0.12, surface))).toBeGreaterThanOrEqual(4.5);
+    const night = scheme === 'night';
+    const accent = token(src, 'accent');
+    const ink = token(src, 'ink');
+    const ink2 = token(src, 'ink-2');
+    const surface = token(src, 'surface');
+    const page = token(src, 'page');
+    const grid = token(src, 'grid');
+    const bad = token(src, 'bad');
+    const badBg = token(src, 'bad-bg');
+    const actInk = mix(accent, 0.85, ink);
+    const actLine = mix(actInk, 0.8, surface);
+    const actBg = mix(accent, 0.08, surface);
+    const actBgHover = mix(accent, 0.15, surface);
+    /** Everything an underline (an inline action, a row's sail number) or a pill's ring sits on. */
+    const under: Record<string, string> = {
+      page,
+      surface,
+      'a sorted column': mix(accent, night ? 0.18 : 0.11, surface),
+      'a hovered row': mix('#7f7f7f', 0.08, surface),
+      'a picked boat (card)': mix(accent, 0.12, surface),
+      'a picked boat (phone strip)': mix(accent, 0.12, page),
+      'a hovered boat': grid,
+      'a pill at rest': actBg,
+      'a hovered pill': actBgHover,
+      'the Ask Coach panel': mix(accent, 0.09, surface),
+    };
+
+    it(`${scheme}: text, hovered and pressed`, () => {
+      for (const bg of [page, surface, actBg, actBgHover]) expect(contrast(actInk, bg)).toBeGreaterThanOrEqual(AA);
+      // Pressed (held down) on the hovered tint.
+      expect(contrast(mix(accent, 0.6, ink), actBgHover)).toBeGreaterThanOrEqual(AA);
+    });
+
+    it(`${scheme}: the underline at rest, 3:1 on everything it sits on`, () => {
+      for (const [where, bg] of Object.entries(under)) expect(contrast(actLine, bg), where).toBeGreaterThanOrEqual(UI);
+      // A Coach card's accent edge, on the card.
+      expect(contrast(actLine, surface)).toBeGreaterThanOrEqual(UI);
+    });
+
+    it(`${scheme}: an on chip is light text on a solid fill, as in Day`, () => {
+      const on = night ? mix(accent, 0.75, page) : accent;
+      const onInk = night ? ink : surface;
+      expect(contrast(onInk, on)).toBeGreaterThanOrEqual(AA);
+      expect(lightOn(onInk, on)).toBe(true);
+      expect(contrast(on, surface)).toBeGreaterThanOrEqual(UI);
+    });
+
+    it(`${scheme}: the over-early Replay start, red and still a pill`, () => {
+      for (const bg of [badBg, mix(bad, 0.2, surface)]) expect(contrast(bad, bg)).toBeGreaterThanOrEqual(AA);
+      for (const bg of [surface, page]) expect(contrast(mix(bad, 0.75, surface), bg)).toBeGreaterThanOrEqual(UI);
+      const on = night ? mix(bad, 0.5, page) : bad;
+      const onInk = night ? ink : surface;
+      expect(contrast(onInk, on)).toBeGreaterThanOrEqual(AA);
+      expect(lightOn(onInk, on)).toBe(true);
+    });
+
+    it(`${scheme}: a selected control's ring stands out from an unselected one, its text on the tint`, () => {
+      const sel = mix(ink, 0.18, surface);
+      expect(contrast(ink, sel)).toBeGreaterThanOrEqual(AA);
+      // The ink-2 ring against the unselected button (surface) and the page around it.
+      for (const bg of [surface, page, sel]) expect(contrast(ink2, bg)).toBeGreaterThanOrEqual(UI);
     });
   }
+
   it('the tokens are the ones the stylesheet uses', () => {
     expect(css).toContain('--act-ink: color-mix(in srgb, var(--accent) 85%, var(--ink));');
+    expect(css).toContain('--act-line: color-mix(in srgb, var(--act-ink) 80%, var(--surface));');
     expect(css).toContain('--act-bg: color-mix(in srgb, var(--accent) 8%, var(--surface));');
     expect(css).toContain('--act-bg-hover: color-mix(in srgb, var(--accent) 15%, var(--surface));');
-    expect(css).toContain('--sel-bg: color-mix(in srgb, var(--ink) 12%, var(--surface));');
+    expect(css).toContain('--act-press: color-mix(in srgb, var(--accent) 60%, var(--ink));');
+    expect(css).toContain('--act-on: var(--accent);');
+    expect(css).toContain('--act-on-ink: var(--surface);');
+    expect(dark).toContain('--act-on: color-mix(in srgb, var(--accent) 75%, var(--page));');
+    expect(dark).toContain('--act-on-ink: var(--ink);');
+    expect(css).toContain('--bad-line: color-mix(in srgb, var(--bad) 75%, var(--surface));');
+    expect(css).toContain('--bad-bg-hover: color-mix(in srgb, var(--bad) 20%, var(--surface));');
+    expect(css).toContain('--bad-on: var(--bad);');
+    expect(dark).toContain('--bad-on: color-mix(in srgb, var(--bad) 50%, var(--page));');
+    expect(css).toContain('--sel-bg: color-mix(in srgb, var(--ink) 18%, var(--surface));');
+    expect(css).toContain('--sel-line: var(--ink-2);');
+    expect(css).toMatch(/\.act-chip\[aria-pressed='true'\] \{ background-color: var\(--chip-on\); [^}]*color: var\(--act-on-ink\); \}/);
+    expect(css).toMatch(/\.replay-btn\.act-chip \{ --chip-ink: var\(--bad\); --chip-line: var\(--bad-line\); --chip-bg: var\(--bad-bg\); --chip-bg-hover: var\(--bad-bg-hover\);[^}]*--chip-on: var\(--bad-on\); \}/);
+    for (const sel of [".tabs [role='tab'][aria-selected='true']", ".seg button[aria-pressed='true']", ".zoom button[aria-pressed='true']"])
+      expect(css).toContain(`${sel} { background: var(--sel-bg); border-color: var(--sel-line); box-shadow: inset 0 0 0 1px var(--sel-line);`);
+    expect(css).toMatch(/\.coach-opp \{[^}]*box-shadow: inset 3px 0 0 var\(--act-line\);/);
+  });
+});
+
+describe('data actions: the stylesheet', () => {
+  const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
+  /** The body of the first rule whose selector is exactly `sel`. */
+  const rule = (sel: string, from = 0): string => {
+    const at = css.indexOf(`${sel} {`, from);
+    expect(at, sel).toBeGreaterThanOrEqual(0);
+    return css.slice(at + sel.length + 2, css.indexOf('}', at));
+  };
+  /** The body of the first `@media (pointer: coarse)` block after `marker`. */
+  const coarseAfter = (marker: string): string => {
+    const at = css.indexOf('@media (pointer: coarse) {', css.indexOf(marker));
+    let depth = 0;
+    for (let i = css.indexOf('{', at); i < css.length; i++) {
+      if (css[i] === '{') depth++;
+      else if (css[i] === '}' && --depth === 0) return css.slice(at, i + 1);
+    }
+    return '';
+  };
+
+  it('touch targets grow in the layout: no hit overlay reaching over a neighbour', () => {
+    expect(css).not.toMatch(/\.act(?:-more|-chip)?::after/);
+    const touch = coarseAfter('---------- data actions');
+    expect(touch).toMatch(/\.act:not\(\.act-chip\) \{[^}]*display: inline-flex;[^}]*min-height: 44px;/);
+    expect(touch).toMatch(/\.act-chip \{[^}]*border-width: 9px 0;[^}]*min-height: 44px;/);
+    expect(touch).toMatch(/details > summary\.act-more \{ min-height: 44px; \}/);
+    expect(touch).not.toMatch(/position: absolute/);
+    // Report leaves its absolute spot and floats, so the title and gun line wrap round it.
+    const report = coarseAfter('.report-open { position: absolute');
+    expect(report).toMatch(/\.report-open \{ position: static; float: right;[^}]*min-height: 44px;/);
+    expect(report).toContain('.report-open ~ #summary::after { content: \'\'; display: block; clear: both; }');
+  });
+
+  it('table rows: a minimum height on the cells, nothing inside clipped', () => {
+    expect(coarseAfter('---------- data actions')).toContain('.metrics tbody tr.act-row > td { height: 44px; }');
+    const td = rule('.metrics td');
+    expect(td).not.toMatch(/overflow|max-height|(?:^|[ ;])height:/);
+    expect(css).not.toMatch(/\.metrics (?:td|\.sub|\.act-key)[^{]*\{[^}]*(?:max-height|(?:^|[ ;])height: \d)/);
+    expect(rule('.metrics .sub')).toContain('display: block;');
+  });
+
+  it('text actions wrap: no nowrap on .act', () => {
+    expect(rule('.act')).not.toContain('white-space');
+  });
+
+  it('a summary that opens onto data: no marker in any engine, still focusable with a ring', () => {
+    expect(rule('.act-more')).toContain('list-style: none;');
+    expect(rule('.act-more::marker')).toContain("content: '';");
+    expect(rule('.act-more::-webkit-details-marker')).toContain('display: none;');
+    expect(rule('.act-more:focus-visible')).toMatch(/outline: 2px solid var\(--accent\);/);
+    // The summary itself is never hidden or taken out of reach (only its markers are).
+    expect(css).not.toMatch(/\.act-more(?!::)[^{,]*\{[^}]*(?:pointer-events: none|visibility: hidden|display: none|tabindex)/);
+  });
+
+  it('Print / Save PDF is a quiet control, not louder than Report', () => {
+    const print = rule('.rp-bar .rp-print');
+    expect(print).not.toMatch(/accent|background|font-weight/);
+    expect(rule('.rp-bar > button')).toContain('background: var(--surface);');
   });
 });

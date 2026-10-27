@@ -4,7 +4,7 @@
  */
 import type { Finding, RaceAnalysis, StartCompare } from '../analysis/types';
 import { boatColor, NC_COLOR } from './charts';
-import { ACT_KEY, ACT_MORE, ACT_ROW } from './act';
+import { ACT, ACT_KEY, ACT_MORE, ACT_ROW } from './act';
 import { esc } from './format';
 import { codeShort, codeWords } from './resultText';
 
@@ -17,7 +17,7 @@ function notRacing(a: RaceAnalysis, highlight: string | null, open: boolean): st
   if (a.allCompetitors) {
     const n = a.allCompetitors.flagged;
     return n
-      ? `<p class="nc-note">Everyone shown as a competitor; ${n} boat${n > 1 ? 's look' : ' looks'} like ${n > 1 ? 'they are' : 'it is'} not racing. <button type="button" class="linkish" data-nc="auto">Hide ${n > 1 ? 'them' : 'it'}</button></p>`
+      ? `<p class="nc-note">Everyone shown as a competitor; ${n} boat${n > 1 ? 's look' : ' looks'} like ${n > 1 ? 'they are' : 'it is'} not racing. <button type="button" class="${ACT}" data-nc="auto">Hide ${n > 1 ? 'them' : 'it'}</button></p>`
       : '';
   }
   if (!a.excluded.length) return '';
@@ -33,7 +33,7 @@ function notRacing(a: RaceAnalysis, highlight: string | null, open: boolean): st
   const isOpen = open || a.excluded.some((e) => e.result.id === highlight);
   return `<details class="nc-group"${isOpen ? ' open' : ''}><summary class="${ACT_MORE}">Not racing (${a.excluded.length})</summary>
     <ul class="boat-items">${items}</ul>
-    <p class="nc-note">Coach boats and spare trackers; not ranked. <button type="button" class="linkish" data-nc="all">Show all as competitors</button></p></details>`;
+    <p class="nc-note">Coach boats and spare trackers; not ranked. <button type="button" class="${ACT}" data-nc="all">Show all as competitors</button></p></details>`;
 }
 
 /** Finish order; each entry toggles the shared selection. */

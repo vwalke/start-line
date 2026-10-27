@@ -6,13 +6,13 @@
  * never take these classes.
  */
 
-/** Inline text action ("Show on map →", "Replay start → USA 017"). */
+/** Inline text action ("Show on map →", "Replay start → USA 017", the Not racing group's "Show all as competitors"). */
 export const ACT = 'act';
-/** Pill action among the chips (a Coach card's window, the map's "Replay start"). */
+/** Pill action among the chips (a Coach card's window, the map's "Replay start" in the over-early red, Report, Ask Coach's starter questions). */
 export const ACT_CHIP = 'act act-chip';
 /** A row that selects its boat (the boat list, the tables); its `.act-key` (the sail number) carries the look. */
 export const ACT_ROW = 'act-row';
 /** The part of an act row that carries the look. */
 export const ACT_KEY = 'act-key';
-/** A `<summary>` that opens onto data (Start Playback, a leg story, "Not racing"). */
+/** A `<summary>` that opens onto data (Start Playback, a leg story, "Not racing", Ask Coach). */
 export const ACT_MORE = 'act-more';

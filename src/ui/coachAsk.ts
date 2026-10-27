@@ -16,6 +16,7 @@ import type { CoachDebrief } from '../analysis/coach/debrief';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { askCoach, askStatus, type AskAvailability } from '../data/askCoach/api';
 import { HISTORY_MAX, QUESTION_MAX, type AskIds, type AskTurn } from '../data/askCoach/protocol';
+import { ACT_CHIP, ACT_MORE } from './act';
 import type { CoachView } from './coach';
 import { esc } from './format';
 
@@ -65,7 +66,7 @@ export function askStarters(view: CoachView, a: RaceAnalysis | null, me: BoatRes
 
 /** The starter chips (disabled while an answer streams or no questions are left). */
 export function askStartersHtml(qs: readonly string[], disabled = false): string {
-  return qs.map((q) => `<li><button type="button" class="chip ask-sug" data-ask-suggest="${esc(q)}"${disabled ? ' disabled' : ''}>${esc(q)}</button></li>`).join('');
+  return qs.map((q) => `<li><button type="button" class="chip ask-sug ${ACT_CHIP}" data-ask-suggest="${esc(q)}"${disabled ? ' disabled' : ''}>${esc(q)}</button></li>`).join('');
 }
 
 export const ASK_NOTE = "Answers use only Coach's numbers; AI can make mistakes.";
@@ -243,7 +244,7 @@ export const leftText = (n: number | null): string => (n == null ? '' : n <= 0 ?
 export function askPanelHtml(view: CoachView, open = true, starters: readonly string[] = ASK_SUGGESTIONS[view].slice(0, STARTERS)): string {
   const what = view === 'regatta' ? 'this regatta' : 'this race';
   return `<details class="coach-ask-box"${open ? ' open' : ''}>
-    <summary><h3 id="coach-ask-title">Ask Coach</h3><span class="ask-sub">tap a question or ask your own about ${what}</span></summary>
+    <summary class="${ACT_MORE}"><h3 id="coach-ask-title">Ask Coach</h3><span class="ask-sub">tap a question or ask your own about ${what}</span></summary>
     <ul class="chips ask-sugs" data-ask-sugs aria-label="Starter questions">${askStartersHtml(starters)}</ul>
     <div class="ask-log" data-ask-log aria-live="polite" aria-busy="false"></div>
     <form class="ask-form" data-ask-form>
