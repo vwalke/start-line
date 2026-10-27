@@ -8,6 +8,7 @@
  * A revoked entitlement allows nothing. Also used by the page (the lock card) on the entitlements
  * /api/auth/me returns, so both sides decide alike.
  */
+import { FREE_EVENTS, freeEventsAt, type FreeEvent } from '../src/data/freeEvents';
 
 export type Scope = 'regatta' | 'season' | 'coach';
 
@@ -28,6 +29,8 @@ export interface Entitlement {
   gift?: boolean;
   /** Coach plan: member user ids, in the order they joined. */
   members?: string[];
+  /** A free regatta's pass (freePasses): made for each signed-in user on the fly, never stored. */
+  free?: boolean;
 }
 
 /** Running at `now`: started, not ended, not revoked. */
@@ -63,6 +66,10 @@ export function allowed(ents: readonly Entitlement[], userId: string | null, q: 
   return ents.some((e) => unlocks(e, userId, q.eventId, q.now));
 }
 
+/** A regatta pass for each free regatta (src/data/freeEvents.ts), for a signed-in user; ends with the regatta's `until`. */
+export const freePasses = (userId: string, now: number, list: readonly FreeEvent[] = FREE_EVENTS): Entitlement[] =>
+  freeEventsAt(now, list).map((f) => ({ id: `free:${f.id}`, userId, scope: 'regatta', eventId: f.id, startsAt: 0, expiresAt: f.until ?? null, seats: null, revokedAt: null, free: true }));
+
 /** The client's view of an entitlement (what /api/auth/me lists). */
 export interface PassView {
   scope: Scope;
@@ -74,6 +81,8 @@ export interface PassView {
   owner: boolean;
   /** A gift pass (nothing to manage in Stripe). */
   gift?: true;
+  /** A free regatta's pass (nothing bought, nothing to manage). */
+  free?: true;
 }
 
 /** The entitlements worth listing: active now, newest first. */
@@ -81,7 +90,7 @@ export function passViews(ents: readonly Entitlement[], userId: string, now: num
   return ents
     .filter((e) => isActive(e, now) && (e.scope !== 'coach' || coachCovers(e, userId)))
     .sort((a, b) => b.startsAt - a.startsAt)
-    .map((e) => ({ scope: e.scope, eventId: e.eventId, startsAt: e.startsAt, expiresAt: e.expiresAt, seats: e.seats, owner: e.userId === userId, ...(e.gift ? { gift: true as const } : {}) }));
+    .map((e) => ({ scope: e.scope, eventId: e.eventId, startsAt: e.startsAt, expiresAt: e.expiresAt, seats: e.seats, owner: e.userId === userId, ...(e.gift ? { gift: true as const } : {}), ...(e.free ? { free: true as const } : {}) }));
 }
 
 /** The page's check on /api/auth/me's list (the passes there are the user's own, already filtered). */

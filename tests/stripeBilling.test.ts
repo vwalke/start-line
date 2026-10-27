@@ -4,6 +4,7 @@ import { userByEmail } from '../functions/_authDb';
 import type { PaywallDeps, PaywallEnv } from '../functions/_paywall';
 import { onRequest as billingRoute } from '../functions/api/billing/[[path]]';
 import { jsonError } from '../functions/_lib';
+import { FREE_EVENTS } from '../src/data/freeEvents';
 import { MemD1 } from './d1mem';
 import { EVENT, NOW, ORIGIN, WEBHOOK_SECRET, fixture, giveRegatta, paywallEnv, resetPaywallCaches, signIn, signedWebhook } from './paywallHelpers';
 
@@ -257,6 +258,20 @@ describe('Checkout', () => {
     const noPrice = paywallEnv(db, { STRIPE_PRICE_REGATTA: undefined });
     expect((await handleBilling(ctx(post({ product: 'regatta', eventId: 'someOtherEvent1' }, cookie), noPrice, 'checkout'), deps({ fetch: f }))).status).toBe(503);
     expect(f.calls).toHaveLength(0);
+  });
+
+  it('a free regatta (data/freeEvents.ts) is already held by anyone signed in: 409, no Stripe call; other events still sell', async () => {
+    const db = new MemD1();
+    const f = stripeMock();
+    const env = paywallEnv(db);
+    expect((await handleBilling(ctx(post({ product: 'regatta', eventId: FREE_EVENTS[0].id }), env, 'checkout'), deps({ fetch: f }))).status).toBe(401);
+    const { cookie } = await signIn(db, 'sailor@example.com');
+    const res = await handleBilling(ctx(post({ product: 'regatta', eventId: FREE_EVENTS[0].id }, cookie), env, 'checkout'), deps({ fetch: f }));
+    expect(res.status).toBe(409);
+    expect(await json(res)).toMatchObject({ error: 'already_entitled' });
+    expect(f.calls).toHaveLength(0);
+    expect((await handleBilling(ctx(post({ product: 'regatta', eventId: EVENT }, cookie), env, 'checkout'), deps({ fetch: f }))).status).toBe(200);
+    expect(f.calls).toHaveLength(1);
   });
 
   it('refuses the Season Pass (no longer sold): 400 not_available, no Stripe call, whatever is configured', async () => {

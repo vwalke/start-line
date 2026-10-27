@@ -7,6 +7,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createSession, ensureUser, grant, type BumpedDevice, type UserRow } from '../functions/_authDb';
 import type { AuthDeps } from '../functions/_auth';
+import type { PassView } from '../functions/_entitlements';
+import { FREE_EVENTS } from '../src/data/freeEvents';
 import { clearFreeCache, randomToken, tokenHash, type EmailBindingLike, type PaywallEnv } from '../functions/_paywall';
 import { stripeHmac } from '../functions/_stripe';
 import type { RegattaResponse } from '../src/data/racesense/types';
@@ -130,7 +132,10 @@ export async function signIn(
   return { user, cookie: `wf_session=${token}`, publicId, bumped };
 }
 
-export const giveRegatta = (db: MemD1, userId: string, eventId = EVENT, now = NOW): Promise<unknown> =>
+/** What /api/auth/me also lists for anyone signed in, last: the free regattas' passes (src/data/freeEvents.ts). */
+export const FREE_PASS_VIEWS: PassView[] = FREE_EVENTS.map((f) => ({ scope: 'regatta', eventId: f.id, startsAt: 0, expiresAt: f.until ?? null, seats: null, owner: true, free: true }));
+
+export const giveRegatta =(db: MemD1, userId: string, eventId = EVENT, now = NOW): Promise<unknown> =>
   grant(db, { userId, scope: 'regatta', eventId, startsAt: now - 1000, expiresAt: null, purchaseId: null, subscriptionId: null });
 
 export const giveSeason = (db: MemD1, userId: string, expiresAt: number, now = NOW): Promise<unknown> =>

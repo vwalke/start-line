@@ -9,7 +9,7 @@ import type { PaywallEnv } from '../functions/_paywall';
 import { EVENT_ID_RE } from '../src/data/vkx/validate';
 import { passLine, sheetHtml } from '../src/ui/paywall';
 import { MemD1 } from './d1mem';
-import { EVENT, NOW, ORIGIN, TURNSTILE_TOKEN, mailbox, paywallEnv, resetPaywallCaches, signIn, tokenOf } from './paywallHelpers';
+import { EVENT, FREE_PASS_VIEWS, NOW, ORIGIN, TURNSTILE_TOKEN, mailbox, paywallEnv, resetPaywallCaches, signIn, tokenOf } from './paywallHelpers';
 
 const DAY = 86_400_000;
 const OTHER_EVENT = 'someOtherEvent1';
@@ -45,10 +45,14 @@ async function magicLink(db: MemD1, typed: string, at = NOW): Promise<string> {
   return res.headers.get('set-cookie')!.split(';')[0];
 }
 
-/** /api/auth/me's passes for a cookie. */
+/** /api/auth/me's passes for a cookie, less the free regattas' (checked here, listed for anyone signed in). */
 async function passes(db: MemD1, cookie: string, at = NOW): Promise<PassView[]> {
   const res = await handleAuth(ctx(new Request(`${ORIGIN}/api/auth/me`, { headers: { cookie } }), paywallEnv(db), 'me'), { now: () => at });
-  return (await json(res)).entitlements as PassView[];
+  const all = (await json(res)).entitlements as PassView[];
+  // Signed out: nothing at all.
+  const n = all.length ? FREE_PASS_VIEWS.length : 0;
+  expect(all.slice(all.length - n)).toEqual(FREE_PASS_VIEWS.slice(0, n));
+  return all.slice(0, all.length - n);
 }
 
 const opens = async (db: MemD1, email: string, eventId: string, at = NOW): Promise<boolean> => {

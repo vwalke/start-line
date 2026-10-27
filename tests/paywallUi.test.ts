@@ -6,7 +6,8 @@ import { ASK_MESSAGES, type AskErrorCode } from '../src/data/askCoach/protocol';
 import { freeRaces } from '../src/data/freeRace';
 import { buildRaceList } from '../src/data/raceList';
 import { currentDoc } from '../src/data/racesense/adapter';
-import { hereWithout, isLocked, lockCardHtml, lockView, lockedRange, passLine, returnParam, sheetHtml, valueLine } from '../src/ui/paywall';
+import { FREE_EVENTS, isFreeEvent } from '../src/data/freeEvents';
+import { autoCheckout, hereWithout, isLocked, lockCardHtml, lockView, lockedRange, passLine, returnParam, sheetHtml, showsFree, valueLine } from '../src/ui/paywall';
 import { EVENT, NOW, beneluxRegatta } from './paywallHelpers';
 
 const doc = currentDoc(beneluxRegatta());
@@ -88,6 +89,56 @@ describe('lock decision', () => {
     expect(lockedRange(races.filter((r) => r.raceNumber <= 2), free, 'J70')).toBe('R2');
     expect(lockedRange(races.filter((r) => r.raceNumber === 1), free, 'J70')).toBe('');
     expect(valueLine('R2–R9')).toBe("See the start, every leg and Coach's top 3 for every boat in R2–R9.");
+  });
+});
+
+describe('a free regatta (data/freeEvents.ts)', () => {
+  const FREE = FREE_EVENTS[0].id;
+  const freePass = { scope: 'regatta' as const, eventId: FREE, startsAt: 0, expiresAt: null, seats: null, owner: true, free: true as const };
+  const signedIn = on({ user: { email: 'a@example.com' }, entitlements: [freePass] });
+  const listed = races.find((r) => r.raceNumber === 3);
+
+  it('opens for a signed-in viewer (the pass /me lists); locked signed out; a paid event still locked', () => {
+    expect(isLocked(signedIn, free, FREE, 'J70', 3, NOW)).toBe(false);
+    expect(isLocked(on(), free, FREE, 'J70', 3, NOW)).toBe(true);
+    expect(isLocked(signedIn, free, EVENT, 'J70', 3, NOW)).toBe(true);
+  });
+
+  it('the lock card asks only to sign in: no price, no buy button, no "Already bought?"', () => {
+    const html = lockCardHtml(lockView(doc, { division: 'J70', raceNumber: 3, listed, range: 'R2–R9', me: on(), eventId: FREE, now: NOW }));
+    expect(html).toContain('Free with a Recall account');
+    expect(html).toContain('Sign in to see every race of this regatta.');
+    expect(html).toMatch(/<button type="button" class="lock-primary" data-pw="signin">Sign in<\/button>/);
+    expect(html).not.toMatch(/buy-regatta|\$50|Already bought|Restore access|Unlock/);
+    expect(html).toContain('<span class="free-tag">Free</span>');
+    // A paid event's card is as before.
+    const paid = lockCardHtml(lockView(doc, { division: 'J70', raceNumber: 3, listed, range: 'R2–R9', me: on(), eventId: EVENT, now: NOW }));
+    expect(paid).toBe(lockCardHtml(lockView(doc, { division: 'J70', raceNumber: 3, listed, range: 'R2–R9', me: on() })));
+    expect(paid).toContain('Unlock this regatta — $50');
+    expect(paid).not.toContain('free-tag');
+  });
+
+  it('badge only with the paywall on; the account sheet lists the pass; never an automatic checkout', () => {
+    expect(showsFree(on(), FREE, NOW)).toBe(true);
+    expect(showsFree(PAYWALL_OFF, FREE, NOW)).toBe(false);
+    expect(showsFree(on(), EVENT, NOW)).toBe(false);
+    // The list's name, even before the event picker lists it (the id alone there).
+    expect(passLine(freePass, (id) => id)).toBe('Free regatta · 2026 J/70 North Americans');
+    const sheet = sheetHtml(signedIn, { mode: 'account' }, () => '2026 J/70 North Americans');
+    expect(sheet).toContain('<li>Free regatta · 2026 J/70 North Americans</li>');
+    expect(sheet).not.toContain('data-pw="portal"');
+    const marker = (e: string): string => `?buy=${encodeURIComponent(`${btoa(JSON.stringify({ p: 'regatta', e, u: 'u1', x: NOW + DAY })).replace(/=+$/, '')}.sig`)}`;
+    expect(autoCheckout(on({ user: { email: 'a@example.com' } }), marker(FREE), NOW)).toBeNull();
+    expect(autoCheckout(on({ user: { email: 'a@example.com' } }), marker(EVENT), NOW)).toMatchObject({ eventId: EVENT });
+  });
+
+  it('an expired `until` makes it paid again', () => {
+    const list = [{ id: FREE, label: '2026 J/70 North Americans', until: NOW + DAY }];
+    expect(isFreeEvent(FREE, NOW, list)).toBe(true);
+    expect(isFreeEvent(FREE, NOW + DAY, list)).toBe(false);
+    expect(isFreeEvent(FREE, NOW + DAY)).toBe(true);
+    // The pass /me listed ends then too.
+    expect(isLocked(on({ user: { email: 'a@example.com' }, entitlements: [{ ...freePass, expiresAt: NOW + DAY }] }), free, FREE, 'J70', 3, NOW + DAY)).toBe(true);
   });
 });
 

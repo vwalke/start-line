@@ -5,7 +5,7 @@ import { allowed } from '../functions/_entitlements';
 import { handleAuth } from '../functions/_auth';
 import type { PaywallDeps, PaywallEnv } from '../functions/_paywall';
 import { MemD1 } from './d1mem';
-import { EVENT, NOW, ORIGIN, fixture, paywallEnv, resetPaywallCaches, signIn, signedWebhook } from './paywallHelpers';
+import { EVENT, FREE_PASS_VIEWS, NOW, ORIGIN, fixture, paywallEnv, resetPaywallCaches, signIn, signedWebhook } from './paywallHelpers';
 
 type Ev = { id: string; data: { object: Record<string, unknown> } };
 
@@ -47,7 +47,8 @@ describe('charge.refunded', () => {
     expect(db.rows('entitlements')[0].revoked_at).toBe(NOW + 1000);
     expect(await opens(db, id, NOW + 2000)).toBe(false);
     const me = await handleAuth({ request: new Request(`${ORIGIN}/api/auth/me`, { headers: { cookie } }), env: paywallEnv(db), params: { path: ['me'] } }, { now: () => NOW + 2000 });
-    expect((await json(me)).entitlements).toEqual([]);
+    // Only the free regattas' passes, which every signed-in user has.
+    expect((await json(me)).entitlements).toEqual(FREE_PASS_VIEWS);
     expect(db.rows('stripe_events').map((e) => [e.id, e.type])).toContainEqual(['evt_test_ChRefundRegatta0001', 'charge.refunded']);
     // The purchase stays on record (what was paid); only the pass is revoked.
     expect(db.rows('purchases')).toHaveLength(1);

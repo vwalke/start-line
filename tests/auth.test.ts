@@ -22,7 +22,7 @@ import { jsonError } from '../functions/_lib';
 import { onRequest as authRoute } from '../functions/api/auth/[[path]]';
 import { onRequestGet as proxyGet } from '../functions/api/[[path]]';
 import { MemD1 } from './d1mem';
-import { EVENT, NOW, ORIGIN, TURNSTILE_TOKEN, giveRegatta, mailbox, paywallEnv, queryLink, resetPaywallCaches, signIn, tokenOf, withTurnstile } from './paywallHelpers';
+import { EVENT, FREE_PASS_VIEWS, NOW, ORIGIN, TURNSTILE_TOKEN, giveRegatta, mailbox, paywallEnv, queryLink, resetPaywallCaches, signIn, tokenOf, withTurnstile } from './paywallHelpers';
 
 const ctx = (request: Request, env: PaywallEnv, path: string): AuthCtx => ({ request, env, params: { path: path.split('/') } });
 const json = async (r: Response): Promise<Record<string, unknown>> => (await r.json()) as Record<string, unknown>;
@@ -89,7 +89,7 @@ describe('me', () => {
     const res = await handleAuth(ctx(new Request(`${ORIGIN}/api/auth/me`, { headers: { cookie } }), paywallEnv(db), 'me'), mailbox());
     const b = await json(res);
     expect(b.user).toEqual({ email: 'me@example.com' });
-    expect(b.entitlements).toEqual([{ scope: 'regatta', eventId: EVENT, startsAt: NOW - 1000, expiresAt: null, seats: null, owner: true }]);
+    expect(b.entitlements).toEqual([{ scope: 'regatta', eventId: EVENT, startsAt: NOW - 1000, expiresAt: null, seats: null, owner: true }, ...FREE_PASS_VIEWS]);
   });
 
   it('with the flag on but no D1 bound: signed out, nothing to sign in with', async () => {
