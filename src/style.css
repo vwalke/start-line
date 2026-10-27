@@ -1234,10 +1234,18 @@ svg .cl-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 .race-head { margin: -4px 0 10px; }
 #summary h2 .rs-no { font-size: 0.7rem; font-weight: 600; color: var(--ink-3); vertical-align: middle; padding: 1px 6px; border: 1px solid var(--rule); border-radius: 999px; margin-left: 4px; }
 /* A free regatta (data/freeEvents.ts), by the event name in the race and lock card headers. */
-h2 .free-tag { font-size: 0.7rem; font-weight: 600; color: var(--good); background: var(--good-bg); vertical-align: middle; padding: 1px 6px; border-radius: 999px; margin-left: 4px; }
+h2 .free-tag, h3 .free-tag { font-size: 0.7rem; font-weight: 600; color: var(--good); background: var(--good-bg); vertical-align: middle; padding: 1px 6px; border-radius: 999px; margin-left: 4px; }
 .ys-form { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 2px; }
 .ys-form input { flex: 1 1 14em; min-width: 0; font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); }
 .ys-form button { font: inherit; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--accent); cursor: pointer; }
+
+/* ---------- an event with no races yet (ui/eventCard.ts) ---------- */
+.event-card-wrap[hidden] { display: none; }
+.event-card { margin: 12px 0; }
+.event-card h2 { font-size: 1.25rem; margin: 0 0 6px; line-height: 1.25; }
+.event-card p { margin: 0 0 6px; color: var(--ink-2); }
+.event-card .event-card-when { color: var(--ink); font-weight: 600; margin-top: 10px; }
+.event-card .event-card-actions { margin: 12px 0 2px; }
 
 /* ---------- boat-log (.vkx) uploads (ui/vkxUpload.ts) ---------- */
 .vkx-bar { margin: -4px 0 10px; }
@@ -1598,6 +1606,13 @@ html[data-route='app'] #landing { display: none; }
 .land-card { background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 10px; padding: 12px 14px; }
 .land-card h3 { font-size: 1rem; margin: 0 0 4px; }
 .land-card p { margin: 0; color: var(--ink-2); font-size: 0.92rem; }
+/* Upcoming regattas (landing.ts showUpcoming): title links to the event; Notify me under the dates. */
+.land-upcoming[hidden] { display: none; }
+.land-up { display: flex; flex-direction: column; gap: 4px; }
+.land-up h3 a { color: var(--ink); text-decoration: none; }
+.land-up h3 a:hover { color: var(--accent); text-decoration: underline; }
+.land-up-when strong { color: var(--ink); font-weight: 600; }
+.land-card .land-up-actions { margin-top: auto; padding-top: 8px; }
 /* A card's thumbnail (scripts/landing-thumbs.mjs): 16:10 from its width and height attributes, so nothing shifts as it loads. */
 .land-thumb { position: relative; display: block; width: 100%; margin: 0 0 10px; padding: 0; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--page); cursor: zoom-in; }
 .land-thumb img { display: block; width: 100%; height: auto; aspect-ratio: 320 / 200; object-fit: cover; }

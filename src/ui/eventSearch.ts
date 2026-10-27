@@ -4,6 +4,7 @@
  * so filtering the fetched list covers the whole feed.
  */
 import type { LandingEvent } from '../data/racesense/types';
+import { dateRangeText, startsInText } from '../data/upcoming';
 
 const MONTHS = [
   'january', 'february', 'march', 'april', 'may', 'june',
@@ -78,22 +79,34 @@ export interface EventOption {
 
 export const eventLabel = (e: LandingEvent): string => `${e.title}${e.dateLabel ? ` — ${e.dateLabel}` : ''}`;
 
+/** An Upcoming event in the picker: "2026 J/70 North Americans — Oct 28 – Nov 1 · Starts tomorrow". */
+export const upcomingLabel = (e: LandingEvent, now: number, tzOffsetMin?: number): string =>
+  `${e.title} — ${[dateRangeText(e.startMs, e.endMs), startsInText(e.startMs, now, tzOffsetMin)].filter(Boolean).join(' · ')}`;
+
 /**
- * The Event select's options for a query. The loaded event stays first, marked
- * "(current)", when it is not a match, so the select never shows a different
- * event than the digest; `matches` holds only the true matches.
+ * The Event select's options for a query: `options` (events that have started, as listed) and `upcoming`
+ * (data/upcoming.ts: shown in their own group). The loaded event stays first, marked "(current)", when it
+ * is not a match, so the select never shows a different event than the digest; `matches` holds only the
+ * true matches, started then upcoming.
  */
 export function pickerOptions(
   events: LandingEvent[],
   query: string,
   currentId: string,
   free: (eventId: string) => boolean = () => false,
-): { options: EventOption[]; matches: LandingEvent[] } {
-  const matches = filterEvents(events, query);
+  upcoming: { events: LandingEvent[]; now: number; tzOffsetMin?: number } = { events: [], now: 0 },
+): { options: EventOption[]; upcoming: EventOption[]; matches: LandingEvent[] } {
+  const started = filterEvents(events, query);
+  const soon = filterEvents(upcoming.events, query);
   // A free regatta (data/freeEvents.ts) says so, with the paywall on.
-  const label = (e: LandingEvent): string => `${eventLabel(e)}${free(e.eventId) ? ' · Free' : ''}`;
-  const options = matches.map((e) => ({ eventId: e.eventId, label: label(e) }));
-  const current = currentId && !matches.some((e) => e.eventId === currentId) ? events.find((e) => e.eventId === currentId) : undefined;
+  const badge = (e: LandingEvent): string => (free(e.eventId) ? ' · Free' : '');
+  const isSoon = (e: LandingEvent): boolean => upcoming.events.includes(e);
+  const label = (e: LandingEvent): string => `${isSoon(e) ? upcomingLabel(e, upcoming.now, upcoming.tzOffsetMin) : eventLabel(e)}${badge(e)}`;
+  const options = started.map((e) => ({ eventId: e.eventId, label: label(e) }));
+  const soonOptions = soon.map((e) => ({ eventId: e.eventId, label: label(e) }));
+  const matches = [...started, ...soon];
+  const current =
+    currentId && !matches.some((e) => e.eventId === currentId) ? [...events, ...upcoming.events].find((e) => e.eventId === currentId) : undefined;
   if (current) options.unshift({ eventId: current.eventId, label: `${label(current)} (current)` });
-  return { options, matches };
+  return { options, upcoming: soonOptions, matches };
 }

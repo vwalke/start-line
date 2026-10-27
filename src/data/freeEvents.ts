@@ -19,7 +19,7 @@ export const FREE_EVENTS: readonly FreeEvent[] = [{ id: 'Qn47enc7fKR7Th1Qj1ZI', 
 /** The free events running at `now`. */
 export const freeEventsAt = (now: number, list: readonly FreeEvent[] = FREE_EVENTS): FreeEvent[] => list.filter((e) => e.until == null || now < e.until);
 
-/** The list's name for a free event (the event picker may not list it yet: it shows only events that have started). */
+/** The list's name for a free event (the event picker may not list it yet: it shows events that have started or start within two weeks). */
 export const freeEventLabel = (eventId: string, list: readonly FreeEvent[] = FREE_EVENTS): string | undefined => list.find((e) => e.id === eventId)?.label;
 
 /** Is `eventId` free (with an account) at `now`? */

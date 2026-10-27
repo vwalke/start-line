@@ -473,6 +473,8 @@ export interface Paywall {
   lockShown(): boolean;
   /** Re-read /api/auth/me; true when it changed (onChange has run). */
   refresh(): Promise<boolean>;
+  /** The sign-in sheet (Notify me, signed out): it comes back to this page. Nothing with the paywall off or signed in. */
+  signIn(): void;
 }
 
 export type NoteStore = Pick<Storage, 'getItem' | 'setItem'>;
@@ -909,5 +911,10 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     },
     lockShown: () => !!lockEl && !lockEl.hidden,
     refresh,
+    signIn() {
+      if (!me.paywall || me.user) return;
+      pendingBuy = null;
+      openSheet({ mode: 'signin' });
+    },
   };
 }

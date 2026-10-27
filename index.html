@@ -66,7 +66,7 @@
     </header>
 
     <!-- The landing page (`/` with no app parameters: src/landing/route.ts). Static, so it shows (and is crawlable) without
-         waiting on a script or a RaceSense fetch; src/landing/landing.ts only fills in the price and "Continue". -->
+         waiting on a script or a RaceSense fetch; src/landing/landing.ts only fills in the price, "Continue" and Upcoming regattas. -->
     <main id="landing" class="landing" aria-labelledby="landing-title">
       <section class="land-hero">
         <div class="land-hero-copy">
@@ -84,6 +84,12 @@
           <img class="hero-night" src="/landing-hero-night.svg" width="640" height="703" alt="Recall's track map of a real J/105 race. The tracks are colored by leg, each boat is shown at its position mid-race, and the leaders are labeled by sail number." fetchpriority="high" />
           <figcaption>A real race with 18 J/105s, drawn by Recall. Wind is at the top and the tracks are colored by leg.</figcaption>
         </figure>
+      </section>
+
+      <!-- Regattas starting in the next two weeks, from /api/landing (src/landing/landing.ts showUpcoming); hidden when there are none. -->
+      <section id="land-upcoming" class="land-section land-upcoming" aria-labelledby="land-upcoming-title" hidden>
+        <h2 id="land-upcoming-title">Upcoming regattas</h2>
+        <ul class="land-cards land-upcoming-list"></ul>
       </section>
 
       <section class="land-section" aria-labelledby="land-features-title">
