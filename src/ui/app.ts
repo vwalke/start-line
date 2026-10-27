@@ -195,7 +195,7 @@ import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, presetAc
 import { createVkxUpload } from './vkxUpload';
 import { createPaywall, lockedRange, startRace } from './paywall';
 import { eventCardHtml, eventCardView } from './eventCard';
-import { NOTIFY_PARAM, handleNotify } from './notify';
+import { NOTIFY_ENABLED, NOTIFY_PARAM, handleNotify } from './notify';
 import { upcomingEvents } from '../data/upcoming';
 import { appPath } from '../landing/route';
 import { setPageState } from '../feedback/state';
@@ -2644,10 +2644,12 @@ export function startApp(): void {
     // Notify me from the landing page (notify.ts): drop the marker, then sign in or carry on, as a click here would.
     if (explicit && new URLSearchParams(location.search).has(NOTIFY_PARAM)) {
       setUrl({ [NOTIFY_PARAM]: null });
-      void paywall.ready.then((me) => handleNotify(explicit, me, { signIn: () => paywall.signIn() }));
+      if (NOTIFY_ENABLED) void paywall.ready.then((me) => handleNotify(explicit, me, { signIn: () => paywall.signIn() }));
     }
     renderEventOptions();
     void paywall.ready.then(renderEventOptions);
+    // The card may have been drawn before sign-in state loaded (no Free, no Notify me): draw it again.
+    void paywall.ready.then(renderEventCard);
     els.event.disabled = false;
     els.search.disabled = false;
     // Pointer devices only (no on-screen keyboard popping up), and never steal focus the user already moved.
