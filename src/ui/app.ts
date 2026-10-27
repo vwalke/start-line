@@ -535,7 +535,7 @@ export function startApp(): void {
     if (!a) return;
     const m = a.meta;
     const listed = m.eventId == null || m.eventId === eventId ? listedOf(m.division, m.raceNumber) : undefined;
-    els.summary.innerHTML = `${raceTitleHtml(m, listed)}
+    els.summary.innerHTML = `${raceTitleHtml(m, listed, paywall.free(m.eventId ?? eventId))}
       <p>${esc(gunTimeLine(m.gunMs, m.tzOffsetMs))} ·
       ${a.boats.length} boats · ${legCount(a.legs.length)} ·
       <span class="muted">${esc(m.sourceLabel)}</span></p>`;
@@ -2299,6 +2299,9 @@ export function startApp(): void {
 
   /** Signed in or out, or a pass arrived: reload the race on screen if its lock changed. */
   function paywallChanged(): void {
+    // The "Free" badges follow the paywall (on or off).
+    if (events.length) renderEventOptions();
+    renderSummary();
     if (!current || current.eventId !== eventId || !baseRegatta) return;
     if (paywall.locked(freeOf(baseRegatta), eventId, current.division, current.raceNumber) !== paywall.lockShown()) void loadRace(current.division, current.raceNumber);
   }
@@ -2306,7 +2309,7 @@ export function startApp(): void {
   /** Rebuild the Event select from the search query, keeping the loaded event selected. */
   function renderEventOptions(): void {
     const q = els.search.value;
-    const { options, matches } = pickerOptions(events, q, eventId);
+    const { options, matches } = pickerOptions(events, q, eventId, paywall.free);
     matchCount = matches.length;
     // Nothing loaded yet: a placeholder, so picking the first event still fires `change`.
     const placeholder = eventId ? '' : '<option value="" disabled selected>Choose an event…</option>';
@@ -2573,6 +2576,7 @@ export function startApp(): void {
       events.unshift({ eventId: explicit, title: explicit, startMs: 0, endMs: 0 });
     }
     renderEventOptions();
+    void paywall.ready.then(renderEventOptions);
     els.event.disabled = false;
     els.search.disabled = false;
     // Pointer devices only (no on-screen keyboard popping up), and never steal focus the user already moved.

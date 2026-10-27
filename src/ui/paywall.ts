@@ -14,6 +14,7 @@
  * Decisions and markup are pure functions (tested in node); createPaywall wires them to the DOM.
  */
 import { passesUnlock, type PassView } from '../../functions/_entitlements';
+import { freeEventLabel, isFreeEvent } from '../data/freeEvents';
 import { isFreeRace, type FreeRaces } from '../data/freeRace';
 import { PRICE_REGATTA } from '../data/price';
 import { appPath } from '../landing/route';
@@ -89,12 +90,16 @@ export function lockedRange(races: readonly ListedRace[], free: FreeRaces, divis
   return names.length === 1 ? names[0] : `${names[0]}–${names[names.length - 1]}`;
 }
 
+/** Does this event get the "Free" badge (a free regatta: src/data/freeEvents.ts)? Only with the paywall on. */
+export const showsFree = (me: Me, eventId: string | null | undefined, now: number): boolean => me.paywall && isFreeEvent(eventId, now);
+
 export const valueLine = (range: string): string => `See the start, every leg and Coach's top 3 for every boat in ${range || 'every race after race 1'}.`;
 
-/** A pass, in a line: "Regatta Pass · this regatta", "All-regattas pass · every regatta · until 21 Oct 2027" (a Season Pass, no longer sold, or a gift). */
+/** A pass, in a line: "Regatta Pass · this regatta", "Free regatta · 2026 J/70 North Americans", "All-regattas pass · every regatta · until 21 Oct 2027" (a Season Pass, no longer sold, or a gift). */
 export function passLine(p: PassView, eventTitle: (id: string) => string): string {
   const until = p.expiresAt != null ? ` · until ${new Date(p.expiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : '';
   const gift = p.gift ? ' (gift)' : '';
+  if (p.free) return `Free regatta · ${(p.eventId && freeEventLabel(p.eventId)) || (p.eventId ? eventTitle(p.eventId) : 'one regatta')}${until}`;
   if (p.scope === 'regatta') return `Regatta Pass${gift} · ${p.eventId ? eventTitle(p.eventId) : 'one regatta'}${until}`;
   if (p.scope === 'season') return `All-regattas pass${gift} · every regatta${until}`;
   return `Coach plan${p.owner ? '' : ' (team seat)'} · every regatta${until}`;
@@ -117,6 +122,8 @@ export interface LockView {
   range: string;
   signedIn: string | null;
   canBuy: boolean;
+  /** A free regatta (src/data/freeEvents.ts): signing in opens it, nothing to buy. */
+  free?: boolean;
   /** The sign-in methods set up here (/api/auth/me signIn): email links (and so Restore access), Google, Microsoft, Apple. */
   signInEmail?: boolean;
   signInGoogle?: boolean;
@@ -126,7 +133,8 @@ export interface LockView {
 }
 
 /** The lock card's facts, all from the (free) regatta document. */
-export function lockView(doc: RegattaDoc, o: { division: string; raceNumber: number; listed: ListedRace | undefined; range: string; me: Me }): LockView {
+export function lockView(doc: RegattaDoc, o: { division: string; raceNumber: number; listed: ListedRace | undefined; range: string; me: Me; eventId?: string; now?: number }): LockView {
+  const free = showsFree(o.me, o.eventId, o.now ?? Date.now());
   const { div, race } = findRace(doc, { division: o.division, raceNumber: o.raceNumber });
   const gun = race.starts?.filter((s) => s.startTime != null).at(-1)?.startTime ?? o.listed?.gunMs ?? null;
   const names = new Map((div.participants ?? []).map((p) => [p.sailNumber, p.boatName ?? '']));
@@ -137,13 +145,14 @@ export function lockView(doc: RegattaDoc, o: { division: string; raceNumber: num
     .sort((a, b) => a.t - b.t)
     .map(({ f, t }, i) => ({ place: i + 1, sail: f.sailNumber, name: names.get(f.sailNumber) ?? '', elapsed: gun != null ? duration((t - gun) / 1000) : '—' }));
   return {
-    titleHtml: raceTitleHtml({ eventName: doc.name, boatClass: div.boatClass ?? div.name, raceNumber: o.raceNumber }, o.listed),
+    titleHtml: raceTitleHtml({ eventName: doc.name, boatClass: div.boatClass ?? div.name, raceNumber: o.raceNumber }, o.listed, free),
     gunLine: gun != null ? gunTimeLine(gun, tzOffsetMs(race.timezoneOffset)) : '',
     boats: (div.participants ?? []).length,
     results,
     range: o.range,
     signedIn: o.me.paywall && o.me.user ? o.me.user.email : null,
-    canBuy: o.me.paywall,
+    canBuy: o.me.paywall && !free,
+    ...(free ? { free } : {}),
     signInEmail: o.me.paywall && o.me.signIn.email,
     signInGoogle: o.me.paywall && o.me.signIn.google,
     signInMicrosoft: o.me.paywall && !!o.me.signIn.microsoft,
@@ -176,14 +185,33 @@ export function lockCardHtml(v: LockView): string {
     : v.signInEmail || v.signInGoogle || v.signInMicrosoft || v.signInApple
       ? `Already bought? <button type="button" class="linkish" data-pw="signin">Sign in</button>${restore}`
       : 'Sign-in is unavailable right now';
-  return `<div id="lock-summary">${v.titleHtml}<p>${[esc(v.gunLine), `${v.boats} boats`].filter(Boolean).join(' · ')}</p></div>
+  const head = `<div id="lock-summary">${v.titleHtml}<p>${[esc(v.gunLine), `${v.boats} boats`].filter(Boolean).join(' · ')}</p></div>
     <section class="card lock-card" aria-labelledby="lock-title">
-      <div class="lock-teaser-wrap">${TEASER_SVG}<span class="lock-badge" aria-hidden="true">🔒</span></div>
+      <div class="lock-teaser-wrap">${TEASER_SVG}<span class="lock-badge" aria-hidden="true">🔒</span></div>`;
+  const msg = v.message ? `<p class="lock-msg" role="status">${esc(v.message)}</p>` : '';
+  if (v.free) {
+    // A free regatta: signing in is all it takes (no price, no Restore access: nothing was bought).
+    const canSignIn = v.signInEmail || v.signInGoogle || v.signInMicrosoft || v.signInApple;
+    const action = v.signedIn
+      ? ''
+      : `<div class="lock-buy">
+        <button type="button" class="lock-primary" data-pw="signin"${canSignIn ? '' : ' disabled'}>Sign in</button>
+      </div>`;
+    const small = v.signedIn ? `Signed in as ${esc(v.signedIn)}` : canSignIn ? 'Sign in to see every race of this regatta.' : 'Sign-in is unavailable right now';
+    return `${head}
+      <h3 id="lock-title">Free with a Recall account</h3>
+      ${action}
+      ${msg}
+      <p class="lock-small">${small}</p>
+      ${results}
+    </section>`;
+  }
+  return `${head}
       <h3 id="lock-title">${esc(valueLine(v.range))}</h3>
       <div class="lock-buy">
         <button type="button" class="lock-primary" data-pw="buy-regatta"${v.canBuy ? '' : ' disabled'}>Unlock this regatta — ${PRICE_REGATTA}</button>
       </div>
-      ${v.message ? `<p class="lock-msg" role="status">${esc(v.message)}</p>` : ''}
+      ${msg}
       <p class="lock-small">Race 1 of every regatta is free; unlock the rest of a regatta for ${PRICE_REGATTA} · ${who}</p>
       ${results}
     </section>`;
@@ -407,7 +435,7 @@ export function autoCheckout(me: Me, search: string, now: number): (BuyIntent & 
   if (!me.paywall || !me.user) return null;
   const token = new URLSearchParams(search).get(BUY_PARAM);
   const b = peekBuy(token);
-  if (!b || passesUnlock(me.entitlements, b.eventId, now)) return null;
+  if (!b || passesUnlock(me.entitlements, b.eventId, now) || isFreeEvent(b.eventId, now)) return null;
   return { ...b, intent: token! };
 }
 
@@ -427,6 +455,8 @@ export interface Paywall {
   ready: Promise<Me>;
   me(): Me;
   locked(free: FreeRaces, eventId: string, division: string, raceNumber: number): boolean;
+  /** The "Free" badge for this event (showsFree). */
+  free(eventId: string | null | undefined): boolean;
   showLock(before: HTMLElement, t: LockTarget): void;
   hideLock(): void;
   lockShown(): boolean;
@@ -637,6 +667,11 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
   async function buy(): Promise<void> {
     if (!me.paywall) return;
     const eventId = target?.eventId;
+    // Never a checkout for a free regatta (its card offers only Sign in).
+    if (isFreeEvent(eventId, Date.now())) {
+      if (!me.user) openSheet({ mode: 'signin' });
+      return;
+    }
     if (!me.user) {
       pendingBuy = eventId ? { product: 'regatta', eventId } : null;
       return openSheet({ mode: 'signin', note: 'Sign in first: checkout opens right after.' });
@@ -837,6 +872,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     ready,
     me: () => me,
     locked: (free, eventId, division, raceNumber) => isLocked(me, free, eventId, division, raceNumber, Date.now()),
+    free: (eventId) => showsFree(me, eventId, Date.now()),
     showLock(before, t) {
       if (!lockEl) {
         lockEl = document.createElement('div');

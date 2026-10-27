@@ -8,6 +8,7 @@ import { handleBilling } from '../functions/_stripe';
 import { handleAuth } from '../functions/_auth';
 import { telemetryWindow, currentDoc, listRaces } from '../src/data/racesense/adapter';
 import { freeRaces } from '../src/data/freeRace';
+import { FREE_EVENTS } from '../src/data/freeEvents';
 import type { AskContext } from '../src/analysis/coach/askContext';
 import type { AskIds } from '../src/data/askCoach/protocol';
 import { MemBucket } from './r2mem';
@@ -17,6 +18,8 @@ import { EVENT, FakeCache, NOW, ORIGIN, beneluxRegatta, fixture, giveRegatta, gi
 const doc = currentDoc(beneluxRegatta());
 const R1 = telemetryWindow(doc, { division: 'J70', raceNumber: 1 });
 const R2 = telemetryWindow(doc, { division: 'J70', raceNumber: 2 });
+/** The free regatta (src/data/freeEvents.ts); mockUpstream serves the Benelux document for it too. */
+const FREE = FREE_EVENTS[0].id;
 
 let cache: FakeCache;
 let upstream: ReturnType<typeof mockUpstream>;
@@ -327,6 +330,19 @@ describe('flag on: Ask Coach', () => {
     expect((await ask(race('1', 'regatta'), env, a.cookie, { view: 'regatta', boat: { sail: 'NED 1' }, regatta: { status: '9 of 9 races analyzed' } })).status).toBe(200);
   });
 
+  it('a free regatta: races 2+ and the Regatta view open to anyone signed in; signed out still 401', async () => {
+    const db = new MemD1();
+    const env = paywallEnv(db);
+    const free = (r: string, view = 'race') => ({ ...race(r, view), event: FREE });
+    const ctx2 = raceContext({}, { name: 'Race 2', header: [`gun ${hm(gun2)}`] });
+    expect((await ask(free('2'), env, undefined, ctx2)).status).toBe(401);
+    const a = await signIn(db, 'a@example.com');
+    expect((await ask(free('2'), env, a.cookie, ctx2)).status).toBe(200);
+    expect((await ask(free('1', 'regatta'), env, a.cookie, { view: 'regatta', boat: { sail: 'NED 1' }, regatta: { status: '9 of 9 races analyzed' } })).status).toBe(200);
+    // A paid event is unchanged for the same user.
+    expect((await ask(race('2'), env, a.cookie, ctx2)).status).toBe(402);
+  });
+
   it('race 1’s label is not enough: the server checks the context against race 1 in the document it fetched', async () => {
     const db = new MemD1();
     const env = paywallEnv(db);
@@ -384,5 +400,59 @@ describe('flag on: Ask Coach', () => {
   it('flag off: race 2 (or any context) is answered as today', async () => {
     const res = await ask({ event: EVENT, div: 'J70', race: '2', view: 'race' }, { PAYWALL_ENABLED: 'false' }, undefined, { view: 'race', boat: { sail: 'NED 1' }, findings: [] });
     expect(res.status).toBe(200);
+  });
+});
+
+describe('flag on: a free regatta (data/freeEvents.ts)', () => {
+  const freeTele = (w: { after: number; before: number }): string => teleUrl(w).replace(EVENT, FREE);
+
+  it('telemetry for races 2+: 401 signed out; signed in, no pass needed, served privately; paid events unchanged', async () => {
+    const db = new MemD1();
+    const env = paywallEnv(db);
+    const anon = await proxy(freeTele(R2), env);
+    expect(anon.status).toBe(401);
+    expect(await anon.json()).toMatchObject({ error: 'sign_in_required', eventId: FREE });
+    const { user, cookie } = await signIn(db, 'a@example.com');
+    const ok = await proxy(freeTele(R2), env, cookie);
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get('cache-control')).toBe(PRIVATE_CACHE);
+    expect(ok.headers.get('vary')).toBe('Cookie');
+    expect([...cache.store.keys()].some((k) => k.includes('/api/telemetry/'))).toBe(false);
+    // The pass is made on the fly, never stored.
+    expect(db.log.some((q) => /INSERT[^]*entitlements/i.test(q))).toBe(false);
+    // The paid event: 401 / 402 / 200 with a pass, as before.
+    expect((await proxy(teleUrl(R2), env)).status).toBe(401);
+    expect((await proxy(teleUrl(R2), env, cookie)).status).toBe(402);
+    await giveRegatta(db, user.id);
+    expect((await proxy(teleUrl(R2), env, cookie)).status).toBe(200);
+  });
+
+  it('boat logs for race 2: 401 signed out, 200 (private) signed in', async () => {
+    const db = new MemD1();
+    const sha = 'b'.repeat(64);
+    const bucket = new MemBucket();
+    await bucket.put(objectKey({ event: FREE, div: 'J70', race: '2', sn: 4242 }), new Uint8Array([4, 5, 6]), { customMetadata: { sha } });
+    const env = { ...paywallEnv(db), VKX_BUCKET: bucket };
+    const get = (cookie?: string): Promise<Response> =>
+      vkxDataGet({
+        request: new Request(`${ORIGIN}/api/vkx/data?${new URLSearchParams({ event: FREE, div: 'J70', race: '2', sn: '4242', h: sha })}`, { headers: cookie ? { cookie } : {} }),
+        env,
+        waitUntil: () => undefined,
+      });
+    expect((await get()).status).toBe(401);
+    const { cookie } = await signIn(db, 'a@example.com');
+    const ok = await get(cookie);
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get('cache-control')).toBe(PRIVATE_CACHE);
+  });
+
+  it('/api/auth/me lists the free pass for a signed-in user (and nothing signed out)', async () => {
+    const db = new MemD1();
+    const env = paywallEnv(db);
+    const me = async (cookie?: string): Promise<{ entitlements: unknown[] }> =>
+      (await (await handleAuth({ request: new Request(`${ORIGIN}/api/auth/me`, { headers: cookie ? { cookie } : {} }), env, params: { path: ['me'] } }, { now: () => NOW })).json()) as { entitlements: unknown[] };
+    expect((await me()).entitlements).toEqual([]);
+    const { cookie } = await signIn(db, 'a@example.com');
+    expect((await me(cookie)).entitlements).toEqual([{ scope: 'regatta', eventId: FREE, startsAt: 0, expiresAt: null, seats: null, owner: true, free: true }]);
   });
 });

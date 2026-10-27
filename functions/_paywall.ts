@@ -10,7 +10,7 @@
  * upstream and goes to the browser as `private, max-age=300` with `Vary: Cookie`; free data keeps the
  * route's own caching. Sessions and entitlements are read from D1 on every gated request.
  */
-import { allowed, type Entitlement } from './_entitlements';
+import { allowed, freePasses, type Entitlement } from './_entitlements';
 import { entitlementsOf, isLive, revokedReason, sessionRow, sessionUserId, touchSession, userById, type D1Like, type RevokedReason, type SessionRow, type UserRow } from './_authDb';
 import { UA, UPSTREAM, MAX_UPSTREAM_BYTES, looksLikeJson, ttlFor } from './_lib';
 import { sha256Hex } from '../src/data/vkx/compact';
@@ -179,15 +179,18 @@ export async function viewerOf(req: Request, env: PaywallEnv, now: number): Prom
   await touchSession(db, s, now);
   const user = await userById(db, s.user_id);
   if (!user) return { ...NOBODY, hash, session: null, signedOutReason: null };
-  return { user, entitlements: await entitlementsOf(db, user.id), hash, session: s, signedOutReason: null };
+  return { user, entitlements: await entitlementsWithFree(db, user.id, now), hash, session: s, signedOutReason: null };
 }
+
+/** The user's entitlements from D1, plus a free pass for each free regatta (src/data/freeEvents.ts; never written to D1). */
+export const entitlementsWithFree = async (db: D1Like, userId: string, now: number): Promise<Entitlement[]> => [...(await entitlementsOf(db, userId)), ...freePasses(userId, now)];
 
 /** What the gate needs, in two round trips: the session row (primary key), then the user's entitlements (indexed by user). */
 async function gateViewer(req: Request, env: PaywallEnv, now: number): Promise<{ userId: string | null; entitlements: Entitlement[] }> {
   const db = env.AUTH_DB;
   const hash = db ? await sessionHashOf(req) : null;
   const userId = db && hash ? await sessionUserId(db, hash, now) : null;
-  return { userId, entitlements: db && userId ? await entitlementsOf(db, userId) : [] };
+  return { userId, entitlements: db && userId ? await entitlementsWithFree(db, userId, now) : [] };
 }
 
 // ---- the regatta document, for race 1 (edge cache shared with /api/regatta, then ~2 min per isolate)

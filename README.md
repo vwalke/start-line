@@ -1975,6 +1975,29 @@ events `checkout.session.completed`,
 `customer.subscription.updated`, `customer.subscription.deleted`,
 `charge.refunded`.
 
+### Free regattas
+
+Some regattas are open in full to anyone signed in, at no charge: the list in
+`src/data/freeEvents.ts` (`FREE_EVENTS`), matched by RaceSense event id, so
+every race counts as it appears. Today that is the 2026 J/70 North Americans
+(`Qn47enc7fKR7Th1Qj1ZI`), for good. To add one, append
+`{ id, label }` (the event id from the app's `event=` parameter, the title
+for the account sheet), with `until` (ms) for an end time if it should go
+back to paid; then deploy (the list is in the build, server and page alike).
+
+The server gives every signed-in user a free Regatta Pass for each listed
+event (`freePasses` in `functions/_entitlements.ts`, added wherever the
+user's entitlements are read: the gate, `/api/auth/me`, checkout), never
+stored in D1. So the gate, Ask Coach, the page's lock logic and checkout's
+`409 already_entitled` all follow from it with no other special case.
+Sign-in is still required: a signed-out request for races 2+ gets
+`401 sign_in_required`, and entitled data stays private (never in the shared
+edge cache), as for a bought pass. The page shows a "Free" badge by the event
+name and in the event picker, a lock card for signed-out visitors that says
+"Free with a Recall account" with a Sign in button (no price), lists the pass
+as "Free regatta · <title>" in the account sheet, and never offers checkout
+for it. Restore access ignores these passes (nothing was bought).
+
 ### Admin: gift passes
 
 A free pass locked to an email address: an all-regattas pass (scope `all`,

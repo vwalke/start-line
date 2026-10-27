@@ -71,6 +71,7 @@ import { sha256Hex } from '../src/data/vkx/compact';
 import {
   SESSION_COOKIE,
   cookieHeader,
+  entitlementsWithFree,
   jsonOut,
   notFound,
   paywallOn,
@@ -955,7 +956,7 @@ const withoutBuy = (to: string): string => {
 async function afterSignIn(db: D1Like, env: PaywallEnv, user: UserRow, returnTo: string, buy: BuyIntent | null, now: number): Promise<string> {
   const to = withoutBuy(returnTo);
   if (!buy || !env.AUTH_SECRET) return to;
-  if (intentHeld(await entitlementsOf(db, user.id), user.id, buy, now)) return to;
+  if (intentHeld(await entitlementsWithFree(db, user.id, now), user.id, buy, now)) return to;
   return withParam(to, BUY_PARAM, await signBuy(env.AUTH_SECRET, { ...buy, userId: user.id, exp: now + BUY_TTL_MS }));
 }
 

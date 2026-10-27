@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { allowed, coachCovers, isActive, passViews, passesUnlock, unlocks, type Entitlement } from '../functions/_entitlements';
+import { allowed, coachCovers, freePasses, isActive, passViews, passesUnlock, unlocks, type Entitlement } from '../functions/_entitlements';
+import { FREE_EVENTS } from '../src/data/freeEvents';
 import { FREE_POST_MS, FREE_PRE_MS, NEXT_GUN_GAP_MS, freeRaces, freeRacesOf, isFreeRace, telemetryIsFree } from '../src/data/freeRace';
 import { currentDoc, findRace, PRE_START_FETCH_MS, telemetryWindow, tzOffsetMs } from '../src/data/racesense/adapter';
 import type { Race, RegattaDoc } from '../src/data/racesense/types';
@@ -72,6 +73,20 @@ describe('entitlements', () => {
     const season = passViews([ent({ scope: 'season', eventId: null, expiresAt: NOW + DAY })], 'u1', NOW);
     expect(passesUnlock(season, 'otherEvent1234', NOW)).toBe(true);
     expect(passesUnlock(season, 'otherEvent1234', NOW + DAY)).toBe(false);
+  });
+
+  it('a free regatta: a pass for each signed-in user, that event only, marked free; ends with `until`', () => {
+    const FREE = FREE_EVENTS[0].id;
+    const mine = freePasses('u1', NOW);
+    expect(mine).toEqual([{ id: `free:${FREE}`, userId: 'u1', scope: 'regatta', eventId: FREE, startsAt: 0, expiresAt: null, seats: null, revokedAt: null, free: true }]);
+    expect(allowed(mine, 'u1', { eventId: FREE, free: false, now: NOW })).toBe(true);
+    expect(allowed(mine, 'u1', { eventId: EVENT, free: false, now: NOW })).toBe(false);
+    expect(allowed(mine, null, { eventId: FREE, free: false, now: NOW })).toBe(false);
+    expect(passViews(mine, 'u1', NOW)).toEqual([{ scope: 'regatta', eventId: FREE, startsAt: 0, expiresAt: null, seats: null, owner: true, free: true }]);
+    const ending = freePasses('u1', NOW, [{ id: FREE, label: '2026 J/70 North Americans', until: NOW + DAY }]);
+    expect(allowed(ending, 'u1', { eventId: FREE, free: false, now: NOW + DAY - 1 })).toBe(true);
+    expect(allowed(ending, 'u1', { eventId: FREE, free: false, now: NOW + DAY })).toBe(false);
+    expect(freePasses('u1', NOW + DAY, [{ id: FREE, label: '2026 J/70 North Americans', until: NOW + DAY }])).toEqual([]);
   });
 });
 

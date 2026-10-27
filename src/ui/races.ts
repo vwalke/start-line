@@ -40,10 +40,10 @@ export const rsSuffix = (r: Pick<ListedRace, 'practice' | 'number' | 'rsNumber'>
   r.rsNumber != null && (r.practice || r.number !== r.rsNumber) && !(r.number == null && !r.practice) ? `RS ${r.rsNumber}` : null;
 
 /** The race header's title: event · class · race name (as the picker names it), with RaceSense's number as a small tag when it differs. */
-export function raceTitleHtml(m: { eventName: string; boatClass: string; raceNumber: number }, listed: ListedRace | undefined): string {
+export function raceTitleHtml(m: { eventName: string; boatClass: string; raceNumber: number }, listed: ListedRace | undefined, free = false): string {
   const rs = listed ? rsSuffix(listed) : null;
   const title = listed ? raceName(listed) : isOrphanKey(m.raceNumber) ? 'Race' : `Race ${m.raceNumber}`;
-  return `<h2>${esc(m.eventName)} · ${esc(m.boatClass)} · ${esc(title)}${rs ? ` <span class="rs-no">${esc(rs)}</span>` : ''}</h2>`;
+  return `<h2>${esc(m.eventName)}${free ? ' <span class="free-tag">Free</span>' : ''} · ${esc(m.boatClass)} · ${esc(title)}${rs ? ` <span class="rs-no">${esc(rs)}</span>` : ''}</h2>`;
 }
 
 /** The picker's option: `Race 4 · Wed 11:40 · RS 5`, `Practice · Mon 09:55`, `Race 3 · Wed 08:55 · RS 4 · ~ tracker`. */

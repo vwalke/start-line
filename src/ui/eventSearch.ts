@@ -87,10 +87,13 @@ export function pickerOptions(
   events: LandingEvent[],
   query: string,
   currentId: string,
+  free: (eventId: string) => boolean = () => false,
 ): { options: EventOption[]; matches: LandingEvent[] } {
   const matches = filterEvents(events, query);
-  const options = matches.map((e) => ({ eventId: e.eventId, label: eventLabel(e) }));
+  // A free regatta (data/freeEvents.ts) says so, with the paywall on.
+  const label = (e: LandingEvent): string => `${eventLabel(e)}${free(e.eventId) ? ' · Free' : ''}`;
+  const options = matches.map((e) => ({ eventId: e.eventId, label: label(e) }));
   const current = currentId && !matches.some((e) => e.eventId === currentId) ? events.find((e) => e.eventId === currentId) : undefined;
-  if (current) options.unshift({ eventId: current.eventId, label: `${eventLabel(current)} (current)` });
+  if (current) options.unshift({ eventId: current.eventId, label: `${label(current)} (current)` });
   return { options, matches };
 }

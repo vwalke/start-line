@@ -1245,6 +1245,8 @@ svg .cl-hair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
 /* Race header: official numbering, finishes and the feed check (ui/races.ts). */
 .race-head { margin: -4px 0 10px; }
 #summary h2 .rs-no { font-size: 0.7rem; font-weight: 600; color: var(--ink-3); vertical-align: middle; padding: 1px 6px; border: 1px solid var(--rule); border-radius: 999px; margin-left: 4px; }
+/* A free regatta (data/freeEvents.ts), by the event name in the race and lock card headers. */
+h2 .free-tag { font-size: 0.7rem; font-weight: 600; color: var(--good); background: var(--good-bg); vertical-align: middle; padding: 1px 6px; border-radius: 999px; margin-left: 4px; }
 .ys-form { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 2px; }
 .ys-form input { flex: 1 1 14em; min-width: 0; font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); }
 .ys-form button { font: inherit; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--accent); cursor: pointer; }
