@@ -21,8 +21,8 @@ import {
   emptySogPaths,
   legRangeList,
   segmentSogRange,
-  sogColor,
   sogFill,
+  sogKnColor,
   sogIndex,
   sogPathsSvg,
   startSogRange,
@@ -407,7 +407,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     const [x, y] = rot(d.bow);
     const st = b.start;
     // Speed: the hull is the biggest thing at the line, so it carries SOG at the gun (the table's Speed @gun),
-    // outlined in ink so the pale fast end still reads by day. A non-competitor stays hollow grey.
+    // outlined in ink so the pale middle of the scale still reads by day. A non-competitor stays hollow grey.
     const paint = range && !isNc ? `${sogFill(st.speedKn, range)} stroke="var(--ink)"` : `fill="${col}" stroke="var(--surface)"`;
     const sogCls = range && !isNc ? ' sog-fill' : '';
     let shape: string;
@@ -513,7 +513,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
   }
   trails.push(...ncTrails);
   const label = range
-    ? `Boats relative to the start line at the gun (Vakaros timing); trails and hulls colored by speed over ground, ${f1(range.lo)} to ${f1(range.hi)} kn: dark purple slowest, yellow-green fastest`
+    ? `Boats relative to the start line at the gun (Vakaros timing); trails and hulls colored by speed over ground, ${f1(range.lo)} to ${f1(range.hi)} kn: blue slowest, through green and yellow, to red fastest`
     : 'Boats relative to the start line at the gun (Vakaros timing)';
 
   return `<svg viewBox="${view.x0} ${view.y0} ${w} ${h}" class="chart start" role="img"
@@ -573,7 +573,7 @@ function mapBoxOf(a: RaceAnalysis, leg: number | null): Box {
 export interface TrackMapOptions {
   /**
    * 'leg' (default): one colour per leg. 'rank': plasma and emphasis by
-   * elapsed-time rank (ui/speed.ts). 'sog': viridis by each boat's own SOG (ui/sog.ts).
+   * elapsed-time rank (ui/speed.ts). 'sog': trimmed turbo by each boat's own SOG (ui/sog.ts).
    */
   colour?: TrackColour;
   /** Whole race in Rank: rank each leg's segment on that leg, or the whole track by race time. */
@@ -942,8 +942,8 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
     opts.colour !== 'sog'
       ? ''
       : perLeg
-        ? `colored by boat speed (SOG), scaled within each leg${legRanges ? ` (${legRanges})` : ''}: dark purple slowest on that leg, through teal, to yellow-green fastest`
-        : `colored by boat speed (SOG)${sog ? `, ${f1(sog.lo)} to ${f1(sog.hi)} kn` : ''}: dark purple slowest, through teal, to yellow-green fastest`;
+        ? `colored by boat speed (SOG), scaled within each leg${legRanges ? ` (${legRanges})` : ''}: blue slowest on that leg, through green and yellow, to red fastest`
+        : `colored by boat speed (SOG)${sog ? `, ${f1(sog.lo)} to ${f1(sog.hi)} kn` : ''}: blue slowest, through green and yellow, to red fastest`;
   const label =
     leg == null
       ? speed
@@ -1044,8 +1044,7 @@ function dotColour(a: RaceAnalysis, b: BoatAt, leg: number | null, opts: TrackMa
   if (opts.colour === 'sog') {
     const r = segmentSogRange(a, b.leg, leg, opts.sogScale ?? 'leg');
     if (!r || !Number.isFinite(b.sog)) return { c: PRE_COLOR };
-    const s = (b.sog - r.lo) / (r.hi - r.lo);
-    return { c: sogColor(s), cd: sogColor(s, 'dark') };
+    return { c: sogKnColor(b.sog, r) };
   }
   if (b.leg === PRE_LEG) return { c: PRE_COLOR };
   if (!speed) return { c: legColor(b.leg) };

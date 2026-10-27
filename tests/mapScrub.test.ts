@@ -524,9 +524,10 @@ describe('the scrubber map', () => {
     // Leg colour of the leg each boat is on.
     const b = f.boats.find((x) => x.id === id)!;
     expect(last).toContain(`fill="var(--s${b.leg + 1})"`);
-    // Boat speed: viridis, day and night.
+    // Boat speed: one ramp, the same by day and night.
     const sog = scrubFrame(a, null, null, { colour: 'sog' }, { t, win: trailWindow(t, '120', w) });
-    expect(sog.dots).toMatch(/<(circle|path) class="dot( hull)?"[^>]* fill="#[0-9a-f]{6}" style="--cd:#[0-9a-f]{6}"/);
+    expect(sog.dots).toMatch(/<(circle|path) class="dot( hull)?"[^>]* fill="#[0-9a-f]{6}"/);
+    expect(sog.dots).not.toContain('--cd:');
     // Rank: plasma (or grey when unranked there).
     expect(scrubFrame(a, null, null, { colour: 'rank' }, { t, win: trailWindow(t, '120', w) }).dots).toMatch(/fill="(#[0-9a-f]{6}|rgb\([^)]+\)|var\(--ink-3\))"/);
   });

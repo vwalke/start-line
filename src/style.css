@@ -531,8 +531,8 @@ svg text.spd-pick-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoi
   .speed-key .spd-bar { background: var(--gd); }
 }
 
-/* Boat speed (map) and Speed (start trails): per-bin paths, `stroke` = day, `--cd` = night (ui/sog.ts).
-   By day the pale fast bins sit on a thin dark casing; a selection dims the rest. */
+/* Boat speed (map) and Speed (start trails): per-bin paths, one ramp for both schemes (ui/sog.ts).
+   By day the pale middle bins sit on a thin dark casing; a selection dims the rest. */
 svg .sog, svg .sog-case, svg .sog-sel { fill: none; stroke-linejoin: round; stroke-linecap: round; }
 svg .sog-case { stroke: var(--ink); stroke-opacity: 0.45; }
 svg .sog-sel { stroke: var(--ink); }
@@ -543,12 +543,31 @@ svg .trail.sog { opacity: 0.95; }
 svg .trail.sog.dim { opacity: 0.2; }
 svg .sog-hover { fill: none; stroke: var(--ink); pointer-events: none; }
 @media (prefers-color-scheme: dark) {
-  svg .sog[style] { stroke: var(--cd); }
-  svg .sog-fill[style] { fill: var(--cd); }
   svg .sog-case { display: none; }
 }
 .speed-key .sog-lo, .speed-key .sog-hi { font-variant-numeric: tabular-nums; color: var(--ink); }
 .speed-key .sog-legs { flex-basis: 100%; font-variant-numeric: tabular-nums; }
+/* The speed bar: banded like the tracks' bins, with knots along it. The tick set (wide or narrow) follows the
+   bar's own width, so a phone's shorter bar drops labels rather than crowding them (ui/sog.ts sogTicks). */
+.speed-key .sog-bar { display: inline-block; flex: 0 1 240px; min-width: 120px; height: 10px; border-radius: 3px; background: var(--g); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 25%, transparent); }
+.speed-key .sog-scale { position: relative; display: block; flex: 0 1 240px; min-width: 150px; height: 27px; margin-right: 4px; container-type: inline-size; }
+.sog-scale .sog-bar { position: absolute; left: 0; top: 0; width: 100%; }
+.sog-scale .tk { position: absolute; top: 10px; display: none; width: 1px; height: 3px; margin-left: -0.5px; background: var(--ink-3); }
+.sog-scale .tk.hi { margin-left: -1px; }
+.sog-scale .tk.lo { margin-left: 0; }
+.sog-scale .tl { position: absolute; top: 5px; display: none; transform: translateX(-50%); font-size: 0.72rem; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sog-scale .tk.lo .tl { left: 0; transform: none; }
+.sog-scale .tk.hi .tl { right: 0; transform: none; }
+.sog-scale .tk.w { display: block; }
+.sog-scale .tk.lw { height: 5px; background: var(--ink-2); }
+.sog-scale .tk.lw .tl { display: block; }
+@container (max-width: 239.98px) {
+  .sog-scale .tk.w, .sog-scale .tk.lw .tl { display: none; }
+  .sog-scale .tk.lw { height: 3px; background: var(--ink-3); }
+  .sog-scale .tk.n { display: block; }
+  .sog-scale .tk.ln { height: 5px; background: var(--ink-2); }
+  .sog-scale .tk.ln .tl { display: block; }
+}
 .start-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin: 0 0 6px; }
 .start-tools .zoom { margin: 0; }
 .map-wrap { position: relative; }
@@ -706,7 +725,9 @@ table.metrics {
    group starts (g0: header, sub-header and every row), so the groups read apart on a phone too. */
 .metrics th.grp { text-align: center; color: var(--ink); padding-bottom: 2px; border-left: 2px solid var(--divider); }
 .metrics .g0 { border-left: 2px solid var(--divider); }
-/* Fill the th so the whole header is the hit target, not just the label text. */
+/* The button is the whole th (the th gives up its padding to it), so the hit target is the cell, never more:
+   it can't reach under a neighbor or past a sticky column's edge. A control, so neutral, not the accent. */
+.metrics th:has(> .sort) { padding: 0; }
 .metrics th .sort {
   display: block;
   width: 100%;
@@ -715,19 +736,27 @@ table.metrics {
   text-align: inherit;
   background: none;
   border: 0;
+  border-radius: 0;
   padding: 6px 8px;
-  margin: -6px -8px;
+  margin: 0;
   cursor: pointer;
   white-space: nowrap;
 }
-.metrics th .sort:hover { color: var(--ink); }
+.metrics th .sort:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.metrics th .sort:focus-visible { outline-offset: -2px; }
 .metrics th[aria-sort] { color: var(--ink); }
-/* ↑/↓ sort glyph: bold and inline, unlike the small ▲/▼ best/worst marks in cells; ink, as sorting is a control, not data. */
-.metrics th .si { display: inline-block; min-width: 0.8em; margin-left: 2px; color: var(--ink); font-weight: 700; }
-/* The sorted column: tinted header + cells, bold label, a heavier arrow. Best/worst keep their own fill. */
+/* Sort glyph: a quiet up/down pair on every sortable header (ink-3, over 3:1 in both schemes); the sorted column's
+   filled arrow in ink. Shaped unlike the small ▲/▼ best/worst marks in cells. */
+.metrics th .si { display: inline-block; margin-left: 3px; color: var(--ink-3); line-height: 0; vertical-align: -1px; }
+.metrics th .si svg { display: block; fill: currentColor; }
+.metrics th .sort:hover .si-none, .metrics th .sort:focus-visible .si-none { color: var(--ink-2); }
+.metrics th .si-asc, .metrics th .si-desc { color: var(--ink); }
+/* The sorted column: tinted header + cells, bold label, the filled arrow. Best/worst keep their own fill. */
 .metrics th.sorted { background: var(--sorted-bg); color: var(--ink); font-weight: 800; }
 .metrics th.sorted small { font-weight: 600; color: var(--ink-2); }
-.metrics th.sorted .si { font-weight: 800; font-size: 1.2em; }
+@media (max-width: 600px) {
+  .metrics th .sort { padding: 5px 6px; }
+}
 .metrics td.sorted { background: var(--sorted-bg); }
 .metrics td.sorted.best { background: var(--good-bg); }
 .metrics td.sorted.worst { background: var(--bad-bg); }
@@ -738,8 +767,9 @@ table.metrics {
 .metrics td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; vertical-align: top; }
 .metrics td.boat, .metrics th.boat { text-align: left; }
 .metrics .sticky0, .metrics .sticky1 { position: sticky; background: var(--surface); z-index: 1; }
-/* Fin: just wide enough for two-digit places (34 px clipped them). Rank, once sorted, pins leftmost. */
-.metrics { --rank-w: 48px; --fin-w: 38px; }
+/* Fin: just wide enough for two-digit places (34 px clipped them) and its header's sort glyph. Rank, once sorted, pins leftmost. */
+.metrics { --rank-w: 48px; --fin-w: 42px; }
+.metrics th.sticky0 .sort { padding-left: 5px; padding-right: 5px; }
 .metrics .sticky0 { left: 0; width: var(--fin-w); min-width: var(--fin-w); max-width: var(--fin-w); }
 /* The pinned block's right edge: scrolled columns slide under a rule, not into the boat names. */
 .metrics .sticky1 { left: var(--fin-w); border-right: 1px solid var(--divider); }
@@ -747,6 +777,11 @@ table.metrics {
 .metrics th.rank small { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
 .metrics.ranked .sticky0 { left: var(--rank-w); }
 .metrics.ranked .sticky1 { left: calc(var(--rank-w) + var(--fin-w)); }
+/* Touch: every header at least 44 px each way; Fin widens to match so its header never spills under Boat. */
+@media (pointer: coarse) {
+  .metrics { --fin-w: 44px; }
+  .metrics th .sort { min-height: 44px; min-width: 44px; }
+}
 .metrics td.muted { color: var(--ink-2); }
 .metrics .sub { display: block; font-size: 0.72rem; color: var(--ink-3); }
 .metrics td.leg b { font-weight: 600; }
@@ -981,6 +1016,8 @@ html.fs-on { overflow: hidden; }
 .fs-key { flex: none; min-width: 0; padding: 0 10px; }
 .fs-key .speed-key { margin: 3px 0; font-size: 0.75rem; }
 .fs-key .speed-key .spd-bar { width: 72px; }
+.fs-key .speed-key .sog-scale { flex-basis: 150px; }
+.fs-key .speed-key > .sog-bar { flex-basis: 150px; }
 /* The card's key line comes along (ui/app.ts): compact, and an open ⓘ scrolls rather than squeezing the chart away. */
 .fs-key .capline { margin: 3px 0; }
 .fs-key .chips { font-size: 0.72rem; }
