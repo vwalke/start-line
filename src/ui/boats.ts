@@ -4,6 +4,7 @@
  */
 import type { Finding, RaceAnalysis, StartCompare } from '../analysis/types';
 import { boatColor, NC_COLOR } from './charts';
+import { ACT, ACT_KEY, ACT_MORE, ACT_ROW } from './act';
 import { esc } from './format';
 import { codeShort, codeWords } from './resultText';
 
@@ -16,7 +17,7 @@ function notRacing(a: RaceAnalysis, highlight: string | null, open: boolean): st
   if (a.allCompetitors) {
     const n = a.allCompetitors.flagged;
     return n
-      ? `<p class="nc-note">Everyone shown as a competitor; ${n} boat${n > 1 ? 's look' : ' looks'} like ${n > 1 ? 'they are' : 'it is'} not racing. <button type="button" class="linkish" data-nc="auto">Hide ${n > 1 ? 'them' : 'it'}</button></p>`
+      ? `<p class="nc-note">Everyone shown as a competitor; ${n} boat${n > 1 ? 's look' : ' looks'} like ${n > 1 ? 'they are' : 'it is'} not racing. <button type="button" class="${ACT}" data-nc="auto">Hide ${n > 1 ? 'them' : 'it'}</button></p>`
       : '';
   }
   if (!a.excluded.length) return '';
@@ -25,14 +26,14 @@ function notRacing(a: RaceAnalysis, highlight: string | null, open: boolean): st
       const named = b.name !== `#${b.sail}` && b.name !== b.sail;
       const why = reasons.join('; ');
       const label = `#${b.sail}${named ? ` ${b.name}` : ''}, not racing: ${why}`;
-      return `<li><button type="button" class="boat-item nc" data-id="${esc(b.id)}" aria-pressed="${highlight === b.id}" aria-label="${esc(label)}" title="${esc(label)}">
-        <i class="sw" style="background:${NC_COLOR}"></i><b class="sail">${esc(b.sail)}</b>${named ? `<span class="bname">${esc(b.name)}</span>` : ''}<span class="pos">—</span></button></li>`;
+      return `<li><button type="button" class="boat-item nc ${ACT_ROW}" data-id="${esc(b.id)}" aria-pressed="${highlight === b.id}" aria-label="${esc(label)}" title="${esc(label)}">
+        <i class="sw" style="background:${NC_COLOR}"></i><b class="sail ${ACT_KEY}">${esc(b.sail)}</b>${named ? `<span class="bname">${esc(b.name)}</span>` : ''}<span class="pos">—</span></button></li>`;
     })
     .join('');
   const isOpen = open || a.excluded.some((e) => e.result.id === highlight);
-  return `<details class="nc-group"${isOpen ? ' open' : ''}><summary>Not racing (${a.excluded.length})</summary>
+  return `<details class="nc-group"${isOpen ? ' open' : ''}><summary class="${ACT_MORE}">Not racing (${a.excluded.length})</summary>
     <ul class="boat-items">${items}</ul>
-    <p class="nc-note">Coach boats and spare trackers; not ranked. <button type="button" class="linkish" data-nc="all">Show all as competitors</button></p></details>`;
+    <p class="nc-note">Coach boats and spare trackers; not ranked. <button type="button" class="${ACT}" data-nc="all">Show all as competitors</button></p></details>`;
 }
 
 /** Finish order; each entry toggles the shared selection. */
@@ -48,8 +49,8 @@ export function boatList(a: RaceAnalysis, highlight: string | null, ncOpen = fal
       const log = b.log ? `from boat log · ${b.log.rateHz} Hz` : '';
       const label = `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}, ${how}${log ? `, ${log}` : ''}`;
       const tag = log ? `<span class="log-hz" title="${esc(log)}" aria-hidden="true">${b.log!.rateHz}</span>` : '';
-      return `<li><button type="button" class="boat-item" data-id="${esc(b.id)}" aria-pressed="${highlight === b.id}" aria-label="${esc(label)}" title="${esc(label)}">
-        <i class="sw" style="background:${boatColor(b, a.boats.length)}"></i><b class="sail">${esc(b.sail)}</b>${name}<span class="pos">${pos}${tag}</span></button></li>`;
+      return `<li><button type="button" class="boat-item ${ACT_ROW}" data-id="${esc(b.id)}" aria-pressed="${highlight === b.id}" aria-label="${esc(label)}" title="${esc(label)}">
+        <i class="sw" style="background:${boatColor(b, a.boats.length)}"></i><b class="sail ${ACT_KEY}">${esc(b.sail)}</b>${name}<span class="pos">${pos}${tag}</span></button></li>`;
     })
     .join('');
   return `<div class="boats-head"><h3 id="boats-title">Boats</h3><button type="button" class="boats-clear" data-clear${highlight ? '' : ' disabled'}>Clear</button></div>

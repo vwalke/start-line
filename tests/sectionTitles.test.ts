@@ -20,7 +20,7 @@ describe('section titles', () => {
   it('the app shows the six new titles (the hyphen plain ASCII with a space either side, & escaped), and none of the old', () => {
     const start = panel('panel-start');
     expect(start).toContain('<h3>Start View - Gun</h3>');
-    expect(start).toContain('<summary>Start Playback <span class="muted">(−1:30 to +3:00)</span></summary>');
+    expect(start).toContain('<summary class="act-more">Start Playback <span class="muted">(−1:30 to +3:00)</span></summary>');
     expect(start).toContain('<h3 id="start-sog-title">Start Speed Control</h3>');
     const race = html.slice(html.indexOf('id="panel-race"'), html.indexOf('id="panel-coach"'));
     expect(race).toContain('<h3 id="places-title">Rounding &amp; Finish Positions</h3>');

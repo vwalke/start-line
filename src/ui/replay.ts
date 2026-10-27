@@ -9,6 +9,7 @@
 import type { Vec } from '../analysis/geo';
 import { OVER_HORIZON_MS, type StartReplay } from '../analysis/startReplay';
 import type { RaceAnalysis } from '../analysis/types';
+import { ACT, ACT_CHIP } from './act';
 import { esc, f1 } from './format';
 import { legRanges, rotator, timeRange } from './mapPieces';
 import { mapTimeSearch, type Trail } from './scrub';
@@ -169,7 +170,7 @@ export function replayControls(a: Pick<RaceAnalysis, 'boats'>, replays: readonly
   const offer = replayOffer(replays, highlight);
   if (!offer.length) return '';
   const btn = (r: StartReplay, text: string): string =>
-    `<button type="button" class="replay-btn" data-replay="${esc(r.boat)}" aria-pressed="${active === r.boat}" title="${esc(replayTitle(r, sailOf(a, r.boat)))}${active === r.boat ? ' (click again to leave it)' : ''}">${esc(text)}</button>`;
+    `<button type="button" class="replay-btn ${ACT_CHIP}" data-replay="${esc(r.boat)}" aria-pressed="${active === r.boat}" title="${esc(replayTitle(r, sailOf(a, r.boat)))}${active === r.boat ? ' (click again to leave it)' : ''}">${esc(text)}</button>`;
   if (highlight != null) return btn(offer[0], 'Replay start');
   return `<span class="replay-lbl">Replay start:</span> ${offer.map((r) => btn(r, sailOf(a, r.boat))).join('<span class="sep" aria-hidden="true"> · </span>')}`;
 }
@@ -184,7 +185,7 @@ export function startReplayLinks(a: Pick<RaceAnalysis, 'boats'>, replays: readon
   if (!offer.length) return '';
   const links = offer.map(
     (r) =>
-      `<button type="button" class="replay-link" data-replay="${esc(r.boat)}" aria-controls="lane-snapshots" title="${esc(`${replayTitle(r, sailOf(a, r.boat))}, in Start Playback below`)}">Replay start → ${esc(sailOf(a, r.boat))}</button>`,
+      `<button type="button" class="replay-link ${ACT}" data-replay="${esc(r.boat)}" aria-controls="lane-snapshots" title="${esc(`${replayTitle(r, sailOf(a, r.boat))}, in Start Playback below`)}">Replay start → ${esc(sailOf(a, r.boat))}</button>`,
   );
   return `<span class="replay-lbl">Over early:</span> ${links.join('<span class="sep" aria-hidden="true"> · </span>')}`;
 }

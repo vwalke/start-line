@@ -233,7 +233,7 @@ describe('picking a boat that is not racing', () => {
 
   it('lists them in a collapsed sidebar group with the reasons', () => {
     const html = boatList(a, null);
-    expect(html).toContain('<details class="nc-group"><summary>Not racing (4)</summary>');
+    expect(html).toContain('<details class="nc-group"><summary class="act-more">Not racing (4)</summary>');
     expect(html).toContain('title="#SPARE 1, not racing: Second tracker on 619 Hot Water"');
     expect(html).toContain('data-nc="all"');
     expect(boatList(a, spare)).toContain('<details class="nc-group" open>');
@@ -291,7 +291,7 @@ describe('picking a boat that is not racing', () => {
     const rows = picked.match(/<tr data-id="[^"]*"/g)!;
     expect(rows).toHaveLength(a.boats.length + 1);
     expect(rows.at(-1)).toBe(`<tr data-id="${spare}"`);
-    expect(picked).toContain('<tr data-id="SPARE 1" class="sel nc"');
+    expect(picked).toContain('<tr data-id="SPARE 1" class="act-row sel nc"');
     expect(picked).toContain('not racing</span>');
     const row = picked.slice(picked.indexOf('<tr data-id="SPARE 1"'));
     expect(row).not.toMatch(/class="ic"/);

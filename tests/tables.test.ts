@@ -141,8 +141,8 @@ describe('Benelux J70 r8: legs table', () => {
   it('selects the same row in both tables', () => {
     const id = a.boats[3].id;
     for (const html of [startTable(a, id), legsTable(a, id)]) {
-      expect(html).toContain(`<tr data-id="${id}" class="sel" tabindex="0">`);
-      expect(html.match(/class="sel"/g)).toHaveLength(1);
+      expect(html).toContain(`<tr data-id="${id}" class="act-row sel" tabindex="0">`);
+      expect(html.match(/class="act-row sel"/g)).toHaveLength(1);
     }
   });
 
