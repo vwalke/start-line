@@ -17,7 +17,7 @@ import { PROBE_BUDGET, discoverOrphans, isOrphanKey, type OrphanFound } from '..
 import { buildRaceList, findListed, type ListedRace, type RaceList } from '../data/raceList';
 import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchUsableRegatta } from '../data/racesense/api';
-import type { LandingEvent, RegattaResponse } from '../data/racesense/types';
+import type { LandingEvent, RegattaDoc, RegattaResponse } from '../data/racesense/types';
 import { eventFinished, linkRequest, linksOf, mergeOrphans, officialFor, orphanContexts, probeFetcher } from '../data/recovery';
 import { raceWindowsFromListed } from '../data/vkx/match';
 import type { WorkerRequest, WorkerResponse } from '../worker';
@@ -194,6 +194,9 @@ import { paintTrails } from './trailLayer';
 import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
 import { createVkxUpload } from './vkxUpload';
 import { createPaywall, lockedRange, startRace } from './paywall';
+import { eventCardHtml, eventCardView } from './eventCard';
+import { NOTIFY_PARAM, handleNotify } from './notify';
+import { upcomingEvents } from '../data/upcoming';
 import { appPath } from '../landing/route';
 import { setPageState } from '../feedback/state';
 import { freeRacesOf, type FreeRaces } from '../data/freeRace';
@@ -439,8 +442,22 @@ export function startApp(): void {
   let regatta: RegattaResponse | null = null;
   /** The event whose races are loaded (and shown in the digest); '' until one loads. */
   let eventId = '';
-  /** Every listed event, most recent first; the search filters this. */
+  /** Every listed event that has started, most recent first; the search filters this. */
   let events: LandingEvent[] = [];
+  /** Events starting within the next two weeks, soonest first (data/upcoming.ts): the picker's Upcoming group. */
+  let upcoming: LandingEvent[] = [];
+  /** Everything /api/landing lists (names and dates for an event linked from further ahead). */
+  let listed: LandingEvent[] = [];
+  /** The event on the event card (no races yet: eventCard.ts), shown in place of the digest; '' when none. */
+  let cardEventId = '';
+  let cardDoc: RegattaDoc | null = null;
+  /** The document of the last event loadEvent found with no races, for its card. */
+  let emptyDoc: RegattaDoc | null = null;
+  const cardEl = document.createElement('div');
+  cardEl.id = 'event-card';
+  cardEl.className = 'event-card-wrap';
+  cardEl.hidden = true;
+  els.digest.before(cardEl);
   let matchCount = 0;
   /** The race on screen (null until one loads); what recall.lastView records. */
   let current: { eventId: string; division: string; raceNumber: number } | null = null;
@@ -2301,7 +2318,8 @@ export function startApp(): void {
   /** Signed in or out, or a pass arrived: reload the race on screen if its lock changed. */
   function paywallChanged(): void {
     // The "Free" badges follow the paywall (on or off).
-    if (events.length) renderEventOptions();
+    if (events.length || upcoming.length) renderEventOptions();
+    if (cardEventId) return renderEventCard();
     renderSummary();
     if (!current || current.eventId !== eventId || !baseRegatta) return;
     if (paywall.locked(freeOf(baseRegatta), eventId, current.division, current.raceNumber) !== paywall.lockShown()) void loadRace(current.division, current.raceNumber);
@@ -2310,13 +2328,16 @@ export function startApp(): void {
   /** Rebuild the Event select from the search query, keeping the loaded event selected. */
   function renderEventOptions(): void {
     const q = els.search.value;
-    const { options, matches } = pickerOptions(events, q, eventId, paywall.free);
+    const shown = cardEventId || eventId;
+    const { options, upcoming: soon, matches } = pickerOptions(events, q, shown, paywall.free, { events: upcoming, now: Date.now() });
     matchCount = matches.length;
     // Nothing loaded yet: a placeholder, so picking the first event still fires `change`.
-    const placeholder = eventId ? '' : '<option value="" disabled selected>Choose an event…</option>';
-    els.event.innerHTML = placeholder + options.map((o) => `<option value="${esc(o.eventId)}">${esc(o.label)}</option>`).join('');
-    if (eventId) els.event.value = eventId;
-    els.count.textContent = matchCountLabel(matchCount, events.length, q);
+    const placeholder = shown ? '' : '<option value="" disabled selected>Choose an event…</option>';
+    const html = (list: typeof options): string => list.map((o) => `<option value="${esc(o.eventId)}">${esc(o.label)}</option>`).join('');
+    // Upcoming first (the list runs latest first), in its own group; the rest under Events then.
+    els.event.innerHTML = placeholder + (soon.length ? `<optgroup label="Upcoming">${html(soon)}</optgroup>${options.length ? `<optgroup label="Events">${html(options)}</optgroup>` : ''}` : html(options));
+    if (shown) els.event.value = shown;
+    els.count.textContent = matchCountLabel(matchCount, events.length + upcoming.length, q);
     els.count.classList.toggle('none', q.trim() !== '' && matchCount === 0);
   }
 
@@ -2435,7 +2456,7 @@ export function startApp(): void {
   });
 
   let eventReq = 0;
-  /** 'empty': no finished races; 'missing': a strict (restore) `want` isn't listed; an Error: the race failed to load. */
+  /** 'empty': no races yet (emptyDoc holds its document); 'missing': a strict (restore) `want` isn't listed; an Error: the race failed to load. */
   type EventLoad = RaceLoad | 'empty' | 'missing';
   /**
    * Load an event and its default (or wanted) race. With `opts.strict` (a restore) a missing wanted
@@ -2455,7 +2476,11 @@ export function startApp(): void {
       const doc = currentDoc(next);
       // Zero-finisher races are listed too (tracker or official finishes); bogus ones are hidden.
       let list = buildRaceList(doc);
-      if (!list.races.length) return 'empty';
+      if (!list.races.length) {
+        emptyDoc = doc;
+        return 'empty';
+      }
+      hideEventCard();
       if (id !== eventId) {
         // Another event: the Regatta view's queue for the last one stops (its cache stays, keyed by event).
         regattaRunner.want([]);
@@ -2493,11 +2518,51 @@ export function startApp(): void {
     }
   }
 
-  const titleOf = (id: string): string => events.find((e) => e.eventId === id)?.title ?? id;
+  const landingOf = (id: string): LandingEvent | undefined => events.find((e) => e.eventId === id) ?? listed.find((e) => e.eventId === id);
+  const titleOf = (id: string): string => landingOf(id)?.title ?? id;
+
+  /**
+   * An event with no races yet (not started, or nothing posted): its card in place of the digest, the
+   * picker showing it, and the URL naming it (so a reload, or a sign-in from Notify me, comes back here).
+   */
+  function showEventCard(id: string, doc: RegattaDoc | null): void {
+    cardEventId = id;
+    cardDoc = doc;
+    els.digest.hidden = true;
+    paywall.hideLock();
+    els.race.innerHTML = '<option>—</option>';
+    els.race.disabled = true;
+    setStatus('');
+    setNotice('');
+    setUrl({ event: id, div: null, race: null, nc: null });
+    renderEventCard();
+    renderEventOptions();
+  }
+
+  function renderEventCard(): void {
+    if (!cardEventId) return;
+    const v = eventCardView(cardEventId, cardDoc, landingOf(cardEventId), Date.now());
+    cardEl.innerHTML = eventCardHtml(v, { me: paywall.me(), free: paywall.free(cardEventId) });
+    cardEl.hidden = false;
+  }
+
+  /** A race is loading: the card goes (the digest or the lock card takes its place). */
+  function hideEventCard(): void {
+    if (!cardEventId) return;
+    cardEventId = '';
+    cardDoc = null;
+    cardEl.hidden = true;
+    cardEl.innerHTML = '';
+  }
+
+  cardEl.addEventListener('click', (ev) => {
+    const b = (ev.target as HTMLElement).closest<HTMLButtonElement>('button[data-notify]');
+    if (b?.dataset.notify) handleNotify(b.dataset.notify, paywall.me(), { signIn: () => paywall.signIn() });
+  });
 
   /** A user pick (select, or Enter in the search). On failure the select goes back to the loaded event. */
   function pickEvent(id: string): void {
-    if (!id || id === eventId) return;
+    if (!id || (id === eventId && !cardEventId) || id === cardEventId) return;
     // A hand-set official link belongs to the event it was set on.
     if (ysParam !== undefined) {
       ysParam = undefined;
@@ -2506,9 +2571,7 @@ export function startApp(): void {
     }
     loadEvent(id).then(
       (r) => {
-        if (r !== 'empty') return;
-        setStatus(`${titleOf(id)} has no finished races yet.`);
-        renderEventOptions();
+        if (r === 'empty') showEventCard(id, emptyDoc);
       },
       (e: Error) => {
         setStatus(`Couldn't load ${titleOf(id)}: ${e.message}`);
@@ -2539,7 +2602,7 @@ export function startApp(): void {
       renderEventOptions();
     } else if (action === 'pick') {
       ev.preventDefault();
-      const only = pickerOptions(events, els.search.value, '').matches[0];
+      const only = pickerOptions(events, els.search.value, '', undefined, { events: upcoming, now: Date.now() }).matches[0];
       if (only) {
         els.event.value = only.eventId;
         pickEvent(only.eventId);
@@ -2565,7 +2628,9 @@ export function startApp(): void {
       const landing = await fetchLanding();
       const now = Date.now();
       const recency = (e: LandingEvent): number => (e.capturedRaceTime ? Date.parse(e.capturedRaceTime) : Math.min(e.endMs, now));
+      listed = landing.events;
       events = landing.events.filter((e) => e.startMs <= now).sort((a, b) => recency(b) - recency(a));
+      upcoming = upcomingEvents(landing.events, now);
     } catch (e) {
       setStatus('');
       els.event.innerHTML = '<option>—</option>';
@@ -2573,8 +2638,13 @@ export function startApp(): void {
       return;
     }
     const explicit = params.eventId;
-    if (explicit && !events.some((e) => e.eventId === explicit)) {
-      events.unshift({ eventId: explicit, title: explicit, startMs: 0, endMs: 0 });
+    if (explicit && !events.some((e) => e.eventId === explicit) && !upcoming.some((e) => e.eventId === explicit)) {
+      events.unshift(listed.find((e) => e.eventId === explicit) ?? { eventId: explicit, title: explicit, startMs: 0, endMs: 0 });
+    }
+    // Notify me from the landing page (notify.ts): drop the marker, then sign in or carry on, as a click here would.
+    if (explicit && new URLSearchParams(location.search).has(NOTIFY_PARAM)) {
+      setUrl({ [NOTIFY_PARAM]: null });
+      void paywall.ready.then((me) => handleNotify(explicit, me, { signIn: () => paywall.signIn() }));
     }
     renderEventOptions();
     void paywall.ready.then(renderEventOptions);
@@ -2591,8 +2661,7 @@ export function startApp(): void {
       try {
         // Reloading the saved race's own URL keeps its leg/boat/sort too.
         if ((await loadEvent(explicit, params.want, { view: plan.source === 'url' ? plan.view : undefined })) !== 'empty') return;
-        setStatus('');
-        setNotice(`${titleOf(explicit)} has no finished races yet. Pick another event.`);
+        showEventCard(explicit, emptyDoc);
       } catch (e) {
         setStatus('');
         setNotice(`Couldn't load event ${explicit} (${(e as Error).message}). Pick another event.`);
@@ -2644,6 +2713,12 @@ export function startApp(): void {
       return;
     }
     setStatus('');
+    if (r === 'empty') {
+      // Its races are gone from the feed: the event's card, as a link to it would show.
+      forget();
+      showEventCard(id, emptyDoc);
+      return;
+    }
     if (r instanceof Error && (isTransientError(r.message) || navigator.onLine === false)) {
       setNotice(`Couldn't reopen your last race (${r.message}).`, {
         label: 'Retry',
@@ -2654,12 +2729,7 @@ export function startApp(): void {
       });
       return;
     }
-    const why =
-      r === 'empty'
-        ? 'that event has no finished races'
-        : r === 'missing'
-          ? `${want.division} race ${want.raceNumber} is no longer listed`
-          : r.message;
+    const why = r === 'missing' ? `${want.division} race ${want.raceNumber} is no longer listed` : r.message;
     forget();
     await openLatest();
     // Unless the latest race had its own trouble to report.
@@ -2686,8 +2756,8 @@ export function startApp(): void {
     const sailOf = (id: string | null): string | undefined => (id ? analysis?.boats.find((b) => b.id === id)?.sail : undefined);
     const me = paywall.me();
     return {
-      eventId: current?.eventId ?? (eventId || undefined),
-      eventTitle: current || eventId ? titleOf(current?.eventId ?? eventId) : undefined,
+      eventId: cardEventId || (current?.eventId ?? (eventId || undefined)),
+      eventTitle: cardEventId ? titleOf(cardEventId) : current || eventId ? titleOf(current?.eventId ?? eventId) : undefined,
       division: current?.division,
       race: current?.raceNumber,
       tab,

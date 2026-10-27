@@ -3,9 +3,18 @@
  * crawlable without waiting on any script or RaceSense fetch). This only fills in two things:
  *   - the Regatta Pass price, from data/price.ts (the HTML carries the same text; tests hold them equal);
  *   - "Continue: <event · race>", a link to /regattas (which reopens it) when a race was viewed before;
- * and starts the feature cards' lightbox (lightbox.ts). Nothing of the app (ui/app.ts) is loaded here.
+ *   - "Upcoming regattas": cards for the /api/landing events starting in the next two weeks (data/upcoming.ts),
+ *     each with Notify me (ui/notify.ts) when the paywall is on; the section stays hidden when there are none;
+ * and starts the feature cards' lightbox (lightbox.ts). Nothing of the app (ui/app.ts) is loaded here
+ * (ui/notify.ts imports nothing of it).
  */
+import { isFreeEvent } from '../data/freeEvents';
+import { PAYWALL_OFF, fetchMe, type Me } from '../data/paywall';
 import { PRICE_REGATTA } from '../data/price';
+import { fetchLanding } from '../data/racesense/api';
+import type { LandingEvent } from '../data/racesense/types';
+import { dateRangeText, startsInText, upcomingEvents } from '../data/upcoming';
+import { eventPath, handleNotify, notifyButtonHtml, notifyHref } from '../ui/notify';
 import { startLightbox } from './lightbox';
 import { REGATTAS_PATH } from './route';
 
@@ -49,6 +58,54 @@ function readSaved(): string | null {
   }
 }
 
+const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+/** As ui/format.ts esc (not imported: that module brings analysis code along). */
+const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => ESC[c]);
+
+/** The Upcoming cards ('' for none): title (a link to the event), class and venue, dates, "Starts in …", Free, Notify me. */
+export function upcomingCardsHtml(events: readonly LandingEvent[], me: Me, now: number, tzOffsetMin?: number): string {
+  return upcomingEvents(events, now)
+    .map((e) => {
+      const id = `up-${e.eventId}`;
+      const free = me.paywall && isFreeEvent(e.eventId, now) ? ' <span class="free-tag">Free</span>' : '';
+      const meta = [e.classLabel?.trim(), e.venue?.trim()].filter((x): x is string => !!x).map(esc).join(' · ');
+      const notify = notifyButtonHtml(e.eventId, me, id);
+      return `<li class="land-card land-up">
+        <h3 id="${esc(id)}"><a href="${esc(eventPath(e.eventId))}">${esc(e.title)}</a>${free}</h3>
+        ${meta ? `<p class="land-up-meta">${meta}</p>` : ''}
+        <p class="land-up-when">${esc(dateRangeText(e.startMs, e.endMs))} · <strong>${esc(startsInText(e.startMs, now, tzOffsetMin))}</strong></p>
+        ${notify ? `<p class="land-up-actions">${notify}</p>` : ''}
+      </li>`;
+    })
+    .join('');
+}
+
+/** Fill in "Upcoming regattas" (hidden until there is one); any failure leaves it hidden. */
+export async function showUpcoming(
+  doc: Document,
+  o: { landing?: () => Promise<{ events: LandingEvent[] }>; me?: () => Promise<Me>; now?: () => number; go?: (href: string) => void } = {},
+): Promise<void> {
+  const section = doc.getElementById('land-upcoming');
+  const list = section?.querySelector<HTMLElement>('.land-upcoming-list');
+  if (!section || !list) return;
+  let events: LandingEvent[];
+  let me: Me;
+  try {
+    [events, me] = await Promise.all([(o.landing ?? fetchLanding)().then((r) => r.events ?? []), (o.me ?? fetchMe)().catch(() => PAYWALL_OFF)]);
+  } catch {
+    return;
+  }
+  const html = upcomingCardsHtml(events, me, (o.now ?? Date.now)());
+  list.innerHTML = html;
+  section.hidden = !html;
+  const go = o.go ?? ((href: string) => location.assign(href));
+  section.addEventListener('click', (ev) => {
+    const b = (ev.target as HTMLElement).closest<HTMLElement>('button[data-notify]');
+    // Signed out: to the event, where the app opens the sign-in sheet (which comes back there).
+    if (b?.dataset.notify) handleNotify(b.dataset.notify, me, { signIn: (id) => go(notifyHref(id)) });
+  });
+}
+
 export function startLanding(doc: Document = document): void {
   for (const n of doc.querySelectorAll<HTMLElement>('[data-price="regatta"]')) n.textContent = PRICE_REGATTA;
   const link = continueLink(readSaved());
@@ -59,4 +116,5 @@ export function startLanding(doc: Document = document): void {
     a.hidden = false;
   }
   startLightbox(doc);
+  void showUpcoming(doc);
 }

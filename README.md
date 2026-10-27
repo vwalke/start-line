@@ -12,9 +12,9 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 ## Pages
 
 - **`/`** with no app parameters: the landing page (static HTML in `index.html`, `#landing`; what Recall
-  does, pricing, where the data comes from, the other Walke Forward apps). It loads none of the app and
-  fetches nothing from RaceSense; with a race viewed before, it offers "Continue: <event · race>" (to
-  `/regattas`). The hero, `public/landing-hero.svg` (and `landing-hero-night.svg` for Dark), is a real race
+  does, pricing, where the data comes from, the other Walke Forward apps). It loads none of the app; its
+  one RaceSense fetch is `/api/landing`, for "Upcoming regattas" (below), after the static page is up. With
+  a race viewed before, it offers "Continue: <event · race>" (to `/regattas`). The hero, `public/landing-hero.svg` (and `landing-hero-night.svg` for Dark), is a real race
   drawn by `node scripts/landing-hero.mjs` from `tests/fixtures/j105_r3.json` (sail numbers only); a test
   fails when either is stale. The page shows the one that matches the theme. Each feature card
   has a thumbnail (lazy, 320×200 with a 2x file) that opens a full-size image in a native `<dialog>`
@@ -28,6 +28,20 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   `src/landing/route.ts` `routeOf`, mirrored by an inline script in `index.html` so the right page shows
   before first paint. Cloudflare Pages serves `index.html` for `/regattas` (no `404.html`: single-page
   fallback), so there is no `_redirects`.
+
+**Upcoming regattas.** Events from `/api/landing` that start within the next 14 days
+(`UPCOMING_DAYS`, `src/data/upcoming.ts`), soonest first, show in two places: an **Upcoming** group at
+the top of the app's Event picker ("2026 J/70 North Americans — Oct 28 – Nov 1 · Starts tomorrow"), and
+an "Upcoming regattas" section of cards on the landing page (title, class, venue, dates, "Starts in 2
+days", the Free badge; hidden when there are none). Event dates are calendar days (read in UTC); "today"
+is the viewer's. Events further ahead stay out of the picker, as before, but an `event=` link to one
+still opens. Opening an event with no races yet (upcoming, or started with nothing posted) shows its
+card in place of the digest (`src/ui/eventCard.ts`): dates, venue, class, boats entered, and "Racing
+starts Wed, Oct 28." (the first scheduled start, else the first day) or "Racing is underway. Races will
+show up here as they're posted." Both cards carry **Notify me** (`src/ui/notify.ts`), only with the
+paywall on: signed out it opens the sign-in sheet, which comes back to the event (from the landing page
+it goes to `/?event=…&notify=1`, and the app opens the sheet and drops `notify`); signed in it calls
+`notifyMe(eventId)`, which for now just opens the event page.
 
 **Landing thumbnails.** `scripts/landing-thumbs.mjs` drives headless Chrome with Playwright against a running
 Recall server and writes `public/landing/<slug>-thumb.webp`, `<slug>-thumb@2x.webp` and `<slug>.webp` for each
