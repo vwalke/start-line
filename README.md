@@ -146,7 +146,10 @@ The landing hero is two files, one per theme. The masthead stays carbon in both.
     every line runs straight on across any stretch without values, however long:
     no breaks, no bands, no "no data" chip, and the readout says only the statistic
     and how many boats ("median of 6 boats"), never that any was estimated; the
-    wind strip is one line at full strength over every minute. The cards read the
+    wind strip is one line at full strength over every minute. That wind is read
+    minute by minute from the fleet's tacks on the beats and, in asymmetric-kite
+    classes, from its gybes on a run 10 minutes or more from a beat reading or after
+    the last one (`src/analysis/coach/twdSeries.ts`). The cards read the
     same series (`groupGap`), with its holes and rules as above, so
     a card's seconds are the chart's change for the same group), the biggest gains as cards
     ranked by their impact on the result (see [How the Coach ranks

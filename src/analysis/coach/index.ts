@@ -19,11 +19,12 @@ import { GAP_STEP_MS, gapCourse, groupGap, timeGapSeries } from './timeGap';
 import { lineCrossing } from './lineCross';
 import { startCross } from '../startCross';
 import { boundsOf, coachTracks, longestHole, projectCoachTrack, type CoachTrack } from './tracks';
-import { fleetTwdSeries, type TwdSeries, type TwdSeriesData, twdSeriesFrom } from './twdSeries';
+import { GYBE_WIND, fleetTwdSeries, type TwdSeries, type TwdSeriesData, twdSeriesFrom } from './twdSeries';
 import { heelTracks, type HeelTrack } from './detectors/heel';
 import { findTurns, type PenaltyTurn } from './detectors/penaltyTurn';
 import type { OverStart } from './penalty';
 import { codeInfo } from '../../data/official/codes';
+import { kiteOf } from '../../data/classes';
 
 /** Which race an analysis is (event, division, race, `nc=all`): how the main thread asks the worker for that race's wind. */
 export const coachRaceKey = (eventId: string, division: string, raceNumber: number, allCompetitors = false): string =>
@@ -145,6 +146,9 @@ export function windVoters(a: RaceAnalysis): Set<string> {
   return new Set(compass.length ? compass : a.boats.map((b) => b.id));
 }
 
+/** Whether the runs are read for the wind (twdSeries.ts gybeTwd): only for asymmetric-kite classes, where the gybes beat interpolation. */
+export const gybesFor = (a: RaceAnalysis): boolean => GYBE_WIND && kiteOf([a.meta.boatClass, a.meta.division, a.meta.classLabel]) === 'asym';
+
 /** The fleet wind series from these tracks (the voters' only), seeded by the analysis's per-leg estimates. */
 export function windSeries(a: RaceAnalysis, tracks: CoachTrack[]): TwdSeries | null {
   const course = courseOf(a);
@@ -158,6 +162,7 @@ export function windSeries(a: RaceAnalysis, tracks: CoachTrack[]): TwdSeries | n
     legKinds: course.kinds,
     prior: makeTwdAt(windPoints(a.wind), a.wind.twdAtGunDeg),
     priorTa: ests.length ? median(ests.map((e) => e.tackAngleDeg)) : 90,
+    gybes: gybesFor(a),
   });
 }
 
@@ -174,7 +179,7 @@ export function coachWind(a: RaceAnalysis, data: RaceData): TwdSeriesData | null
     tracks.push({ id: r.id, t: tr.t, x: tr.x, y: tr.y, bounds: boundsOf(r.legs, a.meta.gunMs, r.finishMs) });
   }
   const s = windSeries(a, tracks);
-  return s && { t: s.t, twd: s.twd, ta: s.ta, n: s.n, ok: s.ok };
+  return s && { t: s.t, twd: s.twd, ta: s.ta, n: s.n, ok: s.ok, taOk: s.taOk };
 }
 
 /**
