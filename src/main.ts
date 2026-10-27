@@ -4,9 +4,11 @@ import { startSwitcher } from './apps';
 import { startFeedback } from './feedback/sheet';
 import { startLanding } from './landing/landing';
 import { REGATTAS_PATH, routeOf } from './landing/route';
+import { watchTheme } from './theme';
 
 // First: recent errors and failed /api calls, for the Feedback sheet (memory only).
 installProblemLog();
+watchTheme();
 startSwitcher();
 // The Feedback button, on the landing page and in the app alike.
 startFeedback();

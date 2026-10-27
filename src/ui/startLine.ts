@@ -116,18 +116,27 @@ export const FAV_GAP_PX = 18;
 /** The label's baseline sits this far off the line, css px (× unit). */
 export const FAV_OFFSET_PX = 4;
 
-/** The wind the bias rests on, its confidence and the bias's sensitivity to it (the label's and the wind chip's title). */
+const CONFIDENCE_TEXT = { high: 'High confidence.', medium: 'Medium confidence.', low: 'Low confidence.' } as const;
+
+/** The wind the bias rests on and how sure it is, in a plain sentence or two (the label's and the wind chip's title). */
 export function biasBasis(a: RaceAnalysis): string {
   const src = windSource(a.wind);
-  return `Wind ${degLabel(a.wind.twdAtGunDeg)} at the gun, ${src.text}${src.detail ? ` (${src.detail})` : ''}; ${src.confidence} confidence. ±5° of wind ≈ ±${f0(biasSensitivityM(a.line.lengthM))} m.`;
+  const deg = degLabel(a.wind.twdAtGunDeg);
+  const where =
+    src.method === 'tacks'
+      ? `Wind about ${deg} at the gun, estimated from how the fleet tacked ${a.wind.startWindow ? 'in the first few minutes' : 'on the first beat'}.`
+      : src.method === 'model'
+        ? `Wind about ${deg} at the gun, from the weather model.`
+        : `Wind assumed from the course, with the first leg straight upwind (${deg}).`;
+  return `${where} ${CONFIDENCE_TEXT[src.confidence]}`;
 }
 
-/** The wind chip: "wind est. (medium)"; low confidence is a caveat, "⚠ wind est. low" (or "⚠ wind assumed"). */
+/** The wind chip: "wind est.", "model wind"; low confidence is a caveat, "⚠ wind est. low" (or "⚠ wind assumed"). How sure, in its title. */
 export function windChip(a: RaceAnalysis): Chip {
   const src = windSource(a.wind);
   const what = src.method === 'tacks' ? 'wind est.' : src.method === 'model' ? 'model wind' : 'wind assumed';
   const title = biasBasis(a);
-  if (src.confidence !== 'low') return { text: `${what} (${src.confidence})`, title };
+  if (src.confidence !== 'low') return { text: what, title };
   return warnChip(src.method === 'course' ? what : `${what} low`, title);
 }
 
@@ -140,9 +149,7 @@ export function lineChips(a: RaceAnalysis): Chip[] {
 
 /** The ⓘ bullet for the favoured end: the wind it's measured against, and its sensitivity to that wind. */
 export function biasBullets(a: RaceAnalysis): string[] {
-  const src = windSource(a.wind);
-  const from = src.method === 'tacks' ? `(tacks, ${src.span})` : src.method === 'model' ? 'from the weather model' : '(first leg assumed upwind)';
-  return [`Favored end vs wind ${degLabel(a.wind.twdAtGunDeg)} ${from}; ±5° of wind ≈ ±${f0(biasSensitivityM(a.line.lengthM))} m.`];
+  return [`Favored end vs the wind at the gun; 5° of wind moves it ${f0(biasSensitivityM(a.line.lengthM))} m.`];
 }
 
 /**

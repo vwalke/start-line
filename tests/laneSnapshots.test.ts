@@ -207,7 +207,6 @@ describe('around the gun: orientation and the true wind', () => {
   it('wind-up: wind from the east puts east at the top; the wind arrow points straight down, labelled with the TWD, estimated', () => {
     const L = laneScrub(race([{ id: 'A', tr: track(0, -100) }], 90), { me: null });
     expect(L.windUp).toBe(true);
-    expect(L.note).toBe("True wind ↓ from the top, estimated from the fleet's tacks on the first beat.");
     near(L.wind!.down, [0, 1]);
     expect(L.wind!.label).toBe('TWD ~90° est.');
     expect(L.wind!.assumed).toBe(false);
@@ -223,14 +222,14 @@ describe('around the gun: orientation and the true wind', () => {
     expect(laneScrub(race(one, 18, 'model'), { me: null }).wind!.label).toBe('TWD 18° (model)');
     const course = laneScrub(race(one, 18, 'course'), { me: null });
     expect(course.wind!.label).toBe('TWD ~18° assumed');
-    expect(course.note).toMatch(/assumed from the course/);
+    expect(course.wind!.title).toMatch(/assumed from the course/);
     near(course.wind!.down, [0, 1]);
   });
 
   it('no wind estimate: north up, the wind assumed square to the line from the course side, and says so', () => {
     const L = laneScrub(race([{ id: 'A', tr: track(0, -100) }], NaN), { me: null });
     expect(L.windUp).toBe(false);
-    expect(L.note).toMatch(/North up: no wind estimate; wind assumed square to the line/);
+    expect(L.wind!.title).toMatch(/wind assumed square to the start line/);
     // The line runs east-west, the course side north: the wind blows from the north, down the page.
     near(L.wind!.down, [0, 1]);
     expect(L.wind!.label).toBe('Wind assumed ⟂ line');
@@ -275,7 +274,7 @@ describe('around the gun: orientation and the true wind', () => {
     expect(-Math.sin(th)).toBeCloseTo(d[0], 2);
     expect(Math.cos(th)).toBeCloseTo(d[1], 2);
     expect(html).toContain('<span>Wind assumed ⟂ line</span>');
-    expect(html).toContain('North up: no wind estimate; wind assumed square to the line, from the course side.');
+    expect(html).toContain('title="No wind estimate: wind assumed square to the start line"');
   });
 
   it('one view for the whole slider, fitted tightly: the line, every position and trail, padded 8% each way; no reach box, no wind strip; the mark not drawn', () => {
@@ -453,9 +452,9 @@ describe('around the gun: over early', () => {
   });
 
   it('the track map\'s OCS styling: red over the line, dashed red going back until cleared, a ring where it went back and a dot where it cleared; the title says it', () => {
-    const fig = (s: number): string => laneScrubHtml(race(boats), L, undefined, s).split('<figure')[1].split('</figure>')[0];
+    const fig = (s: number): string => laneScrubHtml(race(boats), L, s).split('<figure')[1].split('</figure>')[0];
     const count = (h: string, re: RegExp): number => h.match(re)?.length ?? 0;
-    const html = laneScrubHtml(race(boats), L, undefined, 60);
+    const html = laneScrubHtml(race(boats), L, 60);
     const first = fig(60);
     // Over the line from −2 s to going back at +10 s: all four OCS boats; the clean one never.
     expect(count(first, /<polyline class="ocs-over"/g)).toBe(4);
@@ -593,7 +592,7 @@ describe('around the gun: renderer', () => {
     { id: 'C', tr: track(40, -100) },
   ]);
   const L = laneScrub(a, { me: 'B', group: ['C'], replays: [rep('A', 90)] });
-  const html = laneScrubHtml(a, L, 'the top 3 (Coach group)', 60);
+  const html = laneScrubHtml(a, L, 60);
 
   it('one frame, the second asked for: an SVG with an accessible label, the fixed view, the line and the true-wind arrow', () => {
     expect(html.match(/<figure class="lane-frame/g)).toHaveLength(1);
@@ -618,8 +617,9 @@ describe('around the gun: renderer', () => {
     for (const svg of html.match(/<svg class="chart lane-svg"[\s\S]*?<\/svg>/g)!) expect(svg).not.toMatch(/lane-wind|TWD/);
     expect(windBadgeHtml(L)).toBe(html.match(/<div class="lane-wind"[\s\S]*?<\/div>/)![0]);
     expect(windBadgeHtml({ wind: null })).toBe('');
-    // The key: who is highlighted, and the wind's source; nothing else.
-    expect(html.split('<p class="lane-key muted">')[1].split('<span class="ocs-legend">')[0]).toBe('B highlighted, with the top 3 (Coach group); the rest faded. True wind ↓ from the top, estimated from the fleet&#39;s tacks on the first beat.');
+    // The key: the over-early legend alone, no caption.
+    expect(html.split('<p class="lane-key muted">')[1].split('<span class="ocs-legend">')[0]).toBe('');
+    expect(html).not.toMatch(/highlighted|the rest faded|True wind ↓/);
     // A true wind is drawn solid (dashed only when assumed).
     expect(windBadgeHtml(L)).not.toContain('dasharray');
     expect(frames(L)[0].label).toMatch(/True wind from 0° \(estimated\)\.$/);
@@ -649,7 +649,7 @@ describe('around the gun: renderer', () => {
     expect(fs('B')).toBeCloseTo(pxToUnits(13, ppu), 1);
     expect(fs('C')).toBeCloseTo(pxToUnits(12, ppu), 1);
     // At twice the scale, half the units: the same 13 px on screen.
-    const big = laneScrubHtml(a, L, undefined, 0, ppu * 2);
+    const big = laneScrubHtml(a, L, 0, ppu * 2);
     expect(Number(big.match(/class="lane-lbl on"[^>]*font-size="([\d.]+)"/)![1])).toBeCloseTo(pxToUnits(13, ppu * 2), 1);
   });
 
@@ -671,7 +671,6 @@ describe('around the gun: renderer', () => {
     expect(html).toMatch(/class="lane-lbl on"[^>]*>B</);
     expect(html).toContain('class="ocs-over"');
     expect(html).toContain('<title>A, over early (OCS)</title>');
-    expect(html).toContain('B highlighted, with the top 3 (Coach group)');
     // The selected boat drawn last (on top).
     const dots = html.split('<g class="lane-dots">')[1].split('<g class="lane-flags">')[0];
     expect(dots.lastIndexOf('data-id="B"')).toBeGreaterThan(dots.lastIndexOf('data-id="A"'));
@@ -757,7 +756,7 @@ describe('around the gun: the default extent over the whole slider (−1:30 … 
   it('is the same whatever the slider: one view, one viewBox, at every second', () => {
     const boxes = new Set<string>();
     for (const s of [-90, -45, -1, 0, 1, 37, 90, 179, 180]) {
-      const html = laneScrubHtml(a, L, undefined, s);
+      const html = laneScrubHtml(a, L, s);
       boxes.add(html.match(/class="chart lane-svg" viewBox="([^"]+)"/)![1]);
     }
     expect(boxes.size).toBe(1);
@@ -856,25 +855,25 @@ describe('around the gun: the slider', () => {
     expect(html).toContain('<button type="button" class="lane-step" data-lane-step="1" aria-label="Forward 1 second">›</button>');
     expect(html).toContain('<button type="button" class="lane-play" data-lane-play aria-pressed="false" aria-label="Play">');
     expect(html).toContain('<input type="range" class="lane-range" min="-90" max="180" step="1" value="0" aria-label="Seconds from the gun" aria-valuetext="gun +0:00"');
-    const first = laneScrubHtml(a, L, undefined, -90);
+    const first = laneScrubHtml(a, L, -90);
     expect(disabled(first)).toEqual(['-1']);
     expect(first).toContain('<button type="button" class="lane-step" data-lane-step="-1" aria-label="Back 1 second" disabled>‹</button>');
     expect(first).toContain('value="-90" aria-label="Seconds from the gun" aria-valuetext="gun −1:30"');
-    expect(laneScrubHtml(a, L, undefined, -72)).toContain('aria-valuetext="gun −1:12"');
+    expect(laneScrubHtml(a, L, -72)).toContain('aria-valuetext="gun −1:12"');
     expect(html).toMatch(/data-s="0"><figcaption><b class="lane-time">gun \+0:00<\/b>.*?role="img" aria-label="Fleet at gun \+0:00: /);
     // No snapshot picker left.
     expect(html).not.toMatch(/data-lane-frame|Snapshot time|snapshot/i);
   });
 
   it('mid-way both steps on; at +3:00 › disabled; out-of-range seconds clamped', () => {
-    const mid = laneScrubHtml(a, L, undefined, 83);
+    const mid = laneScrubHtml(a, L, 83);
     expect(disabled(mid)).toEqual([]);
     expect(mid).toContain('value="83" aria-label="Seconds from the gun" aria-valuetext="gun +1:23"');
-    expect(disabled(laneScrubHtml(a, L, undefined, 180))).toEqual(['1']);
-    expect(shownS(laneScrubHtml(a, L, undefined, 999))).toBe(180);
-    expect(shownS(laneScrubHtml(a, L, undefined, -4))).toBe(-4);
-    expect(shownS(laneScrubHtml(a, L, undefined, -999))).toBe(-90);
-    expect(laneScrubHtml(a, L, undefined, 0, undefined, true)).toContain('aria-pressed="true"');
+    expect(disabled(laneScrubHtml(a, L, 180))).toEqual(['1']);
+    expect(shownS(laneScrubHtml(a, L, 999))).toBe(180);
+    expect(shownS(laneScrubHtml(a, L, -4))).toBe(-4);
+    expect(shownS(laneScrubHtml(a, L, -999))).toBe(-90);
+    expect(laneScrubHtml(a, L, 0, undefined, true)).toContain('aria-pressed="true"');
   });
 
   it('steps and keys clamp to −90 … 180: ← → 1 s, Shift 10 s, Home / End the ends; other keys are not ours', () => {
@@ -952,7 +951,7 @@ describe('around the gun: the slider', () => {
     lanes.refresh();
     expect(lanes.second()).toBe(-80);
     expect(shownS(body.innerHTML)).toBe(-80);
-    expect(body.innerHTML).toContain('A highlighted');
+    expect(body.innerHTML).toContain('class="lane-boat lane-me" data-id="A"');
   });
 
   it('mount: worked out once per race and selection; a refresh with nothing changed reuses it', () => {
@@ -1093,15 +1092,15 @@ describe('IC37 R5: USA 016 selected', () => {
       expect((at(0, sail).clearedMs! - a.meta.gunMs) / 1000).toBeCloseTo(cleared, -0.5);
     }
     for (const s of [60, 120, 180]) {
-      const h = laneScrubHtml(a, L, undefined, s);
+      const h = laneScrubHtml(a, L, s);
       expect(h.match(/<title>USA 017, over early \(OCS\), cleared \+26 s<\/title>/g)).toHaveLength(1);
       expect(h.match(/<title>USA 019, over early \(OCS\), cleared \+35 s<\/title>/g)).toHaveLength(1);
     }
     // At the gun both are still over (a solid ring, no clearing time yet).
-    const atGun = laneScrubHtml(a, L, undefined, 0);
+    const atGun = laneScrubHtml(a, L, 0);
     expect(atGun).toContain('<title>USA 017, over early (OCS)</title>');
     expect(atGun).toContain('<title>USA 019, over early (OCS)</title>');
-    const html = laneScrubHtml(a, L, undefined, 60);
+    const html = laneScrubHtml(a, L, 60);
     for (const f of frames(L)) expect(f.caption + f.label).not.toMatch(/OCS|cleared/);
     // The key's legend for the over-early styling; both boats' tracks drawn over the line and back, both cleared.
     expect(html).toContain(ocsLegend());
@@ -1119,7 +1118,7 @@ describe('IC37 R5: USA 016 selected', () => {
     const roles = frames(L)[1].boats.filter((b) => b.role !== 'other');
     expect(roles.find((b) => b.role === 'me')!.sail).toBe('USA 016');
     expect(roles.filter((b) => b.role === 'group')).toHaveLength(3);
-    const html = laneScrubHtml(a, L, undefined, 120);
+    const html = laneScrubHtml(a, L, 120);
     expect(html.match(/<figure class="lane-frame/g)).toHaveLength(1);
     expect(html.match(/class="lane-boat lane-me"/g)).toHaveLength(1);
   });
@@ -1141,7 +1140,7 @@ describe('IC37 R5: USA 016 selected', () => {
       }
     }
     // One view for the whole slider: the same viewBox at −1:30, at the gun and at +3:00.
-    const box = (s: number): string => laneScrubHtml(a, L, undefined, s).match(/class="chart lane-svg" viewBox="([^"]+)"/)![1];
+    const box = (s: number): string => laneScrubHtml(a, L, s).match(/class="chart lane-svg" viewBox="([^"]+)"/)![1];
     expect(box(0)).toBe(box(180));
     expect(box(-90)).toBe(box(0));
   });
@@ -1161,7 +1160,7 @@ describe('around the gun: zoom (the track map’s pan / zoom)', () => {
     expect(html).toContain('<div class="zoom lane-zoom" role="group" aria-label="Start Playback map zoom"><button type="button" data-zoom="1" aria-pressed="true">Fit</button><button type="button" data-zoom="2" aria-pressed="false">2×</button>');
     expect(html).toContain('<div class="lane-stage panzoom" tabindex="0" role="group" aria-label="Start Playback map. Arrow keys pan when zoomed, plus and minus zoom, 0 resets.">');
     const z = { ...fitView(L.view), k: 2 };
-    const zoomed = laneScrubHtml(a, L, undefined, 0, undefined, false, z);
+    const zoomed = laneScrubHtml(a, L, 0, undefined, false, z);
     expect(zoomed).toContain('data-zoom="2" aria-pressed="true"');
     expect(zoomed).toContain('class="lane-stage panzoom zoomed"');
     const v = laneVisible(L.view, z);
@@ -1211,7 +1210,7 @@ describe('around the gun: zoom (the track map’s pan / zoom)', () => {
       expect(lanes.zoom()).toEqual(panned);
       // The stage redrawn at the second on show, in the same visible box.
       expect(parts['.lane-stage'].innerHTML).toMatch(/^<figure class="lane-frame" data-s="-40">/);
-      expect(vb(parts['.lane-stage'].innerHTML)).toBe(vb(laneScrubHtml(a, L, undefined, -40, undefined, false, panned)));
+      expect(vb(parts['.lane-stage'].innerHTML)).toBe(vb(laneScrubHtml(a, L, -40, undefined, false, panned)));
       // Fit: back to the default extent.
       on.click(btn({ zoom: '1' }));
       expect(lanes.zoom()).toEqual(fitView(L.view));
@@ -1258,14 +1257,14 @@ describe('around the gun: boats as hulls where they can be', () => {
     const px = L.dims!.loaM * ppu;
     expect(px).toBeGreaterThan(BOAT_SHAPE_MIN_PX);
     expect(px).toBeLessThan(BOAT_SHAPE_PX);
-    const fit = laneScrubHtml(a, L, undefined, 60);
+    const fit = laneScrubHtml(a, L, 60);
     const bow = (html: string, id: string): number => Number(html.match(new RegExp(`data-id="${id}"><title>${id}</title><path class="lane-dot lane-hull" d="M[-\\d.]+,([-\\d.]+)`))![1]);
     const posB = boatIn(L.frame(60), 'B').pos!;
     const posA = boatIn(L.frame(60), 'A').pos!;
     expect(posB[1] - bow(fit, 'B')).toBeCloseTo(BOAT_SHAPE_ON_PX / ppu / 2, 1);
     expect(posA[1] - bow(fit, 'A')).toBeCloseTo(BOAT_SHAPE_PX / ppu / 2, 1);
     const z = { ...fitView(L.view), k: 4 };
-    const html = laneScrubHtml(a, L, undefined, 60, ppu, false, z);
+    const html = laneScrubHtml(a, L, 60, ppu, false, z);
     const b = boatIn(L.frame(60), 'B');
     const d = html.match(/data-id="B"><title>B<\/title><path class="lane-dot lane-hull" d="([^"]+)"/)![1];
     // The bow LOA/2 up the page from the boat.
@@ -1278,7 +1277,7 @@ describe('around the gun: boats as hulls where they can be', () => {
 
   it('held past its final fix, slow or without a course: the hull along its last heading; hollow once that fix is BOAT_STALE_MS old', () => {
     const z = { ...fitView(L.view), k: 8 };
-    const hull = (s: number): string => laneScrubHtml(a, L, undefined, s, ppu, false, z).match(/data-id="Gap"><title>Gap \(last fix\)<\/title>(<[^>]*>)/)![1];
+    const hull = (s: number): string => laneScrubHtml(a, L, s, ppu, false, z).match(/data-id="Gap"><title>Gap \(last fix\)<\/title>(<[^>]*>)/)![1];
     // 2 s past its last fix (+58, no finish): held there, filled, pointing up the course.
     expect(boatIn(L.frame(60), 'Gap')).toMatchObject({ hold: true, stale: false });
     expect(hull(60)).not.toMatch(/\blost\b/);
@@ -1325,7 +1324,7 @@ describe('around the gun: "Replay start →" cues the slider', () => {
       expect(root.open).toBe(true);
       expect(lanes.second()).toBe(-10);
       expect(lanes.playing()).toBe(true);
-      expect(body.innerHTML).toContain('B highlighted');
+      expect(body.innerHTML).toContain('class="lane-boat lane-me" data-id="B"');
       vi.advanceTimersByTime(LANE_PLAY_MS * 3);
       expect(lanes.second()).toBe(-7);
       // Reduced motion: cued, paused, ready to play.

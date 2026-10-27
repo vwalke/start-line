@@ -144,7 +144,7 @@ describe('boat-log upload UI', () => {
     expect(list).not.toContain('log-tag');
     expect(list.match(/class="log-hz"/g)).toHaveLength(1);
     const key = mapKey(a, { colour: 'leg' });
-    expect(key.chips.map((c) => c.text)).toContain('USA 833 from boat log · 10 Hz');
+    expect(key.chips.find((c) => c.text === 'USA 833 from boat log')).toMatchObject({ title: '10 Hz' });
   });
 });
 

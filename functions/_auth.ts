@@ -86,6 +86,7 @@ import {
 } from './_paywall';
 import { readCapped } from './_vkx';
 import { endpointPath } from './_lib';
+import { THEME_SCRIPT } from './_theme';
 import { signEs256, verifyIdToken, type Claims } from './_jwt';
 
 export interface AuthCtx {
@@ -745,11 +746,12 @@ export const SIGNED_IN_PARAM = 'signin';
 export const SIGNED_IN_VALUE = 'ok';
 
 const PAGE_STYLE =
-  "body{font:16px/1.5 Archivo,system-ui,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh;background:#f5f7fa;color:#131922}main{max-width:22rem;padding:2rem;text-align:center}h1{font-size:1.4rem;margin:0 0 1rem}[hidden]{display:none!important}button,.btn{display:inline-block;font:inherit;font-weight:600;padding:.7rem 1.6rem;border:0;border-radius:8px;background:#1f6bc4;color:#fff;text-decoration:none;cursor:pointer}a{color:#1f6bc4;font-weight:600}p{color:#46505e}.busy{display:inline-flex;align-items:center;gap:.6rem;color:#46505e}.spin{width:1.1rem;height:1.1rem;border:2px solid #c3ccd7;border-top-color:#1f6bc4;border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.spin{animation:none}}@media (prefers-color-scheme:dark){body{background:#10151c;color:#e9eef5}p,.busy{color:#b9c2ce}a{color:#3987e5}.spin{border-color:#3a4756;border-top-color:#3987e5}}";
+  "body{font:16px/1.5 Archivo,system-ui,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh;background:#f5f7fa;color:#131922}main{max-width:22rem;padding:2rem;text-align:center}h1{font-size:1.4rem;margin:0 0 1rem}[hidden]{display:none!important}button,.btn{display:inline-block;font:inherit;font-weight:600;padding:.7rem 1.6rem;border:0;border-radius:8px;background:#1f6bc4;color:#fff;text-decoration:none;cursor:pointer}a{color:#1f6bc4;font-weight:600}p{color:#46505e}.busy{display:inline-flex;align-items:center;gap:.6rem;color:#46505e}.spin{width:1.1rem;height:1.1rem;border:2px solid #c3ccd7;border-top-color:#1f6bc4;border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.spin{animation:none}}[data-theme=dark] body{background:#10151c;color:#e9eef5}[data-theme=dark] p,[data-theme=dark] .busy{color:#b9c2ce}[data-theme=dark] a{color:#3987e5}[data-theme=dark] .spin{border-color:#3a4756;border-top-color:#3987e5}";
 
 const authPage = (body: string, script = ''): string => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
 <title>Sign in to Recall</title>
+<script data-theme-script>${THEME_SCRIPT}</script>
 <style>${PAGE_STYLE}</style>
 </head><body><main>
 <h1>Sign in to Recall</h1>
@@ -784,17 +786,27 @@ export const VERIFY_SCRIPT = `(function () {
   }
 })();`;
 
-let scriptHash: Promise<string> | null = null;
-/** `'sha256-…'` of VERIFY_SCRIPT, for the page's script-src. */
-export const verifyScriptHash = (): Promise<string> =>
-  (scriptHash ??= crypto.subtle.digest('SHA-256', new TextEncoder().encode(VERIFY_SCRIPT)).then((d) => {
+/** `'sha256-…'` of a script, for a page's script-src. */
+const hashOf = (script: string): Promise<string> =>
+  crypto.subtle.digest('SHA-256', new TextEncoder().encode(script)).then((d) => {
     let s = '';
     for (const x of new Uint8Array(d)) s += String.fromCharCode(x);
     return `'sha256-${btoa(s)}'`;
-  }));
+  });
 
-/** The link page's CSP: VERIFY_PAGE_CSP, plus its one script by hash. */
-export const verifyPageCsp = async (): Promise<string> => `${VERIFY_PAGE_CSP}; script-src ${await verifyScriptHash()}`;
+let scriptHash: Promise<string> | null = null;
+/** `'sha256-…'` of VERIFY_SCRIPT, for the page's script-src. */
+export const verifyScriptHash = (): Promise<string> => (scriptHash ??= hashOf(VERIFY_SCRIPT));
+
+let themeHash: Promise<string> | null = null;
+/** `'sha256-…'` of THEME_SCRIPT (the pages' color theme before first paint, functions/_theme.ts). */
+export const themeScriptHash = (): Promise<string> => (themeHash ??= hashOf(THEME_SCRIPT));
+
+/** The link page's CSP: VERIFY_PAGE_CSP, plus its two scripts by hash. */
+export const verifyPageCsp = async (): Promise<string> => `${VERIFY_PAGE_CSP}; script-src ${await verifyScriptHash()} ${await themeScriptHash()}`;
+
+/** The expired page's CSP: VERIFY_PAGE_CSP, plus the theme script by hash. */
+export const expiredPageCsp = async (): Promise<string> => `${VERIFY_PAGE_CSP}; script-src ${await themeScriptHash()}`;
 
 const gonePara = `<p>This link has expired or was already used.</p>
 <p><a class="btn" href="${EXPIRED_LINK_HREF}">Get a new link</a></p>`;
@@ -852,7 +864,7 @@ async function verifyRoute(ctx: AuthCtx, deps: AuthDeps): Promise<Response> {
   const token = raw ? (new URLSearchParams(new TextDecoder().decode(raw)).get('token') ?? '') : '';
   const now = (deps.now ?? Date.now)();
   const used = LOGIN_TOKEN_RE.test(token) ? await consumeLoginToken(db, await tokenHash('login', token), now) : null;
-  if (!used) return pageOut(expiredPageHtml(), 400);
+  if (!used) return pageOut(expiredPageHtml(), 400, await expiredPageCsp());
   const user = await ensureUser(db, used.email, now);
   const cookie = await startSession(db, user, req, ctx.env, now, 'email');
   const { returnTo, buy } = splitLinkReturnTo(safeReturnTo(used.returnTo, new URL(req.url).origin));

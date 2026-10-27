@@ -74,8 +74,9 @@ describe('the feature cards: one thumbnail each (index.html)', () => {
     expect(landing).toMatch(/<img class="land-lb-img" alt="" \/>/);
   });
 
-  it('keeps the hero as it was', () => {
-    expect(landing).toMatch(/<img src="\/landing-hero\.svg" width="\d+" height="\d+" alt="[^"]+" fetchpriority="high" \/>/);
+  it('keeps the hero as it was (a Day and a Night file, shown by the theme)', () => {
+    expect(landing).toMatch(/<img class="hero-day" src="\/landing-hero\.svg" width="\d+" height="\d+" alt="[^"]+" fetchpriority="high" \/>/);
+    expect(landing).toMatch(/<img class="hero-night" src="\/landing-hero-night\.svg" width="\d+" height="\d+" alt="[^"]+" fetchpriority="high" \/>/);
   });
 
   it('has one lightbox dialog in the landing page, labelled by its caption, with a close button', () => {

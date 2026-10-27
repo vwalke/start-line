@@ -298,20 +298,18 @@ function laneZoomHtml(L: LaneScrub, zoom: View): string {
 
 /**
  * The section's body: the controls, the zoom presets, the frame at second `s` (in the fit box at `zoom`, default
- * Fit) in the pan / zoom stage, a polite live region (filled by the mount after scrubbing) and a key line (who is
- * highlighted, the wind's source; the over-early legend when a boat was over early). `ppu`: css px per view unit
- * at Fit as measured (default: the frame at LANE_DEFAULT_W_PX).
+ * Fit) in the pan / zoom stage, a polite live region (filled by the mount after scrubbing) and, when a boat was
+ * over early, the over-early legend. `ppu`: css px per view unit at Fit as measured (default: the frame at
+ * LANE_DEFAULT_W_PX).
  */
-export function laneScrubHtml(a: RaceAnalysis, L: LaneScrub, groupText?: string, s = 0, ppu = lanePxPerUnit(L.view), playing = false, zoom: View = fitView(L.view)): string {
-  const me = L.me != null ? a.boats.find((b) => b.id === L.me) : undefined;
-  const key = [me ? `${me.sail} highlighted${groupText ? `, with ${groupText}` : ''}; the rest faded.` : 'Pick a boat to highlight it and its group.', L.note];
+export function laneScrubHtml(a: RaceAnalysis, L: LaneScrub, s = 0, ppu = lanePxPerUnit(L.view), playing = false, zoom: View = fitView(L.view)): string {
   const on = laneSecond(s, L.end, L.start);
   const z = clampView(L.view, zoom);
   return (
     `${laneControlsHtml(L, on, playing)}${laneZoomHtml(L, z)}` +
     `<div class="lane-stage panzoom${z.k > 1 ? ' zoomed' : ''}" tabindex="0" role="group" aria-label="Start Playback map. Arrow keys pan when zoomed, plus and minus zoom, 0 resets.">${frameHtml(a, L, L.frame(on), ppu, z)}</div>` +
     `<p class="lane-live" aria-live="polite"></p>` +
-    `<p class="lane-key muted">${key.map(esc).join(' ')}${L.anyOver ? ocsLegend() : ''}</p>`
+    (L.anyOver ? `<p class="lane-key muted">${ocsLegend()}</p>` : '')
   );
 }
 
@@ -344,9 +342,6 @@ export function laneFollowTarget(L: Pick<LaneScrub, 'frame' | 'start' | 'wind' |
   const vb = viewBox(L.view, { cx: 0, cy: 0, k: Math.max(1, k) });
   return followTarget(input.pos, input.dirs, input.down, vb.w, vb.h);
 }
-
-/** The Coach group, as the key line names it. */
-const GROUP_TEXT: Record<Group['kind'], string> = { leaders: 'the top 3 (Coach group)', near: 'the boats near it (Coach group)', fleet: 'the whole fleet', custom: 'its Coach group' };
 
 export interface LaneState {
   a: RaceAnalysis | null;
@@ -395,7 +390,7 @@ export function mountLaneSnapshots(
   const body = root.querySelector<HTMLElement>('.lane-body')!;
   const asked = new WeakMap<RaceAnalysis, StartReplay[] | null>();
   let sec = 0;
-  let last: { a: RaceAnalysis; L: LaneScrub; groupText?: string; key: string; replays: StartReplay[] | null } | null = null;
+  let last: { a: RaceAnalysis; L: LaneScrub; key: string; replays: StartReplay[] | null } | null = null;
   /** The map's measured css px per unit at Fit (null: not measured yet: the default width). */
   let ppu: number | null = null;
   /** The map's zoom on the fit box (Fit until zoomed; never moved by the slider). */
@@ -436,7 +431,7 @@ export function mountLaneSnapshots(
   };
   const paint = (): void => {
     if (!last) return;
-    body.innerHTML = laneScrubHtml(last.a, last.L, last.groupText, sec, ppuNow(), timer != null, zoom);
+    body.innerHTML = laneScrubHtml(last.a, last.L, sec, ppuNow(), timer != null, zoom);
     wire();
   };
   /** Measure the map on show; a scale off by over 2% from the one drawn: repaint (text, dots stay their css px). */
@@ -556,7 +551,7 @@ export function mountLaneSnapshots(
       ppu = null;
       zoom = fitView(L.view);
     }
-    last = { a, L, groupText: id ? GROUP_TEXT[group.kind] : undefined, key, replays };
+    last = { a, L, key, replays };
     // A boat selected (here or anywhere): follow it, snapping to it once zoomed in.
     if (id !== followFor) {
       followFor = id;

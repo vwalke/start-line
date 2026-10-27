@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONTEXT_BYTES, buildContext, cleanUrl, type ContextInput } from '../src/feedback/context';
+import { CONTEXT_BYTES, buildContext, cleanUrl, themeContext, type ContextInput } from '../src/feedback/context';
 import { PROBLEMS_MAX, apiPath, createProblemLog, scrub } from '../src/feedback/problems';
 import { feedbackSheetHtml, liftFor, sendError, thanksHtml } from '../src/feedback/sheet';
 import { fitSize } from '../src/feedback/image';
@@ -60,6 +60,18 @@ describe('feedback context', () => {
     expect(c.problems).toHaveLength(1);
     expect(c.timeOnPageS).toBe(61);
     expect(c.sentAt).toBe('2026-10-27T10:01:00.000Z');
+  });
+
+  it('reads the theme as src/theme.ts sets it: data-theme drawn, recall.theme chosen or System', () => {
+    // System: data-theme is still set (the pre-paint script resolves it), so the source comes from storage.
+    expect(themeContext('dark', null, true)).toEqual({ resolved: 'dark', source: 'system', stored: null });
+    expect(themeContext('light', 'garbled', false)).toEqual({ resolved: 'light', source: 'system', stored: 'garbled' });
+    // A choice overrides the device.
+    expect(themeContext('light', 'light', true)).toEqual({ resolved: 'light', source: 'chosen', stored: 'light' });
+    expect(themeContext('dark', 'dark', false)).toEqual({ resolved: 'dark', source: 'chosen', stored: 'dark' });
+    // No attribute yet: resolved the same way the page would.
+    expect(themeContext(undefined, 'dark', false)).toEqual({ resolved: 'dark', source: 'chosen', stored: 'dark' });
+    expect(themeContext(undefined, null, true)).toEqual({ resolved: 'dark', source: 'system', stored: null });
   });
 
   it('falls back to the URL on the landing page or before the app knows', () => {

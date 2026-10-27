@@ -8,6 +8,7 @@
  *     when set up, then an email link, behind Turnstile when the site has a key), the passes held,
  *     the signed-in devices (with how each signed in; sign out any other one, or all of them),
  *     Restore access, Manage subscription (an existing Season Pass subscriber only), Sign out;
+ *     and the color theme (System, Light or Dark, src/theme.ts), signed in or not;
  *   - a browser signed out from elsewhere (the 3-device cap, another device, the admin) gets the
  *     sign-in sheet once, saying why; a sign-in that signed out another device says which, once;
  *   - back from a sign-in (`signin=ok`): a "You're signed in." toast that hides itself after 5 seconds.
@@ -39,6 +40,7 @@ import {
   type SignInMethod,
   type SignedOutReason,
 } from '../data/paywall';
+import { THEME_PREFS, parseThemePref, setThemePref, themePref, type ThemePref } from '../theme';
 import { createTurnstile, type Turnstile } from './turnstile';
 import type { ListedRace } from '../data/raceList';
 import { findRace, tzOffsetMs, type RaceListItem } from '../data/racesense/adapter';
@@ -289,7 +291,15 @@ export function providerButtonsHtml(signIn: { google: boolean; microsoft?: boole
   return buttons ? `<div class="account-providers">${buttons}</div>` : '';
 }
 
-export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => string): string {
+const THEME_TEXT: Record<ThemePref, string> = { system: 'System', light: 'Light', dark: 'Dark' };
+
+/** The sheet's Theme control: System / Light / Dark, the saved one pressed. A viewing setting, so a plain segmented control. */
+export function themeHtml(pref: ThemePref): string {
+  const btns = THEME_PREFS.map((p) => `<button type="button" data-pw="theme" data-value="${p}" aria-pressed="${p === pref}">${THEME_TEXT[p]}</button>`).join('');
+  return `<h3 class="account-sub">Theme</h3><div class="seg account-theme" role="group" aria-label="Theme">${btns}</div>`;
+}
+
+export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => string, theme: ThemePref = 'system'): string {
   if (!me.paywall) return '';
   const note = s.note ? `<p class="account-note" role="status">${esc(s.note)}</p>` : '';
   const head = (title: string): string =>
@@ -321,15 +331,16 @@ export function sheetHtml(me: Me, s: SheetState, eventTitle: (id: string) => str
     return `${head('Your account')}${note}<p>Signed in as <strong>${esc(me.user.email)}</strong></p>
       <h3 class="account-sub">Passes</h3>${passes}
       ${devicesHtml(me.devices, s.busy)}
+      ${themeHtml(theme)}
       <p class="account-actions">${manage}${email ? '<button type="button" class="lock-secondary" data-pw="restore">Restore access</button>' : ''}<button type="button" class="lock-secondary" data-pw="signout"${s.busy ? ' disabled' : ''}>Sign out</button></p>`;
   }
   const providers = providerButtonsHtml(me.signIn);
   if (!email && !providers) return `${head('Sign in')}${note}<p class="muted">Sign-in is unavailable right now. Race 1 of every regatta is free.</p>`;
-  if (!email) return `${head('Sign in')}${note}<p>Your passes are kept with your account.</p>${providers}`;
+  if (!email) return `${head('Sign in')}${note}<p>Your passes are kept with your account.</p>${providers}${themeHtml(theme)}`;
   // The providers first, then the email link (its form, Turnstile and Restore access).
   const kept = providers ? 'Your passes are kept with your account and its email address.' : 'Your passes are kept with your email address.';
   return `${head('Sign in')}${note}<p>${kept}</p>${providers}${providers ? '<p class="account-or">or</p>' : ''}${emailForm('signin', 'Email me a sign-in link')}
-    <p class="lock-small"><button type="button" class="linkish" data-pw="restore">Restore access</button></p>`;
+    <p class="lock-small"><button type="button" class="linkish" data-pw="restore">Restore access</button></p>${themeHtml(theme)}`;
 }
 
 // ---- return trips (Stripe, the email link, Google)
@@ -620,7 +631,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
   const renderSheet = (): void => {
     const box = dialog?.querySelector('.switcher-sheet');
     if (!box) return;
-    box.innerHTML = sheetHtml(me, sheet, o.eventTitle);
+    box.innerHTML = sheetHtml(me, sheet, o.eventTitle, themePref());
     syncTurnstile(box);
   };
   /** Signed out from elsewhere: open the sign-in sheet once, saying why. */
@@ -753,6 +764,12 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     }
     else if (a === 'restore') openSheet({ mode: 'restore', email: me.paywall && me.user ? me.user.email : undefined });
     else if (a === 'close') dialog?.close();
+    else if (a === 'theme') {
+      // In place, not a re-render, so focus stays on the button.
+      const pref = parseThemePref(el.dataset.value);
+      setThemePref(pref);
+      for (const b of el.parentElement?.querySelectorAll<HTMLElement>('[data-pw="theme"]') ?? []) b.setAttribute('aria-pressed', String(b.dataset.value === pref));
+    }
     else if (a === 'portal') void manage();
     else if (a === 'revoke' && el.dataset.id) void revoke(el.dataset.id);
     else if (a === 'revoke-others') void revoke(null);

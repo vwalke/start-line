@@ -78,17 +78,19 @@ describe('startSogSeries', () => {
     expect(s.t0).toBe(-91);
     // A visible ⚠ chip; the why in the ⓘ.
     const k = startSogKey(s, 120);
-    expect(k.chips[0]).toMatchObject({ text: 'data from −91.0 s only', warn: true });
-    expect(k.bullets.join(' ')).toContain('only go back to −91.0 s');
+    expect(k.chips[0]).toMatchObject({ text: 'starts at −91.0 s', warn: true });
+    expect(k.bullets.join(' ')).toContain('The tracks start at −91.0 s here');
     const s60 = startSogSeries(a, 60);
     expect(s60.clamped).toBe(false);
-    expect(startSogKey(s60, 60).chips[0]).toEqual({ text: `${secsLabel(s60.t0)} → ${secsLabel(s60.t1)}` });
+    // Not clamped: no window pill (the Window control above says it), the dot swatch first.
+    expect(startSogKey(s60, 60).chips[0]).toEqual({ text: 'crossed the line', swatch: 'dot' });
+    expect(startSogKey(s60, 60).chips.map((c) => c.text).join(' ')).not.toContain('→');
   });
 
   it('keys the crossing dot, and nothing about holes even on the patchy C31 feed', () => {
     const swatches = (s: StartSogSeries): (string | undefined)[] => startSogKey(s, 120).chips.map((c) => c.swatch);
     const patchy = startSogSeries(c31, 120);
-    expect(swatches(patchy)).toEqual([undefined, 'dot']);
+    expect(swatches(patchy)).toEqual(['dot']);
     const k = startSogKey(patchy, 120);
     expect([...k.chips.map((c) => c.text), ...k.bullets].join(' ')).not.toMatch(/no data|gray dashed|apart|gap/i);
     expect(k.bullets.length).toBeLessThanOrEqual(6);

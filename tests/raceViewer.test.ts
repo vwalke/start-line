@@ -438,7 +438,7 @@ describe('Around the gun: the same trail and the same filled / hollow boat', () 
     expect(b.fade).toHaveLength(TRAIL_FADE.length);
     const ys = b.fade.flatMap(pts).map((p) => -p[1]);
     expect(Math.min(...ys)).toBeCloseTo(-100 + 2 * 60, 6);
-    const html = laneScrubHtml(a, L, undefined, 180);
+    const html = laneScrubHtml(a, L, 180);
     for (const op of TRAIL_FADE) expect(html).toContain(`stroke-opacity="${op}"`);
     // The boat past its hole +50 … +90: one trail across it, and in the hole it glides.
     const h = L.frame(100).boats.find((x) => x.id === 'H')!;
@@ -447,7 +447,7 @@ describe('Around the gun: the same trail and the same filled / hollow boat', () 
   });
 
   it('an over-early boat keeps its over-early styling and its color when hollow', () => {
-    const at = (s: number): string => laneScrubHtml(a, L, undefined, s).match(/<g class="lane-boat[^"]*" data-id="OCS">[\s\S]*?<\/g>/)![0];
+    const at = (s: number): string => laneScrubHtml(a, L, s).match(/<g class="lane-boat[^"]*" data-id="OCS">[\s\S]*?<\/g>/)![0];
     const filled = at(40);
     const hollow = at(90);
     expect(L.frame(90).boats.find((x) => x.id === 'OCS')).toMatchObject({ over: 'over', hold: true, stale: true });
@@ -456,7 +456,7 @@ describe('Around the gun: the same trail and the same filled / hollow boat', () 
     expect(hollow).toMatch(/class="lane-dot lane-hull lost"[^>]*fill="var\(--surface\)" stroke="var\(--ink-3\)"/);
     expect(filled).toMatch(/class="lane-dot lane-hull"[^>]*fill="var\(--ink-3\)"/);
     // The over-the-line track still drawn, as when it was filled.
-    expect(laneScrubHtml(a, L, undefined, 90)).toContain('class="ocs-over"');
+    expect(laneScrubHtml(a, L, 90)).toContain('class="ocs-over"');
   });
 
   it('the race map and Around the gun draw a held boat the same way: the hull at its last fix and last heading', () => {
@@ -466,7 +466,7 @@ describe('Around the gun: the same trail and the same filled / hollow boat', () 
     expect(lastDir[0]).toBeCloseTo(0, 9);
     expect(lastDir[1]).toBeCloseTo(-1, 9);
     const b = L.frame(60).boats.find((x) => x.id === 'OCS')!;
-    const lane = laneScrubHtml(a, L, undefined, 60, 4).match(/data-id="OCS"><title>[^<]*<\/title><path [^>]* d="([^"]+)"/)![1];
+    const lane = laneScrubHtml(a, L, 60, 4).match(/data-id="OCS"><title>[^<]*<\/title><path [^>]* d="([^"]+)"/)![1];
     expect(lane).toBe(hullPathAt(b.pos!, lastDir, { loaM: Math.max(6.934, BOAT_SHAPE_PX / 4), beamM: (2.249 * Math.max(6.934, BOAT_SHAPE_PX / 4)) / 6.934 }));
   });
 });

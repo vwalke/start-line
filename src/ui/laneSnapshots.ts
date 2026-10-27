@@ -24,7 +24,6 @@
  * map's replay draws it (ui/ocsStyle.ts: the stretch over the line, the dip back, where it went back and cleared).
  */
 import { dot, len, sub, type Vec } from '../analysis/geo';
-import { windSource } from '../analysis/line';
 import type { StartReplay } from '../analysis/startReplay';
 import type { RaceAnalysis } from '../analysis/types';
 import type { ClassDims } from '../data/classes';
@@ -162,8 +161,6 @@ export interface LaneScrub {
   anyOver: boolean;
   /** Wind at the top (else north-up). */
   windUp: boolean;
-  /** The key's note on the wind and the orientation. */
-  note: string;
   me: string | null;
 }
 
@@ -202,23 +199,22 @@ function upwindAxis(a: RaceAnalysis, twd: number | null): Vec | null {
   return fm && dot(sub(fm, left), n) < 0 ? [-n[0], -n[1]] : n;
 }
 
-/** The wind arrow's label and title (also said in every frame's label) and the key's note, by where the wind comes from (as the start chart's wind chip). */
-function windWords(a: RaceAnalysis, windUp: boolean): { label: string; title: string; note: string } {
+/** The wind arrow's label and title (also said in every frame's label), by where the wind comes from (as the start chart's wind chip). */
+function windWords(a: RaceAnalysis, windUp: boolean): { label: string; title: string } {
   if (!windUp) {
     return {
       label: 'Wind assumed ⟂ line',
       title: 'No wind estimate: wind assumed square to the start line',
-      note: 'North up: no wind estimate; wind assumed square to the line, from the course side.',
     };
   }
   const deg = degLabel(a.wind.twdAtGunDeg);
   if (a.wind.method === 'tacks') {
-    return { label: `TWD ~${deg} est.`, title: `True wind from ${deg} (estimated)`, note: `True wind ↓ from the top, estimated ${windSource(a.wind).from}.` };
+    return { label: `TWD ~${deg} est.`, title: `True wind from ${deg} (estimated)` };
   }
   if (a.wind.method === 'model') {
-    return { label: `TWD ${deg} (model)`, title: `True wind from ${deg} (weather model)`, note: 'True wind ↓ from the top, from the weather model.' };
+    return { label: `TWD ${deg} (model)`, title: `True wind from ${deg} (weather model)` };
   }
-  return { label: `TWD ~${deg} assumed`, title: `True wind from ${deg} (assumed from the course)`, note: 'True wind ↓ from the top, assumed from the course (first leg dead upwind).' };
+  return { label: `TWD ~${deg} assumed`, title: `True wind from ${deg} (assumed from the course)` };
 }
 
 interface TrailPt {
@@ -450,5 +446,5 @@ export function laneScrub(a: RaceAnalysis, o: LaneOptions): LaneScrub {
     const r = repOf.get(b.id);
     return !!r && (r.clearedMs == null || r.clearedMs > from);
   });
-  return { start, end, frame, line, wind, view, dims: startClass(a)?.dims ?? null, windUp, note: words.note, me: o.me, anyOver };
+  return { start, end, frame, line, wind, view, dims: startClass(a)?.dims ?? null, windUp, me: o.me, anyOver };
 }

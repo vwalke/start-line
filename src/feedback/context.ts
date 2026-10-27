@@ -5,6 +5,7 @@
  * CONTEXT_BYTES (the oldest problems go first, then the URL's tail). Never cookies, tokens or names:
  * boats are sail numbers only.
  */
+import { THEME_KEY, parseThemePref, resolveTheme } from '../theme';
 import type { PageState } from './state';
 import type { Problem } from './problems';
 
@@ -160,18 +161,30 @@ export function buildContext(i: ContextInput): FeedbackContext {
 
 // ---- the browser's side
 
-/** The theme: a chosen one (data-theme on <html>, as the Account sheet's theme setting sets it) or the system's. */
+/**
+ * The theme: what the page draws (`<html data-theme>`, kept by src/theme.ts and index.html's pre-paint
+ * script) and whether the sailor chose it in the account sheet or it follows the device (System).
+ */
+export function themeContext(attr: string | undefined, stored: string | null, systemDark: boolean): ContextInput['theme'] {
+  const pref = parseThemePref(stored);
+  const resolved = attr === 'light' || attr === 'dark' ? attr : resolveTheme(pref, systemDark);
+  return { resolved, source: pref === 'system' ? 'system' : 'chosen', stored };
+}
+
 export function readTheme(): ContextInput['theme'] {
-  const attr = document.documentElement.dataset.theme;
   let stored: string | null = null;
   try {
-    stored = localStorage.getItem('recall.theme') ?? localStorage.getItem('theme');
+    stored = localStorage.getItem(THEME_KEY);
   } catch {
     /* storage blocked */
   }
-  const chosen = attr === 'light' || attr === 'dark' ? attr : stored === 'light' || stored === 'dark' ? stored : null;
-  const system = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  return { resolved: chosen ?? system, source: chosen ? 'chosen' : 'system', stored };
+  let systemDark = false;
+  try {
+    systemDark = matchMedia('(prefers-color-scheme: dark)').matches;
+  } catch {
+    /* no media queries */
+  }
+  return themeContext(document.documentElement.dataset.theme, stored, systemDark);
 }
 
 const startedAt = Date.now();

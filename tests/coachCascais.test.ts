@@ -244,7 +244,7 @@ describe('Cascais: the wind at the gun from the fleet’s tacks 0:30–3:30 afte
   it('labelled where it is shown: the Report header, the line’s ⓘ and the findings', () => {
     const src = windSource(r2.a.wind);
     expect(src.text).toBe("wind estimated from the fleet's tacks 0:30–3:30 after the gun");
-    expect(biasBullets(r2.a)[0]).toMatch(/^Favored end vs wind \d+° \(tacks, gun \+0:30–3:30\);/);
+    expect(biasBullets(r2.a)[0]).toMatch(/^Favored end vs the wind at the gun; 5° of wind moves it \d+ m\.$/);
     expect(r2.a.findings.find((f) => f.kind === 'wind')!.text).toMatch(/^Wind estimated from the fleet's tack headings: \d+° 0:30–3:30 after the gun, \d+° on Beat 1, \d+° on Beat 2\./);
   });
 });

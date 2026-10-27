@@ -14,8 +14,9 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 - **`/`** with no app parameters: the landing page (static HTML in `index.html`, `#landing`; what Recall
   does, pricing, where the data comes from, the other Walke Forward apps). It loads none of the app and
   fetches nothing from RaceSense; with a race viewed before, it offers "Continue: <event · race>" (to
-  `/regattas`). The hero, `public/landing-hero.svg`, is a real race drawn by `node scripts/landing-hero.mjs`
-  from `tests/fixtures/j105_r3.json` (sail numbers only); a test fails when it is stale. Each feature card
+  `/regattas`). The hero, `public/landing-hero.svg` (and `landing-hero-night.svg` for Dark), is a real race
+  drawn by `node scripts/landing-hero.mjs` from `tests/fixtures/j105_r3.json` (sail numbers only); a test
+  fails when either is stale. The page shows the one that matches the theme. Each feature card
   has a thumbnail (lazy, 320×200 with a 2x file) that opens a full-size image in a native `<dialog>`
   (`src/landing/lightbox.ts`); only the thumbnails load with the page. The images in `public/landing/` are
   screenshots of the running app on public demo races, made by `scripts/landing-thumbs.mjs` (below).
@@ -77,6 +78,19 @@ are shared by all three.
 Each section has a larger, bold title; a section inside a card (Start Playback,
 under the start chart's chips and over-early line; the start findings) is set
 off by a thin rule in the theme's border color.
+
+**Theme:** System (default), Light or Dark, a segmented control under **Theme**
+in the account sheet (signed in or not). It is kept in this browser's
+localStorage (`recall.theme`; there is no account-side preference, so it
+doesn't follow a sign-in to another device). A small inline script in
+`index.html` (and on the sign-in link pages, allowed by its CSP hash) reads it
+and sets `<html data-theme="light|dark">` before first paint, so there is no
+flash; `functions/_theme.ts` holds the script and the rules, `src/theme.ts`
+follows the device's setting under System and a change made in another tab.
+Every Night color in `style.css` is keyed off `:root[data-theme='dark']` (the
+tokens, the night speed ramps for tracks, hulls and bars, the chips), never
+the `prefers-color-scheme` media query, so the override reaches every view.
+The landing hero is two files, one per theme. The masthead stays carbon in both.
 - **Coach tab** (on for everyone; the old `?coach=1` is ignored): the boat
   selected in the boat list (or a chart) in the race picked in the Race menu.
   It has no race or boat picker of its own; with no boat selected it asks for
@@ -104,7 +118,7 @@ off by a thin rule in the theme's border color.
     there are more (the legend says which: "(mean)", "(median)", or "(mean / median)" when it changes); the bold
     series reads a rival across a tracker hole of up to `GROUP_BRIDGE_S` = 10 min in a
     straight line (progress is monotone), so the line doesn't jump when boats
-    round or drop out of the data; it has a value only where at least half the
+    round or their trackers go quiet; it has a value only where at least half the
     group's gaps rest on holes of `GROUP_DRAW_HOLE_S` = 30 s or less. Thin lines'
     values keep the position rule (fixes at most 15 s apart, read within 5 s
     of one; on a stretch that starts or ends at a rounding-zone edge, linear in
@@ -409,8 +423,8 @@ off by a thin rule in the theme's border color.
   gybes with D17's measured cost a maneuver, side, gate buoy), roundings and gates (D9 / D13), penalties (the
   code, penalty turns), and the Coach's penalty card, ranked findings (its order
   and seconds), Went well and the cards' tips as things to work on; a small track
-  map. Only figures Recall already works out: what the data lacks is `—` with a
-  note (there is no wind speed in the data). Built from the Coach's own model,
+  map. Only figures Recall already works out: anything it can't show is `—` with a
+  short note. Built from the Coach's own model,
   debrief and group, only while open. With the Coach's view on Regatta
   (`cview=regatta`) it is the regatta version: a line per race, penalties, the top
   3 to work on, Went well and legs by type. **Print / Save PDF** prints it alone,
@@ -450,15 +464,15 @@ Switching races keeps the tab.
   frame changes only when the chart crosses 480 px). The lengths join when
   zoomed in. Only if none fits does the label run along the line inward from
   that end (as `Pin 7°` at worst). `Square line` sits centered along the line.
-  The wind chip (`wind est. (medium)`) and the label's tooltip give the wind
-  source (the fleet's tacks 0:30–3:30 after the gun or on the first
-  beat, the weather model, or first leg assumed upwind) and a
-  confidence; low confidence is a ⚠ chip. The ⓘ says how far a 5° wind
-  error moves the figure. `Names: Auto | All | Off` sets the
+  The wind chip (`wind est.`, `model wind`) and the label's tooltip say in
+  plain words where the wind comes from and how sure it is ("Wind about 220°
+  at the gun, estimated from how the fleet tacked in the first few minutes.
+  Medium confidence."); low confidence is a ⚠ chip. The ⓘ says how far 5° of
+  wind moves the figure. `Names: Auto | All | Off` sets the
   boat labels: Auto places them greedily (selected boat, then by start place)
   and leaves out any that would overlap another label or the line, so
   zooming in reveals more; hover or tap a boat for its name either way.
-- **Start Playback (−1:30 to +3:00)** (`ui/laneSnapshots.ts`, drawn by
+- **Start Playback** (`ui/laneSnapshots.ts`, drawn by
   `ui/laneSnapshotsView.ts`): a section under the start chart, open by
   default (collapsible), kept as a view of its own (not merged into the
   start chart). One map at the panel's full width (on a phone too) shows the
@@ -561,9 +575,9 @@ Switching races keeps the tab.
   happens.
 - **Key lines** (`ui/info.ts`, `ui/captions.ts`): under every chart and
   table, one short row of chips with the key facts only, e.g.
-  `Line 143 m · RC fav. 2° · 4 m · wind est. (medium) · hulls to scale`,
-  plus legend swatches (`- - line extended`, `○ estimated
-  mark`, `- - not racing`, `● crossed the line`). Caveats stay in sight as
+  `Line 143 m · RC fav. 2° · 4 m · wind est. · hulls to scale`,
+  plus legend swatches (`○ estimated mark`, `- - not racing`,
+  `● crossed the line`). Caveats stay in sight as
   red ⚠ chips: low wind confidence (`⚠ wind est. low`, `⚠ wind assumed`),
   Vakaros vs our check, unchecked OCS, a start
   window cut short, legs split from the fleet's turns (on the Race Analysis
@@ -576,7 +590,7 @@ Switching races keeps the tab.
   with no `~`, chip or note. The row ends in one ⓘ
   "How to read this" (a native `<details>`, closed by default; it stays
   open across redraws) with a few short bullets: methods, what dashed
-  means, sensitivity (±5° of wind ≈ ±N m), label meaning, Names modes,
+  means, sensitivity (5° of wind moves the favored end N m), label meaning, Names modes,
   gestures, and for the start table each boat's start caveats. Full screen
   shows the same key line.
 - **Map zoom: centering and follow** (the Start Playback map and the track
@@ -1121,7 +1135,7 @@ doesn't list.
   number's last starting → in_progress bracket and refines with a 60 s window.
 - **Budget:** at most 48 requests per event, cached 30 days once the event is
   over a day old. It runs after the list renders, with a progress chip
-  (`looking for missing races 12/48`; `⚠ feed check incomplete` if the budget
+  (`checking for more races 12/48`; `⚠ feed check incomplete` if the budget
   runs out). Up to 3 short racing days are probed at once; the request budget
   is unchanged.
 - **URL:** a rebuilt race's number is its gun's UTC minute, `YYYYMMDDHHMM`
@@ -1369,7 +1383,7 @@ one-tap starter questions come from the boat's own race (`askStarters`,
 places on Beat 1?` when places went there, else `Where did I lose time on
 Run 1?`; with no card on a leg, the leg that lost the most places), `What
 cost me the most?`, and `How was my start?` (`How much did being over early
-cost me?` when over). Missing data falls back to the general questions; the
+cost me?` when over). A starter Recall can't fill in falls back to the general questions; the
 Regatta view uses its own three. A tap sends the question exactly as typed
 and Ask would (same limits). The feature is **off unless
 `ANTHROPIC_API_KEY` is set**: `/api/coach/status` then says `enabled:false`
@@ -1589,7 +1603,8 @@ dark`). *The link* carries the token in the **fragment**
 server logs and `Referer`. `GET /api/auth/verify` uses nothing, so a mail
 scanner that prefetches links can't spend it: it serves a small page
 (`no-store`, `Referrer-Policy: no-referrer`, a strict CSP whose only
-`script-src` is the SHA-256 of its one inline script, no external assets)
+`script-src` is the SHA-256 of its two inline scripts, the token one and the
+theme's, no external assets)
 whose script reads the token from the fragment (or from `?token=`, the shape
 of links sent before, which keep working), takes it out of the address bar
 with `history.replaceState`, shows "Signing you in…" and POSTs it to the same
@@ -2104,8 +2119,9 @@ query and hash; the event id and title, division, race, tab, the highlighted
 and Coach boats by sail number, leg, Coach view and group, trail, track
 colors, rank, playing or not, full screen, report; the viewport, screen,
 device pixel ratio, user agent, platform, touch, language, time zone,
-connection type, referrer and time on page; the theme (light or dark, chosen
-via `data-theme` on `<html>` or the system's); the build's commit and time
+connection type, referrer and time on page; the theme (the light or dark drawn,
+from `data-theme` on `<html>`, and whether it was chosen in the account sheet
+or follows the system, from `recall.theme`); the build's commit and time
 (`vite.config.ts` defines them from `CF_PAGES_COMMIT_SHA`, else `git
 rev-parse --short HEAD`, else `dev`); the last 20 console errors, uncaught
 errors, unhandled rejections and failed `/api` calls (method, path, the

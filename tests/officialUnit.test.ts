@@ -247,6 +247,6 @@ describe('links, overrides and fallback', () => {
     });
     expect(places.chips.find((c) => c.text.startsWith('official places ·'))).toEqual({ text: 'official places · RaceSense times' });
     const feed = raceHead({ race, official: { status: 'pending' }, feed: { status: 'running', used: 12, max: 48, found: 0, exhausted: false } });
-    expect(feed.chips.some((c) => c.text === 'looking for missing races 12/48' && !c.warn)).toBe(true);
+    expect(feed.chips.some((c) => c.text === 'checking for more races 12/48' && !c.warn)).toBe(true);
   });
 });

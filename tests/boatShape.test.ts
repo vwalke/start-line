@@ -185,7 +185,7 @@ describe('over early: one styling for the track map replay and Around the gun (I
     const lane = L.frame(s).boats.find((b) => b.id === r.boat)!;
     const stretch = ocsStretch(r, legRanges(d, true), a.wind.twdAtGunDeg, t, [L.frame(s).from, t]);
     expect(lane.ocs).toEqual(stretch);
-    const html = laneScrubHtml(a, L, undefined, s);
+    const html = laneScrubHtml(a, L, s);
     const ppu = lanePxPerUnit(L.view);
     expect(html).toContain(ocsSvg(stretch, { unit: 1 / ppu, nonScaling: true }).tracks);
     // Cleared ≈ +35 s: by +40 s the dip ends at the clearing, marked with the filled dot.

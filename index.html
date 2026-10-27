@@ -26,6 +26,15 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <title>Recall | Replay and analyze your sailboat races</title>
+    <!-- The color theme (System, Light or Dark, set in the account sheet), before first paint: functions/_theme.ts THEME_SCRIPT, kept in step by tests/theme.test.ts. -->
+    <script data-theme-script>
+      (function (d) {
+        var p = null;
+        try { p = localStorage.getItem('recall.theme'); } catch (e) {}
+        var dark = p === 'dark' || (p !== 'light' && !!window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+        d.setAttribute('data-theme', dark ? 'dark' : 'light');
+      })(document.documentElement);
+    </script>
     <!-- Landing page or app, before first paint (src/landing/route.ts routeOf; tests/landing.test.ts keeps the two in step). -->
     <script data-route-script>
       (function (l) {
@@ -71,7 +80,8 @@
           <p class="land-free"><strong>The first race of every regatta is free.</strong> The rest of the regatta is <span data-price="regatta">$50</span>.</p>
         </div>
         <figure class="land-hero-fig">
-          <img src="/landing-hero.svg" width="640" height="703" alt="Recall's track map of a real J/105 race. The tracks are colored by leg, each boat is shown at its position mid-race, and the leaders are labeled by sail number." fetchpriority="high" />
+          <img class="hero-day" src="/landing-hero.svg" width="640" height="703" alt="Recall's track map of a real J/105 race. The tracks are colored by leg, each boat is shown at its position mid-race, and the leaders are labeled by sail number." fetchpriority="high" />
+          <img class="hero-night" src="/landing-hero-night.svg" width="640" height="703" alt="Recall's track map of a real J/105 race. The tracks are colored by leg, each boat is shown at its position mid-race, and the leaders are labeled by sail number." fetchpriority="high" />
           <figcaption>A real race with 18 J/105s, drawn by Recall. Wind is at the top and the tracks are colored by leg.</figcaption>
         </figure>
       </section>
@@ -82,7 +92,7 @@
           <li class="land-card">
             <button type="button" class="land-thumb" aria-haspopup="dialog" aria-controls="land-lightbox" data-full="/landing/replay.webp" data-caption="Cascais J/70 World Championship, at the windward mark 35 minutes after the gun."><img src="/landing/replay-thumb.webp" srcset="/landing/replay-thumb.webp 1x, /landing/replay-thumb@2x.webp 2x" width="320" height="200" loading="lazy" decoding="async" alt="The Race Viewer at 8× on the J/70 fleet rounding the windward mark 35 minutes after the gun: filled hulls with fading 2-minute trails, blue up the beat and orange down the run, and USA 833 labeled." /><span class="land-thumb-zoom" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></span></button>
             <h3>Replay the race</h3>
-            <p>The Race Viewer plays the whole fleet back on the course map at 1×, 4× or 16×, or scrubs to any moment. Each boat leaves a fading 2-minute trail, or you can show its full track. A boat whose tracker drops out turns hollow until its data is back. You can zoom in or open the map full screen.</p>
+            <p>The Race Viewer plays the whole fleet back on the course map at 1×, 4× or 16×, or scrubs to any moment. Each boat leaves a fading 2-minute trail, or you can show its full track. You can zoom in or open the map full screen.</p>
           </li>
           <li class="land-card">
             <button type="button" class="land-thumb" aria-haspopup="dialog" aria-controls="land-lightbox" data-full="/landing/track-colors.webp" data-caption="2026 J105 CBC, race 1, colored by boat speed."><img src="/landing/track-colors-thumb.webp" srcset="/landing/track-colors-thumb.webp 1x, /landing/track-colors-thumb@2x.webp 2x" width="320" height="200" loading="lazy" decoding="async" alt="A J/105 race on the Race Viewer with each boat's track colored by its speed, slow to fast within each leg, and the speed key above the map." /><span class="land-thumb-zoom" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></span></button>
@@ -97,7 +107,7 @@
           <li class="land-card">
             <button type="button" class="land-thumb" aria-haspopup="dialog" aria-controls="land-lightbox" data-full="/landing/around-the-gun.webp" data-caption="Cascais J/70 World Championship, race 3, at the gun."><img src="/landing/around-the-gun-thumb.webp" srcset="/landing/around-the-gun-thumb.webp 1x, /landing/around-the-gun-thumb@2x.webp 2x" width="320" height="200" loading="lazy" decoding="async" alt="Start Playback, zoomed in at the gun: J/70 hulls along the start line with their trails behind them, red tracks for the boats over early, and USA 833 and the top 3 highlighted." /><span class="land-thumb-zoom" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></span></button>
             <h3>Start Playback</h3>
-            <p>Drag the slider from a minute and a half before the gun to three minutes after, or press play, to watch the fleet line up and come off the line, with each boat's trail behind it. Each boat is drawn as a hull pointing along its course, or along its last heading when it slows right down. If its tracker drops out, the hull turns hollow until its data is back. A boat is only a dot before its heading is known, or when it is too small to show at the current zoom. Zoom in for a closer look. Pick a boat to highlight it and its Coach group and see roughly where it ranks upwind. A boat that was over early shows a red track while over, a dashed track going back, and markers where it went back and cleared, as in the start replay on the map.</p>
+            <p>Drag the slider from a minute and a half before the gun to three minutes after, or press play, to watch the fleet line up and come off the line, with each boat's trail behind it. Each boat is drawn as a hull pointing along its course, or along its last heading when it slows right down. A boat is only a dot before its heading is known, or when it is too small to show at the current zoom. Zoom in for a closer look. Pick a boat to highlight it and its Coach group and see roughly where it ranks upwind. A boat that was over early shows a red track while over, a dashed track going back, and markers where it went back and cleared, as in the start replay on the map.</p>
           </li>
           <li class="land-card">
             <button type="button" class="land-thumb" aria-haspopup="dialog" aria-controls="land-lightbox" data-full="/landing/legs.webp" data-caption="2026 J105 CBC, race 1."><img src="/landing/legs-thumb.webp" srcset="/landing/legs-thumb.webp 1x, /landing/legs-thumb@2x.webp 2x" width="320" height="200" loading="lazy" decoding="async" alt="The legs table for a J/105 race, with each boat's VMG, speed, wind angle, distance, time, and tacks or gybes on every leg." /><span class="land-thumb-zoom" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></span></button>
@@ -210,7 +220,7 @@
               <p class="hint touch-hint" id="start-hint" hidden><span>Pinch to zoom · drag to pan · double-tap to zoom in</span><button type="button" id="start-hint-dismiss" class="hint-x" aria-label="Dismiss zoom hint" title="Dismiss">×</button></p>
               <div class="capline" id="start-cap"></div>
               <p id="start-replay" class="replay-links" hidden></p>
-              <details id="lane-snapshots" class="lane-snapshots" open><summary class="act-more">Start Playback <span class="muted">(−1:30 to +3:00)</span></summary><div class="lane-body"></div></details>
+              <details id="lane-snapshots" class="lane-snapshots" open><summary class="act-more">Start Playback</summary><div class="lane-body"></div></details>
               <div id="start-findings-box" class="findings-box" hidden>
                 <h4 id="start-findings-title">Start findings</h4>
                 <ul id="start-findings" class="findings" aria-labelledby="start-findings-title"></ul>
