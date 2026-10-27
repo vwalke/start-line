@@ -12,6 +12,9 @@ import type { Me } from '../data/paywall';
 export const NOTIFY_PARAM = 'notify';
 export const NOTIFY_LABEL = 'Notify me';
 
+/** Off until race emails ship (/api/alerts): no button anywhere, and `?notify=1` only drops the marker. */
+export const NOTIFY_ENABLED = false;
+
 /** As RaceSense ids are (and landing/landing.ts checks): safe in an attribute and a URL as is. */
 const EVENT_ID = /^[A-Za-z0-9_-]{4,64}$/;
 
@@ -26,9 +29,12 @@ export const eventPath = (eventId: string): string => `/?event=${encodeURICompon
 /** The event's page, asking the app to carry on with Notify me (from the landing page). */
 export const notifyHref = (eventId: string): string => `${eventPath(eventId)}&${NOTIFY_PARAM}=1`;
 
-/** The button ('' when hidden). `describedBy`: the card's title, so a screen reader hears which event. */
-export function notifyButtonHtml(eventId: string, me: Me, describedBy?: string): string {
-  if (notifyAction(me) === 'hidden' || !EVENT_ID.test(eventId)) return '';
+/**
+ * The button ('' when hidden). `describedBy`: the card's title, so a screen reader hears which event.
+ * `enabled`: NOTIFY_ENABLED (a parameter for the tests).
+ */
+export function notifyButtonHtml(eventId: string, me: Me, describedBy?: string, enabled = NOTIFY_ENABLED): string {
+  if (!enabled || notifyAction(me) === 'hidden' || !EVENT_ID.test(eventId)) return '';
   const desc = describedBy && EVENT_ID.test(describedBy) ? ` aria-describedby="${describedBy}"` : '';
   return `<button type="button" class="lock-secondary notify-btn" data-notify="${eventId}"${desc}>${NOTIFY_LABEL}</button>`;
 }

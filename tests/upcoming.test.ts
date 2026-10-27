@@ -5,7 +5,7 @@ import { UPCOMING_DAYS, dateRangeText, startsInText, upcomingEvents } from '../s
 import { showUpcoming, upcomingCardsHtml } from '../src/landing/landing';
 import { UNDERWAY_TEXT, eventCardHtml, eventCardView } from '../src/ui/eventCard';
 import { pickerOptions } from '../src/ui/eventSearch';
-import { eventPath, handleNotify, notifyButtonHtml, notifyHref, notifyMe } from '../src/ui/notify';
+import { NOTIFY_ENABLED, eventPath, handleNotify, notifyButtonHtml, notifyHref, notifyMe } from '../src/ui/notify';
 
 const DAY = 86_400_000;
 const ms = (iso: string): number => Date.parse(iso);
@@ -160,13 +160,11 @@ describe('the event card (no races yet)', () => {
     for (const w of [/no finished/i, /no data/i, /\bgap\b/i, /missing/i]) expect(html).not.toMatch(w);
   });
 
-  it('shows Free and Notify me with the paywall on, neither with it off', () => {
+  it('shows Free with the paywall on, not with it off; no Notify me until race emails ship', () => {
     const v = eventCardView(NA, doc(), northAmericans, NOW);
     const on = eventCardHtml(v, { me: OUT, free: true });
     expect(on).toContain('<span class="free-tag">Free</span>');
-    expect(on).toContain(`data-notify="${NA}"`);
-    expect(on).toContain('aria-describedby="event-card-title"');
-    expect(on).toContain('>Notify me</button>');
+    expect(on).not.toContain('Notify me');
     const off = eventCardHtml(v, { me: OFF, free: false });
     expect(off).not.toContain('free-tag');
     expect(off).not.toContain('Notify me');
@@ -174,10 +172,19 @@ describe('the event card (no races yet)', () => {
 });
 
 describe('Notify me', () => {
-  it('is hidden with the paywall off', () => {
-    expect(notifyButtonHtml(NA, OFF)).toBe('');
-    expect(notifyButtonHtml(NA, OUT)).toContain('Notify me');
-    expect(notifyButtonHtml('bad id"><x', OUT)).toBe('');
+  it('is hidden until race emails ship', () => {
+    expect(NOTIFY_ENABLED).toBe(false);
+    expect(notifyButtonHtml(NA, OUT)).toBe('');
+    expect(notifyButtonHtml(NA, IN)).toBe('');
+  });
+
+  it('when enabled: hidden with the paywall off', () => {
+    expect(notifyButtonHtml(NA, OFF, undefined, true)).toBe('');
+    const html = notifyButtonHtml(NA, OUT, 'event-card-title', true);
+    expect(html).toContain(`data-notify="${NA}"`);
+    expect(html).toContain('aria-describedby="event-card-title"');
+    expect(html).toContain('>Notify me</button>');
+    expect(notifyButtonHtml('bad id"><x', OUT, undefined, true)).toBe('');
   });
 
   it('signed out: opens sign-in for that event, and nothing else', () => {
@@ -211,7 +218,7 @@ describe('Notify me', () => {
 });
 
 describe('the landing page’s Upcoming regattas', () => {
-  it('cards: title link, class and venue, dates, starts-in, Free and Notify me', () => {
+  it('cards: title link, class and venue, dates, starts-in, Free (no Notify me until race emails ship)', () => {
     const html = upcomingCardsHtml([farOff, later, running, northAmericans], OUT, NOW, 0);
     expect(html.indexOf('2026 J/70 North Americans')).toBeLessThan(html.indexOf('Turkey Bowl'));
     expect(html).not.toContain('Fall Series');
@@ -219,7 +226,7 @@ describe('the landing page’s Upcoming regattas', () => {
     expect(html).toContain(`<a href="/?event=${NA}">2026 J/70 North Americans</a> <span class="free-tag">Free</span>`);
     expect(html).toContain('J/70 · Annapolis, MD');
     expect(html).toContain('Oct 28 – Nov 1 · <strong>Starts tomorrow</strong>');
-    expect(html).toContain(`aria-describedby="up-${NA}"`);
+    expect(html).not.toContain('Notify me');
   });
 
   it('paywall off: no Free badge and no Notify me', () => {
@@ -245,12 +252,12 @@ describe('the landing page’s Upcoming regattas', () => {
     expect(b.section.hidden).toBe(true);
   });
 
-  it('signed out: Notify me goes to the event, where the app opens sign-in', async () => {
+  it('signed out: a Notify me click goes to the event, where the app opens sign-in', async () => {
     const f = fakeDoc();
     const go = vi.fn();
     await showUpcoming(f.doc, { landing: async () => ({ events: [northAmericans] }), me: async () => OUT, now: () => NOW, go });
     expect(f.section.hidden).toBe(false);
-    expect(f.list.innerHTML).toContain('Notify me');
+    expect(f.list.innerHTML).not.toContain('Notify me');
     f.click(NA);
     expect(go).toHaveBeenCalledWith(`/?event=${NA}&notify=1`);
   });
