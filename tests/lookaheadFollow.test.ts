@@ -533,7 +533,7 @@ describe('labels: a few px off the hull at every zoom, on both maps', () => {
     for (const k of [1, 4, 8]) {
       const zoom = zoomPreset(L.view, k, laneFollowTarget(L, 37, k));
       const u = 1 / (ppu * k);
-      const html = laneScrubHtml(a, L, undefined, 37, ppu, false, zoom);
+      const html = laneScrubHtml(a, L, 37, ppu, false, zoom);
       const hull = laneShape(L, b, 1 / u)!;
       expect(hull).not.toBeNull();
       const gap = rectToHull(textBox(html, 'lane-lbl on', ME), hullOutlineAt(b.pos!, hull.dir, hull.dims)) / u;

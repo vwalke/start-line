@@ -144,7 +144,7 @@ describe('speed ramp', () => {
       expect(decl).not.toBe('');
       expect(decl).not.toMatch(/border|box-shadow|outline|clip|mask/);
     }
-    expect(css).toMatch(/@media \(prefers-color-scheme: dark\) \{[^}]*\}?[^@]*\.speed-key \.sog-bar \{ background: var\(--gd\); \}/);
+    expect(css).toContain(":root[data-theme='dark'] .speed-key .sog-bar { background: var(--gd); }");
     expect(css.indexOf('.speed-key .sog-bar { background: var(--gd); }')).toBeGreaterThan(css.indexOf('.speed-key .sog-bar { display'));
     for (const scheme of ['light', 'dark'] as const) {
       const bands = [...sogGradient(scheme).matchAll(/#[0-9a-f]{6} ([\d.]+)% ([\d.]+)%/g)].map((m) => +m[2] - +m[1]);

@@ -21,6 +21,7 @@ import { cookieDomain, flagOn, sessionCookie, tokenHash, viewerOf, type PaywallE
 import { jsonError } from '../functions/_lib';
 import { onRequest as authRoute } from '../functions/api/auth/[[path]]';
 import { onRequestGet as proxyGet } from '../functions/api/[[path]]';
+import { THEME_SCRIPT } from '../functions/_theme';
 import { MemD1 } from './d1mem';
 import { EVENT, FREE_PASS_VIEWS, NOW, ORIGIN, TURNSTILE_TOKEN, giveRegatta, mailbox, paywallEnv, queryLink, resetPaywallCaches, signIn, tokenOf, withTurnstile } from './paywallHelpers';
 
@@ -174,6 +175,10 @@ describe('magic link', () => {
       const script = scriptOf(html);
       expect(script).toBe(VERIFY_SCRIPT);
       expect(csp).toContain(`script-src 'sha256-${await sha256B64(script)}'`);
+      // And the color theme's, in the head before the style (functions/_theme.ts).
+      expect(csp).toContain(` 'sha256-${await sha256B64(THEME_SCRIPT)}'`);
+      expect(html.indexOf(`<script data-theme-script>${THEME_SCRIPT}</script>`)).toBeLessThan(html.indexOf('<style>'));
+      expect(html.indexOf('<script data-theme-script>')).toBeGreaterThan(0);
       expect(await verifyScriptHash()).toBe(`'sha256-${await sha256B64(VERIFY_SCRIPT)}'`);
       expect(script).toContain("location.hash.slice(1)).get('token')");
       expect(script).toContain('new URLSearchParams(location.search).get(\'token\')');
@@ -291,8 +296,10 @@ describe('magic link', () => {
       const html = await res.text();
       expect(html).toContain('<p>This link has expired or was already used.</p>');
       expect(html).toContain('<a class="btn" href="/regattas?signin=expired">Get a new link</a>');
-      expect(html).not.toMatch(/<script|src=/i);
-      expect(res.headers.get('content-security-policy')).toBe(VERIFY_PAGE_CSP);
+      // One script, the color theme before first paint, allowed by its hash.
+      expect([...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((x) => x[1])).toEqual([THEME_SCRIPT]);
+      expect(html).not.toMatch(/src=/i);
+      expect(res.headers.get('content-security-policy')).toBe(`${VERIFY_PAGE_CSP}; script-src 'sha256-${await sha256B64(THEME_SCRIPT)}'`);
     };
     await expiredPage(await handleAuth(ctx(confirmPost(m.links()[0]), env, 'verify'), mailbox(NOW + LOGIN_TOKEN_TTL_MS)));
     await expiredPage(await handleAuth(ctx(confirmPost(`${ORIGIN}/api/auth/verify?token=${'A'.repeat(43)}`), env, 'verify'), mailbox()));

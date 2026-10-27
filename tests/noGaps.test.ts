@@ -131,7 +131,7 @@ describe('every hole is bridged at the normal style: the maps', () => {
         expect(b.pos).not.toBeNull();
         expect([b.hold, b.stale]).toEqual([false, false]);
         expect(b.trail).toHaveLength(1);
-        const html = laneScrubHtml(a, L, undefined, Math.round((mid - gun) / 1000));
+        const html = laneScrubHtml(a, L, Math.round((mid - gun) / 1000));
         expect(html).not.toMatch(/lane-est|\blost\b|in a gap/);
       }
     });

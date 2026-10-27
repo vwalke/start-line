@@ -93,7 +93,7 @@ export function raceHead(o: { race: ListedRace | undefined; official: OfficialSt
   else if (outcome?.status === 'error') chips.push(warnChip('official results unavailable', outcome.message));
   else if (outcome?.status === 'none') chips.push(warnChip('no official results linked'));
   else if (link && !div) chips.push(warnChip('no official match', `${race?.division ?? 'This division'} matched no class of Yachtscoring ${link.eventId}`));
-  else if (link && div) chips.push({ text: `official · YS ${link.eventId}`, title: `${link.eventName}: ${div.cls.className}${div.cls.circle ? ` (${div.cls.circle})` : ''}` });
+  else if (link && div) chips.push({ text: 'official results', title: `${link.eventName}: ${div.cls.className}${div.cls.circle ? ` (${div.cls.circle})` : ''} (Yachtscoring ${link.eventId})` });
 
   if (link && div) {
     const sails = div.score.sails != null ? `, ${div.boats.pairs.length} of ${div.boats.pairs.length + div.boats.rsOnly.length} boats by sail number` : '';
@@ -155,7 +155,7 @@ export function raceHead(o: { race: ListedRace | undefined; official: OfficialSt
   }
 
   // The feed check for unlisted races.
-  if (feed.status === 'running') chips.push({ text: `looking for missing races ${feed.used}/${feed.max}`, title: 'The race list is already on screen. Checking the feed for races RaceSense doesn’t list (at most this many requests).' });
+  if (feed.status === 'running') chips.push({ text: `checking for more races ${feed.used}/${feed.max}`, title: 'The race list is already on screen. Checking the feed for races RaceSense doesn’t list (at most this many requests).' });
   else if (feed.status === 'done' && feed.found) chips.push({ text: `${feed.found} race${feed.found > 1 ? 's' : ''} rebuilt` });
   if (feed.exhausted) chips.push(warnChip('feed check incomplete', `Stopped after ${feed.max} requests`));
   if (feed.status !== 'idle') {

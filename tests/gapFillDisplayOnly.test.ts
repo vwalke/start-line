@@ -50,7 +50,7 @@ function drawEverything(r: ReturnType<typeof results>, ids: string[]): string {
   }
   out += startSnapshot(a, ids[0]) + startSnapshot(a, null, undefined, 'speed');
   const L = laneScrub(a, { me: ids[0], replays: r.replays });
-  for (const s of [-90, -30, 0, 45, 120, 180]) out += laneScrubHtml(a, L, undefined, s);
+  for (const s of [-90, -30, 0, 45, 120, 180]) out += laneScrubHtml(a, L, s);
   for (const id of ids.slice(0, 3)) {
     const lad = rivalLadder(m, a, id, { kind: 'leaders' });
     if (lad) out += ladderChart(a, m, lad, { kind: 'leaders' });

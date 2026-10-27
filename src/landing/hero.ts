@@ -2,8 +2,9 @@
  * The landing page's hero picture: a real race's track map, drawn from an analysis the way the
  * Race tab's map is (wind at the top, tracks coloured by leg, marks, start and finish lines), as
  * one small standalone SVG (public/landing-hero.svg, written by scripts/landing-hero.mjs from a
- * test fixture). Labels are sail numbers only, never a boat's or anyone's name. It has its own
- * Day and Night colours (an <img> doesn't see the page's tokens).
+ * test fixture). Labels are sail numbers only, never a boat's or anyone's name. Day and Night are
+ * two files (public/landing-hero-night.svg): an <img> doesn't see the page's tokens or its theme
+ * setting, so the page shows the one that matches (style.css .land-hero-fig).
  */
 import type { Vec } from '../analysis/geo';
 import type { RaceAnalysis } from '../analysis/types';
@@ -20,6 +21,8 @@ export interface HeroOptions {
   at?: number;
   /** The <title>: what the picture shows. */
   title: string;
+  /** Day (default) or Night colors. */
+  scheme?: 'day' | 'night';
 }
 
 /** Leg colours, as the app's --s1…--s8 (Day, then Night). */
@@ -169,15 +172,17 @@ export function heroSvg(a: RaceAnalysis, o: HeroOptions): string {
   const wind = `<g class="wind" transform="translate(${W - 34} 14)"><path d="M10 0v26M4 20l6 7 6-7"/><text x="10" y="42" text-anchor="middle">Wind</text></g>`;
 
   const legCss = (cols: string[]): string => cols.map((c, i) => `.l${i}{stroke:${c}}`).join('');
-  const css =
-    `path{fill:none;stroke-linejoin:round;stroke-linecap:round}path[class^=l]{stroke-width:1;stroke-opacity:.42}path.k{stroke-width:2.4;stroke-opacity:1}` +
+  const base = `path{fill:none;stroke-linejoin:round;stroke-linecap:round}path[class^=l]{stroke-width:1;stroke-opacity:.42}path.k{stroke-width:2.4;stroke-opacity:1}`;
+  const day =
     legCss(LEG_DAY) +
     `.mk{fill:#fff;stroke:#131922;stroke-width:1.6}.ln{stroke:#131922;stroke-width:2}.pin{fill:#131922}.fin{stroke:#131922;stroke-width:1.6;stroke-dasharray:4 3}` +
     `.dot{fill:#46505e;stroke:#fff;stroke-width:1}.dot.k{fill:#131922;stroke-width:1.4}text{font:600 12px Archivo,system-ui,sans-serif;fill:#131922;paint-order:stroke;stroke:#f5f7fa;stroke-width:3px}` +
-    `.wind path{stroke:#5b6675;stroke-width:1.6}.wind text{font-size:10px;fill:#5b6675}` +
-    `@media (prefers-color-scheme:dark){` +
+    `.wind path{stroke:#5b6675;stroke-width:1.6}.wind text{font-size:10px;fill:#5b6675}`;
+  const night =
     legCss(LEG_NIGHT) +
-    `path[class^=l]{stroke-opacity:.5}.mk{fill:#171d26;stroke:#e9eef5}.ln{stroke:#e9eef5}.pin{fill:#e9eef5}.fin{stroke:#e9eef5}.dot{fill:#b9c2ce;stroke:#10151c}.dot.k{fill:#fff}text{fill:#e9eef5;stroke:#10151c}.wind path{stroke:#9aa6b6}.wind text{fill:#9aa6b6}}`;
+    `path[class^=l]{stroke-opacity:.5}.mk{fill:#171d26;stroke:#e9eef5}.ln{stroke:#e9eef5}.pin{fill:#e9eef5}.fin{stroke:#e9eef5}.dot{fill:#b9c2ce;stroke:#10151c}.dot.k{fill:#fff}text{fill:#e9eef5;stroke:#10151c}.wind path{stroke:#9aa6b6}.wind text{fill:#9aa6b6}`;
+  // Night is Day with its colors swapped, so it keeps Day's sizes and dashes.
+  const css = base + day + (o.scheme === 'night' ? night : '');
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-labelledby="t">` +

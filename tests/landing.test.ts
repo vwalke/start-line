@@ -21,6 +21,7 @@ import { TABS } from '../src/ui/tabs';
 const here = (p: string): string => fileURLToPath(new URL(p, import.meta.url));
 const html = readFileSync(here('../index.html'), 'utf8');
 const hero = readFileSync(here('../public/landing-hero.svg'), 'utf8');
+const heroNight = readFileSync(here('../public/landing-hero-night.svg'), 'utf8');
 const landing = html.slice(html.indexOf('<main id="landing"'), html.indexOf('</main>', html.indexOf('<main id="landing"')) + 7);
 /** The landing page's words, tags stripped. */
 const landingText = landing
@@ -212,10 +213,10 @@ describe('the landing page (index.html #landing)', () => {
     expect(landingText).not.toMatch(/Around the gun|Place changes/);
     expect(landingText).toContain('Drag the slider from a minute and a half before the gun to three minutes after, or press play');
     expect(landingText).toContain('Zoom in for a closer look.');
-    // Hulls along the course (the last heading when slow), hollow when the tracker drops out, dots only without a
+    // Hulls along the course (the last heading when slow), dots only without a
     // heading or when too small; and the whole over-early styling.
     expect(landingText).toContain('Each boat is drawn as a hull pointing along its course, or along its last heading when it slows right down.');
-    expect(landingText).toContain('If its tracker drops out, the hull turns hollow until its data is back.');
+    expect(landingText).not.toMatch(/drops out|data is back|missing data|no data/i);
     expect(landingText).toContain('A boat is only a dot before its heading is known, or when it is too small to show at the current zoom.');
     expect(landingText).not.toMatch(/dot when[^.]*(tracker gap|very slow)/);
     expect(landingText).not.toContain('each boat drawn as a hull');
@@ -264,7 +265,8 @@ describe('the landing page (index.html #landing)', () => {
 
   it('shows the hero at its own size, with a description', () => {
     const [, w, h] = hero.match(/viewBox="0 0 (\d+) (\d+)"/)!;
-    expect(landing).toContain(`<img src="/landing-hero.svg" width="${w}" height="${h}" alt="`);
+    expect(landing).toContain(`<img class="hero-day" src="/landing-hero.svg" width="${w}" height="${h}" alt="`);
+    expect(landing).toContain(`<img class="hero-night" src="/landing-hero-night.svg" width="${w}" height="${h}" alt="`);
     const boats = hero.match(/(\d+) boats/)![1];
     expect(landingText).toContain(`${boats} J/105s`);
   });
@@ -360,11 +362,17 @@ describe('the hero (public/landing-hero.svg)', () => {
 
   it('is current: scripts/landing-hero.mjs output from tests/fixtures/j105_r3.json', () => {
     expect(heroFromFixture(f, 'J105', 3)).toBe(hero);
+    expect(heroFromFixture(f, 'J105', 3, 'night')).toBe(heroNight);
   });
 
-  it('is small, and drawn for both Day and Night', () => {
+  it('is small, and drawn for both Day and Night, one file each (the page picks by its theme, not the media query)', () => {
     expect(hero.length).toBeLessThan(150 * 1024);
-    expect(hero).toContain('@media (prefers-color-scheme:dark)');
+    expect(heroNight.length).toBeLessThan(150 * 1024);
+    for (const svg of [hero, heroNight]) expect(svg).not.toContain('prefers-color-scheme');
+    expect(hero).toContain('.mk{fill:#fff;stroke:#131922');
+    expect(heroNight).toContain('.mk{fill:#171d26;stroke:#e9eef5}');
+    // The same drawing: only the colors differ.
+    expect(heroNight.replace(/<style>[\s\S]*?<\/style>/, '')).toBe(hero.replace(/<style>[\s\S]*?<\/style>/, ''));
     expect(hero).toMatch(/<title id="t">[^<]+<\/title>/);
   });
 

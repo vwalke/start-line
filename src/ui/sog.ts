@@ -570,11 +570,11 @@ function scaleHtml(r: SogRange): string {
 
 const bar = (lo: string, hi: string): string =>
   `<span class="sog-lo">${lo}</span><span class="sog-bar" style="${barStyle()}" aria-hidden="true"></span><span class="sog-hi">${hi}</span>`;
-/** The bar with knots along it ("4.5 · 5 · 6 · 7 · 8", then "kn") and "SOG · what it spans" (the method is in the ⓘ). */
-export function sogKey(r: SogRange | null, what: string): string {
-  if (!r) return `<span class="muted">No speed data to color by.</span>`;
-  return `${scaleHtml(r)}
-    <span class="muted">SOG · ${esc(what)}</span>`;
+/** The bar with knots along it ("4.5 · 5 · 6 · 7 · 8", then "kn") and, given one, "SOG · what it spans" (the method is in the ⓘ). */
+export function sogKey(r: SogRange | null, what?: string): string {
+  if (!r) return `<span class="muted">Speed colors aren't available for this race.</span>`;
+  return `${scaleHtml(r)}${what ? `
+    <span class="muted">SOG · ${esc(what)}</span>` : ''}`;
 }
 
 /**
@@ -584,7 +584,7 @@ export function sogKey(r: SogRange | null, what: string): string {
  */
 export function sogLegKey(a: RaceAnalysis): string {
   const list = legRangeList(a);
-  if (!list) return `<span class="muted">No speed data to color by.</span>`;
+  if (!list) return `<span class="muted">Speed colors aren't available for this race.</span>`;
   return `${bar('slow', 'fast')}
     <span>slow → fast within each leg</span><span class="sog-legs">${esc(list)}</span>`;
 }
