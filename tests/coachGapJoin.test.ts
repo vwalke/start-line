@@ -54,12 +54,15 @@ describe('Gap to rivals: every line runs straight on across any stretch without 
     expect(ladderChips(a, lad(points), { kind: 'leaders' }, true).some((c) => c.text === 'no data' || c.swatch === 'band')).toBe(false);
   });
 
-  it('the wind strip: the estimated stretch is the same line (class cl-wind est), the ⓘ says it is lighter and nothing about breaks', () => {
+  it('the wind strip: one cl-wind line over every minute, the estimated stretch too; the ⓘ says nothing lighter, estimated or broken', () => {
     const svg = ladderChart(a, { wind: { twdAt: () => 0, t: [0, 60_000, 120_000], ok: [true, false, true] } } as unknown as CoachModel, lad(points), { kind: 'leaders' });
-    expect(svg).toMatch(/<path class="cl-wind est" d="M[^"]+"\/>/);
+    expect(svg).not.toContain('cl-wind est');
+    expect(svg.match(/class="cl-wind"/g)).toHaveLength(1);
+    // The window ends at 60 s: its one segment (0–60 s) runs into the not-ok minute and is drawn in the normal line.
+    expect(moves(pathOf(svg, 'cl-wind'))).toBe(1);
     const text = COACH_BULLETS.join(' ');
-    expect(text).toContain('lighter where estimated between minutes');
-    expect(text).not.toMatch(/break|left blank|gray band|dotted/i);
+    expect(text).toContain("Wind (strip below) comes from the fleet's tacks, minute by minute, not a sensor.");
+    expect(text).not.toMatch(/lighter|estimated between|break|left blank|gray band|dotted/i);
   });
 
   it('on a real race (J/105 CBC race 3, USA 96): no bands, and the series the cards read is unchanged by drawing', () => {

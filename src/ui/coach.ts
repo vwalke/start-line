@@ -128,7 +128,7 @@ export const COACH_BULLETS: readonly string[] = [
   'Gap = how many seconds earlier (behind, down) or later (ahead, up) the group got as far along the course as you are now.',
   "How far along: on beats and runs, how far up (or down) the leg's wind ladder, one wind direction for the whole leg, so both tacks and gybes count alike; on reaches, distance made good along the line between the marks. A rounding counts from 30 m before the mark to 30 m down the next leg, so the lines run on through it.",
   `Bold: the group's average, always over the same boats: the mean of the boats with data when there are ${GROUP_MEAN_MAX_BOATS} or fewer, the median when there are more. Thin: each group boat. The scale fits every line for ${GROUP_MEAN_MAX_BOATS} or fewer boats; with more, a line that runs off it gets a small marker at the edge.`,
-  "Wind (strip below) comes from the fleet's tacks, minute by minute, not a sensor; lighter where estimated between minutes.",
+  "Wind (strip below) comes from the fleet's tacks, minute by minute, not a sensor.",
 ];
 
 /** The header's chip line with the ⓘ. */
@@ -464,19 +464,10 @@ export function ladderChart(a: RaceAnalysis, m: CoachModel, ladder: RivalLadder,
   }
   const w0 = m.wind.twdAt(L.t0);
   const unwrap = (t: number): number => w0 + ((((m.wind.twdAt(t) - w0 + 180) % 360) + 360) % 360) - 180;
-  const seg = (ok: boolean): string => {
-    let d = '';
-    m.wind.t.forEach((t, i) => {
-      if (t < L.t0 || t > L.t1) return;
-      const both = ok ? m.wind.ok[i] && m.wind.ok[i + 1] : !(m.wind.ok[i] && m.wind.ok[i + 1]);
-      const t2 = m.wind.t[i + 1];
-      if (!both || t2 == null || t2 > L.t1) return;
-      d += `M${r1(L.x(t))} ${r1(L.yw(unwrap(t)))}L${r1(L.x(t2))} ${r1(L.yw(unwrap(t2)))}`;
-    });
-    return d;
-  };
-  // Wind estimated between minutes: the same line, lighter (style.css .cl-wind.est).
-  out.push(`<path class="cl-wind" d="${seg(true)}"/><path class="cl-wind est" d="${seg(false)}"/>`);
+  // One continuous line through every minute in the window, estimated or not (nothing for a single minute).
+  const inWin = m.wind.t.filter((t) => t >= L.t0 && t <= L.t1);
+  const wind = inWin.length < 2 ? '' : inWin.map((t, i) => `${i ? 'L' : 'M'}${r1(L.x(t))} ${r1(L.yw(unwrap(t)))}`).join('');
+  out.push(`<path class="cl-wind" d="${wind}"/>`);
   const me = byId.get(ladder.boat);
   const aria = `${me ? boatLabel(me, me.id) : ladder.boat}: seconds ahead or behind ${GROUP_SHORT[g.kind]} over the race, with the wind direction below.`;
   return `<svg viewBox="0 0 ${L.W} ${L.H}" width="${L.W}" height="${L.H}" class="chart coach-ladder" role="img" aria-label="${esc(aria)}">
