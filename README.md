@@ -2092,7 +2092,10 @@ WebP or JPEG, under 2 MB) and, when a course map is on the page, "Include
 the map" (the map's SVG drawn to a picture in the browser, with its styles
 copied in; left out with the reason in the context if the browser won't draw
 it or the map has over 25,000 shapes). Turnstile shows when the site has
-both keys. Code: `src/feedback/` (the page), `functions/_feedback.ts` and
+both keys. Without both (neither set, or only one), feedback still works,
+unchecked: the server logs one warning per isolate saying Turnstile is off
+and which key is missing (names only, never values), and the rate limits
+are the only guard. Set both keys in production. Code: `src/feedback/` (the page), `functions/_feedback.ts` and
 `functions/api/feedback.ts` (the route). It works with the paywall on or off.
 
 **What the page sends** (`src/feedback/context.ts`, at most 32 KB): the full
@@ -2114,7 +2117,7 @@ made inside the analysis worker are not seen); and the race data's state
 | Route | |
 | --- | --- |
 | `GET /api/feedback` | `{ok, ready, signedIn, turnstileSiteKey}`: what the sheet needs (`ready` is false without `AUTH_DB`) |
-| `POST /api/feedback` | JSON `{type, message, email?, context, image?, map?, turnstileToken?}`, images as `{type, data}` (base64; PNG, JPEG or WebP, checked by their first bytes, 2.5 MB each at most) → `{ok, id}`. 400 with a plain message for a bad type, an empty or over-long message, a bad email, a bad image; 413 for a context over 32 KB or a body over ~6.7 MB; 403 from another site; 400 / 503 for Turnstile (checked when both its keys are set); 429 past 10 an hour per IP or per signed-in user (the shared `auth_rate_limits` table, keys `feedback-ip:<sha256>` and `feedback-user:<user id>`); 503 without `AUTH_DB` |
+| `POST /api/feedback` | JSON `{type, message, email?, context, image?, map?, turnstileToken?}`, images as `{type, data}` (base64; PNG, JPEG or WebP, checked by their first bytes and their structure, 2.5 MB each at most) → `{ok, id}`. 400 with a plain message for a bad type, an empty or over-long message, a bad email, a bad image (including one whose structure can't be read safely); 413 for a context over 32 KB or a body over ~6.7 MB; 403 without an `Origin` header, or with one from another site (this site and https walkeforward.com pages pass, as for billing); 400 / 503 for Turnstile (checked when both its keys are set); 429 past 10 an hour per IP or per signed-in user, or 200 an hour from everyone together (the shared `auth_rate_limits` table, keys `feedback-ip:<sha256>`, `feedback-user:<user id>` and `feedback-all`; checked before saving, counted only once the row is saved, so a refused or failed submission costs nothing); 503 without `AUTH_DB` |
 
 The server adds what it doesn't take from the page: the user id, email and
 session public id from the session cookie when signed in (a page-sent
@@ -2123,11 +2126,24 @@ identity is ignored), a SHA-256 of the IP salted with a hash of
 time and the user agent. Each submission is one row in the `feedback` table
 (`migrations/0004_feedback.sql`: additive; needs the owner's OK, Preview
 first, then production **before** deploying this code, which answers 503
-without it). Pictures go to R2 (`VKX_BUCKET`) as
-`feedback/<id>/image.<ext>` and `feedback/<id>/map.<ext>` with their content
-type; with no bucket bound (Preview) the feedback is saved without them and
-`image_note` (and the email) says so. Each address in `FEEDBACK_TO` gets an
-email through the sign-in mailer (same provider and `EMAIL_FROM`), subject
+without it). Pictures lose their metadata on the server before they are
+stored (`functions/_feedbackImage.ts`), whatever the page did: JPEG keeps
+APP0 (JFIF), an Adobe APP14, the tables, frame and scans, and drops the
+other APP segments (EXIF and GPS, XMP, ICC), comments and anything after
+the end; PNG keeps the critical chunks and `tRNS`, `gAMA`, `cHRM`, `sRGB`,
+`pHYs`, and drops the rest (`tEXt`, `zTXt`, `iTXt`, `eXIf`, `tIME`, `iCCP`,
+…); WebP drops the `EXIF` and `XMP ` chunks and fixes the VP8X flags and
+RIFF size. A picture that can't be walked cleanly is refused (400), never
+stored as sent. The row is written first; then the pictures go to R2
+(`VKX_BUCKET`) as `feedback/<id>/image.<ext>` and `feedback/<id>/map.<ext>`
+with their content type, and the row gets their keys. So a failed save
+leaves nothing in R2, a failed upload leaves the row saying so in
+`image_note`, and the row never names a missing object (if the keys can't
+be written, the pictures are deleted again). With no bucket bound (Preview)
+the feedback is saved without them and `image_note` (and the email) says
+so. Each address in `FEEDBACK_TO` gets an email, sent after the answer
+(`waitUntil`, so the sheet doesn't wait for mail), through the sign-in
+mailer (same provider and `EMAIL_FROM`), subject
 "Recall feedback: Bug · <event or path>", plain text and simple HTML with
 everything user-supplied escaped: the message, type, who (email and user id,
 or "signed out"), a link back to the exact URL, device, theme, app commit,

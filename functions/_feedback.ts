@@ -9,17 +9,22 @@
  * to two images (base64: the upload and the course map). The server checks and caps all of it, then
  * adds what the page can't be trusted with: the signed-in user, their email and session (from the
  * cookie only), a salted SHA-256 of the IP, Cloudflare's country and colo, the time and user agent.
- * Rate limits share auth_rate_limits: 10 an hour per IP, 10 per signed-in user. Turnstile is checked
- * when both its keys are set. One row in `feedback` (migrations/0004_feedback.sql); images go to
- * VKX_BUCKET under feedback/<id>/ when it is bound (else the row says why they were left out). Each
- * address in FEEDBACK_TO gets an email through the sign-in mailer; a failed email never fails the
- * submission (emailed_at / email_error record how it went).
+ * A POST needs an Origin header from this site (or walkeforward.com), as billing does. Rate limits
+ * share auth_rate_limits: 10 an hour per IP, 10 per signed-in user, 200 an hour from everyone; they
+ * are checked first and counted only once the row is saved. Turnstile is checked when both its keys
+ * are set (else a warning is logged, once per isolate). One row in `feedback`
+ * (migrations/0004_feedback.sql), written first; then the pictures, metadata stripped
+ * (_feedbackImage.ts), go to VKX_BUCKET under feedback/<id>/ when it is bound and the row gets their
+ * keys (else it says why they were left out). Each address in FEEDBACK_TO gets an email through the
+ * sign-in mailer, after the answer (waitUntil); a failed email never fails the submission
+ * (emailed_at / email_error record how it went).
  */
-import { countRateHit, newId, normEmail, pruneRateLimits, liveSession, userById, validEmail, type D1Like, type SessionRow, type UserRow } from './_authDb';
-import { crossSite, sendEmail, turnstileReady, verifyTurnstile, type AuthDeps, type Mail } from './_auth';
+import { countRateHit, newId, normEmail, pruneRateLimits, rateWindow, liveSession, userById, validEmail, type D1Like, type SessionRow, type UserRow } from './_authDb';
+import { originRefused, sendEmail, turnstileReady, verifyTurnstile, type AuthDeps, type Mail } from './_auth';
 import { jsonOut, readCookie, SESSION_COOKIE, TOKEN_RE, tokenHash, type PaywallEnv } from './_paywall';
 import { readCapped, type R2BucketLike } from './_vkx';
 import { sha256Hex } from '../src/data/vkx/compact';
+import { stripImageMetadata } from './_feedbackImage';
 
 export interface FeedbackEnv extends PaywallEnv {
   VKX_BUCKET?: R2BucketLike;
@@ -35,7 +40,7 @@ export interface FeedbackCtx {
 
 export interface FeedbackDeps extends AuthDeps {
   /** Per hour; null skips the limits. */
-  feedbackLimits?: { ip: number; user: number } | null;
+  feedbackLimits?: { ip: number; user: number; all: number } | null;
 }
 
 export const FEEDBACK_TYPES = ['bug', 'idea', 'data', 'other'] as const;
@@ -50,6 +55,9 @@ export const IMAGE_TYPES: Record<string, string> = { 'image/png': 'png', 'image/
 export const BODY_MAX_BYTES = Math.ceil((IMAGE_MAX_BYTES * 2 * 4) / 3) + CONTEXT_MAX_BYTES + 64_000;
 export const IP_LIMIT = 10;
 export const USER_LIMIT = 10;
+/** Per hour from every sender together (one shared counter): a ceiling on a flood from many IPs. */
+export const ALL_LIMIT = 200;
+export const ALL_KEY = 'feedback-all';
 const PRUNE_CHANCE = 0.01;
 
 const fail = (status: number, error: string, message: string): Response => jsonOut(status, { ok: false, error, message });
@@ -90,7 +98,9 @@ export function readImage(v: unknown): ImageIn | string | null {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   if (!sniff(bytes, type)) return "That file doesn't look like the image it says it is.";
-  return { type, bytes };
+  const clean = stripImageMetadata(bytes, type);
+  if (!clean) return "That picture couldn't be read. Try saving it again as a PNG or JPEG.";
+  return { type, bytes: clean };
 }
 
 /** The bytes start like the type they claim. */
@@ -298,16 +308,83 @@ async function readJson(req: Request): Promise<Record<string, unknown> | null | 
   }
 }
 
-async function overLimit(ctx: FeedbackCtx, db: D1Like, ipKey: string, userId: string | null, deps: FeedbackDeps, now: number): Promise<boolean> {
-  const lim = deps.feedbackLimits === undefined ? { ip: IP_LIMIT, user: USER_LIMIT } : deps.feedbackLimits;
-  if (!lim) return false;
-  const [byIp, byUser] = await Promise.all([countRateHit(db, `feedback-ip:${ipKey}`, now), userId ? countRateHit(db, `feedback-user:${userId}`, now) : 0]);
+type RateKey = [key: string, limit: number];
+
+/** The counters a submission counts against, each with its hourly limit (none when the limits are off). */
+function rateKeys(deps: FeedbackDeps, ipKey: string, userId: string | null): RateKey[] {
+  const lim = deps.feedbackLimits === undefined ? { ip: IP_LIMIT, user: USER_LIMIT, all: ALL_LIMIT } : deps.feedbackLimits;
+  if (!lim) return [];
+  const keys: RateKey[] = [[`feedback-ip:${ipKey}`, lim.ip]];
+  if (userId) keys.push([`feedback-user:${userId}`, lim.user]);
+  keys.push([ALL_KEY, lim.all]);
+  return keys;
+}
+
+/**
+ * The first counter that is already full this hour, if any. Only a look: nothing is counted until the row is
+ * saved (countFeedback), so a refused or failed submission costs no one a slot. Sends that arrive
+ * together can all pass the look, so a limit can be passed by the few in flight; fine for feedback.
+ */
+async function fullKey(db: D1Like, keys: RateKey[], now: number): Promise<string | null> {
+  const window = rateWindow(now);
+  const rows = await Promise.all(keys.map(([key]) => db.prepare('SELECT count FROM auth_rate_limits WHERE key = ? AND window_start = ?').bind(key, window).first<{ count: number }>()));
+  const k = rows.findIndex((r, n) => (r?.count ?? 0) >= keys[n][1]);
+  return k < 0 ? null : keys[k][0];
+}
+
+/** Count a saved submission against each of its counters (best effort: it is saved either way). */
+async function countFeedback(ctx: FeedbackCtx, db: D1Like, keys: RateKey[], deps: FeedbackDeps, now: number): Promise<void> {
+  if (!keys.length) return;
+  try {
+    await Promise.all(keys.map(([key]) => countRateHit(db, key, now)));
+  } catch {
+    console.error('[recall feedback] rate-limit count failed');
+  }
   if ((deps.random ?? Math.random)() < PRUNE_CHANCE) {
     const prune = pruneRateLimits(db, now).catch(() => undefined);
     if (ctx.waitUntil) ctx.waitUntil(prune);
     else await prune;
   }
-  return byIp > lim.ip || byUser > lim.user;
+}
+
+let turnstileWarned = false;
+
+/** Tests: warn again. */
+export const resetFeedbackWarnings = (): void => {
+  turnstileWarned = false;
+};
+
+/** Without both Turnstile keys feedback is taken unchecked; say so once per isolate (key names only, never values). */
+function warnTurnstileOff(env: FeedbackEnv): void {
+  if (turnstileWarned) return;
+  turnstileWarned = true;
+  const site = !!env.TURNSTILE_SITE_KEY?.trim();
+  const secret = !!env.TURNSTILE_SECRET_KEY?.trim();
+  const why = site || secret ? `only ${site ? 'TURNSTILE_SITE_KEY' : 'TURNSTILE_SECRET_KEY'} is set, and both are needed` : 'neither TURNSTILE_SITE_KEY nor TURNSTILE_SECRET_KEY is set';
+  console.warn(`[recall feedback] Turnstile is off (${why}): feedback is taken without the human check; the rate limits still apply.`);
+}
+
+/** Email each FEEDBACK_TO address, then record how it went on the row. Never throws. */
+async function mailFeedback(env: FeedbackEnv, db: D1Like, host: string, to: string[], stored: StoredFeedback, deps: FeedbackDeps): Promise<void> {
+  const errors: string[] = [];
+  for (const addr of to) {
+    try {
+      const r = await sendEmail(env, host, feedbackMail(addr, stored), deps);
+      if (!r.ok) errors.push(`${addr}: ${r.error}`);
+    } catch {
+      errors.push(`${addr}: send threw`);
+    }
+  }
+  const sentAll = errors.length === 0;
+  try {
+    await db
+      .prepare('UPDATE feedback SET emailed_at = ?, email_error = ? WHERE id = ?')
+      .bind(errors.length < to.length ? (deps.now ?? Date.now)() : null, sentAll ? null : errors.join('; ').slice(0, 1_000), stored.id)
+      .run();
+  } catch {
+    /* the row is saved; how the email went is best effort */
+  }
+  if (!sentAll) console.error(`[recall feedback] email failed for ${errors.length} of ${to.length} recipients`);
 }
 
 const ctxStr = (c: Record<string, unknown>, key: string, max: number): string | null => str(get(c, 'where', key), max);
@@ -317,7 +394,8 @@ export async function handleFeedback(ctx: FeedbackCtx, deps: FeedbackDeps = {}):
   const req = ctx.request;
   const db = env.AUTH_DB;
   if (!db) return fail(503, 'not_configured', "Feedback isn't set up on this site yet. Email us instead.");
-  if (crossSite(req)) return fail(403, 'forbidden', "That didn't come from this site.");
+  // An Origin header is required, and must be this site's (or walkeforward.com's), as for billing.
+  if (originRefused(req)) return fail(403, 'forbidden', "That didn't come from this site. Reload the page and try again.");
   const body = await readJson(req);
   if (body === 'too_big') return fail(413, 'too_big', 'That was too big to send. Try a smaller image, or leave it out.');
   const f = parseFeedback(body);
@@ -328,16 +406,22 @@ export async function handleFeedback(ctx: FeedbackCtx, deps: FeedbackDeps = {}):
     const t = await verifyTurnstile(env, f.turnstileToken, req, deps);
     if (t === 'unavailable') return fail(503, 'turnstile_unavailable', "Couldn't check that you're human just now. Try again in a minute.");
     if (t === 'failed') return fail(400, 'turnstile_failed', 'Please complete the check and try again.');
+  } else {
+    warnTurnstileOff(env);
   }
 
   const now = (deps.now ?? Date.now)();
   const who = await whoIs(req, db, now);
   const ip = await ipHash(req.headers.get('cf-connecting-ip') ?? 'local', env.AUTH_SECRET);
+  const keys = rateKeys(deps, ip, who.user?.id ?? null);
+  let full: string | null;
   try {
-    if (await overLimit(ctx, db, ip, who.user?.id ?? null, deps, now)) return fail(429, 'rate_limited', "That's a lot of feedback in one hour. Try again later.");
+    full = await fullKey(db, keys, now);
   } catch {
     return fail(503, 'unavailable', "Couldn't save that just now. Try again in a minute.");
   }
+  if (full === ALL_KEY) return fail(429, 'rate_limited', "We've had a lot of feedback this hour. Try again later, or email us.");
+  if (full) return fail(429, 'rate_limited', "That's a lot of feedback in one hour. Try again later.");
 
   const id = newId();
   const { country, colo } = cfOf(req);
@@ -347,32 +431,26 @@ export async function handleFeedback(ctx: FeedbackCtx, deps: FeedbackDeps = {}):
   const url = str(get(f.context, 'where', 'url'), 2_000);
   const appCommit = str(get(f.context, 'app', 'commit'), 40);
 
-  // Images first (R2), so the row can say where they are.
+  // The row first, then the pictures (R2), then their keys on the row. A failed insert leaves nothing
+  // in R2; a failed upload leaves the row saying so; a row never names an object that isn't there.
   const bucket = env.VKX_BUCKET;
   const images: StoredFeedback['images'] = [];
+  const pending: { img: ImageIn; key: string; entry: StoredFeedback['images'][number] }[] = [];
   for (const [what, name, img] of [
     ['Image', 'image', f.image],
     ['Map', 'map', f.map],
   ] as const) {
     if (!img) continue;
-    const key = `feedback/${id}/${name}.${IMAGE_TYPES[img.type]}`;
-    if (!bucket) {
-      images.push({ what, key: null, type: img.type, bytes: img.bytes.length, note: 'no R2 bucket bound here' });
-      continue;
-    }
-    try {
-      await bucket.put(key, img.bytes, { httpMetadata: { contentType: img.type }, customMetadata: { feedback: id } });
-      images.push({ what, key, type: img.type, bytes: img.bytes.length });
-    } catch {
-      images.push({ what, key: null, type: img.type, bytes: img.bytes.length, note: "couldn't store it" });
-    }
+    const entry: StoredFeedback['images'][number] = { what, key: null, type: img.type, bytes: img.bytes.length, note: bucket ? "couldn't store it" : 'no R2 bucket bound here' };
+    images.push(entry);
+    if (bucket) pending.push({ img, key: `feedback/${id}/${name}.${IMAGE_TYPES[img.type]}`, entry });
   }
+  const noteOf = (): string | null =>
+    images
+      .filter((i) => !i.key)
+      .map((i) => `${i.what.toLowerCase()} not stored: ${i.note}`)
+      .join('; ') || null;
   const upload = images.find((i) => i.what === 'Image');
-  const map = images.find((i) => i.what === 'Map');
-  const imageNote = images
-    .filter((i) => !i.key)
-    .map((i) => `${i.what.toLowerCase()} not stored: ${i.note}`)
-    .join('; ');
 
   try {
     await db
@@ -397,41 +475,61 @@ export async function handleFeedback(ctx: FeedbackCtx, deps: FeedbackDeps = {}):
         ctxStr(f.context, 'race', 40),
         appCommit,
         f.contextJson,
-        upload?.key ?? null,
+        null,
         upload?.type ?? null,
         upload?.bytes ?? null,
-        map?.key ?? null,
-        imageNote || null,
+        null,
+        // Until the pictures are in, the row says they aren't (true if this stops halfway).
+        noteOf(),
       )
       .run();
   } catch {
     console.error('[recall feedback] insert failed');
     return fail(503, 'unavailable', "Couldn't save that just now. Try again in a minute.");
   }
+  // Saved: only now does it count against the limits.
+  await countFeedback(ctx, db, keys, deps, now);
+
+  if (bucket && pending.length) {
+    for (const p of pending) {
+      try {
+        await bucket.put(p.key, p.img.bytes, { httpMetadata: { contentType: p.img.type }, customMetadata: { feedback: id } });
+        p.entry.key = p.key;
+        delete p.entry.note;
+      } catch {
+        /* the row already says it wasn't stored */
+      }
+    }
+    const stored = pending.filter((p) => p.entry.key);
+    if (stored.length) {
+      try {
+        await db
+          .prepare('UPDATE feedback SET image_key = ?, map_key = ?, image_note = ? WHERE id = ?')
+          .bind(images.find((i) => i.what === 'Image')?.key ?? null, images.find((i) => i.what === 'Map')?.key ?? null, noteOf(), id)
+          .run();
+      } catch {
+        // The row can't point at them, so take them back out rather than leave them unlisted.
+        console.error('[recall feedback] recording picture keys failed');
+        for (const p of stored) {
+          p.entry.key = null;
+          p.entry.note = "couldn't record it";
+        }
+        try {
+          await bucket.delete(stored.map((p) => p.key));
+        } catch {
+          console.error(`[recall feedback] removing unrecorded pictures failed: feedback/${id}/`);
+        }
+      }
+    }
+  }
 
   const to = feedbackRecipients(env.FEEDBACK_TO);
   if (to.length) {
     const stored: StoredFeedback = { id, type: f.type, message: f.message, email, userId: who.user?.id ?? null, url, context: f.context, appCommit, country, userAgent, images };
-    const host = new URL(req.url).host;
-    const errors: string[] = [];
-    for (const addr of to) {
-      try {
-        const r = await sendEmail(env, host, feedbackMail(addr, stored), deps);
-        if (!r.ok) errors.push(`${addr}: ${r.error}`);
-      } catch {
-        errors.push(`${addr}: send threw`);
-      }
-    }
-    const sentAll = errors.length === 0;
-    try {
-      await db
-        .prepare('UPDATE feedback SET emailed_at = ?, email_error = ? WHERE id = ?')
-        .bind(errors.length < to.length ? now : null, sentAll ? null : errors.join('; ').slice(0, 1_000), id)
-        .run();
-    } catch {
-      /* the row is saved; how the email went is best effort */
-    }
-    if (!sentAll) console.error(`[recall feedback] email failed for ${errors.length} of ${to.length} recipients`);
+    // After the answer when the platform allows (waitUntil); else (tests, local) before it.
+    const mail = mailFeedback(env, db, new URL(req.url).host, to, stored, deps);
+    if (ctx.waitUntil) ctx.waitUntil(mail);
+    else await mail;
   }
   return jsonOut(200, { ok: true, id });
 }
