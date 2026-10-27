@@ -286,12 +286,18 @@ describe('Cascais: the line bias (D16) and thin data', () => {
     expect(cards).toBe(17);
     for (const b of r2.a.boats) expect(debriefOf(r2.a, r2.m, b.id)!.found.some((x) => x.kind === 'D16')).toBe(false);
   }, 120_000);
-  it('R2: USA 833 on thin data (37% on the full feed): "Not judged: banked gains", never ✓, no tracker %', () => {
+  it('R2: USA 833 on thin data (37% on the full feed): never a banked-gains ✓ (with the last run read from the gybes it gives a gain back)', () => {
     const d = debriefOf(r2.a, r2.m, r2.id('USA 833'))!;
+    expect(d.ok.some((o) => o.detector === 'D5')).toBe(false);
+    const ask = raceAskContext({ a: r2.a, me: r2.a.boats.find((b) => b.sail === 'USA 833')!, deb: d, stories: [], group: { kind: 'leaders' }, head: [] });
+    expect(ask.notTheProblem ?? []).not.toContain('Banked gains');
+  });
+  it('R2: USA 684 on thin data (19% here): "Not judged: banked gains", never ✓, no tracker %', () => {
+    const d = debriefOf(r2.a, r2.m, r2.id('USA 684'))!;
     const d5 = d.ok.find((o) => o.detector === 'D5')!;
     expect(d5.thin).toBe(true);
     expect(goodTexts(d5)[0]).toBe('Not judged: banked gains');
-    const ask = raceAskContext({ a: r2.a, me: r2.a.boats.find((b) => b.sail === 'USA 833')!, deb: d, stories: [], group: { kind: 'leaders' }, head: [] });
+    const ask = raceAskContext({ a: r2.a, me: r2.a.boats.find((b) => b.sail === 'USA 684')!, deb: d, stories: [], group: { kind: 'leaders' }, head: [] });
     expect(ask.notJudged).toContain(goodTexts(d5)[0]);
     expect(ask.notTheProblem ?? []).not.toContain('Banked gains');
     expect(sanitizeAskContext(ask)!.notJudged).toEqual(ask.notJudged);

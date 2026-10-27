@@ -150,8 +150,8 @@ export function refCoverage(tracks: { t: ArrayLike<number> & { length: number } 
 
 /**
  * A minute's wind counts as measured when a measured minute (twdSeries `ok`) is this close (about a leg), ms.
- * The series is measured on the beats only, so a run always sits between or after measured minutes; only a
- * longer gap is a doubt.
+ * The series is measured on the beats, and on the runs only where the fleet's gybes give a reading (asymmetric kites),
+ * so a run often sits between or after measured minutes; only a longer gap is a doubt.
  */
 export const WIND_NEAR_MS = 15 * 60_000;
 

@@ -128,7 +128,7 @@ export const COACH_BULLETS: readonly string[] = [
   'Gap = how many seconds earlier (behind, down) or later (ahead, up) the group got as far along the course as you are now.',
   "How far along: on beats and runs, how far up (or down) the leg's wind ladder, one wind direction for the whole leg, so both tacks and gybes count alike; on reaches, distance made good along the line between the marks. A rounding counts from 30 m before the mark to 30 m down the next leg, so the lines run on through it.",
   `Bold: the group's average, always over the same boats: the mean of the boats with data when there are ${GROUP_MEAN_MAX_BOATS} or fewer, the median when there are more. Thin: each group boat. The scale fits every line for ${GROUP_MEAN_MAX_BOATS} or fewer boats; with more, a line that runs off it gets a small marker at the edge.`,
-  "Wind (strip below) comes from the fleet's tacks, minute by minute, not a sensor.",
+  "Wind (strip below) comes from the fleet's tacks and gybes, minute by minute, not a sensor.",
 ];
 
 /** The header's chip line with the ⓘ. */

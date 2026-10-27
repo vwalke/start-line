@@ -46,6 +46,47 @@ export function classDims(name: string): ClassDims | null {
   return DIMS[ALIASES[key] ?? key] ?? null;
 }
 
+/** How a class sails downwind: an asymmetric kite (gybing ~30–45° off dead downwind), a symmetric one, or none. */
+export type KiteKind = 'asym' | 'sym' | 'none';
+
+const KITES: Record<string, KiteKind> = {
+  j70: 'asym',
+  j80: 'asym',
+  j88: 'asym',
+  j105: 'asym',
+  j111: 'asym',
+  melges20: 'asym',
+  melges24: 'asym',
+  vxone: 'asym',
+  viper640: 'asym',
+  cape31: 'asym',
+  ic37: 'asym',
+  etchells: 'sym',
+  j22: 'sym',
+  j24: 'sym',
+  dragon: 'sym',
+  star: 'none',
+  ilca: 'none',
+  ilca4: 'none',
+  ilca6: 'none',
+  ilca7: 'none',
+  laser: 'none',
+};
+
+/** Other names a feed uses for a class (normalized) → its KITES key, besides ALIASES. */
+const KITE_ALIASES: Record<string, string> = { m24: 'melges24', m20: 'melges20' };
+
+/** The kite of the first of `names` (in order) that is a known class; null if none. */
+export function kiteOf(names: (string | null | undefined)[]): KiteKind | null {
+  for (const name of names) {
+    if (!name) continue;
+    const key = normalizeClass(name);
+    const k = KITES[KITE_ALIASES[key] ?? ALIASES[key] ?? key];
+    if (k) return k;
+  }
+  return null;
+}
+
 /** The first of `names` (in order) with known dimensions, and that name as given; null if none. */
 export function matchClass(names: (string | null | undefined)[]): { name: string; dims: ClassDims } | null {
   for (const name of names) {

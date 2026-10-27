@@ -175,8 +175,8 @@ describe('Cascais (J/70 Worlds) R3, USA 833: its cards against its chart', () =>
     const at = (t: number) => l.points.find((p) => p.tMs === t)!.behindS!;
     expect(c.seconds).toBeCloseTo(at(g.t1) - at(g.t0), 9);
     // Got 33.2 s for 11 places (36.4 s for 12, on distance to go ÷ the fleet's VMG 36.8 s, with 17 trackers' replayed fixes
-    // zig-zagging the fleet: BRA1440 counted among the passers).
-    expect(Math.abs(c.seconds - 33.2)).toBeLessThan(1);
+    // zig-zagging the fleet: BRA1440 counted among the passers). 32.2 s since the last run's wind is read from the gybes.
+    expect(Math.abs(c.seconds - 32.2)).toBeLessThan(1);
   });
 
   it('the last run (D10): each named boat\'s seconds are its own line on the chart', () => {
