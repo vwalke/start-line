@@ -116,7 +116,7 @@ off by a thin rule in the theme's border color.
     every line runs straight on across any stretch without values, however long:
     no breaks, no bands, no "no data" chip, and the readout says only the statistic
     and how many boats ("median of 6 boats"), never that any was estimated; the
-    wind strip's estimated minutes are the same line, lighter. The cards read the
+    wind strip is one line at full strength over every minute. The cards read the
     same series (`groupGap`), with its holes and rules as above, so
     a card's seconds are the chart's change for the same group), the biggest gains as cards
     ranked by their impact on the result (see [How the Coach ranks
