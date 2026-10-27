@@ -89,7 +89,7 @@ describe('sorted metrics table (Benelux race 8)', () => {
     expect(rowIds(html)).toEqual(want);
     expect(th(html, 'L0.sog')).toContain('aria-sort="descending"');
     expect(html.match(/aria-sort=/g)).toHaveLength(1);
-    expect(html).toMatch(/data-sort="L0\.sog">SOG<br><small>kn<\/small><span class="si si-desc" aria-hidden="true"><svg[^>]*><path d="[^"]+"\/><\/svg><\/span><\/button>/);
+    expect(html).toMatch(/data-sort="L0\.sog">SOG<br><small>kn<\/small><span class="vh">, sorted descending<\/span><span class="si si-desc" aria-hidden="true"><svg[^>]*><path d="[^"]+"\/><\/svg><\/span><\/button>/);
 
     const again = legsTable(a, null, toggleSort(a, sort, 'L0.sog'));
     expect(rowIds(again)).toEqual([...want].reverse());

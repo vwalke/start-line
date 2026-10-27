@@ -52,6 +52,24 @@ describe('sortable headers', () => {
       }
       expect(first.dir).not.toBe(second.dir);
     });
+
+    it(`${name}: the sorted button's accessible name says which way; the others keep just their label`, () => {
+      const rest = heads(render());
+      const key = rest[1].key;
+      for (const h of rest) expect(h.name).not.toMatch(/sorted/);
+      const first = toggleSort(race, null, key)!;
+      const second = toggleSort(race, first, key)!;
+      for (const sort of [first, second]) {
+        const hs = heads(render(sort));
+        const dir = sort.dir === 'asc' ? 'ascending' : 'descending';
+        const on = hs.find((h) => h.key === key)!;
+        const label = rest.find((h) => h.key === key)!.name;
+        // e.g. "SOG kn, sorted descending": the visible label, then the state in text (visually hidden), not in aria-hidden
+        expect(on.name).toBe(`${label}, sorted ${dir}`);
+        expect(render(sort)).toContain(`<span class="vh">, sorted ${dir}</span><span class="si si-${sort.dir}" aria-hidden="true">`);
+        for (const h of hs.filter((x) => x.key !== key)) expect(h.name).toBe(rest.find((x) => x.key === h.key)!.name);
+      }
+    });
   }
 
   it('draws an up/down pair at rest, an up arrow ascending, a down arrow descending', () => {

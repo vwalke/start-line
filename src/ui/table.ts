@@ -739,7 +739,9 @@ export const sortGlyph = (dir: SortDir | null): string =>
 function headCell(c: Col, cls: string, sort: SortState | null, span: string): string {
   const on = sort?.key === c.key ? sort.dir : null;
   const aria = on ? ` aria-sort="${on === 'asc' ? 'ascending' : 'descending'}"` : '';
-  return `<th class="${cls}" scope="col"${span}${aria}${c.title ? ` title="${esc(c.title)}"` : ''}><button type="button" class="sort" data-sort="${esc(c.key)}">${c.head}${sortGlyph(on)}</button></th>`;
+  // The sorted button says which way in its name ("SOG kn, sorted descending"); the glyph is decoration.
+  const state = on ? `<span class="vh">, sorted ${on === 'asc' ? 'ascending' : 'descending'}</span>` : '';
+  return `<th class="${cls}" scope="col"${span}${aria}${c.title ? ` title="${esc(c.title)}"` : ''}><button type="button" class="sort" data-sort="${esc(c.key)}">${c.head}${state}${sortGlyph(on)}</button></th>`;
 }
 
 /** The sorted column in words, e.g. "Beat 1 VMG kn ↓". */

@@ -17,7 +17,6 @@ import {
   sogBin,
   sogHoverLeg,
   SOG_BINS,
-  sogCasedByDay,
   sogColor,
   sogIndex,
   sogKey,
@@ -158,15 +157,16 @@ describe('SOG bins and colours', () => {
     expect(g).toBeGreaterThan(blue);
   });
 
-  it('keeps both ends readable on both backgrounds, and cases the pale day bins (not the ends)', () => {
-    for (const end of [sogColor(0), sogColor(1)]) {
-      expect(contrast(end, SPEED_BG.light)).toBeGreaterThanOrEqual(3);
-      expect(contrast(end, SPEED_BG.dark)).toBeGreaterThanOrEqual(3);
+  it('keeps every bin readable on its own background in each scheme, so nothing needs a casing', () => {
+    for (const end of [0, 1]) {
+      expect(sogColor(end, 'dark')).toBe(sogColor(end));
+      expect(contrast(sogColor(end), SPEED_BG.light)).toBeGreaterThanOrEqual(3);
+      expect(contrast(sogColor(end), SPEED_BG.dark)).toBeGreaterThanOrEqual(3);
     }
-    expect(sogCasedByDay(0)).toBe(false);
-    expect(sogCasedByDay(SOG_BINS - 1)).toBe(false);
-    expect(sogCasedByDay(SOG_BINS / 2)).toBe(true);
-    for (let b = 0; b < SOG_BINS; b++) expect(sogCasedByDay(b)).toBe(contrast(sogColor(binPos(b)), SPEED_BG.light) < 3);
+    for (let b = 0; b < SOG_BINS; b++) {
+      expect(contrast(sogColor(binPos(b)), SPEED_BG.light)).toBeGreaterThanOrEqual(3);
+      expect(contrast(sogColor(binPos(b), 'dark'), SPEED_BG.dark)).toBeGreaterThanOrEqual(3);
+    }
   });
 });
 
@@ -188,7 +188,7 @@ describe('batched SOG paths', () => {
     const acc = emptySogPaths(10);
     addSogTrack(acc, xs(4), [0, 0, 0, 0], [5, 5, 5, 5], r);
     expect(acc.bins[5]).toBe('M0.0,0.0L1.0,0.0L2.0,0.0L3.0,0.0');
-    const svg = sogPathsSvg(acc, 1.4, 1);
+    const svg = sogPathsSvg(acc);
     expect(svg).not.toMatch(/sog-gap|sog-est/);
   });
 
@@ -198,7 +198,7 @@ describe('batched SOG paths', () => {
     expect(acc.bins[5]).toBe('M0.0,0.0L1.0,0.0');
   });
 
-  it('emits per boat at most one path per bin (and one casing), however long the track', () => {
+  it('emits per boat at most one path per bin (and no casing), however long the track', () => {
     const a = analyzeRace(fixtureRace());
     const svg = trackMap(a, null, null, { colour: 'sog' });
     expect(svg).not.toContain('<polyline class="trk');
@@ -209,16 +209,15 @@ describe('batched SOG paths', () => {
     expect(samples).toBeGreaterThan(20 * groups.length * (SOG_BINS + 1)); // far more fixes than paths
     for (const [, , body] of groups) {
       const colour = (body.match(/<path class="sog" /g) ?? []).length;
-      const cases = (body.match(/<path class="sog-case"/g) ?? []).length;
       expect(colour).toBeGreaterThan(1);
       expect(colour).toBeLessThanOrEqual(SOG_BINS);
       expect(body).not.toMatch(/sog-gap|sog-est/);
-      expect(cases).toBeLessThanOrEqual(1);
       const bins = [...body.matchAll(/data-bin="(\d+)"/g)].map((m) => m[1]);
       expect(new Set(bins).size).toBe(bins.length); // one path per bin
     }
-    expect(svg).toMatch(/<path class="sog" data-bin="\d+" d="M[^"]+" stroke="#[0-9a-f]{6}"\/>/);
-    expect(svg).not.toContain('--cd:'); // one ramp for both schemes
+    // the day colour as the stroke, the night one as --cd (style.css)
+    expect(svg).toMatch(/<path class="sog" data-bin="\d+" d="M[^"]+" stroke="#[0-9a-f]{6}" style="--cd:#[0-9a-f]{6}"\/>/);
+    expect(svg).not.toContain('sog-case');
     expect(svg).toContain('aria-label="Race Viewer, tracks colored by boat speed (SOG)');
   });
 

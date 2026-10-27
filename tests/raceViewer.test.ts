@@ -198,12 +198,11 @@ describe('the Race Viewer while scrubbing: each boat its own fading trail', () =
     expect(all.tracks).toMatch(/class="trk/);
   });
 
-  it('colored as the boats in Rank and Boat speed (Rank with a night color too; Boat speed is one ramp in both); dimmed with a selection, the selected boat last', () => {
+  it('colored as the boats in Rank and Boat speed (each with a night color too); dimmed with a selection, the selected boat last', () => {
     for (const colour of ['rank', 'sog'] as const) {
       const f = frame(null, { colour });
       for (const tr of f.trails) expect(tr.stroke).toBe(colorOf(f.dots, tr.id));
-      if (colour === 'rank') expect(f.trails.some((tr) => tr.cd)).toBe(true);
-      if (colour === 'sog') expect(f.trails.every((tr) => !tr.cd)).toBe(true);
+      expect(f.trails.some((tr) => tr.cd)).toBe(true);
     }
     const f = frame(ME);
     expect(f.trails.at(-1)!.id).toBe(ME);
