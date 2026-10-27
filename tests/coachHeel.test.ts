@@ -465,7 +465,8 @@ describe('D11 golden: the committed fixtures', () => {
     expect(c.seconds).toBeGreaterThan(30);
     expect(c.seconds).toBeLessThan(50);
     // No card since the top 3's line is their mean: the start card's early lane (17 s on it) claims Beat 1's first 5 min.
-    expect(d491.cards.some((x) => x.kind === 'D11')).toBe(false);
+    // (Its Run 2 heel is a card of its own since that run's wind is read from the gybes: the run's D7 it rode on no longer fires.)
+    expect(d491.cards.some((x) => x.kind === 'D11' && x.facts.leg === 'Beat 1')).toBe(false);
     for (const id of ['658', '615']) {
       const d = coachDebrief(m24.a, m24.m, id)!;
       const d6 = d.cards.find((x) => x.kind === 'D6')!;

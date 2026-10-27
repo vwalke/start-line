@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { rivalLadder, type CoachModel, type RivalLadder } from '../src/analysis/coach';
 import type { RaceAnalysis } from '../src/analysis/types';
-import { COACH_BULLETS, ladderChart, ladderChips, ladderRuns } from '../src/ui/coach';
+import { COACH_BULLETS, ladderChart, ladderChips, ladderLayout, ladderRuns } from '../src/ui/coach';
 import { coachRace, j105Race } from './helpers';
 
 /**
@@ -55,13 +55,33 @@ describe('Gap to rivals: every line runs straight on across any stretch without 
   });
 
   it('the wind strip: one cl-wind line over every minute, the estimated stretch too; the ⓘ says nothing lighter, estimated or broken', () => {
-    const svg = ladderChart(a, { wind: { twdAt: () => 0, t: [0, 60_000, 120_000], ok: [true, false, true] } } as unknown as CoachModel, lad(points), { kind: 'leaders' });
+    // A window of 0–300 s (the points' last time); minutes from 1 before the gun to 1 past the window. The wind veers 4° a
+    // minute from 350° through north; the minute at 120 s is not measured, so its point is where twdAt puts it.
+    const twdAt = (t: number) => (((350 + (t / 60_000) * 4) % 360) + 360) % 360;
+    const mins = [-1, 0, 1, 2, 3, 4, 5, 6].map((k) => k * 60_000);
+    const wind = { twdAt, t: mins, ok: mins.map((t) => t !== 120_000) };
+    const long = lad(Array.from({ length: 61 }, (_, i) => pt(i * 5, 3, [2, 4])));
+    const svg = ladderChart(a, { wind } as unknown as CoachModel, long, { kind: 'leaders' });
     expect(svg).not.toContain('cl-wind est');
     expect(svg.match(/class="cl-wind"/g)).toHaveLength(1);
-    // The window ends at 60 s: its one segment (0–60 s) runs into the not-ok minute and is drawn in the normal line.
-    expect(moves(pathOf(svg, 'cl-wind'))).toBe(1);
+    const d = pathOf(svg, 'cl-wind');
+    expect(moves(d)).toBe(1);
+    // One point per minute in the window (0–300 s: 6), none for the minutes before the gun or past the window.
+    expect((d.match(/L/g) ?? []).length).toBe(5);
+    const xy = d.split(/[ML]/).filter(Boolean).map((p) => p.split(' ').map(Number));
+    const L = ladderLayout(long, wind, 0);
+    const inWin = mins.filter((t) => t >= 0 && t <= 300_000);
+    xy.forEach(([x, y], i) => {
+      expect(x).toBeCloseTo(L.x(inWin[i]), 1);
+      // Unwrapped from 350°: 350, 354, 358, 362 (2°), 366, 370 — no jump at north; the not-ok minute at twdAt (358°).
+      expect(y).toBeCloseTo(L.yw(350 + 4 * (inWin[i] / 60_000)), 1);
+    });
+    for (let i = 1; i < xy.length; i++) expect(Math.abs(xy[i][1] - xy[i - 1][1])).toBeLessThan(Math.abs(L.yw(0) - L.yw(10)));
+    // A window with a single minute in it: an empty path.
+    const one = ladderChart(a, { wind: { twdAt, t: [0, 120_000], ok: [true, true] } } as unknown as CoachModel, lad(points), { kind: 'leaders' });
+    expect(pathOf(one, 'cl-wind')).toBe('');
     const text = COACH_BULLETS.join(' ');
-    expect(text).toContain("Wind (strip below) comes from the fleet's tacks, minute by minute, not a sensor.");
+    expect(text).toContain("Wind (strip below) comes from the fleet's tacks and gybes, minute by minute, not a sensor.");
     expect(text).not.toMatch(/lighter|estimated between|break|left blank|gray band|dotted/i);
   });
 
