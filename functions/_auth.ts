@@ -237,6 +237,8 @@ export interface Mail {
   subject: string;
   text: string;
   html: string;
+  /** Reply-To (the feedback sender's address); only the `resend` provider passes it on. */
+  replyTo?: string;
 }
 
 export type SendResult = { ok: true } | { ok: false; status: number; error: string };
@@ -321,7 +323,7 @@ export async function sendEmail(env: PaywallEnv, host: string, m: Mail, deps: Au
       const res = await (deps.fetch ?? fetch)(RESEND_URL, {
         method: 'POST',
         headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ from: `${sender.name ?? 'Recall'} <${sender.email}>`, to: [m.to], subject: m.subject, text: m.text, html: m.html }),
+        body: JSON.stringify({ from: `${sender.name ?? 'Recall'} <${sender.email}>`, to: [m.to], subject: m.subject, text: m.text, html: m.html, ...(m.replyTo ? { reply_to: m.replyTo } : {}) }),
       });
       await res.body?.cancel().catch(() => undefined);
       return res.ok ? { ok: true } : SEND_FAILED;

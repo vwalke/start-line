@@ -1212,6 +1212,7 @@ functions/_paywall.ts        paywall flag, session cookie, the gate the data rou
 functions/_auth.ts, _stripe.ts, _authDb.ts, _entitlements.ts  sign-in, payments, D1 queries, who may see what
 src/data/freeRace.ts         race 1 and its free telemetry window (shared by the gate and the page)
 src/ui/paywall.ts            lock card and account sheet (only when /api/auth/me says the paywall is on)
+src/feedback/, functions/_feedback.ts, functions/api/feedback.ts  the Feedback button and sheet, and POST /api/feedback (see Feedback)
 migrations/0001_paywall.sql  D1 schema for the paywall (not applied: see Paywall)
 tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1–r3, ic37_r5, gate_*, cascais_r2, cascais_r3, anom_*: tracker glitches, vkx/, stripe/: fake webhook events); tests/d1mem.ts runs the paywall's SQL against the migration's schema in memory; tests/setup.ts yields to the event loop after each test (a long run of synchronous tests otherwise times out vitest's worker RPC, 'Timeout calling "onTaskUpdate"')
 scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88|j105|j105r1|j105r3|ic37|gate-*|cascais-r2|cascais-r3)
@@ -1959,6 +1960,7 @@ Preview each):
 | `STRIPE_PRICE_REGATTA` | the Regatta Pass price id | no |
 | `STRIPE_MANAGED_PAYMENTS` | `off` to leave Managed Payments out (default on) | no |
 | `STRIPE_API_VERSION` | sent as `Stripe-Version` when set | no |
+| `FEEDBACK_TO` | where each piece of feedback is emailed: a comma-separated list (bad entries are skipped; unset: no email). Uses the sign-in mailer (`EMAIL_PROVIDER`, `EMAIL_FROM`). See Feedback | no |
 
 Stripe products and prices (test mode first): **Recall Regatta Pass**,
 one-time $50 → `STRIPE_PRICE_REGATTA`; **Coach plan**, $499/yr for 6 seats,
@@ -2076,6 +2078,81 @@ so the device is told "You were signed out. Sign in again to keep going."
 Inputs are checked strictly (the server's email pattern, public ids as 24
 hex characters, caps 1 to 20 or `default`) and quoted as SQL strings;
 wrangler runs without a shell.
+
+## Feedback
+
+Every page has a **Feedback** button: in the masthead on wider screens, and
+on phones (640 px and under) a small round button at the bottom right,
+inside the safe area, that moves up when the map's playback bar or zoom
+buttons scroll under it. It opens a sheet in the Account sheet's style: what
+it's about (Bug, Idea, Data looks wrong, Other), a message (required, up to
+4,000 characters), an email for signed-out senders (optional, "so we can
+reply"), one optional picture (shrunk in the browser to at most 1600 px,
+WebP or JPEG, under 2 MB) and, when a course map is on the page, "Include
+the map" (the map's SVG drawn to a picture in the browser, with its styles
+copied in; left out with the reason in the context if the browser won't draw
+it or the map has over 25,000 shapes). Turnstile shows when the site has
+both keys. Code: `src/feedback/` (the page), `functions/_feedback.ts` and
+`functions/api/feedback.ts` (the route). It works with the paywall on or off.
+
+**What the page sends** (`src/feedback/context.ts`, at most 32 KB): the full
+URL (secret-looking parameters such as `token` or `buy` removed), path,
+query and hash; the event id and title, division, race, tab, the highlighted
+and Coach boats by sail number, leg, Coach view and group, trail, track
+colors, rank, playing or not, full screen, report; the viewport, screen,
+device pixel ratio, user agent, platform, touch, language, time zone,
+connection type, referrer and time on page; the theme (light or dark, chosen
+via `data-theme` on `<html>` or the system's); the build's commit and time
+(`vite.config.ts` defines them from `CF_PAGES_COMMIT_SHA`, else `git
+rev-parse --short HEAD`, else `dev`); the last 20 console errors, uncaught
+errors, unhandled rejections and failed `/api` calls (method, path, the
+query's parameter names only, status; `src/feedback/problems.ts`, installed
+first in `main.ts`, memory only; never bodies, cookies or tokens; calls
+made inside the analysis worker are not seen); and the race data's state
+(loaded, boat count, paywall on, locked, free event, signed in).
+
+| Route | |
+| --- | --- |
+| `GET /api/feedback` | `{ok, ready, signedIn, turnstileSiteKey}`: what the sheet needs (`ready` is false without `AUTH_DB`) |
+| `POST /api/feedback` | JSON `{type, message, email?, context, image?, map?, turnstileToken?}`, images as `{type, data}` (base64; PNG, JPEG or WebP, checked by their first bytes, 2.5 MB each at most) → `{ok, id}`. 400 with a plain message for a bad type, an empty or over-long message, a bad email, a bad image; 413 for a context over 32 KB or a body over ~6.7 MB; 403 from another site; 400 / 503 for Turnstile (checked when both its keys are set); 429 past 10 an hour per IP or per signed-in user (the shared `auth_rate_limits` table, keys `feedback-ip:<sha256>` and `feedback-user:<user id>`); 503 without `AUTH_DB` |
+
+The server adds what it doesn't take from the page: the user id, email and
+session public id from the session cookie when signed in (a page-sent
+identity is ignored), a SHA-256 of the IP salted with a hash of
+`AUTH_SECRET` (plain SHA-256 without it), Cloudflare's country and colo, the
+time and the user agent. Each submission is one row in the `feedback` table
+(`migrations/0004_feedback.sql`: additive; needs the owner's OK, Preview
+first, then production **before** deploying this code, which answers 503
+without it). Pictures go to R2 (`VKX_BUCKET`) as
+`feedback/<id>/image.<ext>` and `feedback/<id>/map.<ext>` with their content
+type; with no bucket bound (Preview) the feedback is saved without them and
+`image_note` (and the email) says so. Each address in `FEEDBACK_TO` gets an
+email through the sign-in mailer (same provider and `EMAIL_FROM`), subject
+"Recall feedback: Bug · <event or path>", plain text and simple HTML with
+everything user-supplied escaped: the message, type, who (email and user id,
+or "signed out"), a link back to the exact URL, device, theme, app commit,
+recent problems and any picture's R2 key (no public link). Reply-To is the
+sender's email when known, with the `resend` provider (the others don't
+take it yet). A failed email never fails the submission: `emailed_at` and
+`email_error` record how it went.
+
+```sh
+# DO NOT RUN WITHOUT THE OWNER'S OK (Preview first, then production, before deploying)
+npx wrangler d1 migrations apply recall-auth --remote
+```
+
+**Admin:** `scripts/feedback.mjs` (node, no dependencies; like the other
+admin scripts it runs `npx wrangler d1 execute <db> --remote --json
+--command …`, `--local` for a local D1, `--print` to show the SQL only,
+`--db` defaults to `recall-auth`):
+
+```sh
+# Newest first: id, when, type, who, where, the message's start, image, mailed
+node scripts/feedback.mjs list [--limit 50] [--since 2026-10-01] [--type bug|idea|data|other]
+# One in full, with its context laid out and any picture's R2 key
+node scripts/feedback.mjs show 79733007-b065-4920-b85d-51fc2d817d9a
+# A picture: npx wrangler r2 object get <bucket>/feedback/<id>/image.webp --remote --file shot.webp
+```
 
 ## Local development
 

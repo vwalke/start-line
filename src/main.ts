@@ -1,9 +1,15 @@
+import { installProblemLog } from './feedback/problems';
 import './style.css';
 import { startSwitcher } from './apps';
+import { startFeedback } from './feedback/sheet';
 import { startLanding } from './landing/landing';
 import { REGATTAS_PATH, routeOf } from './landing/route';
 
+// First: recent errors and failed /api calls, for the Feedback sheet (memory only).
+installProblemLog();
 startSwitcher();
+// The Feedback button, on the landing page and in the app alike.
+startFeedback();
 // `/` with no app parameters is the landing page; everything else is the app (landing/route.ts).
 // index.html's inline script made the same call before first paint.
 const route = routeOf(location.pathname, location.search, location.hash);

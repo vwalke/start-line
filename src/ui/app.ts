@@ -195,6 +195,7 @@ import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, presetAc
 import { createVkxUpload } from './vkxUpload';
 import { createPaywall, lockedRange, startRace } from './paywall';
 import { appPath } from '../landing/route';
+import { setPageState } from '../feedback/state';
 import { freeRacesOf, type FreeRaces } from '../data/freeRace';
 import { isPaywallError } from '../data/paywall';
 
@@ -2679,5 +2680,34 @@ export function startApp(): void {
 
   // `?demo=` is retired (live data only); drop it from old links and open the normal list.
   if (new URLSearchParams(location.search).has('demo')) setUrl({ demo: null });
+
+  // What the Feedback sheet reports from here (src/feedback/state.ts): boats by sail number only.
+  setPageState(() => {
+    const sailOf = (id: string | null): string | undefined => (id ? analysis?.boats.find((b) => b.id === id)?.sail : undefined);
+    const me = paywall.me();
+    return {
+      eventId: current?.eventId ?? (eventId || undefined),
+      eventTitle: current || eventId ? titleOf(current?.eventId ?? eventId) : undefined,
+      division: current?.division,
+      race: current?.raceNumber,
+      tab,
+      boats: [...new Set([sailOf(highlight), sailOf(coachBoat)].filter((s): s is string => !!s))],
+      leg: legSel,
+      coachView,
+      coachGroup: coachGroup.kind,
+      trail: scrubTrail,
+      trackColour,
+      rankBy,
+      playing,
+      fullScreen: full,
+      report: reportOn,
+      loaded: !!analysis,
+      boatCount: analysis?.boats.length,
+      paywall: me.paywall,
+      locked: paywall.lockShown(),
+      free: current ? paywall.free(current.eventId) : undefined,
+      signedIn: me.paywall ? !!me.user : undefined,
+    };
+  });
   void boot();
 }

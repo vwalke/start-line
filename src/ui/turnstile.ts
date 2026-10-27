@@ -11,7 +11,7 @@ export const TURNSTILE_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api
 /** How long a submit waits for a token that isn't ready yet. */
 export const TOKEN_WAIT_MS = 4_000;
 
-export type TurnstileAction = 'signin' | 'restore';
+export type TurnstileAction = 'signin' | 'restore' | 'feedback';
 
 export interface TurnstileRenderOptions {
   sitekey: string;
