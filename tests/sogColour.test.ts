@@ -17,7 +17,6 @@ import {
   sogBin,
   sogHoverLeg,
   SOG_BINS,
-  sogCasedByDay,
   sogColor,
   sogIndex,
   sogKey,
@@ -27,7 +26,6 @@ import {
   startColourControls,
   startSogRange,
   trackSogRange,
-  viridis,
 } from '../src/ui/sog';
 import { colourControls, contrast, parseSogScale, plasma, SOG_SCALE_KEY, SPEED_BG } from '../src/ui/speed';
 import { fixtureRace, m24Race } from './helpers';
@@ -148,33 +146,27 @@ describe('SOG bins and colours', () => {
     expect(seen.size).toBe(SOG_BINS);
   });
 
-  it('uses viridis, not the rank plasma, and brightens from slow to fast in both schemes', () => {
-    expect(viridis(0)).toBe('#440154');
-    expect(viridis(1)).toBe('#fde725');
-    expect(sogColor(0)).toBe('#440154');
-    expect(sogColor(1, 'dark')).toBe('#fde725');
-    // Mid-scale reads teal/green, plasma's magenta/orange: clearly different hues.
-    const mid = sogColor(0.5, 'dark');
+  it('uses trimmed turbo, blue slow to red fast, not the rank plasma', () => {
+    expect(sogColor(0)).toBe('#4666dd');
+    expect(sogColor(1)).toBe('#ce2d04');
+    // Mid-scale reads green, plasma's magenta/orange: clearly different hues.
+    const mid = sogColor(0.5);
     expect(mid).not.toBe(plasma(0.5));
-    const g = parseInt(mid.slice(3, 5), 16);
-    const red = parseInt(mid.slice(1, 3), 16);
+    const [red, g, blue] = [1, 3, 5].map((i) => parseInt(mid.slice(i, i + 2), 16));
     expect(g).toBeGreaterThan(red);
-    for (const scheme of ['light', 'dark'] as const) {
-      let prev = -1;
-      for (let b = 0; b < SOG_BINS; b++) {
-        const lum = contrast(sogColor(binPos(b), scheme), '#000000');
-        expect(lum).toBeGreaterThan(prev);
-        prev = lum;
-      }
-    }
+    expect(g).toBeGreaterThan(blue);
   });
 
-  it('keeps both ends readable: night slowest ≥ 2.5:1, day slowest dark, pale day bins cased', () => {
-    expect(contrast(sogColor(0, 'dark'), SPEED_BG.dark)).toBeGreaterThanOrEqual(2.5);
-    expect(contrast(sogColor(0), SPEED_BG.light)).toBeGreaterThan(10);
-    expect(contrast(sogColor(1, 'dark'), SPEED_BG.dark)).toBeGreaterThan(10);
-    expect(sogCasedByDay(SOG_BINS - 1)).toBe(true);
-    expect(sogCasedByDay(0)).toBe(false);
+  it('keeps every bin readable on its own background in each scheme, so nothing needs a casing', () => {
+    for (const end of [0, 1]) {
+      expect(sogColor(end, 'dark')).toBe(sogColor(end));
+      expect(contrast(sogColor(end), SPEED_BG.light)).toBeGreaterThanOrEqual(3);
+      expect(contrast(sogColor(end), SPEED_BG.dark)).toBeGreaterThanOrEqual(3);
+    }
+    for (let b = 0; b < SOG_BINS; b++) {
+      expect(contrast(sogColor(binPos(b)), SPEED_BG.light)).toBeGreaterThanOrEqual(3);
+      expect(contrast(sogColor(binPos(b), 'dark'), SPEED_BG.dark)).toBeGreaterThanOrEqual(3);
+    }
   });
 });
 
@@ -196,7 +188,7 @@ describe('batched SOG paths', () => {
     const acc = emptySogPaths(10);
     addSogTrack(acc, xs(4), [0, 0, 0, 0], [5, 5, 5, 5], r);
     expect(acc.bins[5]).toBe('M0.0,0.0L1.0,0.0L2.0,0.0L3.0,0.0');
-    const svg = sogPathsSvg(acc, 1.4, 1);
+    const svg = sogPathsSvg(acc);
     expect(svg).not.toMatch(/sog-gap|sog-est/);
   });
 
@@ -206,7 +198,7 @@ describe('batched SOG paths', () => {
     expect(acc.bins[5]).toBe('M0.0,0.0L1.0,0.0');
   });
 
-  it('emits per boat at most one path per bin (and one casing), however long the track', () => {
+  it('emits per boat at most one path per bin (and no casing), however long the track', () => {
     const a = analyzeRace(fixtureRace());
     const svg = trackMap(a, null, null, { colour: 'sog' });
     expect(svg).not.toContain('<polyline class="trk');
@@ -217,15 +209,15 @@ describe('batched SOG paths', () => {
     expect(samples).toBeGreaterThan(20 * groups.length * (SOG_BINS + 1)); // far more fixes than paths
     for (const [, , body] of groups) {
       const colour = (body.match(/<path class="sog" /g) ?? []).length;
-      const cases = (body.match(/<path class="sog-case"/g) ?? []).length;
       expect(colour).toBeGreaterThan(1);
       expect(colour).toBeLessThanOrEqual(SOG_BINS);
       expect(body).not.toMatch(/sog-gap|sog-est/);
-      expect(cases).toBeLessThanOrEqual(1);
       const bins = [...body.matchAll(/data-bin="(\d+)"/g)].map((m) => m[1]);
       expect(new Set(bins).size).toBe(bins.length); // one path per bin
     }
+    // the day colour as the stroke, the night one as --cd (style.css)
     expect(svg).toMatch(/<path class="sog" data-bin="\d+" d="M[^"]+" stroke="#[0-9a-f]{6}" style="--cd:#[0-9a-f]{6}"\/>/);
+    expect(svg).not.toContain('sog-case');
     expect(svg).toContain('aria-label="Race Viewer, tracks colored by boat speed (SOG)');
   });
 
@@ -235,7 +227,7 @@ describe('batched SOG paths', () => {
     const r1 = trackSogRange(a, 1)!;
     expect(svg).toContain(`colored by boat speed (SOG), ${r1.lo.toFixed(1)} to ${r1.hi.toFixed(1)} kn`);
     expect(svg).toMatch(/aria-label="Race Viewer on [^"]+, tracks colored by boat speed/);
-    expect(sogKey(r1, 'Beat 2')).toContain(`${r1.lo.toFixed(1)} kn`);
+    expect(sogKey(r1, 'Beat 2')).toContain(`aria-label="${r1.lo.toFixed(1)} to ${r1.hi.toFixed(1)} kn"`);
     expect(sogKey(r1, 'Beat 2')).not.toMatch(/no data|spd-none/);
   });
 
@@ -402,7 +394,7 @@ describe('whole race in Boat speed, scaled per leg', () => {
     const perLeg = trackMap(a, null, null, { colour: 'sog' });
     const first = legs[0].range!;
     expect(perLeg).toContain(`aria-label="Race Viewer, tracks colored by boat speed (SOG), scaled within each leg (${a.legs[0].name} ${first.lo.toFixed(1)}–${first.hi.toFixed(1)}`);
-    expect(perLeg).toContain('dark purple slowest on that leg');
+    expect(perLeg).toContain('blue slowest on that leg, through green and yellow, to red fastest');
     const all = trackSogRange(a, null)!;
     expect(trackMap(a, null, null, { colour: 'sog', sogScale: 'race' })).toContain(
       `aria-label="Race Viewer, tracks colored by boat speed (SOG), ${all.lo.toFixed(1)} to ${all.hi.toFixed(1)} kn`,
@@ -457,14 +449,14 @@ describe('whole race in Boat speed, scaled per leg', () => {
     expect(key).toContain('slow → fast within each leg');
     const list = legs.map((l) => `${l.name} ${l.range!.lo.toFixed(1)}–${l.range!.hi.toFixed(1)}`).join(' · ');
     expect(key).toContain(`<span class="sog-legs">${list} kn</span>`);
-    expect(key).not.toContain(' kn</span><span class="spd-bar'); // no knots on the shared bar
+    expect(key).not.toContain(' kn</span><span class="sog-bar'); // no knots on the shared bar
     // No "no data" swatch, whatever the feed's holes: the description runs straight into the 100%-width legs list.
     expect(key).toContain('<span>slow → fast within each leg</span><span class="sog-legs">');
     expect(key).not.toMatch(/no data|key-sw|spd-none/);
     // The method (4 s mean, percentiles) lives in the map's ⓘ, not the key.
     expect(key).not.toContain('percentile');
     // Whole race keeps the kn-labelled key
-    expect(sogKey(trackSogRange(a, null), 'Whole race')).toContain(`<span class="sog-lo">${trackSogRange(a, null)!.lo.toFixed(1)} kn</span>`);
+    expect(sogKey(trackSogRange(a, null), 'Whole race')).toContain(`aria-label="${trackSogRange(a, null)!.lo.toFixed(1)} to ${trackSogRange(a, null)!.hi.toFixed(1)} kn"`);
   });
 
   it('knows each hovered fix’s leg and its range', () => {

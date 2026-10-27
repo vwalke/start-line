@@ -724,12 +724,24 @@ function colCls(cols: Col[], j: number, sortKey: string | null = null): string {
   return `${c.cls ?? 'num'}${first ? ' g0' : ''}${sorted ? ' sorted' : ''}`;
 }
 
+/**
+ * The sort glyph: at rest a quiet up/down pair on every sortable header, so they read as sortable before
+ * anything is sorted; on the sorted column a filled arrow with a stem, distinct from the ▲/▼ best/worst marks in the cells.
+ */
+const SORT_GLYPH: Record<SortDir | 'none', string> = {
+  none: 'M4 0 8 5H0zM4 12 0 7h8z',
+  asc: 'M4 0 8 5H5v7H3V5H0z',
+  desc: 'M4 12 0 7h3V0h2v7h3z',
+};
+export const sortGlyph = (dir: SortDir | null): string =>
+  `<span class="si si-${dir ?? 'none'}" aria-hidden="true"><svg viewBox="0 0 8 12" width="7" height="11" focusable="false"><path d="${SORT_GLYPH[dir ?? 'none']}"/></svg></span>`;
+
 function headCell(c: Col, cls: string, sort: SortState | null, span: string): string {
   const on = sort?.key === c.key ? sort.dir : null;
   const aria = on ? ` aria-sort="${on === 'asc' ? 'ascending' : 'descending'}"` : '';
-  // ↑/↓ for the sort, distinct from the ▲/▼ best/worst marks in the cells.
-  const si = `<span class="si" aria-hidden="true">${on === 'asc' ? '↑' : on === 'desc' ? '↓' : ''}</span>`;
-  return `<th class="${cls}" scope="col"${span}${aria}${c.title ? ` title="${esc(c.title)}"` : ''}><button type="button" class="sort" data-sort="${esc(c.key)}">${c.head}${si}</button></th>`;
+  // The sorted button says which way in its name ("SOG kn, sorted descending"); the glyph is decoration.
+  const state = on ? `<span class="vh">, sorted ${on === 'asc' ? 'ascending' : 'descending'}</span>` : '';
+  return `<th class="${cls}" scope="col"${span}${aria}${c.title ? ` title="${esc(c.title)}"` : ''}><button type="button" class="sort" data-sort="${esc(c.key)}">${c.head}${state}${sortGlyph(on)}</button></th>`;
 }
 
 /** The sorted column in words, e.g. "Beat 1 VMG kn ↓". */
