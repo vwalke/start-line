@@ -251,7 +251,7 @@ describe('the chart at the finish: each finisher\'s gap to every other is their 
     return { pairs, lastMed: median(last), lastP90: last[Math.floor(0.9 * (last.length - 1))] };
   }
 
-  it('Cascais R3 (the feed\'s line 158 m from where the fleet finished; 77–384 m on three other fixtures)', () => {
+  it('Cascais R3 (the feed\'s trackers\' race-long median was 158 m from where the fleet finished)', () => {
     const c = checkFinish(cascais3);
     expect(c.pairs).toBeGreaterThan(5000);
     expect(c.lastMed).toBeLessThanOrEqual(1);
@@ -267,13 +267,14 @@ describe('the chart at the finish: each finisher\'s gap to every other is their 
     }
   }, 120_000);
 
-  it('the line the fleet finished on: fitted 4–12 m from the feed\'s where that holds (J/105 R3: 11 m), 158 m from it on Cascais R3', () => {
+  it('the line the fleet finished on: fitted 2–13 m from the feed\'s, now the finish records\' own line (J/105 R3: 13 m; Cascais R3: 6 m and Viper R2: 2 m, 158 m and 190 m off at the trackers\' race-long median)', () => {
     const off = (r: CoachRace): number => {
       const f = gapCourse(r.m).course.finish!;
       const g = r.m.course.finish!;
       return Math.hypot((f.left[0] + f.right[0] - g.left[0] - g.right[0]) / 2, (f.left[1] + f.right[1] - g.left[1] - g.right[1]) / 2);
     };
     expect(off(coachRace(j105Race(3)))).toBeLessThan(15);
-    expect(off(cascais3)).toBeGreaterThan(100);
+    expect(off(cascais3)).toBeLessThan(15);
+    expect(off(coachRace(gateRace('viperr2')))).toBeLessThan(15);
   });
 });

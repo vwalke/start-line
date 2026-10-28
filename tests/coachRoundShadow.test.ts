@@ -128,6 +128,9 @@ describe('D9 mark rounding', () => {
     expect(markType(['upwind', 'downwind', 'upwind', 'downwind'], 0)).toBe('windward');
     expect(markType(['upwind', 'downwind', 'upwind', 'downwind'], 1)).toBe('leeward');
     expect(markType(['upwind', 'reach', 'downwind'], 1)).toBe('offset');
+    // A triangle: windward, the reach mark between the reaches, the leeward mark onto the next beat.
+    const triangle = ['upwind', 'reach', 'reach', 'upwind'] as const;
+    expect([0, 1, 2].map((k) => markType(triangle, k))).toEqual(['windward', 'reach', 'leeward']);
   });
 
   it('times the 100 m zone from the circle crossings and reads the exit 4 lengths down the next leg', () => {

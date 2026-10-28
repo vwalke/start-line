@@ -17,6 +17,7 @@
  * Pages Function (pure; no fetching here).
  */
 import { coverage } from '../../analysis/coverage';
+import { raceFinishes } from '../racesense/adapter';
 import type { RegattaDoc, TelemetryPage } from '../racesense/types';
 
 export const COVER_MIN = 0.5;
@@ -60,7 +61,7 @@ export function raceWindowsFromDoc(doc: RegattaDoc, division: string, extra: Rac
     if (race.isPractice) continue;
     const st = [...(race.starts ?? [])].reverse().find((s) => s.startTime != null);
     if (!st?.startTime) continue;
-    const fins = (race.finishes ?? []).map((f) => Date.parse(f.finishingTime)).filter(Number.isFinite);
+    const fins = raceFinishes(race, div?.races ?? []).map((f) => Date.parse(f.finishingTime)).filter(Number.isFinite);
     const endIso = race.endTime ? Date.parse(race.endTime) : NaN;
     const known = fins.length > 0;
     const end = known ? Math.max(...fins) : Math.min(Number.isFinite(endIso) && endIso > st.startTime ? endIso : Infinity, st.startTime + MAX_RACE_MS);

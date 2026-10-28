@@ -66,8 +66,61 @@ function raceStart(race: Race): Start | null {
   return starts.length ? starts[starts.length - 1] : null;
 }
 
-function finishMs(race: Race): number[] {
-  return (race.finishes ?? []).map((f) => Date.parse(f.finishingTime)).filter(Number.isFinite);
+/** Two finish-line ends this close (m) are the same: a record copied from another race carries that race's line exactly. */
+export const COPIED_LINE_M = 2;
+/**
+ * …and a copy's line is at least this far (m, either end) from the line the race's own records carry: a committee
+ * that re-lays its line between races moves it tens of metres, and a device may keep the old ends (J/88 NAs race 8).
+ */
+export const COPY_OFF_LINE_M = 100;
+
+/** Metres between two [lon, lat] points (equirectangular: line ends, metres apart). */
+function lonLatM(a: [number, number], b: [number, number]): number {
+  const kx = 111_195 * Math.cos(((a[1] + b[1]) / 2) * (Math.PI / 180));
+  return Math.hypot((a[0] - b[0]) * kx, (a[1] - b[1]) * 111_195);
+}
+
+/**
+ * The race's finish records, less any copied over from another race of the division (`races`). A record's
+ * `raceNumber` is the device's own race count: often offset from the regatta's (every J/105 race 2 finish reads 3), 0
+ * when unknown, and a late boat's device can count differently, so a number alone drops nothing. A record is a copy
+ * when its number differs from the one most of the race's records carry, the same sail has a record in another race
+ * with the same line (COPIED_LINE_M, both ends) or the same finish time, and its line is COPY_OFF_LINE_M or more from
+ * the race's own (Star NAs race 4: 8318's record with race 3's number and race 3's line, ~2 km down the course).
+ */
+export function raceFinishes(race: Pick<Race, 'finishes'>, races: readonly Pick<Race, 'finishes'>[] = []): Finish[] {
+  const fins = race.finishes ?? [];
+  const counts = new Map<number, number>();
+  for (const f of fins) if (f.raceNumber) counts.set(f.raceNumber, (counts.get(f.raceNumber) ?? 0) + 1);
+  const known = [...counts.values()].reduce((a, b) => a + b, 0);
+  const [rn, n] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? [0, 0];
+  if (n <= known / 2) return fins;
+  const own = recordsLine(fins.filter((f) => !f.raceNumber || f.raceNumber === rn));
+  const ends = (f: Finish): [[number, number], [number, number]] | null =>
+    f.lineLeftLocation?.coordinates && f.lineRightLocation?.coordinates ? [f.lineLeftLocation.coordinates, f.lineRightLocation.coordinates] : null;
+  const copied = (f: Finish): boolean => {
+    if (!f.raceNumber || f.raceNumber === rn) return false;
+    const e = ends(f);
+    if (!e || !own) return false;
+    const offLine = Math.max(lonLatM(e[0], [own.left.lon, own.left.lat]), lonLatM(e[1], [own.right.lon, own.right.lat])) >= COPY_OFF_LINE_M;
+    if (!offLine) return false;
+    const t = Date.parse(f.finishingTime);
+    return races.some(
+      (r) =>
+        r !== race &&
+        (r.finishes ?? []).some((g) => {
+          if (g.sailNumber !== f.sailNumber) return false;
+          const ge = ends(g);
+          const sameLine = !!ge && lonLatM(ge[0], e[0]) <= COPIED_LINE_M && lonLatM(ge[1], e[1]) <= COPIED_LINE_M;
+          return sameLine || Date.parse(g.finishingTime) === t;
+        }),
+    );
+  };
+  return fins.filter((f) => !copied(f));
+}
+
+function finishMs(race: Race, races: readonly Race[]): number[] {
+  return raceFinishes(race, races).map((f) => Date.parse(f.finishingTime)).filter(Number.isFinite);
 }
 
 /** Every non-practice race with a gun (with `practice`, practice races too), newest first. */
@@ -78,7 +131,7 @@ export function listRaces(doc: RegattaDoc, opts: { practice?: boolean } = {}): R
       if (race.isPractice && !opts.practice) continue;
       const st = raceStart(race);
       if (!st || st.startTime == null) continue;
-      const fins = finishMs(race);
+      const fins = finishMs(race, div.races ?? []);
       const finished = fins.length > 0 && (st.stopReason === 'finished' || !!race.endTime);
       out.push({
         division: div.name,
@@ -132,10 +185,10 @@ export function nextGunMs(doc: RegattaDoc, ref: RaceRef): number | null {
 
 /** Telemetry time window worth fetching for a race: a short pre-start (for trails) to just past the last finish. */
 export function telemetryWindow(doc: RegattaDoc, ref: RaceRef): { after: number; before: number } {
-  const { race } = findRace(doc, ref);
+  const { div, race } = findRace(doc, ref);
   const st = raceStart(race);
   if (!st?.startTime) throw new Error('Race has no start time');
-  const fins = finishMs(race);
+  const fins = finishMs(race, div.races ?? []);
   if (fins.length) return { after: st.startTime - PRE_START_FETCH_MS, before: Math.max(...fins) + 30_000 };
   const next = nextGunMs(doc, ref);
   const end = Math.min(st.startTime + NO_FINISH_WINDOW_MS, next != null ? next - 60_000 : Infinity);
@@ -389,10 +442,10 @@ export function entryResults(div: Division, race: Race, excuse?: FinishExcuse): 
     if (!e) out.set(sail, (e = { racesWithResults: 0, plausibleFinishes: 0, finishPlausible: null }));
     return e;
   };
-  const raced = (div.races ?? []).filter((r) => !r.isPractice && r.finishes?.length);
+  const raced = (div.races ?? []).filter((r) => !r.isPractice && raceFinishes(r, div.races ?? []).length);
   for (const p of div.participants ?? []) get(p.sailNumber);
   for (const r of raced) {
-    const fins = r.finishes;
+    const fins = raceFinishes(r, div.races ?? []);
     const dists = fins.map((f) => num(f.distanceTraveled)).filter((x): x is number => x != null);
     const maxes = fins.map((f) => num(f.maxSpeed)).filter((x): x is number => x != null);
     const medDist = dists.length >= FINISH_MEDIAN_MIN ? median(dists) : null;
@@ -737,6 +790,20 @@ function finishDevices(course: Course | null): { left: string; right: string } |
   return null;
 }
 
+/** The drawn finish line is where its trackers were from this long before the first finish to this long after the last, ms. */
+export const FINISH_LINE_PAD_MS = 60_000;
+
+/** The finish line the race's finish records carry (lineLeftLocation / lineRightLocation), median over them; null with none. */
+export function recordsLine(fins: readonly Finish[]): Line | null {
+  const ends = fins.filter((f) => f.lineLeftLocation?.coordinates && f.lineRightLocation?.coordinates);
+  if (!ends.length) return null;
+  const at = (side: 'lineLeftLocation' | 'lineRightLocation'): LatLon => ({
+    lat: median(ends.map((f) => f[side]!.coordinates[1])),
+    lon: median(ends.map((f) => f[side]!.coordinates[0])),
+  });
+  return { left: at('lineLeftLocation'), right: at('lineRightLocation') };
+}
+
 /** A mark tracker's fixes from the rows. */
 function markSeries(rows: Row[], hex: string): MarkSeries {
   const sn = snFromHex(hex);
@@ -943,7 +1010,7 @@ export function buildRaceData(
   dropSogSpikes(rows);
   // Older feeds (and some fixtures) have no roll / pitch columns at all.
   const imu = pages.some((p) => !!p?.Fields && (p.Fields.includes('roll') || p.Fields.includes('pitch')));
-  const fins = finishMs(race);
+  const fins = finishMs(race, div.races ?? []);
   const tEnd = fins.length ? Math.max(...fins) : gunMs + 90 * 60_000;
 
   // Mark positions: a median over the race, plus a 10 s median track because
@@ -960,6 +1027,18 @@ export function buildRaceData(
   const markPos = (hex: string): LatLon | null => {
     const m = markRows.get(snFromHex(hex));
     return m && m.lat.length ? { lat: median(m.lat), lon: median(m.lon) } : null;
+  };
+  /** A tracker's median position from `a` to `b` (ms), or null with no fix then. */
+  const markPosIn = (hex: string, a: number, b: number): LatLon | null => {
+    const m = markRows.get(snFromHex(hex));
+    const lat: number[] = [];
+    const lon: number[] = [];
+    m?.t.forEach((t, i) => {
+      if (t < a || t > b) return;
+      lat.push(m.lat[i]);
+      lon.push(m.lon[i]);
+    });
+    return lat.length ? { lat: median(lat), lon: median(lon) } : null;
   };
   const markTrack = (hex: string): MarkTrack => {
     const m = markRows.get(snFromHex(hex))!;
@@ -981,14 +1060,23 @@ export function buildRaceData(
   const marks: CourseMark[] = [];
   const untracked: string[] = [];
   let finishLine: Line | null = null;
+  // The finish line is the one the race's finish records carry (RaceSense judged the finishes on it); else where the
+  // finish trackers were at the finishes (often the committee boat and a pin that move up the course mid-race, to
+  // finish at the windward mark); only with neither the trackers' race-long median. Over the cached races the
+  // records' line is never further from where the finishers were than the trackers' (Viper NAs race 2: 4 m against
+  // 138 m, its trackers left at the start while the fleet finished at the gate).
+  const recLine = recordsLine(raceFinishes(race, div.races ?? []));
   for (const a of course?.achievements ?? []) {
     if (a.type === 'startLine') continue;
     if (a.type === 'finishLine') {
       const l = a.deviceRoles.find((d) => /left/i.test(d.role));
       const r = a.deviceRoles.find((d) => /right/i.test(d.role));
-      const lp = l && markPos(l.sn);
-      const rp = r && markPos(r.sn);
-      if (lp && rp) finishLine = { left: lp, right: rp };
+      const [f0, f1] = fins.length ? [Math.min(...fins) - FINISH_LINE_PAD_MS, Math.max(...fins) + FINISH_LINE_PAD_MS] : [NaN, NaN];
+      const lp = l && (fins.length ? markPosIn(l.sn, f0, f1) : markPos(l.sn));
+      const rp = r && (fins.length ? markPosIn(r.sn, f0, f1) : markPos(r.sn));
+      if (recLine) finishLine = recLine;
+      else if (lp && rp) finishLine = { left: lp, right: rp };
+      else if (l && r && markPos(l.sn) && markPos(r.sn)) finishLine = { left: markPos(l.sn)!, right: markPos(r.sn)! };
       continue;
     }
     const devices = a.deviceRoles.filter((d) => markPos(d.sn) !== null);
@@ -1004,11 +1092,7 @@ export function buildRaceData(
       tracks: devices.map((d) => markTrack(d.sn)),
     });
   }
-  if (!finishLine && race.finishes?.[0]?.lineLeftLocation && race.finishes[0].lineRightLocation) {
-    const [llon, llat] = race.finishes[0].lineLeftLocation.coordinates;
-    const [rlon, rlat] = race.finishes[0].lineRightLocation.coordinates;
-    finishLine = { left: { lat: llat, lon: llon }, right: { lat: rlat, lon: rlon } };
-  }
+  if (!finishLine && recLine) finishLine = recLine;
 
   // Boats: telemetry competitor rows keyed by sail number, falling back to device serial.
   const bySail = new Map<string, Map<number, Row[]>>();
@@ -1026,7 +1110,7 @@ export function buildRaceData(
     l.push(r);
   }
   const stats = new Map((st.startingStats ?? []).map((s) => [s.sailNumber, s]));
-  const finishes = new Map((race.finishes ?? []).map((f) => [f.sailNumber, f]));
+  const finishes = new Map(raceFinishes(race, div.races ?? []).map((f) => [f.sailNumber, f]));
   const ocs = new Set((st.ocsParticipants ?? []).filter((s) => !(st.clearedOcs ?? []).includes(s)));
   const defaultBowCm = div.offsetOverrideCm ?? 0;
   const live = new Map<string, Row[] | undefined>();

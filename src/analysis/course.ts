@@ -126,6 +126,8 @@ export interface FleetTurns {
   confident: boolean;
   /** Why the geometry wasn't used, when it isn't confident. */
   reason: string | null;
+  /** Legs back down the axis that bend at a mark the turns can't place (BENT_SWING), by leg index. */
+  bent: number[];
   /** Consensus turn k: type, median position and median time over the agreeing boats. */
   turns: { type: TurnType; xy: Vec; tMs: number }[];
   /** Per boat [gun, t1, …, tN, finish], null once a turn is missed (as splitLegs). */
@@ -273,6 +275,7 @@ export function fleetTurns(boats: FleetBoat[], gunMs: number, axisHint?: Vec): F
     finishers: 0,
     confident: false,
     reason,
+    bent: [],
     turns: [],
     times: new Map(),
   });
@@ -315,13 +318,14 @@ export function fleetTurns(boats: FleetBoat[], gunMs: number, axisHint?: Vec): F
   }));
 
   let reason: string | null = null;
+  const bent: number[] = [];
   if (!pattern) reason = 'the fleet sailed no turns along the course axis';
   else if (agreeing < Math.min(3, fin.length) || agreeing < 0.5 * fin.length) reason = 'the fleet’s tracks don’t agree on the turns';
   else {
     // A reach (e.g. to a wing mark) is no extreme along the axis: it hides inside
     // a leg back down the axis as a swing out to the same side by every boat.
     // Beats and runs spread to both sides, and a one-sided gybe stays under ~0.35.
-    for (let k = 0; k <= pattern.length && !reason; k++) {
+    for (let k = 0; k <= pattern.length; k++) {
       if (k % 2 === 0) continue;
       const offs = match
         .map((p) => {
@@ -333,7 +337,10 @@ export function fleetTurns(boats: FleetBoat[], gunMs: number, axisHint?: Vec): F
       if (offs.length < 3) continue;
       const m = median(offs);
       const sameSide = offs.filter((d) => Math.sign(d) === Math.sign(m)).length / offs.length;
-      if (Math.abs(m) >= BENT_SWING && sameSide >= 0.75) reason = `leg ${k + 1} bends at a mark the tracks can’t place`;
+      if (Math.abs(m) >= BENT_SWING && sameSide >= 0.75) {
+        bent.push(k);
+        reason ??= `leg ${k + 1} bends at a mark the tracks can’t place`;
+      }
     }
   }
 
@@ -369,7 +376,7 @@ export function fleetTurns(boats: FleetBoat[], gunMs: number, axisHint?: Vec): F
   }
   for (const b of boats) if (!times.has(b.id)) times.set(b.id, [gunMs, ...turns.map(() => null), null]);
 
-  return { axis, pattern, patterns: counts, agreeing, finishers: fin.length, confident: !reason, reason, turns, times };
+  return { axis, pattern, patterns: counts, agreeing, finishers: fin.length, confident: !reason, reason, bent, turns, times };
 }
 
 /** Do the mark-based legs match the geometry: same count, and every boundary within `tolMs` for ≥ 60% of finishers? */
@@ -436,6 +443,144 @@ export function snapTurns(
     });
   }
   return snapped;
+}
+
+/** A listed mark inside a bent leg is rounded by a boat that comes this close to it (m)… */
+export const BENT_MARK_NEAR_M = 90;
+/** …and is the course's when this share of the finishers with that leg do… */
+export const BENT_MARK_SHARE = 0.75;
+/** …and it sits this far (× the leg's length) off the straight line between the leg's ends: it explains the bend. */
+export const BENT_MARK_OFF = 0.3;
+
+/** The fleet's turns with the listed marks hidden inside its bent legs put back in (insertBentMarks). */
+export interface MergedTurns {
+  /** Per rounding, in order: where (and when, median) the fleet rounded it; `type` places it on the axis. */
+  turns: FleetTurns['turns'];
+  /** Per rounding, the listed mark; null for a turn no listed mark explains (placed from the tracks, est.). */
+  marks: (Waypoint | null)[];
+  /** Per boat [gun, r1, …, rN, finish] (a rounding a boat missed is null). */
+  times: Map<string, (number | null)[]>;
+  /** Per rounding, whether it is a listed mark put back inside a bent leg. */
+  inserted: boolean[];
+}
+
+/**
+ * A triangle course (or any course with a reach to a wing mark): the fleet's turns along the axis find the
+ * windward and leeward roundings, every lap, but a leg back down the axis that bends (`fleet.bent`) hides a
+ * listed mark the zigzag can't see. Snap the turns to the listed marks (snapTurns), then put back, inside
+ * each bent leg, every listed single buoy (no gate or offset) BENT_MARK_SHARE of the finishers came within
+ * BENT_MARK_NEAR_M of (timed at each boat's closest approach) that sits BENT_MARK_OFF off the leg's straight
+ * line, between its ends, in the order they were reached. A turn no listed mark explains (an untracked
+ * leeward mark) stays where the fleet turned. Null when a bent leg has no such mark (the bend stays
+ * unexplained) or a listed mark goes unrounded; analyze.ts also drops the merge when its legs don't make a
+ * course (a mark twice running, a Beat after a Beat, a mark put back with no reach beside it).
+ */
+export function insertBentMarks(fleet: FleetTurns, tracks: Map<string, XYTrack>, marks: Waypoint[], finisherIds: string[]): MergedTurns | null {
+  if (!fleet.bent.length || !finisherIds.length) return null;
+  const copy: FleetTurns = { ...fleet, times: new Map([...fleet.times].map(([id, tt]) => [id, [...tt]])) };
+  const snapped = snapTurns(copy, tracks, marks);
+  const nT = fleet.turns.length;
+  const closest = (tr: XYTrack, wp: Waypoint, a: number, e: number): { t: number; d: number } | null => {
+    const tg = targetsOf(wp);
+    let best: { t: number; d: number } | null = null;
+    for (let i = 0; i < tr.t.length; i++) {
+      if (tr.t[i] <= a || tr.t[i] >= e) continue;
+      const d = distTo(tr, i, tg);
+      if (!best || d < best.d) best = { t: tr.t[i], d };
+    }
+    return best;
+  };
+  const centre = (wp: Waypoint, t: number): Vec => {
+    const ps = wp.at ? wp.at(t) : wp.xy;
+    return [ps.reduce((s, p) => s + p[0], 0) / ps.length, ps.reduce((s, p) => s + p[1], 0) / ps.length];
+  };
+  /** The finishers' median position at their own boundary `j` (the gun, a turn, the finish), or null. */
+  const endAt = (j: number): Vec | null => {
+    const ps: Vec[] = [];
+    for (const id of finisherIds) {
+      const tr = tracks.get(id);
+      const t = copy.times.get(id)?.[j];
+      if (tr && t != null && tr.t.length > 1) ps.push([interp(tr.t, tr.x, t), interp(tr.t, tr.y, t)]);
+    }
+    return ps.length ? [median(ps.map((p) => p[0])), median(ps.map((p) => p[1]))] : null;
+  };
+  /** Per bent leg k (turn k − 1, or the gun, to turn k, or the finish): the marks inserted, in order, each boat's time at it. */
+  const inserts = new Map<number, { wp: Waypoint; tMs: number; at: Map<string, number | null> }[]>();
+  for (const k of fleet.bent) {
+    const ends = new Set([snapped[k - 1]?.key, snapped[k]?.key]);
+    const [p0, p1] = [endAt(k), endAt(k + 1)];
+    if (!p0 || !p1) return null;
+    const chord = sub(p1, p0);
+    const L = len(chord);
+    if (L < 50) return null;
+    const found: { wp: Waypoint; tMs: number; at: Map<string, number | null> }[] = [];
+    for (const wp of marks) {
+      // A wing mark: one buoy (a gate or an offset is no reach mark), not the leg's own ends.
+      if (wp.xy.length !== 1 || isOffset(wp) || ends.has(wp.key) || found.some((f) => f.wp.key === wp.key)) continue;
+      const at = new Map<string, number | null>();
+      const hits: number[] = [];
+      let sailed = 0;
+      for (const [id, tt] of copy.times) {
+        const tr = tracks.get(id);
+        const a = tt[k];
+        const e = tt[k + 1];
+        if (!tr || a == null || e == null) continue;
+        const c = closest(tr, wp, a, e);
+        const ok = c != null && c.d <= BENT_MARK_NEAR_M;
+        at.set(id, ok ? c.t : null);
+        if (!finisherIds.includes(id)) continue;
+        sailed++;
+        if (ok) hits.push(c.t);
+      }
+      if (!sailed || hits.length < BENT_MARK_SHARE * sailed) continue;
+      const tMs = median(hits);
+      // It explains the bend: well off the straight line between the leg's ends, and between them along it.
+      const m = sub(centre(wp, tMs), p0);
+      const across = Math.abs(chord[0] * m[1] - chord[1] * m[0]) / L / L;
+      const along = dot(m, chord) / L / L;
+      if (across >= BENT_MARK_OFF && along > 0.1 && along < 0.9) found.push({ wp, tMs, at });
+    }
+    if (!found.length) return null;
+    inserts.set(k, found.sort((x, y) => x.tMs - y.tMs));
+  }
+  // Where a listed mark sits along the axis, between the course's top and bottom turns.
+  const along = (xy: Vec): number => dot(xy, fleet.axis);
+  const tops = fleet.turns.filter((t) => t.type === 'T').map((t) => along(t.xy));
+  const bottoms = fleet.turns.filter((t) => t.type === 'B').map((t) => along(t.xy));
+  const mid = tops.length && bottoms.length ? (median(tops) + median(bottoms)) / 2 : 0;
+  const turns: FleetTurns['turns'] = [];
+  const out: (Waypoint | null)[] = [];
+  const inserted: boolean[] = [];
+  const times = new Map<string, (number | null)[]>();
+  for (const id of copy.times.keys()) times.set(id, [copy.times.get(id)![0]]);
+  const push = (turn: FleetTurns['turns'][number], wp: Waypoint | null, timeOf: (id: string) => number | null, put = false): void => {
+    turns.push(turn);
+    out.push(wp);
+    inserted.push(put);
+    for (const [id, tt] of times) tt.push(timeOf(id));
+  };
+  for (let k = 0; k <= nT; k++) {
+    for (const f of inserts.get(k) ?? []) {
+      const xy = centre(f.wp, f.tMs);
+      push({ type: along(xy) >= mid ? 'T' : 'B', xy, tMs: f.tMs }, f.wp, (id) => f.at.get(id) ?? null, true);
+    }
+    if (k < nT) push(fleet.turns[k], snapped[k], (id) => copy.times.get(id)![k + 1]);
+  }
+  // Strong evidence only: the course the merge reads rounds every listed mark (an estimated turn where a listed mark
+  // goes unused is a layline tack or a misread lap).
+  const used = new Set(out.map((w) => w?.key));
+  if (marks.some((w) => !isOffset(w) && !used.has(w.key))) return null;
+  for (const [id, tt] of times) {
+    // Each boat's finish, once its roundings are in order.
+    const fin = copy.times.get(id)![nT + 1];
+    let prev = -Infinity;
+    for (let i = 1; i < tt.length; i++) {
+      if (tt[i] != null && tt[i]! <= prev) tt[i] = null;
+      if (tt[i] != null) prev = tt[i]!;
+    }
+    tt.push(fin != null && fin > prev ? fin : null);
+  }
+  return { turns, marks: out, times, inserted };
 }
 
 /** Leg mean course: circular median over boats of their displacement bearing, leg start → end. */

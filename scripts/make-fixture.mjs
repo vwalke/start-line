@@ -32,6 +32,9 @@
 //   fallbrawl-j70r1, fallbrawl-j70r3, fallbrawl-j105r3: 2026 Fall Brawl (Annapolis), J/70 races 1 and 3, J/105 race 3: no
 //        finish line in the feed (see `fallbrawl` below) → tests/fixtures/fallbrawl_j70_r1.json, fallbrawl_j70_r3.json,
 //        fallbrawl_j105_r3.json, and each race's trimmed Yachtscoring report → tests/fixtures/fallbrawl_ys_<class>_r<n>.json.
+//   star-r4: 2026 Star North Americans race 4, two Olympic triangles and a beat to a finish near the windward mark (the
+//        committee boat and finish pin move up from the start mid-race; one finish record is race 3's), every boat
+//        → tests/fixtures/star_r4.json (see `star-r4` below).
 // m24 and j88 read the survey downloads (regatta_<event>.json, tele_<event>_<div>_<race>.json
 // as an array of telemetry pages, wind_<event>_<YYYY-MM-DD>.json), e.g. from /workspace/legsplit-data.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -292,6 +295,30 @@ const fallbrawl = (cls, race, className) => ({
 PRESETS['fallbrawl-j70r1'] = fallbrawl('J70', 1, 'J/70');
 PRESETS['fallbrawl-j70r3'] = fallbrawl('J70', 3, 'J/70');
 PRESETS['fallbrawl-j105r3'] = fallbrawl('J105', 3, 'J/105 - Overall');
+
+// 2026 Star North Americans race 4 (the triangle course's legs, its reach mark and the finish line drawn where the finish
+// trackers were at the finishes). Reads the Star downloads (regatta.json; tel_star_r4.json, the race's two telemetry
+// pages), e.g. /workspace/recall/star-r4. Every boat every 3 s (1 s within ±60 s of the gun), course marks every 20 s
+// (the reach mark sends a fix about once a minute); no IMU; boat names dropped; races 3 and 4 of the regatta.
+PRESETS['star-r4'] = {
+  event: 'nT2Hl0Hd7FIpfjfpIbQ0',
+  division: 'Star',
+  race: 4,
+  regatta: 'regatta.json',
+  tele: 'tel_star_r4.json',
+  out: 'tests/fixtures/star_r4.json',
+  note: 'Trimmed from public RaceSense data: 2026 Star North Americans, race 4 (every boat every 3 s, 1 s within ±60 s of the gun; course marks only; no IMU; no boat names; regatta races 3 and 4 only: race 3 holds the record race 4 copied). See scripts/make-fixture.mjs --preset star-r4.',
+  event_: (doc) => ({ classLabel: 'Star', startMs: doc.startDate, endMs: doc.endDate }),
+  // Race 3 too: 8318's race 4 finish record is a copy of its race 3 one (adapter.ts raceFinishes).
+  races: [3, 4],
+  step: 3_000,
+  nearStep: 1_000,
+  courseMarksOnly: true,
+  drop: ['division', 'start_number', 'race_stage', 'status', 'roll', 'pitch'],
+  round: true,
+  dp: { heading: 0, sog: 1 },
+  noNames: true,
+};
 
 const args = process.argv.slice(2);
 const pi = args.indexOf('--preset');

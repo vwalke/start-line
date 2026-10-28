@@ -477,7 +477,7 @@ function notesOf(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null): stri
           ? 'Places: the tracks’ finish-line crossings (~).'
           : 'Places: the tracked finish order (no official results linked).',
   );
-  for (const n of a.notes) if (n.kind === 'legs-fleet' || n.kind === 'wind-assumed' || n.kind === 'marks-moved' || n.kind === 'shortened') out.push(n.text);
+  for (const n of a.notes) if (n.kind === 'legs-fleet' || n.kind === 'marks-est' || n.kind === 'wind-assumed' || n.kind === 'marks-moved' || n.kind === 'shortened') out.push(n.text);
   if (b.headingSource === 'cog') out.push('This boat’s compass disagrees with its track: angles use its course over ground.');
   return out;
 }

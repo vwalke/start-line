@@ -82,7 +82,7 @@ export function detectLastLeg(ctx: CoachCtx): Opportunity | null {
   const refTracks = refs.map((r) => ctx.m.tracks.get(r.id)).filter((x): x is CoachTrack => !!x);
   return {
     kind: 'D10',
-    variant: ctx.a.legs[last].kind === 'upwind' ? 'beat' : 'run',
+    variant: ctx.a.legs[last].kind === 'upwind' ? 'beat' : ctx.a.legs[last].kind === 'reach' ? 'reach' : 'run',
     t0,
     t1,
     seconds,

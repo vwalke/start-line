@@ -129,12 +129,12 @@ export interface PlacesRead {
 
 export type MarkType = 'windward' | 'leeward' | 'offset' | 'reach';
 
-/** What kind of mark ends leg `k`: by the legs into and out of it. */
+/** What kind of mark ends leg `k`: by the legs into and out of it (a triangle's reach onto a beat rounds a leeward mark). */
 export function markType(kinds: readonly LegKind[], k: number): MarkType {
   const into = kinds[k];
   const out = kinds[k + 1];
   if (into === 'upwind') return 'windward';
-  if (into === 'downwind') return 'leeward';
+  if (into === 'downwind' || out === 'upwind') return 'leeward';
   return out === 'downwind' ? 'offset' : 'reach';
 }
 
