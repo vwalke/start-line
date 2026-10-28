@@ -62,6 +62,14 @@ export const c31r4Race = (f: Fixture = c31r4Fixture()): RaceData => trimmedRace(
 /** Melges 24 Worlds race 4: only the Gate is tracked (the start boats, which motor up to lay it); 12 boats incl. the winner 870, plus coaches 03/07/10, SPARE 1 and 619. */
 export const m24Race = (): RaceData => trimmedRace('./fixtures/m24_r4.json', 'M24', 4);
 
+/**
+ * 2026 Star North Americans race 4: two Olympic triangles (the leeward mark untracked, the reach mark listed as
+ * "Leeward port") and a beat to a finish near the windward mark, whose committee boat and pin move up from the start
+ * mid-race; one finish record is race 3's. Every boat (scripts/make-fixture.mjs --preset star-r4).
+ */
+export const starFixture = (): Fixture => JSON.parse(readFileSync(here('./fixtures/star_r4.json'), 'utf8')) as Fixture;
+export const starRace = (f: Fixture = starFixture()): RaceData => trimmedRace('./fixtures/star_r4.json', 'Star', 4, f);
+
 /** J/88 North Americans race 5: no mark trackers at all; 8 boats. */
 export const j88Race = (): RaceData => trimmedRace('./fixtures/j88_r5.json', 'J88', 5);
 

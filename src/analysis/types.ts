@@ -351,6 +351,7 @@ export type RaceNote =
   | { kind: 'dtl-off'; text: string; medianM: number }
   | { kind: 'not-racing'; text: string; n: number }
   | { kind: 'finish-est'; text: string }
+  | { kind: 'marks-est'; text: string; est: string[] }
   | { kind: 'finish-unranked'; text: string; boat: string; why: string };
 
 export interface RaceAnalysis {
@@ -373,8 +374,11 @@ export interface RaceAnalysis {
   finishLine: { left: Vec; right: Vec } | null;
   /** The finish line is placed from the tracks (RaceData.finishLineEstimated): left the committee boat. */
   finishLineEstimated?: boolean;
-  /** Marks as rounded; `estimated` ones are turns placed from the fleet's tracks where no tracker was. */
-  marks: { name: string; xy: Vec[]; estimated?: boolean }[];
+  /**
+   * Marks as rounded; `estimated` ones are turns placed from the fleet's tracks where no tracker was. `title` is the
+   * feed's own name for a mark whose `name` is its role from the legs ("Reach mark" for a feed's "Leeward port").
+   */
+  marks: { name: string; xy: Vec[]; estimated?: boolean; title?: string }[];
   legs: LegDef[];
   /**
    * Where each leg starts and ends, in order: the start line's middle, each turn (as the legs

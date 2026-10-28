@@ -280,7 +280,9 @@ export function cardText(c: Card, tz = 0): CardText {
           : `${f.a} pulled ${r0(f.da)} s${b} further ahead over the last ${r0(f.mins)} tracked minutes.`;
       return c.variant === 'beat'
         ? { title: 'Last beat, lost to the boats ahead', chips, sentence, tip: 'Sail the lifted tack and stay between the boats just ahead and the finish.' }
-        : { title: 'Last run, short of pressure', chips, sentence, tip: 'Keep someone calling pressure and gybe into the puffs.' };
+        : c.variant === 'reach'
+          ? { title: 'Last reach, lost to the boats ahead', chips, sentence, tip: 'Sail the fastest angle to the finish and defend your lane early.' }
+          : { title: 'Last run, short of pressure', chips, sentence, tip: 'Keep someone calling pressure and gybe into the puffs.' };
     }
     case 'D11':
       return heelText(c.variant, f);

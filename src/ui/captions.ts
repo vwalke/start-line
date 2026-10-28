@@ -70,6 +70,8 @@ function noteKey(n: RaceNote): KeyLine {
       return { chips: [{ text: `${n.n} not racing`, title: t }], bullets: ['Not racing: coach or spare trackers, listed under the boat list.'] };
     case 'finish-est':
       return { chips: [warnChip('finish line est.', t)], bullets: ['Finish line placed off the committee boat from the tracks (est.).'] };
+    case 'marks-est':
+      return { chips: n.est.map((m) => ({ text: `${m} est.`, title: t })), bullets: [`${cap(listOf(n.est))} not in the feed's course: placed where the fleet turned (est.).`] };
     case 'finish-unranked':
       return { chips: [warnChip(`${n.boat} finish not ranked`, t)], bullets: [`${n.boat}'s finish isn't ranked: ${n.why}.`] };
   }

@@ -912,7 +912,9 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
       // Turns placed from the tracks (no tracker): hollow, dashed, labelled "(est.)".
       const cls = m.estimated ? 'mark est' : 'mark';
       const dash = m.estimated ? ` stroke-dasharray="${(3 * k).toFixed(2)} ${(2 * k).toFixed(2)}"` : '';
-      const c = ps.map((p) => `<circle class="${cls}" cx="${p[0]}" cy="${p[1]}" r="${5.5 * unit}" stroke-width="${1.5 * k}"${dash}/>`).join('');
+      // A mark shown by its role ("Reach mark") keeps the feed's own name as its tooltip.
+      const tip = m.title ? `<title>${esc(m.title)}</title>` : '';
+      const c = ps.map((p) => `<circle class="${cls}" cx="${p[0]}" cy="${p[1]}" r="${5.5 * unit}" stroke-width="${1.5 * k}"${dash}${tip ? `>${tip}</circle>` : '/>'}`).join('');
       const top = ps.reduce((x, y) => (y[0] > x[0] ? y : x));
       const name = m.estimated ? `${m.name.replace(/ mark$/i, '')} (est.)` : m.name;
       const at: Vec = [top[0] + 9 * unit, top[1] + 4 * unit];
@@ -920,7 +922,7 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
       const r: Rect = { x0: at[0] - labelPad, y0: at[1] - fs - labelPad, x1: at[0] + textWidth(name, fs) + labelPad, y1: at[1] + labelPad };
       if (labelBoxes.some((q) => r.x0 < q.x1 && q.x0 < r.x1 && r.y0 < q.y1 && q.y0 < r.y1)) return c;
       labelBoxes.push(r);
-      return `${c}<text x="${at[0]}" y="${at[1]}" font-size="${12 * k}" class="lbl${m.estimated ? ' est' : ''}">${esc(name)}</text>`;
+      return `${c}<text x="${at[0]}" y="${at[1]}" font-size="${12 * k}" class="lbl${m.estimated ? ' est' : ''}">${tip}${esc(name)}</text>`;
     })
     .join('');
   const fl = a.finishLine;
@@ -929,10 +931,15 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
     fl && (a.finishLineEstimated || Math.hypot(fl.left[0] - a.line.left[0], fl.left[1] - a.line.left[1]) + Math.hypot(fl.right[0] - a.line.right[0], fl.right[1] - a.line.right[1]) > 20)
       ? (() => {
           const [p, q] = [rot(fl.left), rot(fl.right)];
-          if (!a.finishLineEstimated) return `<line class="finishline" x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}" stroke-width="${2 * k}"/>`;
-          const dash = ` stroke-dasharray="${(3 * k).toFixed(2)} ${(2 * k).toFixed(2)}"`;
           const right = q[0] >= p[0];
           const at: Vec = [q[0] + (right ? 6 : -6) * unit, q[1] + 4 * unit];
+          if (!a.finishLineEstimated) {
+            return (
+              `<line class="finishline" x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}" stroke-width="${2 * k}"/>` +
+              `<text x="${at[0]}" y="${at[1]}" font-size="${12 * k}" class="lbl" text-anchor="${right ? 'start' : 'end'}">Finish</text>`
+            );
+          }
+          const dash = ` stroke-dasharray="${(3 * k).toFixed(2)} ${(2 * k).toFixed(2)}"`;
           return (
             `<line class="finishline est" x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}" stroke-width="${1.5 * k}"${dash}/>` +
             `<text x="${at[0]}" y="${at[1]}" font-size="${12 * k}" class="lbl est" text-anchor="${right ? 'start' : 'end'}">Finish (est.)</text>`

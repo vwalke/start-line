@@ -15,8 +15,8 @@
  * - The finish is anchored to the finish times. The last leg is measured to the line the finishers crossed:
  *   fitted through where they were at their finish times (finishLine), else the feed's; extended past its
  *   ends, so a boat level with it is there (the run's layline, ladder.ts rung, to the nearest end reads it
- *   100 m or more short). The feed's line can be elsewhere: on J/70 Worlds race 3 the boats crossed it
- *   14–29 s before their finish times, most of them past its left end. And the finish is a zone, like a
+ *   100 m or more short). The feed's line (its finish records' own, adapter.ts) can still be a few metres off;
+ *   the finish trackers' race-long median was 158–190 m off on J/70 Worlds race 3 and Viper race 2. And the finish is a zone, like a
  *   rounding: a boat with a finish time makes no records in the last FINISH_IN_M of the course; it crosses
  *   it linearly in time, from when it got FINISH_IN_M from the line to its finish time, where its progress
  *   is the course's length. So at the chosen boat's finish its gap to each finisher is the difference of
@@ -180,8 +180,8 @@ function fitLine(ps: Vec[]): { c: Vec; u: Vec } {
  * The finish line the chart measures the last leg to: the line through where the finishers were at their finish times
  * (tracks' last bound), fitted when at least FINISH_FIT_MIN of them lie on one (FINISH_FIT_SHARE within FINISH_FIT_OUT_M,
  * FINISH_FIT_SPREAD_M along it); else the feed's. The feed's line can be elsewhere: on the fixtures the finishers lie on a
- * line within ~1–4 m rms, 4–12 m from the feed's where it holds (J/105, J/24, Benelux), 77–384 m from it on J/70 Worlds
- * races 2 and 3, Melges 24 race 5 and Viper race 2.
+ * line within ~1–4 m rms, 2–13 m from the feed's (its finish records' own line: J/105, J/24, Benelux, J/70 Worlds
+ * races 2 and 3, Melges 24 race 5, Viper race 2; at the finish trackers' race-long median the last four were 77–384 m off).
  */
 export function finishLine(c: Course, tracks: Iterable<CoachTrack>): Course['finish'] {
   const n = c.kinds.length;

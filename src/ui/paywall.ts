@@ -45,7 +45,7 @@ import { createTurnstile, type Turnstile } from './turnstile';
 import { dateRangeText } from '../data/upcoming';
 import type { Alerts, RaceAlert } from './notify';
 import type { ListedRace } from '../data/raceList';
-import { findRace, tzOffsetMs, type RaceListItem } from '../data/racesense/adapter';
+import { findRace, raceFinishes, tzOffsetMs, type RaceListItem } from '../data/racesense/adapter';
 import type { RegattaDoc } from '../data/racesense/types';
 import { pickRace } from './lastView';
 import { duration, esc, gunTimeLine } from './format';
@@ -143,7 +143,7 @@ export function lockView(doc: RegattaDoc, o: { division: string; raceNumber: num
   const gun = race.starts?.filter((s) => s.startTime != null).at(-1)?.startTime ?? o.listed?.gunMs ?? null;
   const names = new Map((div.participants ?? []).map((p) => [p.sailNumber, p.boatName ?? '']));
   const seen = new Set<string>();
-  const results = (race.finishes ?? [])
+  const results = raceFinishes(race, div.races ?? [])
     .map((f) => ({ f, t: Date.parse(f.finishingTime) }))
     .filter(({ f, t }) => Number.isFinite(t) && !seen.has(f.sailNumber) && seen.add(f.sailNumber))
     .sort((a, b) => a.t - b.t)

@@ -3,7 +3,8 @@
  * Python prototype (analyze.py): local ENU projection, bow-corrected DTL,
  * secs late from velocity toward the line, legs split at mark approaches
  * (or, when the trackers are missing or out of order, where the fleet turned
- * at the top and bottom of the course: course.ts), TWD from steady upwind
+ * at the top and bottom of the course: course.ts, with a triangle's reach
+ * marks put back in each lap: insertBentMarks), TWD from steady upwind
  * tack headings, VMG from displacement along the wind.
  */
 import type { Boat, RaceData } from '../data/types';
@@ -26,7 +27,7 @@ import {
   wrap180,
   type Vec,
 } from './geo';
-import { fleetTurns, isOffset, legCourse, legsAgree, snapTurns } from './course';
+import { fleetTurns, insertBentMarks, isOffset, legCourse, legsAgree, snapTurns } from './course';
 import { checkBounds, dropImpossibleLegs, inferRoundings, legMedians, splitLegs, targetsOf, type Targets, type Waypoint } from './legs';
 import { SQUARE_LINE_M, awayFromLineThresholdM } from './line';
 import { heelAt, heelSeries, heelStats } from './heel';
@@ -121,13 +122,49 @@ export function addDrawnMark(out: RaceAnalysis['marks'], m: RaceAnalysis['marks'
   if (opts.replaceEstimate && hit.estimated && !m.estimated) {
     hit.name = m.name;
     hit.xy = m.xy;
+    if (m.title) hit.title = m.title;
     delete hit.estimated;
   }
+}
+
+/** A mark's role on the course, from the legs into and out of it. */
+export type MarkRole = 'windward' | 'leeward' | 'reach';
+
+/** What the legs into and out of a mark make it: null when they don't make it clear (a gybe mark between a reach and a run). */
+export function markRole(into: LegKind, out: LegKind): MarkRole | null {
+  if (into === 'upwind' && out !== 'upwind') return 'windward';
+  if (into !== 'upwind' && out === 'upwind') return 'leeward';
+  if (into === 'reach' && out === 'reach') return 'reach';
+  return null;
+}
+
+/** The role a feed's mark title names, if any ("Windward", "Leeward port", "Wing"). */
+export function titleRole(title: string): MarkRole | null {
+  if (/windward|weather|\btop\b/i.test(title)) return 'windward';
+  if (/leeward|bottom/i.test(title)) return 'leeward';
+  if (/reach|wing|gybe|jibe/i.test(title)) return 'reach';
+  return null;
+}
+
+const ROLE_NAME: Record<MarkRole, string> = { windward: 'Windward mark', leeward: 'Leeward mark', reach: 'Reach mark' };
+
+/**
+ * The name to show for a listed mark rounded with these roles (one per rounding): its role ("Reach mark") when every
+ * rounding gives the same one and the feed's title names another role ("Leeward port" rounded between two reaches);
+ * else the title: a code ("M2", "BG") says nothing the legs contradict.
+ */
+export function markLabel(title: string, roles: (MarkRole | null)[]): string {
+  const role = roles.length && roles.every((r) => r === roles[0]) ? roles[0] : null;
+  if (!role) return title;
+  const named = titleRole(title);
+  return named && named !== role ? ROLE_NAME[role] : title;
 }
 
 export interface AnalyzeOptions {
   /** Treat every boat as a competitor (`nc=all`): no participation filtering. */
   allCompetitors?: boolean;
+  /** Leave a triangle's reach marks out (insertBentMarks): the analysis falls back to this when those legs don't hold together. */
+  noBentMarks?: boolean;
 }
 
 const tagOf = (b: Boat): string => (b.name && b.name !== `#${b.sail}` ? `#${b.sail} (${b.name})` : `#${b.sail}`);
@@ -257,7 +294,15 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   const marksAgree = wps.length > 0 && legsAgree(times, fleet.times, finishers.map((b) => b.id));
   /** Per consensus turn, the mark tracker it was snapped to; null when the mark legs are used. */
   let turnMarks: (Waypoint | null)[] | null = null;
-  if (fleet.confident && !marksAgree) {
+  // A course with reaches (a triangle): the fleet's turns, every lap, with the listed marks its bent legs hide put back.
+  const merged = !opts.noBentMarks && !fleet.confident && !marksAgree ? insertBentMarks(fleet, tracks, courseWps, finishers.map((b) => b.id)) : null;
+  if (merged) {
+    fleet = { ...fleet, turns: merged.turns, times: merged.times };
+    turnMarks = merged.marks;
+    times = merged.times;
+    wps = [];
+    legSource = 'course';
+  } else if (fleet.confident && !marksAgree) {
     turnMarks = snapTurns(fleet, tracks, courseWps);
     times = fleet.times;
     wps = [];
@@ -390,10 +435,17 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   const kinds = courses.map((_, li) => kindAt(li, twdAt(legSteady[li].mid ?? gun)));
   // Unnamed turns: the top of the axis is windward when it points into the wind.
   const topIsWindward = dot(fleet.axis, bearingVec(twdGun)) >= 0;
+  // A listed single mark is shown by its role when the legs into and out of every rounding of it make that clear
+  // and the feed's title says otherwise (markLabel): a triangle's wing mark listed as "Leeward port" is the Reach mark.
+  const roundedWps = Array.from({ length: nLegs - 1 }, (_, k) => (turnMarks ? turnMarks[k] : wps[k]));
+  const roles = new Map<string, (MarkRole | null)[]>();
+  roundedWps.forEach((wp, k) => {
+    if (wp && wp.xy.length === 1 && !isOffset(wp)) roles.set(wp.key, [...(roles.get(wp.key) ?? []), markRole(kinds[k], kinds[k + 1])]);
+  });
+  const labelOf = (wp: Waypoint): string => (roles.has(wp.key) ? markLabel(wp.name, roles.get(wp.key)!) : wp.name);
   const turnName = (k: number): string => {
-    if (!turnMarks) return wps[k].name;
-    const wp = turnMarks[k];
-    if (wp) return wp.name;
+    const wp = roundedWps[k];
+    if (wp) return labelOf(wp);
     return (fleet.turns[k].type === 'T') === topIsWindward ? 'Windward mark' : 'Leeward mark';
   };
   const counters: Record<LegKind, number> = { upwind: 0, downwind: 0, reach: 0 };
@@ -403,7 +455,25 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     name: `${KIND_NAME[k]} ${++counters[k]}`,
     to: i < nLegs - 1 ? turnName(i) : 'Finish',
   }));
-  if (turnMarks) notes.push(fleetWarning(data, courseWps, turnMarks, legs));
+  // The reach marks put back must make a course: no mark (or estimated turn) twice running, no Beat after a Beat or
+  // Run after a Run with no mark rounded between, and a reach on one side of each mark put back. Else main's legs.
+  if (merged) {
+    const key = (k: number): string => turnMarks![k]?.key ?? `est:${fleet.turns[k].type}`;
+    const repeat = turnMarks!.some((_, k) => k > 0 && key(k) === key(k - 1));
+    const same = kinds.some((k, i) => i > 0 && k !== 'reach' && k === kinds[i - 1]);
+    const loose = merged.inserted.some((put, k) => put && kinds[k] !== 'reach' && kinds[k + 1] !== 'reach');
+    if (repeat || same || loose) return analyzeRace(input, { ...opts, noBentMarks: true });
+  }
+  if (merged) {
+    const est = [...new Set(legs.filter((_, i) => i < nLegs - 1 && !turnMarks![i]).map((l) => l.to.toLowerCase()))];
+    if (est.length) {
+      notes.push({
+        kind: 'marks-est',
+        text: `The ${listOf(est)} ${est.length > 1 ? "aren't" : "isn't"} in the feed's course: placed where the fleet turned (est.).`,
+        est,
+      });
+    }
+  } else if (turnMarks) notes.push(fleetWarning(data, courseWps, turnMarks, legs));
   if (data.finishLine && data.finishLineEstimated) {
     notes.push({ kind: 'finish-est', text: "The finish line isn't in the feed: it's placed off the committee boat from the tracks (est.)." });
   }
@@ -765,7 +835,8 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       return;
     }
     const xy = wp.at && ts.length ? wp.at(median(ts)) : wp.xy;
-    addDrawnMark(drawnMarks, { name: wp.name, xy }, { replaceEstimate: true });
+    const name = labelOf(wp);
+    addDrawnMark(drawnMarks, { name, xy, ...(name !== wp.name ? { title: wp.name } : {}) }, { replaceEstimate: true });
   });
   // Trackers no leg ends at (an offset, or every mark when there is one leg).
   // Never pile a second name on a turn already drawn (M1/M2 overlapping at the top).
@@ -778,7 +849,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     }
   } else if (!wps.length) for (const wp of courseWps) addDrawnMark(drawnMarks, { name: wp.name, xy: wp.xy });
   const real = drawnMarks.filter((m) => !m.estimated);
-  const moved = real.filter((m, i) => real.findIndex((o) => o.name === m.name) !== i).map((m) => m.name);
+  const moved = real.filter((m, i) => real.findIndex((o) => o.name === m.name && o.title === m.title) !== i).map((m) => m.name);
   if (moved.length) {
     const names = [...new Set(moved)];
     notes.push({ kind: 'marks-moved', text: `${names.join(', ')} moved during the race; legs use the mark's position at the time.`, names });
