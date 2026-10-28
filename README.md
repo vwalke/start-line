@@ -13,7 +13,7 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
 
 - **`/`** with no app parameters: the landing page (static HTML in `index.html`, `#landing`; what Recall
   does, pricing, where the data comes from, the other Walke Forward apps). It loads none of the app; its
-  one RaceSense fetch is `/api/landing`, for "Upcoming regattas" (below), after the static page is up. With
+  one RaceSense fetch is `/api/landing`, for "Live now" and "Upcoming regattas" (below), after the static page is up. With
   a race viewed before, it offers "Continue: <event · race>" (to `/regattas`). The hero, `public/landing-hero.svg` (and `landing-hero-night.svg` for Dark), is a real race
   drawn by `node scripts/landing-hero.mjs` from `tests/fixtures/j105_r3.json` (sail numbers only); a test
   fails when either is stale. The page shows the one that matches the theme. Each feature card
@@ -28,6 +28,14 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   `src/landing/route.ts` `routeOf`, mirrored by an inline script in `index.html` so the right page shows
   before first paint. Cloudflare Pages serves `index.html` for `/regattas` (no `404.html`: single-page
   fallback), so there is no `_redirects`.
+
+**Live now.** Above Upcoming on the landing page, cards for the `/api/landing` events underway: the
+event's own today (same day rule as below) is between its first and last day, inclusive. Each links to the
+event and shows a green dot with "Live · Day 2 of 5" ("Today" for a one-day event), class, venue and dates.
+Most recently started first, at most 6 (`LIVE_MAX`). Events longer than 21 days (`LIVE_MAX_DAYS`) stay out:
+a season series like "M15 DUN L Winter Series" (Oct 16 – Dec 19) sails one day a week, so being inside its
+dates doesn't mean it's racing today; it's still in the picker. No Notify me here (races are already being
+posted). Hidden when there are none (`liveEvents`, `src/data/upcoming.ts`).
 
 **Upcoming regattas.** Events from `/api/landing` that start within the next 14 days
 (`UPCOMING_DAYS`, `src/data/upcoming.ts`), soonest first, show in two places: an **Upcoming** group at
