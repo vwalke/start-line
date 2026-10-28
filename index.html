@@ -86,6 +86,12 @@
         </figure>
       </section>
 
+      <!-- Regattas underway today, from /api/landing (src/landing/landing.ts showUpcoming); hidden when there are none. -->
+      <section id="land-live" class="land-section land-live" aria-labelledby="land-live-title" hidden>
+        <h2 id="land-live-title">Live now</h2>
+        <ul class="land-cards land-live-list"></ul>
+      </section>
+
       <!-- Regattas starting in the next two weeks, from /api/landing (src/landing/landing.ts showUpcoming); hidden when there are none. -->
       <section id="land-upcoming" class="land-section land-upcoming" aria-labelledby="land-upcoming-title" hidden>
         <h2 id="land-upcoming-title">Upcoming regattas</h2>

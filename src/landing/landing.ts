@@ -3,6 +3,8 @@
  * crawlable without waiting on any script or RaceSense fetch). This only fills in two things:
  *   - the Regatta Pass price, from data/price.ts (the HTML carries the same text; tests hold them equal);
  *   - "Continue: <event · race>", a link to /regattas (which reopens it) when a race was viewed before;
+ *   - "Live now": cards for the /api/landing events underway today where they're sailed (data/upcoming.ts
+ *     liveEvents; season series left out), most recently started first; hidden when there are none;
  *   - "Upcoming regattas": cards for the /api/landing events starting in the next two weeks (data/upcoming.ts),
  *     each with Notify me (ui/notify.ts) when the paywall is on; the section stays hidden when there are none;
  * and starts the feature cards' lightbox (lightbox.ts). Nothing of the app (ui/app.ts) is loaded here
@@ -13,7 +15,7 @@ import { PAYWALL_OFF, fetchMe, type Me } from '../data/paywall';
 import { PRICE_REGATTA } from '../data/price';
 import { fetchLanding } from '../data/racesense/api';
 import type { LandingEvent } from '../data/racesense/types';
-import { dateRangeText, startsInText, upcomingEvents } from '../data/upcoming';
+import { dateRangeText, liveDayText, liveEvents, startsInText, upcomingEvents } from '../data/upcoming';
 import { createAlerts, eventPath, handleNotify, notifyButtonHtml, notifyHref, type Alerts } from '../ui/notify';
 import { startLightbox } from './lightbox';
 import { REGATTAS_PATH } from './route';
@@ -80,7 +82,26 @@ export function upcomingCardsHtml(events: readonly LandingEvent[], me: Me, now: 
     .join('');
 }
 
-/** Fill in "Upcoming regattas" (hidden until there is one); any failure leaves it hidden. */
+/** The Live now cards ('' for none): a live dot and "Day 2 of 5", title (a link to the event), class and venue, dates, Free. */
+export function liveCardsHtml(events: readonly LandingEvent[], me: Me, now: number): string {
+  return liveEvents(events, now)
+    .map((e) => {
+      const free = me.paywall && isFreeEvent(e.eventId, now) ? ' <span class="free-tag">Free</span>' : '';
+      const meta = [e.classLabel?.trim(), e.venue?.trim()].filter((x): x is string => !!x).map(esc).join(' · ');
+      return `<li class="land-card land-up land-live-card">
+        <p class="land-live-badge"><span class="land-live-dot" aria-hidden="true"></span>Live · ${esc(liveDayText(e, now))}</p>
+        <h3><a href="${esc(eventPath(e.eventId))}">${esc(e.title)}</a>${free}</h3>
+        ${meta ? `<p class="land-up-meta">${meta}</p>` : ''}
+        <p class="land-up-when">${esc(dateRangeText(e.startMs, e.endMs))}</p>
+      </li>`;
+    })
+    .join('');
+}
+
+/**
+ * Fill in "Live now" and "Upcoming regattas" from one /api/landing fetch (each hidden until it has a card);
+ * any failure leaves both hidden.
+ */
 export async function showUpcoming(
   doc: Document,
   o: { landing?: () => Promise<{ events: LandingEvent[] }>; me?: () => Promise<Me>; now?: () => number; go?: (href: string) => void; alerts?: Alerts } = {},
@@ -94,6 +115,13 @@ export async function showUpcoming(
     [events, me] = await Promise.all([(o.landing ?? fetchLanding)().then((r) => r.events ?? []), (o.me ?? fetchMe)().catch(() => PAYWALL_OFF)]);
   } catch {
     return;
+  }
+  const live = doc.getElementById('land-live');
+  const liveList = live?.querySelector<HTMLElement>('.land-live-list');
+  if (live && liveList) {
+    const html = liveCardsHtml(events, me, (o.now ?? Date.now)());
+    liveList.innerHTML = html;
+    live.hidden = !html;
   }
   const alerts = o.alerts ?? createAlerts();
   const render = (): void => {

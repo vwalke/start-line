@@ -1627,6 +1627,17 @@ html[data-route='app'] #landing { display: none; }
 .land-up h3 a:hover { color: var(--accent); text-decoration: underline; }
 .land-up-when strong { color: var(--ink); font-weight: 600; }
 .land-card .land-up-actions { margin-top: auto; padding-top: 8px; }
+/* Live now (landing.ts liveCardsHtml): a green dot that pulses unless motion is reduced, beside "Live · Day 2 of 5". */
+.land-live[hidden] { display: none; }
+.land-card .land-live-badge { display: flex; align-items: center; gap: 6px; color: var(--good); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.02em; }
+.land-live-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+@media (prefers-reduced-motion: no-preference) {
+  .land-live-dot { animation: land-live-pulse 2s ease-in-out infinite; }
+}
+@keyframes land-live-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--good-bg); }
+  50% { box-shadow: 0 0 0 4px var(--good-bg); }
+}
 /* A card's thumbnail (scripts/landing-thumbs.mjs): 16:10 from its width and height attributes, so nothing shifts as it loads. */
 .land-thumb { position: relative; display: block; width: 100%; margin: 0 0 10px; padding: 0; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--page); cursor: zoom-in; }
 .land-thumb img { display: block; width: 100%; height: auto; aspect-ratio: 320 / 200; object-fit: cover; }

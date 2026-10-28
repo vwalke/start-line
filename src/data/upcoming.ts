@@ -1,8 +1,8 @@
 /**
  * Upcoming regattas (README "Upcoming regattas"): the /api/landing events that start within the next
- * UPCOMING_DAYS, soonest first, and the words for them ("Oct 28 – Nov 1", "Starts tomorrow"). Pure (no
- * DOM), shared by the landing page and the app (the picker, ui/eventCard.ts). RaceSense dates are calendar
- * days, so they are read in UTC. Whether an event has started is the event's own day (eventStarted: its
+ * UPCOMING_DAYS, soonest first, the ones underway now (liveEvents: the landing page's Live now), and the
+ * words for them ("Oct 28 – Nov 1", "Starts tomorrow", "Day 2 of 5"). Pure (no DOM), shared by the landing
+ * page and the app (the picker, ui/eventCard.ts). RaceSense dates are calendar days, so they are read in UTC. Whether an event has started is the event's own day (eventStarted: its
  * time zone when known, else America/New_York); "Starts tomorrow" counts from the viewer's own day.
  */
 import type { LandingEvent } from './racesense/types';
@@ -56,6 +56,47 @@ export function upcomingEvents(events: readonly LandingEvent[], now: number, day
     })
     .sort((a, b) => a.startMs - b.startMs || a.title.localeCompare(b.title));
 }
+
+/** How many Live now cards the landing page shows at most. */
+export const LIVE_MAX = 6;
+
+/**
+ * Events longer than this many days (first to last, inclusive) stay out of Live now: a season series
+ * ("M15 DUN L Winter Series", Oct 16 – Dec 19) sails one day a week, so being inside its dates doesn't
+ * mean anyone is racing today. They're still in the app's picker.
+ */
+export const LIVE_MAX_DAYS = 21;
+
+/** The event's last day as a day number (its first day when the end is missing or before the start). */
+const lastDayNo = (e: LandingEvent): number => (Number.isFinite(e.endMs) ? Math.max(dayNo(e.endMs), dayNo(e.startMs)) : dayNo(e.startMs));
+
+/** Which day of the event it is where it's sailed, and how many days it has: { day: 2, days: 5 }. */
+export function eventDayOf(e: LandingEvent, now: number, zone?: string | number): { day: number; days: number } {
+  return { day: 1 - eventDaysAway(e.startMs, now, zone), days: lastDayNo(e) - dayNo(e.startMs) + 1 };
+}
+
+/**
+ * Events underway: the event's own today (eventDayNo) is between its first and last day, inclusive, and it
+ * runs no longer than LIVE_MAX_DAYS. Most recently started first (title breaks a tie), at most `max`.
+ * None of these is in upcomingEvents (that needs a first day still to come).
+ */
+export function liveEvents(events: readonly LandingEvent[], now: number, max = LIVE_MAX): LandingEvent[] {
+  return events
+    .filter((e) => {
+      if (!Number.isFinite(e.startMs) || e.startMs <= 0) return false;
+      const { day, days } = eventDayOf(e, now);
+      return days <= LIVE_MAX_DAYS && day >= 1 && day <= days;
+    })
+    .sort((a, b) => b.startMs - a.startMs || a.title.localeCompare(b.title))
+    .slice(0, max);
+}
+
+/** "Day 2 of 5", or "Today" for a one-day event. */
+export function liveDayText(e: LandingEvent, now: number, zone?: string | number): string {
+  const { day, days } = eventDayOf(e, now, zone);
+  return days <= 1 ? 'Today' : `Day ${day} of ${days}`;
+}
+
 /** The viewer's calendar day at `now` (`tzOffsetMin` as Date#getTimezoneOffset gives it: minutes behind UTC). */
 const viewerDay = (now: number, tzOffsetMin = new Date(now).getTimezoneOffset()): number => dayNo(now - tzOffsetMin * 60_000);
 
