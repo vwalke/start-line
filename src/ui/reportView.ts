@@ -13,7 +13,7 @@ import type { RaceAnalysis } from '../analysis/types';
 import { trackMap } from './charts';
 import { esc } from './format';
 import { MISSING, type ReportField, type ReportLine, type ReportModel } from './report';
-import { UNOFFICIAL_ORDER, UNOFFICIAL_ORDER_TIP } from './resultText';
+import { unofficialNotePrintHtml } from './resultText';
 
 /** No boat selected: where to pick one (the Coach's own wording). */
 export const REPORT_NO_BOAT = 'Pick a boat in the boat list to see its report.';
@@ -97,7 +97,7 @@ export function reportThumb(a: RaceAnalysis, boat: string): string {
 
 function regattaHtml(m: ReportModel): string {
   const r = m.regatta;
-  if (!r) return '<p class="rp-muted">Waiting for the races to be analyzed…</p>';
+  if (!r) return `<p class="rp-muted">Waiting for the races to be analyzed…</p>${unofficialNotePrintHtml(m.unofficial)}`;
   const rows = r.rows
     .map(
       (x) =>
@@ -105,9 +105,8 @@ function regattaHtml(m: ReportModel): string {
     )
     .join('');
   const table = `<table class="rp-table rp-regatta-t"><thead><tr><th scope="col">Race</th><th scope="col">Place</th><th scope="col">Of</th><th scope="col">On the water</th><th scope="col">Findings · at stake</th><th scope="col"></th></tr></thead><tbody>${rows}</tbody></table>`;
-  // Printed, so the note's tooltip is spelled out.
-  const unofficial = r.unofficial ? `<p class="rp-key unofficial-note"><b>~ ${UNOFFICIAL_ORDER}.</b> ${esc(UNOFFICIAL_ORDER_TIP)}</p>` : '';
-  const status = `${unofficial}<p class="rp-key">${r.done} of ${r.total} races analyzed${r.done < r.total ? ' (the rest are still being worked out)' : ''}.</p>`;
+  // One note for the header's place and the table's.
+  const status = `${unofficialNotePrintHtml(r.unofficial || m.unofficial)}<p class="rp-key">${r.done} of ${r.total} races analyzed${r.done < r.total ? ' (the rest are still being worked out)' : ''}.</p>`;
   const pens = r.penalties.length ? `<h4>Penalties</h4><ul class="rp-lines">${r.penalties.map((p) => `<li class="rp-line warn"><span class="rp-g" aria-hidden="true">⚠</span> ${esc(p)}</li>`).join('')}</ul>` : '';
   const work = r.workOn.length
     ? `<ol class="rp-work">${r.workOn.map((w) => `<li><b>${esc(w.title)}</b>${w.score ? ` <b class="rp-sec">${esc(w.score)}</b>` : ''}<br><span class="rp-sent">${esc(w.why)}.</span>${w.tip ? ` <span class="rp-tip"><b>Tip</b> ${esc(w.tip)}</span>` : ''}</li>`).join('')}</ol>`
@@ -143,13 +142,13 @@ export function reportHtml(m: ReportModel, opts: ReportViewOptions = {}): string
   const boat = `${esc(m.sail)}${m.boatName ? ` <span class="rp-name">${esc(m.boatName)}</span>` : ''}`;
   const foot = `<footer class="rp-foot">Recall · unofficial · from public Vakaros RaceSense data${m.coach.findings.length || m.legs.length ? ` · compared with ${esc(m.groupLabel)}` : ''}${opts.stamp ? ` · ${esc(opts.stamp)}` : ''}</footer>`;
   const notes = m.notes.length ? `<section class="rp-sec-notes"><h3>Data and confidence</h3><ul>${m.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></section>` : '';
-  const head = `<header class="rp-head"><p class="rp-sub">${title}</p><h2>${boat}</h2>${fieldsHtml(m.header, 'rp-hfields')}</header>`;
+  const head = (note: boolean): string => `<header class="rp-head"><p class="rp-sub">${title}</p><h2>${boat}</h2>${fieldsHtml(m.header, 'rp-hfields')}${unofficialNotePrintHtml(note)}</header>`;
   if (m.scope === 'regatta') {
-    return `<article class="report scope-regatta" data-state="${m.state}" data-boat="${esc(m.boatId ?? '')}" aria-label="Regatta report: ${esc(m.sail)}">${barHtml(m)}${head}
+    return `<article class="report scope-regatta" data-state="${m.state}" data-boat="${esc(m.boatId ?? '')}" aria-label="Regatta report: ${esc(m.sail)}">${barHtml(m)}${head(false)}
       <section class="rp-regatta"><h3>Regatta: every race</h3>${regattaHtml(m)}</section>${foot}</article>`;
   }
   const thumb = opts.thumb ? `<figure class="rp-thumb">${opts.thumb}<figcaption>Track, wind at the top · ${esc(m.sail)} picked</figcaption></figure>` : '';
-  return `<article class="report scope-race" data-state="${m.state}" data-boat="${esc(m.boatId ?? '')}" aria-label="Boat report: ${esc(m.sail)}">${barHtml(m)}${head}
+  return `<article class="report scope-race" data-state="${m.state}" data-boat="${esc(m.boatId ?? '')}" aria-label="Boat report: ${esc(m.sail)}">${barHtml(m)}${head(m.unofficial)}
     <div class="rp-row">
       <section class="rp-start"><h3>Start</h3>${fieldsHtml(m.start, 'rp-sfields')}<p class="rp-verdict"><b>Start card:</b> ${lineHtml(m.startVerdict).replace(/^<li[^>]*>|<\/li>$/g, '')}</p></section>
       ${thumb}

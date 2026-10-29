@@ -19,7 +19,7 @@ import type { RaceRequest, WorkerRequest, WorkerResponse } from '../worker';
 import { wentWellHtml } from './coachCards';
 import { esc, ordinal } from './format';
 import { raceName, shortRaceName } from './races';
-import { UNOFFICIAL_PLACE, unofficialNoteHtml } from './resultText';
+import { UNOFFICIAL_PLACE, isTrackerFinish, unofficialNoteHtml } from './resultText';
 
 /** What the runner needs of a worker (a Worker, or a test double). */
 export interface WorkerPort {
@@ -191,17 +191,17 @@ export function createRegattaRunner(makeWorker: () => WorkerPort, onChange: () =
 
 const SOURCE_WORDS: Record<FinishSource, string> = { official: 'official', racesense: "RaceSense's finish", tracker: UNOFFICIAL_PLACE };
 
-/** `12th`, `~12th` (an unofficial place from the tracker finish), the official code (`DPI 15` with its points when the boat finished with it), or a dash. */
+/** `12th`, `~12th` (an unofficial place, isTrackerFinish), the official code (`DPI 15` with its points when the boat finished with it), or a dash. */
 export const finishShort = (f: RaceFinish | null): string =>
   f?.place != null
-    ? `${f.source === 'tracker' ? '~' : ''}${ordinal(f.place)}`
+    ? `${isTrackerFinish(f) ? '~' : ''}${ordinal(f.place)}`
     : f?.code && f.onWater != null && f.points != null && !codeInfo(f.code).lost
       ? `${f.code} ${pointsText(f.points)}`
       : (f?.code ?? '—');
 
 /** Some race shows a `~` place (finishShort): the places get the unofficial finish order note. */
 export const anyUnofficial = (s: Pick<RegattaSummary, 'rows'>): boolean =>
-  s.rows.some((r) => r.status === 'done' && r.digest?.finish?.place != null && r.digest.finish.source === 'tracker');
+  s.rows.some((r) => r.status === 'done' && isTrackerFinish(r.digest?.finish));
 
 /** A coded result's on-water place, for the place chip: "12th on the water"; empty without one. */
 const onWaterText = (f: RaceFinish | null): string => (f?.place == null && f?.onWater != null ? `${ordinal(f.onWater)} on the water` : '');
@@ -220,7 +220,9 @@ export function placeWhat(r: RegattaSummary['rows'][number]): string {
   if (r.status === 'error') return isPaywallError(r.error ?? '') ? 'locked: unlock this regatta to see it' : `couldn't load: ${r.error ?? ''}`;
   if (f) {
     const coded = f.code ? `${f.code}${f.points != null ? ` (${pointsText(f.points)} points)` : ''}${onWaterText(f) ? `, ${onWaterText(f)}` : ''}` : 'no place';
-    return `${f.place != null ? `${ordinal(f.place)} of ${f.of}` : coded}, ${SOURCE_WORDS[f.source]}${r.digest?.tracked ? '' : ', no track'}`;
+    // "unofficial" goes with a place only: a tracker race's boat without one has nothing unofficial shown.
+    const src = f.source === 'tracker' && !isTrackerFinish(f) ? '' : `, ${SOURCE_WORDS[f.source]}`;
+    return `${f.place != null ? `${ordinal(f.place)} of ${f.of}` : coded}${src}${r.digest?.tracked ? '' : ', no track'}`;
   }
   return r.digest?.tracked ? 'no finish' : 'not in this race';
 }
@@ -246,7 +248,7 @@ export function regattaPlacesHtml(s: RegattaSummary): string {
     const what = placeWhat(r);
     return `<li class="rp ${r.status}" data-race="${r.raceNumber}" title="${esc(`${r.name}: ${what}`)}"><b>${esc(r.label)}</b> <span class="rp-place">${esc(place)}</span>${of}</li>`;
   });
-  return `<ol class="regatta-places" aria-label="Place in each race">${li.join('')}</ol>${unofficialNoteHtml(anyUnofficial(s), 'muted regatta-note unofficial-note')}`;
+  return `<ol class="regatta-places" aria-label="Place in each race">${li.join('')}</ol>${unofficialNoteHtml(anyUnofficial(s))}`;
 }
 
 /**

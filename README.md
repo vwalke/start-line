@@ -1122,11 +1122,17 @@ next class. An automatically matched event must also beat the next candidate by
   Otherwise the chip is `official places · RaceSense times` (or tracker times),
   a plain note, and times come from RaceSense's finish, else the crossing.
 - **Not linked:** RaceSense's finishes. A race with none gets **tracker
-  finishes**, marked `~` per place in the boat list, Coach's Regatta places and
-  the report, each with a small `~ Unofficial finish order` note (its tooltip:
-  official results aren't posted yet; the places come from when each boat's
-  tracker crossed the finish line); nothing about them in the race header, and
-  no mark in the race picker. A tracker finish is the first crossing of the finish line (its two
+  finishes**: its places are unofficial, marked `~` wherever a place is shown
+  (the boat list, the Fin column, Coach's place chip, its Custom list and
+  Regatta places, the report). Wherever such places are listed, a small
+  `~ Unofficial finish order` note explains them: "These places come from when
+  each boat's tracker crossed the finish line, not from official results." (a
+  tooltip on screen, spelled out in the printed report). A single place reads
+  `finished 3, unofficial` (tooltip `Unofficial place`). Only the race's places
+  count (`places === 'tracker'`, `isTracker` in `src/ui/resultText.ts`): a race
+  with official places and tracker times shows no `~`. The race header says
+  nothing about tracker finishes, and the race picker doesn't mark them.
+- A tracker finish is the first crossing of the finish line (its two
   trackers, where they were at the time; the start line's trackers when the
   course has no finish line) after the boat's own `race_stage` turned
   `finishing` (its last leg), and not before the fleet's onset (20th

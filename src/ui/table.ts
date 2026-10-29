@@ -8,7 +8,7 @@
  */
 import { finishRank } from '../analysis/result';
 import { ACT_KEY, ACT_ROW } from './act';
-import { codeShort, codeWords } from './resultText';
+import { UNOFFICIAL_PLACE_TIP, codeShort, codeWords, isTracker } from './resultText';
 import type { BoatResult, KindSummary, LegKind, LegResult, RaceAnalysis, StartResult } from '../analysis/types';
 import { OCS_BLIND_NOTE, shownLateS, startNotes } from '../analysis/validity';
 import { boatColor, pickedExcluded } from './charts';
@@ -274,14 +274,15 @@ export function legsNotesHtml(a?: RaceAnalysis, open = false): string {
   return capHtml(k.chips, infoHtml(k.bullets, { open }));
 }
 
-function finCol(key: string, sticky = 'sticky0'): Col {
+function finCol(a: RaceAnalysis, key: string, sticky = 'sticky0'): Col {
+  const place = (b: BoatResult): string => (isTracker(a, b) ? `<span title="${esc(UNOFFICIAL_PLACE_TIP)}">~${b.finishPos}</span>` : String(b.finishPos));
   return {
     key,
     head: 'Fin',
-    title: 'Finish position (DNF = no finish; an official code with its points, sorted at its place on the water)',
+    title: `Finish position (DNF = no finish; ${a.boats.some((b) => isTracker(a, b)) ? '~ = unofficial; ' : ''}an official code with its points, sorted at its place on the water)`,
     sort: (b) => finishRank(b),
     first: 'asc',
-    cell: (b) => (b.finishPos != null ? String(b.finishPos) : b.finishCode ? `<span title="${esc(codeWords(b))}">${esc(codeShort(b)!)}</span>` : 'DNF'),
+    cell: (b) => (b.finishPos != null ? place(b) : b.finishCode ? `<span title="${esc(codeWords(b))}">${esc(codeShort(b)!)}</span>` : 'DNF'),
     cls: `num ${sticky}`,
     role: 'fin',
   };
@@ -355,7 +356,7 @@ function startColumns(a: RaceAnalysis): Col[] {
         },
       ];
   return [
-    finCol('s.fin'),
+    finCol(a, 's.fin'),
     boatCol(a, 's.boat'),
     startPlaceCol('start'),
     ...dtlCols,
@@ -535,7 +536,7 @@ function raceCount(b: BoatResult, f: (l: LegResult) => number): number | null {
 
 /** The legs table: start place, each leg, upwind / downwind, the race. */
 function legColumns(a: RaceAnalysis): Col[] {
-  const cols: Col[] = [finCol('fin'), boatCol(a, 'boat'), startPlaceCol('lstart')];
+  const cols: Col[] = [finCol(a, 'fin'), boatCol(a, 'boat'), startPlaceCol('lstart')];
   for (const leg of a.legs) {
     const i = leg.index;
     const group = { id: `L${i}`, label: leg.name, title: `${leg.name} to ${leg.to}` };
