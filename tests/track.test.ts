@@ -1,14 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { describe, expect, it, vi } from 'vitest';
 import { BATCH_MAX, BODY_MAX, SESSION_MAX } from '../functions/_trackSchema';
 import { FLUSH_MS, SESSION_KEY, THIN_MS, TRACK_URL, createTracker, deviceClass, raceId, track, type TrackEnvDeps } from '../src/ui/track';
 import { trackPoints } from '../functions/_track';
 
 const SID = '0f8fad5b-d9cb-469f-a165-70867728950e';
 
-/** A page for the tracker: a clock, timers run by hand, a beacon that records, sessionStorage in memory. */
+/** A page for the tracker: a clock, timers run by hand, a fetch that records, sessionStorage in memory. */
 function page(over: Partial<TrackEnvDeps> = {}) {
   let now = 1_000_000;
-  const sent: { via: 'beacon' | 'fetch'; body: string; init?: RequestInit }[] = [];
+  const sent: { body: string; init: RequestInit }[] = [];
   const timers: (() => void)[] = [];
   const store = new Map<string, string>();
   let leave: (() => void) | null = null;
@@ -22,14 +23,9 @@ function page(over: Partial<TrackEnvDeps> = {}) {
     device: () => 'mobile',
     storage: () => ({ getItem: (k) => store.get(k) ?? null, setItem: (k, v) => void store.set(k, v) }),
     uuid: () => SID,
-    beacon: (url, body) => {
-      expect(url).toBe(TRACK_URL);
-      sent.push({ via: 'beacon', body });
-      return true;
-    },
     fetch: (url, init) => {
       expect(url).toBe(TRACK_URL);
-      sent.push({ via: 'fetch', body: String(init.body), init });
+      sent.push({ body: String(init.body), init });
       return Promise.resolve();
     },
     setTimer: (fn) => timers.push(fn),
@@ -51,7 +47,7 @@ function page(over: Partial<TrackEnvDeps> = {}) {
 }
 
 describe('the usage tracker (src/ui/track.ts)', () => {
-  it('queues, then sends one batch on the timer, by beacon, with only the schema keys', () => {
+  it('queues, then sends one batch on the timer, with only the schema keys', () => {
     const p = page();
     p.t.setAuth('no');
     p.t.setPage({ event: 'cbc2026', race: raceId('J/105', 3) });
@@ -62,7 +58,6 @@ describe('the usage tracker (src/ui/track.ts)', () => {
     expect(p.t.queued()).toBe(2);
     p.runTimers();
     expect(p.sent).toHaveLength(1);
-    expect(p.sent[0].via).toBe('beacon');
     const [b] = p.batches();
     expect(Object.keys(b).sort()).toEqual(['auth', 'dev', 'ev', 'sid', 'th']);
     expect(b).toMatchObject({ sid: SID, dev: 'mobile', th: 'dark', auth: 'no' });
@@ -175,13 +170,12 @@ describe('the usage tracker (src/ui/track.ts)', () => {
     expect(() => track('app_open')).not.toThrow();
   });
 
-  it('never throws: storage, beacon, fetch and the rest missing or throwing', () => {
+  it('never throws: storage, fetch and the rest missing or throwing', () => {
     const boom = (): never => {
       throw new Error('boom');
     };
     const p = page({
       storage: boom,
-      beacon: boom,
       fetch: boom,
       referrer: boom,
       theme: boom,
@@ -195,12 +189,12 @@ describe('the usage tracker (src/ui/track.ts)', () => {
       p.t.track('tab', { detail: 'coach' });
       p.t.flush();
     }).not.toThrow();
-    const none = page({ beacon: null, fetch: null, storage: () => null });
+    const none = page({ fetch: null, storage: () => null });
     expect(() => {
       none.t.track('app_open');
       none.t.flush();
     }).not.toThrow();
-    const rejects = page({ beacon: () => false, fetch: () => Promise.reject(new Error('offline')) });
+    const rejects = page({ fetch: () => Promise.reject(new Error('offline')) });
     rejects.t.track('app_open');
     expect(() => rejects.t.flush()).not.toThrow();
     // An unusable storage reading: a fresh session, not an error.
@@ -210,12 +204,45 @@ describe('the usage tracker (src/ui/track.ts)', () => {
     expect(junk.batches()[0].sid).toBe(SID);
   });
 
-  it('falls back to fetch with keepalive, without credentials, when the beacon is refused', () => {
-    const p = page({ beacon: () => false });
+  it('sends each batch by fetch with keepalive, no credentials and a JSON body, on the timer and on leaving', () => {
+    const p = page();
     p.t.track('app_open');
     p.t.flush();
-    expect(p.sent[0].via).toBe('fetch');
-    expect(p.sent[0].init).toMatchObject({ method: 'POST', keepalive: true, credentials: 'omit' });
+    p.t.track('tab', { detail: 'race' });
+    p.leave();
+    expect(p.sent).toHaveLength(2);
+    for (const s of p.sent) {
+      expect(s.init).toEqual({ method: 'POST', keepalive: true, credentials: 'omit', headers: { 'content-type': 'application/json' }, body: s.body });
+      // Inside keepalive's 64 KB (for all requests in flight together) with room to spare.
+      expect(new TextEncoder().encode(s.body).length).toBeLessThanOrEqual(BODY_MAX);
+    }
+    expect(BODY_MAX).toBeLessThan(64 * 1024);
+  });
+
+  it('never calls sendBeacon (it would send cookies), even where the browser has it', () => {
+    const sendBeacon = vi.fn(() => true);
+    vi.stubGlobal('navigator', { ...globalThis.navigator, sendBeacon });
+    try {
+      const p = page();
+      p.t.track('app_open');
+      p.leave();
+      expect(p.sent).toHaveLength(1);
+      expect(sendBeacon).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(readFileSync(new URL('../src/ui/track.ts', import.meta.url), 'utf8')).not.toMatch(/\.sendBeacon\(/);
+  });
+
+  it('a fetch that throws or rejects on leaving loses the batch, never the page', () => {
+    const throws = page({
+      fetch: () => {
+        throw new TypeError('keepalive quota');
+      },
+    });
+    throws.t.track('app_open');
+    expect(() => throws.leave()).not.toThrow();
+    expect(throws.t.queued()).toBe(0);
   });
 
   it('leaves out a field the server would refuse, rather than lose the batch', () => {

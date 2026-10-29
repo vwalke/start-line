@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createNav, pageKey, pageView, viewHref, type NavHistory } from '../src/ui/nav';
+import { createNav, pageKey, pageView, popAction, viewHref, type NavHistory, type PopAction, type Screen } from '../src/ui/nav';
 import { routeOf } from '../src/landing/route';
 import { TRACK_PATHS } from '../functions/_trackSchema';
 import { withTabHash } from '../src/ui/tabs';
@@ -171,5 +171,99 @@ describe('history entries (createNav)', () => {
     nav.begin();
     expect(() => nav.write(withTabHash(h.href, 'coach'))).not.toThrow();
     expect(h.entries[0].url).toBe('/regattas/coach?event=e1&div=A&race=1#coach');
+  });
+});
+
+describe('back and forward (popAction)', () => {
+  const race = (division: string, raceNumber: number) => ({ division, raceNumber });
+  const shows = (o: Partial<Screen>): Screen => ({ card: '', eventId: '', race: null, ...o });
+  const search = (url: string): string => new URL(url, ORIGIN).search;
+
+  /**
+   * The app, cut down: what each action leaves on screen. e1 has races A 1 (its default) and A 2; e2 has
+   * none until `e2Races` (then B 1).
+   */
+  const app = () => {
+    let screen = shows({});
+    let e2Races = false;
+    const open = (id: string, want?: { division: string; raceNumber: number }): Screen => {
+      if (id === 'e2' && !e2Races) return shows({ card: 'e2', eventId: screen.eventId, race: screen.race });
+      return shows({ eventId: id, race: want ?? (id === 'e1' ? race('A', 1) : race('B', 1)) });
+    };
+    const apply = (a: PopAction): void => {
+      if (a.kind === 'picker') screen = shows({});
+      else if (a.kind === 'event') screen = open(a.eventId, a.want);
+      else if (a.kind === 'race') screen = { ...screen, race: race(a.division, a.raceNumber) };
+    };
+    return {
+      get screen() {
+        return screen;
+      },
+      set: (s: Screen) => void (screen = s),
+      open: (id: string, want?: { division: string; raceNumber: number }) => void (screen = open(id, want)),
+      racesPosted: () => void (e2Races = true),
+      /** Back or forward to `url`: what popstate does. */
+      pop: (url: string): PopAction => {
+        const a = popAction(search(url), screen);
+        apply(a);
+        return a;
+      },
+    };
+  };
+
+  it('back to the empty /regattas picker, and forward again', () => {
+    const h = new FakeHistory('/regattas');
+    const nav = createNav({ history: h, href: () => h.href });
+    const a = app();
+    // Boot found nothing to open: the picker is empty. The user picks e1.
+    nav.begin();
+    a.open('e1');
+    nav.write(withParams(h.href, { event: 'e1', div: 'A', race: '1' }));
+    expect(h.pushes).toEqual(['/regattas/start?event=e1&div=A&race=1']);
+    expect(a.pop(h.back())).toEqual({ kind: 'picker' });
+    expect(a.screen).toEqual(shows({}));
+    expect(a.pop(h.forward())).toEqual({ kind: 'event', eventId: 'e1', want: race('A', 1) });
+    expect(a.screen).toEqual(shows({ eventId: 'e1', race: race('A', 1) }));
+    // From a card, too.
+    a.set(shows({ card: 'e2', eventId: 'e1', race: race('A', 1) }));
+    expect(popAction('', a.screen)).toEqual({ kind: 'picker' });
+    // Already empty: nothing to do.
+    expect(popAction('', shows({}))).toEqual({ kind: 'none' });
+  });
+
+  it('within one event: another race, and back to the event card it was on', () => {
+    const a = app();
+    a.open('e1');
+    // Another race of the same event: just that race.
+    expect(a.pop('/regattas/start?event=e1&div=A&race=2')).toEqual({ kind: 'race', division: 'A', raceNumber: 2 });
+    expect(a.pop('/regattas/coach?event=e1&div=A&race=1#coach')).toEqual({ kind: 'race', division: 'A', raceNumber: 1 });
+    // The same race (a tab or the report): nothing to load.
+    expect(a.pop('/regattas/report?event=e1&div=A&race=1#report')).toEqual({ kind: 'none' });
+
+    // e2's card, then its first race once posted; back goes to the card's entry within e2.
+    a.open('e2');
+    expect(a.screen.card).toBe('e2');
+    expect(a.pop('/regattas?event=e2')).toEqual({ kind: 'none' });
+    a.racesPosted();
+    expect(a.pop('/regattas/start?event=e2&div=B&race=1')).toEqual({ kind: 'event', eventId: 'e2', want: race('B', 1) });
+    expect(a.screen).toEqual(shows({ eventId: 'e2', race: race('B', 1) }));
+    expect(a.pop('/regattas?event=e2')).toEqual({ kind: 'event', eventId: 'e2' });
+  });
+
+  it('back from a race of an event to its card entry opens the event again (its card while it has no races)', () => {
+    const a = app();
+    a.open('e2');
+    expect(a.screen).toEqual(shows({ card: 'e2' }));
+    a.set(shows({ eventId: 'e2', race: race('B', 1) }));
+    // Back to `/regattas?event=e2` with a race of e2 on screen: e2 is opened again (its card while it has no races).
+    expect(a.pop('/regattas?event=e2')).toEqual({ kind: 'event', eventId: 'e2' });
+    expect(a.screen.card).toBe('e2');
+  });
+
+  it('a card over another loaded event: back to that event reopens it (never a race of the wrong list)', () => {
+    const s = shows({ card: 'e2', eventId: 'e1', race: race('A', 1) });
+    expect(popAction(search('/regattas/start?event=e1&div=A&race=1'), s)).toEqual({ kind: 'event', eventId: 'e1', want: race('A', 1) });
+    expect(popAction(search('/regattas/start?event=e2&div=B&race=1'), s)).toEqual({ kind: 'event', eventId: 'e2', want: race('B', 1) });
+    expect(popAction(search('/regattas?event=e3'), shows({ eventId: 'e1', race: race('A', 1) }))).toEqual({ kind: 'event', eventId: 'e3' });
   });
 });

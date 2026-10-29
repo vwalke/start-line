@@ -149,7 +149,7 @@ export function cardEventId(href: string | null | undefined): string | undefined
   return id && /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : undefined;
 }
 
-/** A click on a Live now or Upcoming card's link (the page then leaves: the tracker's beacon goes on pagehide). */
+/** A click on a Live now or Upcoming card's link (the page then leaves: the tracker's keepalive fetch goes on pagehide). */
 function trackCardClicks(doc: Document): void {
   for (const [id, name] of [
     ['land-live', 'live_card_click'],

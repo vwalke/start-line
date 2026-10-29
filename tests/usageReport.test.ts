@@ -29,16 +29,22 @@ describe('scripts/usage-report.mjs', () => {
 
   it('builds read-only SQL over the documented columns, counting with _sample_interval', () => {
     const sql = reportSql({ day: '2026-10-28' });
-    expect(Object.keys(sql).sort()).toEqual(['events', 'races', 'regattas', 'sessions', 'signedIn']);
-    for (const q of Object.values(sql)) {
+    expect(Object.keys(sql).sort()).toEqual(['events', 'races', 'regattas', 'sessionCount', 'sessions', 'signedIn']);
+    for (const [k, q] of Object.entries(sql)) {
       expect(q).toMatch(/^SELECT /);
       expect(q).not.toMatch(/\b(INSERT|DELETE|DROP|ALTER|CREATE)\b/i);
       expect(q).toContain('FROM recall_events');
       expect(q).toContain("timestamp >= toDateTime('2026-10-28 04:00:00') AND timestamp < toDateTime('2026-10-29 04:00:00')");
-      expect(q).toContain('SUM(_sample_interval)');
+      if (k !== 'sessionCount') expect(q).toContain('SUM(_sample_interval)');
       expect(q).toMatch(/FORMAT JSON$/);
+      // index1 is the event name now: nothing groups or counts sessions by it.
+      expect(q).not.toContain('index1');
     }
-    expect(sql.sessions).toContain('index1 AS session, blob1 AS event, blob6 AS device, blob7 AS referrer');
+    // Sessions are distinct session ids (blob11) among the rows kept; bounce and funnel group by it.
+    expect(sql.sessionCount).toContain("SELECT COUNT(DISTINCT blob11) AS sessions FROM recall_events WHERE");
+    expect(sql.sessionCount).toContain("AND blob11 != ''");
+    expect(sql.sessions).toContain('blob11 AS session, blob1 AS event, blob6 AS device, blob7 AS referrer, count() AS kept, SUM(_sample_interval) AS n');
+    expect(sql.sessions).toContain('GROUP BY blob11, blob1, blob6, blob7');
     expect(sql.races).toContain("blob1 = 'race_open'");
     expect(sql.races).toContain('blob3 AS event_id, blob4 AS race');
     expect(sql.regattas).toContain("blob1 = 'regatta_open'");
@@ -49,7 +55,35 @@ describe('scripts/usage-report.mjs', () => {
   it('reads the columns where the endpoint writes them', () => {
     const [p] = trackPoints({ sid: '0f8fad5b-d9cb-469f-a165-70867728950e', dev: 'tablet', th: 'dark', auth: 'no', ev: [{ n: 'race_open', p: '/regattas/start', e: 'e1', r: 'A|2', d: 'locked', f: 'news.ycombinator.com', s: 1, t: 0 }] })!;
     const blob = (i: number) => p.blobs[i - 1];
-    expect([blob(1), blob(2), blob(3), blob(4), blob(5), blob(6), blob(7), blob(8), blob(9)]).toEqual(['race_open', '/regattas/start', 'e1', 'A|2', 'no', 'tablet', 'news.ycombinator.com', 'dark', 'locked']);
+    expect([blob(1), blob(2), blob(3), blob(4), blob(5), blob(6), blob(7), blob(8), blob(9), blob(11)]).toEqual([
+      'race_open',
+      '/regattas/start',
+      'e1',
+      'A|2',
+      'no',
+      'tablet',
+      'news.ycombinator.com',
+      'dark',
+      'locked',
+      '0f8fad5b-d9cb-469f-a165-70867728950e',
+    ]);
+    expect(p.indexes).toEqual(['race_open']);
+  });
+
+  it('a bounce is a session that kept one row, whatever its sample interval', () => {
+    // Sampled at 1 in 10: one kept row stands for ten events, but the session still kept one.
+    const s = summarize(
+      [
+        { session: 'a', event: 'landing_view', device: 'mobile', referrer: '', kept: 1, n: 10 },
+        { session: 'b', event: 'landing_view', device: 'desktop', referrer: '', kept: 1, n: 10 },
+        { session: 'b', event: 'race_open', device: 'desktop', referrer: '', kept: 2, n: 20 },
+      ],
+      '2',
+    );
+    expect(s).toMatchObject({ sessions: 2, bounced: 1, bounceRate: 0.5 });
+    expect(s.funnel[1]).toEqual({ step: 'race_open', sessions: 1, any: 1 });
+    // The distinct count, when the query sent one, is the headline.
+    expect(summarize([{ session: 'a', event: 'app_open', kept: 1, n: 1 }], 40).sessions).toBe(40);
   });
 
   it('sessions, bounces, the funnel, devices and referrers', () => {
@@ -98,11 +132,12 @@ describe('scripts/usage-report.mjs', () => {
     const calls: { url: string; init: RequestInit }[] = [];
     const fetchImpl = (async (url: string, init: RequestInit) => {
       calls.push({ url, init });
-      return new Response(JSON.stringify({ meta: [], data: [{ session: 'a', event: 'app_open', device: 'desktop', referrer: '', n: 1 }], rows: 1 }), { status: 200 });
+      const row = String(init.body).includes('COUNT(DISTINCT blob11)') ? { sessions: 1 } : { session: 'a', event: 'app_open', device: 'desktop', referrer: '', kept: 1, n: 1 };
+      return new Response(JSON.stringify({ meta: [], data: [row], rows: 1 }), { status: 200 });
     }) as unknown as typeof fetch;
     const lines: string[] = [];
     await main(['--day', '2026-10-28'], { CF_ACCOUNT_ID: 'acc123', CF_ANALYTICS_TOKEN: token }, { log: (s) => lines.push(s), fetchImpl });
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(6);
     for (const c of calls) {
       expect(c.url).toBe('https://api.cloudflare.com/client/v4/accounts/acc123/analytics_engine/sql');
       expect(c.init.method).toBe('POST');

@@ -10,8 +10,10 @@
  *
  * The day runs midnight to midnight in --tz (default America/New_York, as the app's race times). The token
  * needs Account · Account Analytics · Read and nothing else; it is sent only in the Authorization header and
- * never printed. Analytics Engine samples busy datasets, so every count is SUM(_sample_interval): an
- * estimate, exact at low volume. A session that sent exactly one event counts as a bounce.
+ * never printed. Analytics Engine samples busy datasets (by index1, the event name), so event counts are
+ * SUM(_sample_interval): an estimate, exact at low volume. Sessions are COUNT(DISTINCT blob11), the session id,
+ * over the rows kept: exact at low volume, a floor once sampling starts. Bounce rate and the funnel group the
+ * kept rows by session (blob11); a session that kept exactly one event counts as a bounce.
  */
 import { pathToFileURL } from 'node:url';
 
@@ -110,17 +112,19 @@ const checkDataset = (ds) => {
 const whereDay = (r) => `timestamp >= toDateTime('${r.from}') AND timestamp < toDateTime('${r.to}')`;
 
 /**
- * The report's queries for a day. Columns (functions/_trackSchema.ts): index1 session, blob1 event, blob2 path,
- * blob3 event id, blob4 race, blob5 signed in, blob6 device, blob7 referrer host, blob8 theme, blob9 detail.
+ * The report's queries for a day. Columns (functions/_trackSchema.ts): index1 event name (the sampling key),
+ * blob1 event, blob2 path, blob3 event id, blob4 race, blob5 signed in, blob6 device, blob7 referrer host,
+ * blob8 theme, blob9 detail, blob10 country, blob11 session.
  */
 export function reportSql({ day, tz = DEFAULT_TZ, dataset = DEFAULT_DATASET }) {
   const ds = checkDataset(dataset);
   const r = dayRange(day, tz);
   const w = whereDay(r);
   return {
+    sessionCount: `SELECT COUNT(DISTINCT blob11) AS sessions FROM ${ds} WHERE ${w} AND blob11 != '' FORMAT JSON`,
     sessions:
-      `SELECT index1 AS session, blob1 AS event, blob6 AS device, blob7 AS referrer, SUM(_sample_interval) AS n FROM ${ds} ` +
-      `WHERE ${w} GROUP BY index1, blob1, blob6, blob7 LIMIT ${SESSION_ROWS_MAX} FORMAT JSON`,
+      `SELECT blob11 AS session, blob1 AS event, blob6 AS device, blob7 AS referrer, count() AS kept, SUM(_sample_interval) AS n FROM ${ds} ` +
+      `WHERE ${w} AND blob11 != '' GROUP BY blob11, blob1, blob6, blob7 LIMIT ${SESSION_ROWS_MAX} FORMAT JSON`,
     events: `SELECT blob1 AS event, blob9 AS detail, SUM(_sample_interval) AS n FROM ${ds} WHERE ${w} GROUP BY blob1, blob9 ORDER BY n DESC LIMIT 200 FORMAT JSON`,
     races:
       `SELECT blob3 AS event_id, blob4 AS race, SUM(_sample_interval) AS n FROM ${ds} ` +
@@ -137,8 +141,12 @@ const num = (x) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-/** Sessions, bounces, the funnel, device mix and referrers, from the session × event rows. */
-export function summarize(rows) {
+/**
+ * Sessions, bounces, the funnel, device mix and referrers, from the session × event rows (blob11 × blob1).
+ * `distinct` is the sessionCount query's answer (else the sessions the rows name). A bounce is a session
+ * that kept one row (`kept`; `n` where a row has no `kept`).
+ */
+export function summarize(rows, distinct) {
   const by = new Map();
   for (const row of rows) {
     const id = String(row.session ?? '');
@@ -146,13 +154,14 @@ export function summarize(rows) {
     let s = by.get(id);
     if (!s) by.set(id, (s = { events: new Map(), total: 0, device: '', referrer: '' }));
     const n = num(row.n);
-    s.total += n;
+    s.total += row.kept != null ? num(row.kept) : n;
     s.events.set(row.event, (s.events.get(row.event) ?? 0) + n);
     if (!s.device && row.device) s.device = String(row.device);
     if (!s.referrer && row.referrer) s.referrer = String(row.referrer);
   }
   const all = [...by.values()];
-  const sessions = all.length;
+  const d = distinct == null ? NaN : num(distinct);
+  const sessions = d > 0 ? d : all.length;
   const bounced = all.filter((s) => s.total === 1).length;
   let reached = all;
   const funnel = FUNNEL.map((step) => {
@@ -164,7 +173,7 @@ export function summarize(rows) {
     for (const s of all) if (s[key]) m.set(s[key], (m.get(s[key]) ?? 0) + 1);
     return [...m.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])));
   };
-  return { sessions, bounced, bounceRate: sessions ? bounced / sessions : 0, funnel, devices: tally('device'), referrers: tally('referrer').slice(0, TOP) };
+  return { sessions, bounced, bounceRate: all.length ? bounced / all.length : 0, funnel, devices: tally('device'), referrers: tally('referrer').slice(0, TOP) };
 }
 
 const pct = (x) => `${(x * 100).toFixed(1)}%`;
@@ -173,7 +182,8 @@ const pad = (s, n) => String(s).padEnd(n);
 /** The report as text. */
 export function formatReport({ day, tz, summary: s, events, races, regattas, signedIn }) {
   const out = [`Recall usage, ${day} (${tz})`, ''];
-  out.push(`Sessions: ${s.sessions}`, `Bounce rate: ${pct(s.bounceRate)} (${s.bounced} sessions with one event)`, '');
+  out.push(`Sessions: ${s.sessions}`, `Bounce rate: ${pct(s.bounceRate)} (${s.bounced} sessions with one event)`);
+  out.push('Sessions, bounces and the funnel count the events Analytics Engine kept: exact on a quiet day, estimates on a busy one.', '');
   out.push('Funnel (sessions reaching each step and every step before; any order within the day):');
   for (const f of s.funnel) out.push(`  ${pad(f.step, 16)} ${pad(f.sessions, 6)} (${f.any} sessions in all)`);
   out.push('', 'Devices (sessions):');
@@ -222,8 +232,8 @@ export async function main(argv, env = process.env, o = {}) {
   const token = env.CF_ANALYTICS_TOKEN?.trim();
   if (!accountId || !token) throw new Error('Set CF_ACCOUNT_ID and CF_ANALYTICS_TOKEN (an API token with Account Analytics: Read), or use --sql.');
   const q = (s) => query(s, { accountId, token, fetchImpl: o.fetchImpl });
-  const [sessions, events, races, regattas, signedIn] = await Promise.all([q(sql.sessions), q(sql.events), q(sql.races), q(sql.regattas), q(sql.signedIn)]);
-  log(formatReport({ day, tz: a.tz, summary: summarize(sessions), events, races, regattas, signedIn }));
+  const [count, sessions, events, races, regattas, signedIn] = await Promise.all([q(sql.sessionCount), q(sql.sessions), q(sql.events), q(sql.races), q(sql.regattas), q(sql.signedIn)]);
+  log(formatReport({ day, tz: a.tz, summary: summarize(sessions, count[0]?.sessions), events, races, regattas, signedIn }));
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

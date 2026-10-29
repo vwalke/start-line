@@ -5,7 +5,8 @@
  * dev and tests unless VITE_TRACK=1.
  *
  * Events wait in a queue and go in batches: a few seconds after the first, as soon as a batch is full, and
- * when the page is hidden or left (navigator.sendBeacon, else fetch with keepalive). Noisy ones are thinned
+ * when the page is hidden or left. Each batch is one fetch with keepalive (it outlives the page) and
+ * credentials 'omit' (no cookies go with it), never sendBeacon (which sends them). Noisy ones are thinned
  * (replay_scrub at most once every few seconds; the same event twice within a second counts once) and a
  * session stops at SESSION_MAX. Nothing here throws or waits: a failure loses the events, never the page.
  * No imports from the app: the landing page loads this too.
@@ -74,7 +75,6 @@ export interface TrackEnvDeps {
   device: () => Device;
   storage: () => Pick<Storage, 'getItem' | 'setItem'> | null;
   uuid: () => string;
-  beacon: ((url: string, body: string) => boolean) | null;
   fetch: ((url: string, init: RequestInit) => Promise<unknown>) | null;
   setTimer: (fn: () => void, ms: number) => unknown;
   clearTimer: (t: unknown) => void;
@@ -131,12 +131,14 @@ export function createTracker(d: TrackEnvDeps): Tracker {
     return h && h !== safe(d.host, '') ? h : '';
   };
 
-  /** A beacon when there is one (it outlives the page); else fetch with keepalive. */
+  /**
+   * One batch: fetch with keepalive, so it still goes when the page is hidden or left. A body is at most
+   * BODY_MAX (4 KB), far inside keepalive's 64 KB for everything in flight. No cookies; nothing thrown.
+   */
   const send = (body: string): void => {
-    if (d.beacon && safe(() => d.beacon!(TRACK_URL, body), false)) return;
     if (!d.fetch) return;
     safe(() => {
-      const p = d.fetch!(TRACK_URL, { method: 'POST', body, keepalive: true, credentials: 'omit', headers: { 'content-type': 'text/plain;charset=UTF-8' } });
+      const p = d.fetch!(TRACK_URL, { method: 'POST', keepalive: true, credentials: 'omit', headers: { 'content-type': 'application/json' }, body });
       (p as Promise<unknown>)?.catch?.(() => undefined);
     }, undefined);
   };
@@ -227,7 +229,6 @@ function browserDeps(): TrackEnvDeps {
     device: () => deviceClass({ coarse: matchMedia('(pointer: coarse)').matches, shortSide: Math.min(screen.width, screen.height) }),
     storage: () => sessionStorage,
     uuid: () => crypto.randomUUID(),
-    beacon: nav && typeof nav.sendBeacon === 'function' ? (url, body) => nav.sendBeacon(url, body) : null,
     fetch: typeof fetch === 'function' ? (url, init) => fetch(url, init) : null,
     setTimer: (fn, ms) => setTimeout(fn, ms),
     clearTimer: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
@@ -252,7 +253,6 @@ const offDeps: TrackEnvDeps = {
   device: () => 'desktop',
   storage: () => null,
   uuid: () => '',
-  beacon: null,
   fetch: null,
   setTimer: () => null,
   clearTimer: () => undefined,

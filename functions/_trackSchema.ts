@@ -3,7 +3,7 @@
  * stores them (functions/_track.ts, POST /api/track). Nothing here identifies a person: no IP, email,
  * name, user id or cookie is ever sent or stored (README "Usage tracking").
  *
- * The batch the page sends (text/plain JSON, at most BODY_MAX bytes, 1 to BATCH_MAX events):
+ * The batch the page sends (application/json, at most BODY_MAX bytes, 1 to BATCH_MAX events):
  *
  *   { sid, dev, th, auth, ev: [{ n, p, e?, r?, d?, f?, s, t }, …] }
  *
@@ -19,14 +19,17 @@
  *
  * One Workers Analytics Engine data point per event, in the RECALL_EVENTS dataset (recall_events):
  *
- *   index1   session id
- *   blob1    event name            blob6   device class
- *   blob2    path (view)           blob7   referrer host (first event of the session only, else '')
- *   blob3    event id              blob8   theme
- *   blob4    race id               blob9   detail
- *   blob5    signed in yes/no/unknown       blob10  country (Cloudflare's two letters, else '')
+ *   index1   event name (the sampling key: low-cardinality on purpose, never the session)
+ *   blob1    event name            blob7   referrer host (first event of the session only, else '')
+ *   blob2    path (view)           blob8   theme
+ *   blob3    event id              blob9   detail
+ *   blob4    race id               blob10  country (Cloudflare's two letters, else '')
+ *   blob5    signed in yes/no/unknown       blob11  session id
+ *   blob6    device class
  *   double1  seq in session        double2 ms since session start
  *
+ * Analytics Engine samples a busy dataset per index value, so a session's events can be kept or dropped
+ * independently: per-session counts in the report are estimates at high volume.
  * scripts/usage-report.mjs queries these columns by position: keep the two in step.
  */
 

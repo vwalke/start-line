@@ -11,6 +11,8 @@ export interface SessionRow {
   event: string;
   device?: string;
   referrer?: string;
+  /** Rows Analytics Engine kept (count()); a bounce is a session that kept one. */
+  kept?: number | string;
   n: number | string;
 }
 export interface Summary {
@@ -21,7 +23,7 @@ export interface Summary {
   devices: [string, number][];
   referrers: [string, number][];
 }
-export type ReportSql = Record<'sessions' | 'events' | 'races' | 'regattas' | 'signedIn', string>;
+export type ReportSql = Record<'sessionCount' | 'sessions' | 'events' | 'races' | 'regattas' | 'signedIn', string>;
 
 export const DEFAULT_DATASET: string;
 export const DEFAULT_TZ: string;
@@ -35,7 +37,7 @@ export function zoneOffsetMs(ms: number, tz: string): number;
 export function yesterday(now: number, tz: string): string;
 export function dayRange(day: string, tz: string): { from: string; to: string };
 export function reportSql(o: { day: string; tz?: string; dataset?: string }): ReportSql;
-export function summarize(rows: readonly SessionRow[]): Summary;
+export function summarize(rows: readonly SessionRow[], distinct?: number | string | null): Summary;
 export function formatReport(o: {
   day: string;
   tz: string;

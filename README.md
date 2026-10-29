@@ -2226,7 +2226,10 @@ node scripts/feedback.mjs show 79733007-b065-4920-b85d-51fc2d817d9a
 Recall changes views without loading a page, so the URL carries the view. A user's move to another event,
 race, tab (Start, Race, Coach) or the report adds **one** history entry, with `history.pushState`, once the
 new view is on screen; back and forward go through them and the app shows what each entry names (a
-`popstate` handler in `src/ui/app.ts`). Everything finer (the replay's time and trail, the selected boat,
+`popstate` handler in `src/ui/app.ts`, deciding with `popAction` in `src/ui/nav.ts`): the empty `/regattas`
+picker, an event's card, another event, another race of the same event, a tab or the report. A hash typed or
+linked in the page arrives as a `popstate` as well (there is no separate `hashchange` handler); an old
+`#coach` link still opens its tab at load. Everything finer (the replay's time and trail, the selected boat,
 the Coach's group or Race / Regatta view, a load settling, a link tidied at boot) uses
 `history.replaceState`, so scrubbing or playing never adds entries. Full screen keeps its own entry at the
 same URL (closing it pops that entry), and nothing is pushed while it is open.
@@ -2255,14 +2258,18 @@ Never both.
 
 ## Usage tracking
 
-First-party, anonymous usage events, stored in a **Workers Analytics Engine** dataset (no D1, KV or R2).
-The page's tracker (`src/ui/track.ts`) queues events and sends them in small batches to `POST /api/track`
-(`functions/_track.ts`), a few seconds after the first, when a batch of 20 is full, and when the page is
-hidden or left (`navigator.sendBeacon`, else `fetch` with `keepalive`). Each event becomes one data point.
+First-party, anonymous usage events, stored in a **Workers Analytics Engine** dataset (no new database, KV
+or R2; the per-IP rate limit reuses D1's existing `auth_rate_limits`). The page's tracker (`src/ui/track.ts`)
+queues events and sends them in small batches to `POST /api/track` (`functions/_track.ts`), a few seconds
+after the first, when a batch of 20 is full, and when the page is hidden or left. Each batch is one JSON
+`fetch` with `keepalive: true` (so it outlives the page; a 4 KB batch is far inside keepalive's 64 KB) and
+`credentials: 'omit'` (no cookies go with it, so never `navigator.sendBeacon`, which sends them). Each event
+becomes one data point.
 It is off in development and tests (`VITE_TRACK=1` turns it on in `npm run dev`).
 
-**Privacy.** No cookies are set or read, and no IP address, email, name, user id or user agent is sent or
-stored. The session is a random id (`crypto.randomUUID`) in `sessionStorage`: one tab, gone when it closes,
+**Privacy.** No cookies are set, read or sent, and no IP address, email, name, user id or user agent is sent
+or stored in the dataset. The server reads the IP only to count the batch against its hourly limit, under a
+salted SHA-256 of it (as feedback and race emails do); it is never written to a data point. The session is a random id (`crypto.randomUUID`) in `sessionStorage`: one tab, gone when it closes,
 never in `localStorage`. The referrer is kept as its host only, on a session's first event. The server
 adds only Cloudflare's two-letter country. Do Not Track and Global Privacy Control turn tracking off
 entirely. A failed send is dropped silently.
@@ -2282,7 +2289,7 @@ within a second counts once, and a session stops at 300 events.
 
 | column | holds |
 | --- | --- |
-| `index1` | session id |
+| `index1` | event name (the sampling key: kept low-cardinality, never the session) |
 | `blob1` | event name |
 | `blob2` | path: `/`, `/regattas`, `/regattas/start`, `/regattas/race`, `/regattas/coach`, `/regattas/report`, else `other` (never the query) |
 | `blob3` | RaceSense event id |
@@ -2293,12 +2300,23 @@ within a second counts once, and a session stops at 300 events.
 | `blob8` | theme drawn: `light` / `dark` |
 | `blob9` | detail (a tab, a provider, …) |
 | `blob10` | country (two letters, else empty) |
+| `blob11` | session id |
 | `double1` | the event's number in the session (1, 2, …) |
 | `double2` | ms since the session's first event |
 
-**Limits.** The endpoint takes POST only, a body of at most 4 KB, 1 to 20 events, only the known keys and
-event names, and every string matched to its pattern; any bad part refuses the whole batch (400, 413 over
-size, 403 from another site's page). Without the `RECALL_EVENTS` binding it answers 204 and stores nothing,
+Analytics Engine samples a busy dataset by its index, so the index is the event name (a couple of dozen
+values). A per-session index would make each session its own sampling bucket, and that hurts sampling.
+
+**Limits.** The endpoint takes POST only, `application/json` only (415 otherwise), a body of at most 4 KB,
+1 to 20 events, only the known keys and event names, and every string matched to its pattern; any bad part
+refuses the whole batch (400, 413 over size). The `Origin` header is required and must be exactly
+`https://recall.walkeforward.com`, `https://start-line.pages.dev` or a preview,
+`https://<one label>.start-line.pages.dev`; `http://localhost:<port>` and `http://127.0.0.1:<port>` pass only
+when the request itself was made to localhost (`wrangler pages dev`). A missing or `null` Origin, or any
+other, is a 403. Each batch then counts once against its IP's hour in `auth_rate_limits` (key
+`track-ip:<salted sha256 of the IP>`, one upsert per batch): past **2,000 batches an hour per IP** it answers
+429. That is generous on purpose (a fleet on one club's Wi-Fi shares an IP). With no `AUTH_DB`, or when D1
+errs, the batch goes through: analytics never breaks the page. Without the `RECALL_EVENTS` binding it answers 204 and stores nothing,
 so it was safe to ship before the dataset existed. Analytics Engine's own write limits (250 data points per
 invocation) are far above the batch cap.
 
@@ -2306,8 +2324,9 @@ invocation) are far above the batch cap.
 one day, midnight to midnight Eastern (`--tz UTC` or any IANA zone), yesterday by default: sessions,
 bounce rate (sessions with exactly one event), the funnel `landing_view` → `race_open` → `signin_start` →
 `signin_done`, top regattas and races, events by type and detail, signed in or not, device mix and
-referrer hosts. Counts are `SUM(_sample_interval)` (Analytics Engine samples busy datasets: exact at
-Recall's volume, an estimate beyond it).
+referrer hosts. Event counts are `SUM(_sample_interval)`. Sessions are `COUNT(DISTINCT blob11)`, and bounce
+rate and the funnel group the kept rows by session (`blob11`). Analytics Engine samples busy datasets, so
+all of it is exact at Recall's volume and an estimate beyond it (sessions then a floor).
 
 ```sh
 # Yesterday (Eastern). The token is read from the environment, sent only in the Authorization header, never printed.

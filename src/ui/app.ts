@@ -69,7 +69,7 @@ import {
   type StartPlan,
   type ViewState,
 } from './lastView';
-import { NC_ALL, YSC_PARAM, YS_PARAM, parsePickerParams } from './params';
+import { NC_ALL, YSC_PARAM, YS_PARAM } from './params';
 import { easternZone, raceHead, raceHeadHtml, raceName, raceOptionText, raceTitleHtml, type FeedCheck, type OfficialState } from './races';
 import {
   isNarrowStart,
@@ -197,7 +197,7 @@ import { createPaywall, hereWithout, lockedRange, startRace } from './paywall';
 import { eventCardHtml, eventCardView } from './eventCard';
 import { NOTIFY_PARAM, createAlerts, handleNotify, handleNotifyParam, notifyButtonHtml, watchAlerts, withNotify } from './notify';
 import { eventStarted, upcomingEvents } from '../data/upcoming';
-import { createNav } from './nav';
+import { createNav, popAction, type Screen } from './nav';
 import { raceId, setTrackAuth, setTrackPage, track } from './track';
 import { setPageState } from '../feedback/state';
 import { freeRacesOf, type FreeRaces } from '../data/freeRace';
@@ -468,6 +468,8 @@ export function startApp(): void {
   let listed: LandingEvent[] = [];
   /** The event on the event card (no races yet: eventCard.ts), shown in place of the digest; '' when none. */
   let cardEventId = '';
+  /** Back at the bare /regattas (showPicker): no event on screen, though the last one stays loaded. */
+  let pickerShown = false;
   let cardDoc: RegattaDoc | null = null;
   /** The document of the last event loadEvent found with no races, for its card. */
   let emptyDoc: RegattaDoc | null = null;
@@ -1886,12 +1888,6 @@ export function startApp(): void {
     if (t !== tab) nav.begin();
     setTab(t, { focus: true });
   });
-  addEventListener('hashchange', () => {
-    const t = tabFromHash(location.hash, tabs);
-    if (reportFromUrl('', location.hash)) setReport(true);
-    else if (t) setReport(false);
-    if (t && t !== tab) setTab(t);
-  });
   setTab(tab, { scroll: false, boot: true });
   // On a phone the boat strip sticks to the top; the tabs stick just under it.
   // --tabs-h keeps the expand button sticky just below both.
@@ -2397,7 +2393,7 @@ export function startApp(): void {
   /** Rebuild the Event select from the search query, keeping the loaded event selected. */
   function renderEventOptions(): void {
     const q = els.search.value;
-    const shown = cardEventId || eventId;
+    const shown = pickerShown ? '' : cardEventId || eventId;
     const { options, upcoming: soon, matches } = pickerOptions(events, q, shown, paywall.free, { events: upcoming, now: Date.now() });
     matchCount = matches.length;
     // Nothing loaded yet: a placeholder, so picking the first event still fires `change`.
@@ -2597,6 +2593,7 @@ export function startApp(): void {
    */
   function showEventCard(id: string, doc: RegattaDoc | null): void {
     if (cardEventId !== id) track('regatta_open', { event: id, detail: 'card' });
+    pickerShown = false;
     setTrackPage({ event: id });
     cardEventId = id;
     cardDoc = doc;
@@ -2638,7 +2635,7 @@ export function startApp(): void {
 
   /** A user pick (select, or Enter in the search). On failure the select goes back to the loaded event. */
   function pickEvent(id: string): void {
-    if (!id || (id === eventId && !cardEventId) || id === cardEventId) return;
+    if (!id || (id === eventId && !cardEventId && !pickerShown) || id === cardEventId) return;
     // A hand-set official link belongs to the event it was set on.
     if (ysParam !== undefined) {
       ysParam = undefined;
@@ -2651,6 +2648,7 @@ export function startApp(): void {
 
   /** Load an event (and its wanted race, else its default), or show its card when it has no races yet. */
   function openEvent(id: string, want?: { division: string; raceNumber: number }): void {
+    pickerShown = false;
     loadEvent(id, want).then(
       (r) => {
         if (r === 'empty') showEventCard(id, emptyDoc);
@@ -2667,6 +2665,7 @@ export function startApp(): void {
   els.event.addEventListener('change', () => pickEvent(els.event.value));
   /** Open a race of the list, as the Race menu does (the menu shows it; `restore` sets the view, else it carries over or resets). */
   function chooseRace(division: string, raceNumber: number, restore?: ViewState): void {
+    pickerShown = false;
     els.race.value = `${division}|${raceNumber}`;
     void loadRace(division, raceNumber, restore).then((r) => r instanceof Error && nav.cancel());
   }
@@ -2676,20 +2675,48 @@ export function startApp(): void {
     chooseRace(div, Number(n));
   });
 
-  // Back / forward between the app's pages (nav.ts): show what the entry's URL names (each write then replaces it).
-  // Full screen's own entry has the page's URL, so its back changes nothing here.
+  /**
+   * Back at the bare /regattas: nothing on screen and the picker empty, as a boot with nothing to open leaves
+   * it. Any load in flight is dropped; the last event stays loaded (its cache too) for a forward.
+   */
+  function showPicker(): void {
+    ++eventReq;
+    ++showGen;
+    if (playing) stopPlay(false);
+    pickerShown = true;
+    current = null;
+    hideEventCard();
+    paywall.hideLock();
+    els.digest.hidden = true;
+    els.race.innerHTML = '<option>—</option>';
+    els.race.disabled = true;
+    setStatus('');
+    setNotice('');
+    setTrackPage({});
+    renderEventOptions();
+  }
+
+  /** What is on screen, for popAction (nav.ts). */
+  const screenNow = (): Screen =>
+    pickerShown
+      ? { card: '', eventId: '', race: null }
+      : { card: cardEventId, eventId, race: current && current.eventId === eventId ? { division: current.division, raceNumber: current.raceNumber } : null };
+
+  // Back / forward between the app's pages (nav.ts), and a hash typed or linked in the page: show what the
+  // entry's URL names (each write then replaces it). Full screen's own entry has the page's URL, so its back
+  // changes nothing here. An old `#coach` link is read at load (startTab), not here.
   addEventListener('popstate', () => {
     nav.cancel();
-    const p = parsePickerParams(location.search);
     const t = tabFromHash(location.hash, tabs);
     const on = reportFromUrl(location.search, location.hash);
     if (on !== reportOn) setReport(on);
     if (t && t !== tab) setTab(t, { scroll: false });
-    if (!p.eventId) return;
-    if (p.eventId !== (cardEventId || eventId)) {
-      els.event.value = p.eventId;
-      openEvent(p.eventId, p.want);
-    } else if (p.want && (!current || current.division !== p.want.division || current.raceNumber !== p.want.raceNumber)) chooseRace(p.want.division, p.want.raceNumber);
+    const a = popAction(location.search, screenNow());
+    if (a.kind === 'picker') showPicker();
+    else if (a.kind === 'event') {
+      els.event.value = a.eventId;
+      openEvent(a.eventId, a.want);
+    } else if (a.kind === 'race') chooseRace(a.division, a.raceNumber);
   });
 
   // Typing only filters; it never loads an event (each load fetches telemetry).

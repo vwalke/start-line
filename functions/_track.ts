@@ -2,13 +2,19 @@
  * POST /api/track: the page's usage events (src/ui/track.ts), one Workers Analytics Engine data point each in
  * the RECALL_EVENTS binding (dataset recall_events). The schema is in functions/_trackSchema.ts.
  *
- * Without the binding it answers 204 and stores nothing, so it is safe to ship before the dataset exists.
+ * Without the binding it answers 204 and stores nothing (and touches no database), so it is safe to ship
+ * before the dataset exists. The page posts JSON with fetch (keepalive, no credentials); the Origin header is
+ * required and must be one of TRACK_ORIGINS' (trackOriginOk). Each batch then counts once against its IP's
+ * hourly counter in auth_rate_limits (`track-ip:<salted sha256>`, as feedback and race emails do; one upsert),
+ * 429 past TRACK_IP_LIMIT; with no AUTH_DB, or when D1 errs, it lets the batch through (analytics never
+ * breaks the page). The IP is used for that counter only, never written to a data point.
  * Every batch is checked whole (any bad part refuses it all): at most BODY_MAX bytes and BATCH_MAX events,
  * only known keys and event names, and every string matched to its pattern. Nothing that identifies a person
- * is read or written: no IP (only Cloudflare's coarse country), no cookie, no user agent.
+ * is stored: no IP (only Cloudflare's coarse country), no cookie, no user agent.
  * writeDataPoint is fire-and-forget (the runtime sends it after the answer); a failure is ignored.
  */
-import { trustedOrigin } from './_auth';
+import { countRateHit, pruneRateLimits, type D1Like } from './_authDb';
+import { ipHash } from './_feedback';
 import { readCapped } from './_vkx';
 import {
   AUTH,
@@ -35,17 +41,81 @@ export interface AnalyticsDatasetLike {
 
 export interface TrackEnv {
   RECALL_EVENTS?: AnalyticsDatasetLike;
+  /** The rate limit's counters (auth_rate_limits); without it there is no limit. */
+  AUTH_DB?: D1Like;
+  /** Salts the IP's hash in the counter's key. */
+  AUTH_SECRET?: string;
 }
 
 export interface TrackCtx {
   request: Request;
   env: TrackEnv;
+  waitUntil?(p: Promise<unknown>): void;
+}
+
+export interface TrackDeps {
+  /** Batches per IP per hour; null: no limit. */
+  ipLimit?: number | null;
+  now?: () => number;
+  random?: () => number;
 }
 
 export interface TrackPoint {
   indexes: [string];
   blobs: string[];
   doubles: number[];
+}
+
+/**
+ * Batches per IP per hour. A busy session sends a batch every few seconds at most (300 events, often one
+ * or two a batch), and a club's or a marina's Wi-Fi puts a whole fleet behind one IP: room for many.
+ */
+export const TRACK_IP_LIMIT = 2_000;
+const PRUNE_CHANCE = 0.01;
+
+/** The production site, and the Pages project's own address (previews are one label under it). */
+export const SITE_ORIGIN = 'https://recall.walkeforward.com';
+const PAGES_HOST = 'start-line.pages.dev';
+const PREVIEW_RE = /^https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.start-line\.pages\.dev$/;
+const DEV_RE = /^http:\/\/(?:localhost|127\.0\.0\.1):\d{1,5}$/;
+const isLocalHost = (host: string): boolean => /^(?:localhost|127\.0\.0\.1)(?::\d{1,5})?$/i.test(host);
+
+/**
+ * The page that sent the batch is Recall's: the production origin exactly, the Pages project's own or a
+ * preview's (`https://<branch or hash>.start-line.pages.dev`), or, only when this request itself was made to
+ * localhost (wrangler pages dev), `http://localhost:<port>` / `http://127.0.0.1:<port>`. Whole-string matches:
+ * no missing or "null" Origin, no suffix or prefix lookalikes.
+ */
+export function trackOriginOk(origin: string | null, requestUrl: string): boolean {
+  if (!origin || origin === 'null') return false;
+  if (origin === SITE_ORIGIN || origin === `https://${PAGES_HOST}` || PREVIEW_RE.test(origin)) return true;
+  if (!DEV_RE.test(origin)) return false;
+  try {
+    return isLocalHost(new URL(requestUrl).host);
+  } catch {
+    return false;
+  }
+}
+
+/** Count this batch against its IP's hour; true when over. Fails open: no database, or an error, is never over. */
+async function overLimit(ctx: TrackCtx, deps: TrackDeps): Promise<boolean> {
+  const limit = deps.ipLimit === undefined ? TRACK_IP_LIMIT : deps.ipLimit;
+  const db = ctx.env.AUTH_DB;
+  if (limit == null || !db) return false;
+  try {
+    const now = (deps.now ?? Date.now)();
+    const ip = await ipHash(ctx.request.headers.get('cf-connecting-ip') ?? 'local', ctx.env.AUTH_SECRET);
+    const n = await countRateHit(db, `track-ip:${ip}`, now);
+    if ((deps.random ?? Math.random)() < PRUNE_CHANCE) {
+      const prune = pruneRateLimits(db, now).catch(() => undefined);
+      if (ctx.waitUntil) ctx.waitUntil(prune);
+      else await prune;
+    }
+    // countRateHit answers Infinity when D1 sends no count back: an error here, so let it through.
+    return Number.isFinite(n) && n > limit;
+  } catch {
+    return false;
+  }
 }
 
 const BATCH_KEYS = new Set(['sid', 'dev', 'th', 'auth', 'ev']);
@@ -85,7 +155,8 @@ export function trackPoints(body: unknown, country = ''): TrackPoint[] | null {
     if (e == null || r == null || d == null || f == null || s == null || t == null) return null;
     // The referrer belongs to the session's first event only.
     if (f && s !== 1) return null;
-    out.push({ indexes: [sid], blobs: [x.n, pathOf(x.p), e, r, auth, dev, f, th, d, country], doubles: [s, t] });
+    // index1 is the event name: Analytics Engine samples by index, so it stays low-cardinality (the session is blob11).
+    out.push({ indexes: [x.n], blobs: [x.n, pathOf(x.p), e, r, auth, dev, f, th, d, country, sid], doubles: [s, t] });
   }
   return out;
 }
@@ -96,14 +167,16 @@ function countryOf(req: Request): string {
   return typeof c === 'string' && /^[A-Z]{2}$/.test(c) && c !== 'XX' && c !== 'T1' ? c : '';
 }
 
-export async function handleTrack(ctx: TrackCtx): Promise<Response> {
+export async function handleTrack(ctx: TrackCtx, deps: TrackDeps = {}): Promise<Response> {
   const { request: req, env } = ctx;
   if (req.method !== 'POST') return new Response(null, { status: 405, headers: { allow: 'POST', 'cache-control': 'no-store' } });
   const ds = env.RECALL_EVENTS;
   if (!ds) return noContent();
-  // A browser's beacon carries this site's Origin; another site's page is refused (no Origin: a beacon from an older browser).
-  const origin = req.headers.get('origin');
-  if (origin && origin !== 'null' && !trustedOrigin(origin, new URL(req.url).origin)) return refuse(403);
+  // The page's fetch always carries its Origin; anything else (another site, no Origin, "null") is refused.
+  if (!trackOriginOk(req.headers.get('origin'), req.url)) return refuse(403);
+  // JSON only: a form on another page can't send it without asking first (CORS), and this route never says yes.
+  if (!/^application\/json\s*(?:;|$)/i.test(req.headers.get('content-type') ?? '')) return refuse(415);
+  if (await overLimit(ctx, deps)) return refuse(429);
   const raw = await readCapped(req, BODY_MAX);
   if (!raw) return refuse(413);
   let body: unknown;
