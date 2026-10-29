@@ -19,6 +19,7 @@ import type { RaceRequest, WorkerRequest, WorkerResponse } from '../worker';
 import { wentWellHtml } from './coachCards';
 import { esc, ordinal } from './format';
 import { raceName, shortRaceName } from './races';
+import { UNOFFICIAL_PLACE, unofficialNoteHtml } from './resultText';
 
 /** What the runner needs of a worker (a Worker, or a test double). */
 export interface WorkerPort {
@@ -188,15 +189,19 @@ export function createRegattaRunner(makeWorker: () => WorkerPort, onChange: () =
 
 // ---- the view
 
-const SOURCE_WORDS: Record<FinishSource, string> = { official: 'official', racesense: "RaceSense's finish", tracker: 'tracker finish' };
+const SOURCE_WORDS: Record<FinishSource, string> = { official: 'official', racesense: "RaceSense's finish", tracker: UNOFFICIAL_PLACE };
 
-/** `12th`, `~12th` (a tracker finish), the official code (`DPI 15` with its points when the boat finished with it), or a dash. */
+/** `12th`, `~12th` (an unofficial place from the tracker finish), the official code (`DPI 15` with its points when the boat finished with it), or a dash. */
 export const finishShort = (f: RaceFinish | null): string =>
   f?.place != null
     ? `${f.source === 'tracker' ? '~' : ''}${ordinal(f.place)}`
     : f?.code && f.onWater != null && f.points != null && !codeInfo(f.code).lost
       ? `${f.code} ${pointsText(f.points)}`
       : (f?.code ?? '—');
+
+/** Some race shows a `~` place (finishShort): the places get the unofficial finish order note. */
+export const anyUnofficial = (s: Pick<RegattaSummary, 'rows'>): boolean =>
+  s.rows.some((r) => r.status === 'done' && r.digest?.finish?.place != null && r.digest.finish.source === 'tracker');
 
 /** A coded result's on-water place, for the place chip: "12th on the water"; empty without one. */
 const onWaterText = (f: RaceFinish | null): string => (f?.place == null && f?.onWater != null ? `${ordinal(f.onWater)} on the water` : '');
@@ -241,7 +246,7 @@ export function regattaPlacesHtml(s: RegattaSummary): string {
     const what = placeWhat(r);
     return `<li class="rp ${r.status}" data-race="${r.raceNumber}" title="${esc(`${r.name}: ${what}`)}"><b>${esc(r.label)}</b> <span class="rp-place">${esc(place)}</span>${of}</li>`;
   });
-  return `<ol class="regatta-places" aria-label="Place in each race">${li.join('')}</ol>`;
+  return `<ol class="regatta-places" aria-label="Place in each race">${li.join('')}</ol>${unofficialNoteHtml(anyUnofficial(s), 'muted regatta-note unofficial-note')}`;
 }
 
 /**

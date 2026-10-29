@@ -13,6 +13,7 @@ import type { RaceAnalysis } from '../analysis/types';
 import { trackMap } from './charts';
 import { esc } from './format';
 import { MISSING, type ReportField, type ReportLine, type ReportModel } from './report';
+import { UNOFFICIAL_ORDER, UNOFFICIAL_ORDER_TIP } from './resultText';
 
 /** No boat selected: where to pick one (the Coach's own wording). */
 export const REPORT_NO_BOAT = 'Pick a boat in the boat list to see its report.';
@@ -104,7 +105,9 @@ function regattaHtml(m: ReportModel): string {
     )
     .join('');
   const table = `<table class="rp-table rp-regatta-t"><thead><tr><th scope="col">Race</th><th scope="col">Place</th><th scope="col">Of</th><th scope="col">On the water</th><th scope="col">Findings · at stake</th><th scope="col"></th></tr></thead><tbody>${rows}</tbody></table>`;
-  const status = `<p class="rp-key">${r.done} of ${r.total} races analyzed${r.done < r.total ? ' (the rest are still being worked out)' : ''}.</p>`;
+  // Printed, so the note's tooltip is spelled out.
+  const unofficial = r.unofficial ? `<p class="rp-key unofficial-note"><b>~ ${UNOFFICIAL_ORDER}.</b> ${esc(UNOFFICIAL_ORDER_TIP)}</p>` : '';
+  const status = `${unofficial}<p class="rp-key">${r.done} of ${r.total} races analyzed${r.done < r.total ? ' (the rest are still being worked out)' : ''}.</p>`;
   const pens = r.penalties.length ? `<h4>Penalties</h4><ul class="rp-lines">${r.penalties.map((p) => `<li class="rp-line warn"><span class="rp-g" aria-hidden="true">⚠</span> ${esc(p)}</li>`).join('')}</ul>` : '';
   const work = r.workOn.length
     ? `<ol class="rp-work">${r.workOn.map((w) => `<li><b>${esc(w.title)}</b>${w.score ? ` <b class="rp-sec">${esc(w.score)}</b>` : ''}<br><span class="rp-sent">${esc(w.why)}.</span>${w.tip ? ` <span class="rp-tip"><b>Tip</b> ${esc(w.tip)}</span>` : ''}</li>`).join('')}</ol>`

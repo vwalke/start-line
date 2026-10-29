@@ -1056,7 +1056,7 @@ CAP = high ∞, medium ∞, low 60 s                        (IMPACT_CAP_S; LOW_I
 
 The race picker lists every race with a gun and a start line, newest first,
 as short options: `Race 4 · Wed 11:40 · RS 5`, `Practice · Mon 09:55 · RS 1`,
-`Race 3 · Wed 08:55 · RS 4 · ~ tracker`, `Race 8 · Fri 09:55 · rebuilt`
+`Race 3 · Wed 08:55 · RS 4`, `Race 8 · Fri 09:55 · rebuilt`
 (Eastern time; the select's tooltip says EDT/EST; `RS n` is RaceSense's own
 number, shown when it differs). The race header shows the same name, with
 RaceSense's number as a small `RS n` tag, and one line of chips with an ⓘ
@@ -1122,8 +1122,11 @@ next class. An automatically matched event must also beat the next candidate by
   Otherwise the chip is `official places · RaceSense times` (or tracker times),
   a plain note, and times come from RaceSense's finish, else the crossing.
 - **Not linked:** RaceSense's finishes. A race with none gets **tracker
-  finishes**, marked `~` per boat in the boat list and `⚠ ~ tracker finishes` on
-  the race. A tracker finish is the first crossing of the finish line (its two
+  finishes**, marked `~` per place in the boat list, Coach's Regatta places and
+  the report, each with a small `~ Unofficial finish order` note (its tooltip:
+  official results aren't posted yet; the places come from when each boat's
+  tracker crossed the finish line); nothing about them in the race header, and
+  no mark in the race picker. A tracker finish is the first crossing of the finish line (its two
   trackers, where they were at the time; the start line's trackers when the
   course has no finish line) after the boat's own `race_stage` turned
   `finishing` (its last leg), and not before the fleet's onset (20th

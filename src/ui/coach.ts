@@ -108,7 +108,7 @@ export function coachChips(
   const tz = a.meta.tzOffsetMs;
   const chips: Chip[] = [];
   const official = a.meta.results?.places === 'official';
-  const placeBy = official ? 'Official place' : b.finishSource === 'tracker' ? 'Place by the tracker finish (~)' : 'Place by the tracked finish';
+  const placeBy = official ? 'Official place' : b.finishSource === 'tracker' ? 'Unofficial place (tracker finish)' : 'Place by the tracked finish';
   if (b.finishPos != null) chips.push({ text: `${ordinal(b.finishPos)} of ${fleetOf(a)}`, title: placeBy });
   else if (b.finishCode) chips.push({ text: codeShort(b)!, title: `Official result: ${codeWords(b)}` });
   else chips.push(warnChip(official ? 'no official place' : 'no tracked finish'));

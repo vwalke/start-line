@@ -34,9 +34,9 @@ import type { OfficialRaceInput } from '../data/racesense/adapter';
 import { GROUP_LABEL, coachBoatFor } from './coach';
 import { cardText, cardWarnings, goodTexts, penaltyText, rankedHead, scoredWord, secondsChip, thinText, thinWhat, turnChip, wentText } from './coachCards';
 import { gateChip, groupSecondsChip, placesWord } from './coachLegs';
-import { LEG_TYPE, finishShort, penaltyRowText, regattaWentText, secs } from './coachRegatta';
+import { LEG_TYPE, anyUnofficial, finishShort, penaltyRowText, regattaWentText, secs } from './coachRegatta';
 import { degLabel, duration, f0, f1, localTime, ordinal, tzLabel } from './format';
-import { codeShort, codeWords } from './resultText';
+import { UNOFFICIAL_ORDER, UNOFFICIAL_ORDER_TIP, UNOFFICIAL_PLACE, codeShort, codeWords } from './resultText';
 
 /** What the report shows for a figure the data doesn't have. */
 export const MISSING = '—';
@@ -148,6 +148,8 @@ export interface ReportRegattaRow {
 
 export interface ReportRegatta {
   rows: ReportRegattaRow[];
+  /** A place shown is `~` (the tracker finish): the table gets the unofficial finish order note. */
+  unofficial: boolean;
   done: number;
   total: number;
   /** Every race analysed or failed: nothing still to come. */
@@ -252,7 +254,7 @@ function headerFields(a: RaceAnalysis, b: BoatResult, official: OfficialRaceInpu
   const tilde = b.finishSource === 'tracker' ? '~' : '';
   out.push(
     field('On the water', water != null ? `${tilde}${ordinal(water)} of ${of}` : MISSING, {
-      note: water == null ? (b.finishCode ? codeWords(b) : 'no finish found') : b.finishSource === 'tracker' ? 'from the tracker finish' : undefined,
+      note: water == null ? (b.finishCode ? codeWords(b) : 'no finish found') : b.finishSource === 'tracker' ? UNOFFICIAL_PLACE : undefined,
     }),
   );
   if (isOfficial) {
@@ -474,7 +476,7 @@ function notesOf(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null): stri
       : r?.places === 'racesense'
         ? 'Places: RaceSense’s finish order (no official results linked).'
         : r?.places === 'tracker'
-          ? 'Places: the tracks’ finish-line crossings (~).'
+          ? `Places: ${UNOFFICIAL_ORDER.toLowerCase()} (~). ${UNOFFICIAL_ORDER_TIP}`
           : 'Places: the tracked finish order (no official results linked).',
   );
   for (const n of a.notes) if (n.kind === 'legs-fleet' || n.kind === 'marks-est' || n.kind === 'wind-assumed' || n.kind === 'marks-moved' || n.kind === 'shortened') out.push(n.text);
@@ -497,6 +499,7 @@ function regattaSection(s: RegattaSummary): ReportRegatta {
         status: r.status === 'done' ? (r.digest?.tracked ? '' : 'no track') : r.status === 'error' ? `couldn't load` : 'not analyzed yet',
       };
     }),
+    unofficial: anyUnofficial(s),
     done: s.done,
     total: s.total,
     settled: s.rows.every((r) => r.status === 'done' || r.status === 'error'),

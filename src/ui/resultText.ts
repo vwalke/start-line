@@ -5,7 +5,17 @@
  */
 import { codeInfo, pointsText } from '../data/official/codes';
 import type { BoatResult } from '../analysis/types';
-import { ordinal } from './format';
+import { esc, ordinal } from './format';
+
+/** A place from the tracker's finish-line crossing (`~`), in words: the boat list's label, Coach's place chip, the report. */
+export const UNOFFICIAL_PLACE = 'unofficial (tracker finish)';
+/** The note under a list of places when any is `~`, and its tooltip. */
+export const UNOFFICIAL_ORDER = 'Unofficial finish order';
+export const UNOFFICIAL_ORDER_TIP = "Official results aren't posted yet. These places come from when each boat's tracker crossed the finish line.";
+
+/** `<p class="…">~ Unofficial finish order</p>` with its tooltip; '' when no place shown is `~`. */
+export const unofficialNoteHtml = (show: boolean, cls: string): string =>
+  show ? `<p class="${cls}" title="${esc(UNOFFICIAL_ORDER_TIP)}">~ ${UNOFFICIAL_ORDER}</p>` : '';
 
 type Res = Pick<BoatResult, 'finishPos' | 'finishCode' | 'scoredPoints' | 'onWaterPlace' | 'penaltyPlaces'>;
 
