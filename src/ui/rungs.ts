@@ -1,21 +1,29 @@
 /**
- * Ladder rungs on the track map's scrubber (Map B): on a beat or a run, a thin line square to that leg's wind
- * through the race leader (coach/progress.ts progressAt: the boat furthest along the course), and one through the
- * selected boat, labelled with how far it is behind the leader up (or down) the wind. Each rung lies on its own
- * boat's leg's wind; the distance is only given when both boats are on the same leg.
+ * Ladder rungs on the track map's scrubber (Map B): on a beat or a run, a thin line square to that leg's wind at the
+ * race leader's rung, and one at the selected boat's, labelled with how far it is behind the leader up (or down) the
+ * wind. Measured as the Coach measures the ladder (analysis/coach/ladderNow.ts): each leg's one wind (timeGap.ts
+ * legWinds, the runs read from the gybes where the Coach has them), the layline rung (ladder.ts rung), and the leader
+ * first by course progress with estimated places skipped (as the map's tooltip skips them).
  *
- * - The wind on a leg: Recall's estimate for that beat (WindInfo.estimates), else the wind (wind.ts makeTwdAt)
- *   at the middle of the fleet's time on the leg. One wind per leg, so the rungs don't swing within a leg.
- * - None before the gun, on a reach, once the boat has finished, or held at its last fix past the end of its track.
- * - A rung spans the course (the marks and lines, padded), never the whole plane.
+ * - A rung lies where its boat's rung puts it: `rung` from the leg's mark along the wind (the last leg's from the
+ *   finish line's middle). Inside the laylines that is through the boat; past one, a little behind it, where its
+ *   rung says it is. So the leader's is never behind the selected boat's, and the two lines are the distance in the
+ *   label apart.
+ * - None before the gun, on a reach, once the boat has finished, or with no position for it then.
+ * - Each line runs edge to edge across the view drawn (after pan, zoom or the follow camera), so it reads as a
+ *   course-wide line at any zoom.
+ * - Labels lie along their own line, just off it (rotated with it, never upside down), slid along it clear of the
+ *   boats and their labels, the marks and their labels, the wind arrow, the scale bar and the other rung's label.
  *
- * The geometry and the choice of rungs are pure (tests); paintRungs keeps one line and one label per rung in the
- * map's `g.scrub-rungs`, setting only the attributes that change.
+ * Nothing here allocates per frame once warm: the rungs, the draws and their labels are kept and filled in place,
+ * the label text is only rebuilt when what it says changes, and paintRungs only sets what changed.
  */
-import { bearingVec, dot, median, type Vec } from '../analysis/geo';
-import { PRE_LEG, type LegKind, type RaceAnalysis } from '../analysis/types';
-import { makeTwdAt, windPoints } from '../analysis/wind';
+import { bearingVec, type Vec } from '../analysis/geo';
+import type { LadderNow } from '../analysis/coach/ladderNow';
+import type { LegWind } from '../analysis/coach/timeGap';
+import type { LegKind } from '../analysis/types';
 import type { ClassDims } from '../data/classes';
+import { textWidth } from './labels';
 import { rotator } from './mapPieces';
 import type { Box } from './view';
 
@@ -37,113 +45,15 @@ export function rungAxis(kind: LegKind, twdDeg: number, mapTwdDeg: number): Rung
   return { kind, twdDeg, up, across: [-up[1], up[0]] };
 }
 
-/** The middle of the fleet's time on leg `li` (the median of the boats' leg mid-times), ms; null when nobody sailed it. */
-function legMidMs(a: Pick<RaceAnalysis, 'boats'>, li: number): number | null {
-  const mids = a.boats.map((b) => b.legs[li]).flatMap((l) => (l ? [(l.startMs + l.endMs) / 2] : []));
-  return mids.length ? median(mids) : null;
-}
+const axesCache = new WeakMap<readonly LegWind[], { mapTwdDeg: number; axes: (RungAxis | null)[] }>();
 
-const axesCache = new WeakMap<RaceAnalysis, (RungAxis | null)[]>();
-
-/** Each leg's rung axis (null on a reach), worked out once per race. */
-export function legAxes(a: RaceAnalysis): (RungAxis | null)[] {
-  let axes = axesCache.get(a);
-  if (axes) return axes;
-  const twdAt = makeTwdAt(windPoints(a.wind), a.wind.twdAtGunDeg);
-  axes = a.legs.map((leg, li) => {
-    const est = a.wind.estimates.find((e) => e.legIndex === li);
-    const twd = est ? est.twdDeg : twdAt(legMidMs(a, li) ?? a.meta.gunMs);
-    return rungAxis(leg.kind, twd, a.wind.twdAtGunDeg);
-  });
-  axesCache.set(a, axes);
+/** Each leg's rung axis from the Coach's leg winds `lw` (timeGap.ts legWinds; null on a reach), worked out once per model. */
+export function legAxes(kinds: readonly LegKind[], lw: readonly LegWind[], mapTwdDeg: number): (RungAxis | null)[] {
+  const hit = axesCache.get(lw);
+  if (hit && hit.mapTwdDeg === mapTwdDeg) return hit.axes;
+  const axes = kinds.map((kind, k) => (lw[k] ? rungAxis(kind, lw[k].twdDeg, mapTwdDeg) : null));
+  axesCache.set(lw, { mapTwdDeg, axes });
   return axes;
-}
-
-/** The course's box is padded by this share of its size each way… */
-export const RUNG_PAD = 0.15;
-/** …and at least this much, m. */
-export const RUNG_PAD_M = 60;
-
-/** The course's box in map coordinates: the marks, the start and finish lines and the leg ends, padded (RUNG_PAD). */
-export function courseBox(pts: readonly Vec[]): Box | null {
-  if (!pts.length) return null;
-  const box: Box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
-  for (const [x, y] of pts) [box.x0, box.y0, box.x1, box.y1] = [Math.min(box.x0, x), Math.min(box.y0, y), Math.max(box.x1, x), Math.max(box.y1, y)];
-  const pad = Math.max(RUNG_PAD_M, RUNG_PAD * Math.max(box.x1 - box.x0, box.y1 - box.y0));
-  return { x0: box.x0 - pad, y0: box.y0 - pad, x1: box.x1 + pad, y1: box.y1 + pad };
-}
-
-const boxCache = new WeakMap<RaceAnalysis, Box | null>();
-
-/** The race's course box (courseBox), worked out once per race. */
-export function raceCourseBox(a: RaceAnalysis): Box | null {
-  if (boxCache.has(a)) return boxCache.get(a)!;
-  const rot = rotator(a.wind.twdAtGunDeg);
-  const fl = a.finishLine;
-  const pts = [a.line.left, a.line.right, ...(fl ? [fl.left, fl.right] : []), ...a.marks.flatMap((m) => m.xy), ...(a.legPts ?? [])].map(rot);
-  const box = courseBox(pts);
-  boxCache.set(a, box);
-  return box;
-}
-
-/**
- * The part of the line through `p` along `dir` inside `box` (grown to hold `p` and `pad` round it, so a boat
- * outside the course still gets its rung), ends in order along `dir`; null for a zero direction.
- */
-export function rungSegment(p: Vec, dir: Vec, box: Box, pad = 0): [Vec, Vec] | null {
-  const b = { x0: Math.min(box.x0, p[0] - pad), y0: Math.min(box.y0, p[1] - pad), x1: Math.max(box.x1, p[0] + pad), y1: Math.max(box.y1, p[1] + pad) };
-  return clipLine(p, dir, b, -Infinity, Infinity);
-}
-
-/** Liang–Barsky: the part of p + s·dir (s in [s0, s1]) inside `box`; null when none, or for a zero direction. */
-export function clipLine(p: Vec, dir: Vec, box: Box, s0 = -Infinity, s1 = Infinity): [Vec, Vec] | null {
-  if (!(Math.hypot(dir[0], dir[1]) > 0)) return null;
-  let lo = s0;
-  let hi = s1;
-  const sides: [number, number][] = [
-    [-dir[0], p[0] - box.x0],
-    [dir[0], box.x1 - p[0]],
-    [-dir[1], p[1] - box.y0],
-    [dir[1], box.y1 - p[1]],
-  ];
-  for (const [q, r] of sides) {
-    if (q === 0) {
-      if (r < 0) return null;
-      continue;
-    }
-    const s = r / q;
-    if (q < 0) lo = Math.max(lo, s);
-    else hi = Math.min(hi, s);
-  }
-  if (!(lo <= hi) || !Number.isFinite(lo) || !Number.isFinite(hi)) return null;
-  return [
-    [p[0] + lo * dir[0], p[1] + lo * dir[1]],
-    [p[0] + hi * dir[0], p[1] + hi * dir[1]],
-  ];
-}
-
-/**
- * How far `p` is behind `leader` along the leg's wind, m (map units are metres): + = behind (downwind of the
- * leader on a beat, upwind of it on a run), − = ahead.
- */
-export function ladderBehindM(p: Vec, leader: Vec, axis: Pick<RungAxis, 'kind' | 'up'>): number {
-  const d = dot([leader[0] - p[0], leader[1] - p[1]], axis.up);
-  return axis.kind === 'upwind' ? d : -d;
-}
-
-/** The leader among fleet places (coach/progress.ts progressAt `byId`): the boat in first place; null with none. */
-export function leaderOf(byId: ReadonlyMap<string, { place: number }>): string | null {
-  for (const [id, r] of byId) if (r.place === 1) return id;
-  return null;
-}
-
-/** A boat as the rungs need it (charts.ts BoatAt). */
-export interface RungBoat {
-  id: string;
-  leg: number;
-  mx: number;
-  my: number;
-  hold: boolean;
 }
 
 export interface Rung {
@@ -151,52 +61,73 @@ export interface Rung {
   id: string;
   leg: number;
   axis: RungAxis;
-  at: Vec;
-  /** The selected boat's distance behind the leader along the wind, m; null when it isn't a fair comparison. */
+  /** A point on the rung, map units (kept and filled in place). */
+  at: [number, number];
+  /** The boat's rung, m (ladderNow.ts LadderRead.rung). */
+  rung: number;
+  /** The selected boat's distance behind the leader along the wind, m (its rung less the leader's); null across legs or with no leader rung. */
   behindM: number | null;
 }
 
 /** What decides the rungs at one moment. */
 export interface RungInput {
-  t: number;
-  boats: readonly RungBoat[];
-  /** The race leader now; null while not known. */
-  leader: string | null;
+  now: LadderNow;
   selected: string | null;
   axes: readonly (RungAxis | null)[];
-  /** When each boat finished (absent or null: not finished). */
-  finishMs: ReadonlyMap<string, number | null>;
-  /** The competitors (a selected boat not racing gets no rung). */
-  racing: ReadonlySet<string>;
+  /** The map's rotation (charts.ts: the gun's wind at the top). */
+  mapTwdDeg: number;
 }
 
-/** Boat `b`'s rung axis now, or null: before the gun, on a reach, finished, or held at its last fix. */
-export function rungAxisFor(b: RungBoat, t: number, axes: readonly (RungAxis | null)[], finishMs: number | null | undefined): RungAxis | null {
-  if (b.leg === PRE_LEG || b.hold) return null;
-  if (finishMs != null && t >= finishMs) return null;
-  return axes[b.leg] ?? null;
+const newRung = (role: Rung['role']): Rung => ({ role, id: '', leg: -1, axis: null as unknown as RungAxis, at: [0, 0], rung: 0, behindM: null });
+const rungSlots = { leader: newRung('leader'), sel: newRung('sel') };
+const rungsOut: Rung[] = [];
+
+/**
+ * Fill `r` from read `i` of `o.now`: false (no rung) when it has finished, has no position, or is on a reach.
+ * The point is the leg's mark (the finish line's middle on the last leg) less the rung along the wind, in map units.
+ */
+function fillRung(o: RungInput, i: number, r: Rung): boolean {
+  const x = o.now.reads[i];
+  if (!x || x.done || x.est || x.leg < 0 || !Number.isFinite(x.rung)) return false;
+  const axis = o.axes[x.leg];
+  if (!axis) return false;
+  const mark = o.now.course.pts[x.leg + 1];
+  const tw = (axis.twdDeg * Math.PI) / 180;
+  const s = axis.kind === 'upwind' ? -x.rung : x.rung;
+  const px = mark[0] + s * Math.sin(tw);
+  const py = mark[1] + s * Math.cos(tw);
+  const th = (o.mapTwdDeg * Math.PI) / 180;
+  const c = Math.cos(th);
+  const sn = Math.sin(th);
+  r.id = x.id;
+  r.leg = x.leg;
+  r.axis = axis;
+  r.at[0] = px * c - py * sn;
+  r.at[1] = -(px * sn + py * c);
+  r.rung = x.rung;
+  r.behindM = null;
+  return true;
 }
 
-/** The rungs at a moment: the leader's, then the selected boat's (when it isn't the leader); none until the leader is known. */
-export function rungsAt(o: RungInput): Rung[] {
-  if (o.leader == null) return [];
-  const byId = new Map(o.boats.map((b) => [b.id, b]));
-  const out: Rung[] = [];
-  const of = (role: Rung['role'], id: string): Rung | null => {
-    const b = byId.get(id);
-    const axis = b && rungAxisFor(b, o.t, o.axes, o.finishMs.get(id));
-    return b && axis ? { role, id, leg: b.leg, axis, at: [b.mx, b.my], behindM: null } : null;
-  };
-  const lead = of('leader', o.leader);
-  if (lead) out.push(lead);
-  if (o.selected != null && o.selected !== o.leader && o.racing.has(o.selected)) {
-    const sel = of('sel', o.selected);
-    if (sel) {
-      if (lead && lead.leg === sel.leg) sel.behindM = ladderBehindM(sel.at, lead.at, sel.axis);
-      out.push(sel);
-    }
+/**
+ * The rungs at a moment: the leader's, then the selected boat's (when it isn't the leader), each where its rung puts
+ * it; the distance only when both are on the same leg. The array and the rungs are kept and refilled (read them
+ * before the next call).
+ */
+export function rungsAt(o: RungInput): readonly Rung[] {
+  rungsOut.length = 0;
+  const { reads, leader } = o.now;
+  const lead = leader >= 0 && fillRung(o, leader, rungSlots.leader) ? rungSlots.leader : null;
+  if (lead) rungsOut.push(lead);
+  if (o.selected == null || (leader >= 0 && reads[leader].id === o.selected)) return rungsOut;
+  let si = -1;
+  for (let i = 0; i < reads.length; i++) if (reads[i].id === o.selected) si = i;
+  const sel = si >= 0 && fillRung(o, si, rungSlots.sel) ? rungSlots.sel : null;
+  if (sel) {
+    if (lead && lead.leg === sel.leg) sel.behindM = sel.rung - lead.rung;
+    rungsOut.push(sel);
   }
-  return out;
+  return rungsOut;
 }
 
 /** Closer than this, m (or this share of a boat length), the selected boat reads as level with the leader. */
@@ -223,9 +154,73 @@ export function rungLabel(r: Pick<Rung, 'role' | 'behindM'>, sail: string, dims:
   return r.behindM == null ? sail : `${sail} · ${ladderText(r.behindM, dims)}`;
 }
 
+// ---- what the labels keep clear of ------------------------------------------------
+
+/** Boxes, map units, in typed arrays (grown, never shrunk): what a label keeps clear of. */
+export class Rects {
+  n = 0;
+  private b = new Float64Array(4 * 64);
+  clear(): void {
+    this.n = 0;
+  }
+  add(x0: number, y0: number, x1: number, y1: number): void {
+    if (4 * (this.n + 1) > this.b.length) {
+      const g = new Float64Array(this.b.length * 2);
+      g.set(this.b);
+      this.b = g;
+    }
+    const i = 4 * this.n++;
+    this.b[i] = x0;
+    this.b[i + 1] = y0;
+    this.b[i + 2] = x1;
+    this.b[i + 3] = y1;
+  }
+  /** How many boxes overlap this one. */
+  hits(x0: number, y0: number, x1: number, y1: number): number {
+    let k = 0;
+    const b = this.b;
+    for (let i = 0; i < 4 * this.n; i += 4) if (x0 < b[i + 2] && b[i] < x1 && y0 < b[i + 3] && b[i + 1] < y1) k++;
+    return k;
+  }
+}
+
+/** Liang–Barsky: the part of p + s·d (s in [s0, s1]) inside `box`, as [s0, s1] into `out`; false when none, or for a zero direction. */
+export function clipSpan(px: number, py: number, dx: number, dy: number, box: Box, s0: number, s1: number, out: { s0: number; s1: number }): boolean {
+  if (!(Math.hypot(dx, dy) > 0)) return false;
+  let lo = s0;
+  let hi = s1;
+  for (let k = 0; k < 4; k++) {
+    const q = k === 0 ? -dx : k === 1 ? dx : k === 2 ? -dy : dy;
+    const r = k === 0 ? px - box.x0 : k === 1 ? box.x1 - px : k === 2 ? py - box.y0 : box.y1 - py;
+    if (q === 0) {
+      if (r < 0) return false;
+      continue;
+    }
+    const s = r / q;
+    if (q < 0) lo = Math.max(lo, s);
+    else hi = Math.min(hi, s);
+  }
+  if (!(lo <= hi) || !Number.isFinite(lo) || !Number.isFinite(hi)) return false;
+  out.s0 = lo;
+  out.s1 = hi;
+  return true;
+}
+
 // ---- drawing ------------------------------------------------------------------
 
-/** One rung as drawn, map units: its line, and its label (none when the rung is out of view). */
+/** A rung's label as drawn: its middle, map units, and its angle (°, within ±90: never upside down). */
+export interface RungLabelDraw {
+  x: number;
+  y: number;
+  deg: number;
+  text: string;
+  fs: number;
+  sw: number;
+  /** Its box (axis-aligned, around the rotated text), map units. */
+  box: Box;
+}
+
+/** One rung as drawn, map units: its line across the view, and its label (null when there's no room for it). */
 export interface RungDraw {
   role: Rung['role'];
   x1: number;
@@ -234,81 +229,217 @@ export interface RungDraw {
   y2: number;
   w: number;
   dash: string;
-  label: { x: number; y: number; anchor: 'start' | 'end'; text: string; fs: number; sw: number } | null;
+  label: RungLabelDraw | null;
 }
 
-/** Map scale (charts.ts mapScale): the window shown, map units per screen unit and the stroke/font scale. */
+/** Map scale (charts.ts mapScale): the view drawn, map units per screen unit and the stroke/font scale. */
 export interface RungScale {
   box: Box;
   unit: number;
   k: number;
 }
 
+/** A label is kept this far inside the view, and this far off its line, screen units. */
+const LABEL_INSET = 8;
+const LABEL_GAP = 3;
+/** Its font size and halo, screen units. */
+const LABEL_FS = 10.5;
+const LABEL_HALO = 3;
+
+interface DrawSlot {
+  d: RungDraw;
+  lbl: RungLabelDraw;
+  /** What the dash and the text were last built from. */
+  dashK: number;
+  textId: string;
+  textKey: number;
+}
+
+const newDrawSlot = (role: Rung['role']): DrawSlot => ({
+  d: { role, x1: 0, y1: 0, x2: 0, y2: 0, w: 0, dash: '', label: null },
+  lbl: { x: 0, y: 0, deg: 0, text: '', fs: 0, sw: 0, box: { x0: 0, y0: 0, x1: 0, y1: 0 } },
+  dashK: NaN,
+  textId: '',
+  textKey: NaN,
+});
+const drawSlots = { leader: newDrawSlot('leader'), sel: newDrawSlot('sel') };
+const drawsOut: RungDraw[] = [];
+const span = { s0: 0, s1: 0 };
+const inner: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+
+/** What the labels say: the sail numbers and the class (lengths when its length is known). */
+export interface RungText {
+  sail: (id: string) => string;
+  dims: Pick<ClassDims, 'loaM'> | null;
+}
+
+/** The label's text, rebuilt only when what it says changes (its boat, or its distance to a tenth of a metre). */
+function labelText(s: DrawSlot, r: Rung, txt: RungText): string {
+  const key = r.behindM == null ? NaN : Math.round(r.behindM * 10);
+  if (s.textId === r.id && (key === s.textKey || (Number.isNaN(key) && Number.isNaN(s.textKey))) && s.lbl.text) return s.lbl.text;
+  s.textId = r.id;
+  s.textKey = key;
+  return rungLabel(r, r.role === 'leader' ? '' : txt.sail(r.id), txt.dims);
+}
+
 /**
- * The rungs as drawn in view `sc.box`: each line across the course box; its label just above it, inside the view,
- * at the right-hand end for the leader and the left-hand end for the selected boat (so the two never sit on top
- * of each other).
+ * Place a `w` × `h` label along the line p + s·d (d unit, left to right), s in [s0, s1] (inside the view), just off
+ * it on the side above it in its own frame: from `from` (the leader's near the right end, the selected boat's near
+ * the left), slid along the line toward the other end until clear of `avoid`, then the same below the line; else
+ * where it overlaps least. False when the line in view is too short for it.
  */
-export function rungDraws(rungs: readonly Rung[], course: Box, sc: RungScale, label: (r: Rung) => string): RungDraw[] {
-  const { box, unit, k } = sc;
-  const out: RungDraw[] = [];
-  const inset = 8 * unit;
-  const view: Box = { x0: box.x0 + inset, y0: box.y0 + inset, x1: box.x1 - inset, y1: box.y1 - inset };
-  for (const r of rungs) {
-    // Left to right on the map.
-    const dir: Vec = r.axis.across[0] < 0 ? [-r.axis.across[0], -r.axis.across[1]] : r.axis.across;
-    const seg = rungSegment(r.at, dir, course, 40 * unit);
-    if (!seg) continue;
-    const [p, q] = seg;
-    const lead = r.role === 'leader';
-    const shown = view.x1 > view.x0 && view.y1 > view.y0 ? clipLine(p, dir, view, 0, Math.hypot(q[0] - p[0], q[1] - p[1])) : null;
-    const fs = 10.5 * k;
-    const end = shown ? (lead ? shown[1] : shown[0]) : null;
-    out.push({
-      role: r.role,
-      x1: p[0],
-      y1: p[1],
-      x2: q[0],
-      y2: q[1],
-      w: +(1.1 * k).toFixed(2),
-      dash: lead ? `${(5 * k).toFixed(2)} ${(3.5 * k).toFixed(2)}` : '',
-      label: end ? { x: end[0], y: end[1] - 4 * unit, anchor: lead ? 'end' : 'start', text: label(r), fs: +fs.toFixed(2), sw: +(3 * k).toFixed(2) } : null,
-    });
+export function placeLabel(
+  px: number,
+  py: number,
+  dx: number,
+  dy: number,
+  s0: number,
+  s1: number,
+  w: number,
+  h: number,
+  gap: number,
+  from: 'start' | 'end',
+  view: Box,
+  avoid: Rects,
+  out: RungLabelDraw,
+): boolean {
+  if (s1 - s0 < w) return false;
+  // Above the text, in its own frame (the line left to right): up the screen for a level line.
+  const nx = dy;
+  const ny = -dx;
+  const hx = (Math.abs(dx) * w) / 2 + (Math.abs(dy) * h) / 2;
+  const hy = (Math.abs(dy) * w) / 2 + (Math.abs(dx) * h) / 2;
+  const off = h / 2 + gap;
+  const step = Math.max(w / 3, h);
+  const a = s0 + w / 2;
+  const b = s1 - w / 2;
+  let best = Infinity;
+  let bx = NaN;
+  let by = NaN;
+  for (let side = 1; side >= -1; side -= 2) {
+    for (let k = 0; ; k++) {
+      const s = from === 'end' ? b - k * step : a + k * step;
+      if (s < a - 1e-9 || s > b + 1e-9) break;
+      const cx = px + s * dx + side * off * nx;
+      const cy = py + s * dy + side * off * ny;
+      if (cx - hx < view.x0 || cx + hx > view.x1 || cy - hy < view.y0 || cy + hy > view.y1) continue;
+      const n = avoid.hits(cx - hx, cy - hy, cx + hx, cy + hy);
+      if (n === 0) {
+        bx = cx;
+        by = cy;
+        best = 0;
+        break;
+      }
+      if (n < best) {
+        best = n;
+        bx = cx;
+        by = cy;
+      }
+    }
+    if (best === 0) break;
   }
-  return out;
+  if (!Number.isFinite(bx)) return false;
+  out.x = bx;
+  out.y = by;
+  out.deg = (Math.atan2(dy, dx) * 180) / Math.PI;
+  out.box.x0 = bx - hx;
+  out.box.y0 = by - hy;
+  out.box.x1 = bx + hx;
+  out.box.y1 = by + hy;
+  return true;
+}
+
+/**
+ * The rungs as drawn in view `sc.box`: each line edge to edge across the view; its label along it (placeLabel), clear
+ * of `avoid` (the leader's label is added to it, so the selected boat's keeps clear of it too). The array and the
+ * draws are kept and refilled.
+ */
+export function rungDraws(rungs: readonly Rung[], sc: RungScale, txt: RungText, avoid: Rects): readonly RungDraw[] {
+  const { box, unit, k } = sc;
+  drawsOut.length = 0;
+  const inset = LABEL_INSET * unit;
+  inner.x0 = box.x0 + inset;
+  inner.y0 = box.y0 + inset;
+  inner.x1 = box.x1 - inset;
+  inner.y1 = box.y1 - inset;
+  for (const r of rungs) {
+    // Left to right on the map (straight up the screen when it is upright: read bottom to top).
+    const flip = r.axis.across[0] < 0 || (r.axis.across[0] === 0 && r.axis.across[1] > 0) ? -1 : 1;
+    const dx = flip * r.axis.across[0];
+    const dy = flip * r.axis.across[1];
+    const px = r.at[0];
+    const py = r.at[1];
+    if (!clipSpan(px, py, dx, dy, box, -Infinity, Infinity, span)) continue;
+    const s = drawSlots[r.role];
+    const d = s.d;
+    d.x1 = px + span.s0 * dx;
+    d.y1 = py + span.s0 * dy;
+    d.x2 = px + span.s1 * dx;
+    d.y2 = py + span.s1 * dy;
+    d.w = Math.round(110 * k) / 100;
+    if (r.role === 'leader' && s.dashK !== k) {
+      s.dashK = k;
+      d.dash = `${(5 * k).toFixed(2)} ${(3.5 * k).toFixed(2)}`;
+    }
+    const l = s.lbl;
+    const text = labelText(s, r, txt);
+    const fs = LABEL_FS * k;
+    l.text = text;
+    l.fs = Math.round(fs * 100) / 100;
+    l.sw = Math.round(LABEL_HALO * k * 100) / 100;
+    const placed =
+      inner.x1 > inner.x0 &&
+      inner.y1 > inner.y0 &&
+      clipSpan(px, py, dx, dy, inner, -Infinity, Infinity, span) &&
+      placeLabel(px, py, dx, dy, span.s0, span.s1, textWidth(text, fs), 1.2 * fs, LABEL_GAP * unit, r.role === 'leader' ? 'end' : 'start', inner, avoid, l);
+    d.label = placed ? l : null;
+    if (placed) avoid.add(l.box.x0, l.box.y0, l.box.x1, l.box.y1);
+    drawsOut.push(d);
+  }
+  return drawsOut;
 }
 
 interface RungSlot {
   g: Element;
   line: Element;
   text: Element;
-  /** What the line, the label's place and its text were last set from. */
-  lineKey: string;
-  textKey: string;
+  /** What was last set, to a tenth of a map unit (NaN: not yet). */
+  at: Float64Array;
+  w: number;
+  dash: string;
+  lbl: Float64Array;
+  labelShown: boolean;
   str: string;
   shown: boolean;
 }
 
-const layers = new WeakMap<Element, Map<RungDraw['role'], RungSlot>>();
+const layers = new WeakMap<Element, { leader?: RungSlot; sel?: RungSlot }>();
 
-/** What paintRungs did to the DOM (tests: a steady frame creates nothing). */
+/** What paintRungs did to the DOM (tests: a steady frame creates nothing, sets nothing). */
 export interface RungPaint {
   created: number;
   set: number;
 }
 
+const tenth = (v: number): number => Math.round(v * 10);
 const f1 = (v: number): string => v.toFixed(1);
+const done: RungPaint = { created: 0, set: 0 };
 
-/** Set `layer`'s rungs to `draws`, reusing one group (line and label) per role; a role not drawn is hidden, not removed. */
+/**
+ * Set `layer`'s rungs to `draws`, reusing one group (line and label) per role; a role not drawn is hidden, not removed.
+ * Only what changed (to a tenth of a map unit) is set. The result is kept and refilled.
+ */
 export function paintRungs(layer: Element, draws: readonly RungDraw[]): RungPaint {
   let slots = layers.get(layer);
-  if (!slots) layers.set(layer, (slots = new Map()));
+  if (!slots) layers.set(layer, (slots = {}));
   const doc = layer.ownerDocument;
-  const done: RungPaint = { created: 0, set: 0 };
-  const want = new Map(draws.map((d) => [d.role, d]));
-  for (const role of ['leader', 'sel'] as const) {
-    const d = want.get(role);
-    let s = slots.get(role);
+  done.created = 0;
+  done.set = 0;
+  for (let ri = 0; ri < 2; ri++) {
+    const role = ri === 0 ? 'leader' : 'sel';
+    let d: RungDraw | null = null;
+    for (let i = 0; i < draws.length; i++) if (draws[i].role === role) d = draws[i];
+    let s = slots[role];
     if (!d) {
       if (s?.shown) {
         s.g.setAttribute('display', 'none');
@@ -323,10 +454,12 @@ export function paintRungs(layer: Element, draws: readonly RungDraw[]): RungPain
       const line = doc.createElementNS(SVG_NS, 'line');
       const text = doc.createElementNS(SVG_NS, 'text');
       text.setAttribute('class', 'rung-lbl');
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('dy', '0.35em');
       g.appendChild(line);
       g.appendChild(text);
       layer.appendChild(g);
-      slots.set(role, (s = { g, line, text, lineKey: '', textKey: '', str: '', shown: true }));
+      slots[role] = s = { g, line, text, at: new Float64Array(4).fill(NaN), w: NaN, dash: '', lbl: new Float64Array(5).fill(NaN), labelShown: true, str: '', shown: true };
       done.created++;
     }
     if (!s.shown) {
@@ -334,36 +467,63 @@ export function paintRungs(layer: Element, draws: readonly RungDraw[]): RungPain
       s.shown = true;
       done.set++;
     }
-    const lineKey = `${f1(d.x1)} ${f1(d.y1)} ${f1(d.x2)} ${f1(d.y2)} ${d.w} ${d.dash}`;
-    if (lineKey !== s.lineKey) {
-      s.lineKey = lineKey;
+    const at = s.at;
+    if (tenth(d.x1) !== at[0] || tenth(d.y1) !== at[1] || tenth(d.x2) !== at[2] || tenth(d.y2) !== at[3]) {
+      at[0] = tenth(d.x1);
+      at[1] = tenth(d.y1);
+      at[2] = tenth(d.x2);
+      at[3] = tenth(d.y2);
       s.line.setAttribute('x1', f1(d.x1));
       s.line.setAttribute('y1', f1(d.y1));
       s.line.setAttribute('x2', f1(d.x2));
       s.line.setAttribute('y2', f1(d.y2));
+      done.set++;
+    }
+    if (d.w !== s.w) {
+      s.w = d.w;
       s.line.setAttribute('stroke-width', String(d.w));
+      done.set++;
+    }
+    if (d.dash !== s.dash) {
+      s.dash = d.dash;
       if (d.dash) s.line.setAttribute('stroke-dasharray', d.dash);
       else s.line.removeAttribute('stroke-dasharray');
       done.set++;
     }
     const l = d.label;
-    const textKey = l ? `${f1(l.x)} ${f1(l.y)} ${l.anchor} ${l.fs} ${l.sw}` : 'none';
-    if (textKey !== s.textKey) {
-      s.textKey = textKey;
-      if (l) {
-        s.text.removeAttribute('display');
-        s.text.setAttribute('x', f1(l.x));
-        s.text.setAttribute('y', f1(l.y));
-        s.text.setAttribute('text-anchor', l.anchor);
-        s.text.setAttribute('font-size', String(l.fs));
-        s.text.setAttribute('stroke-width', String(l.sw));
-      } else s.text.setAttribute('display', 'none');
+    if (!l) {
+      if (s.labelShown) {
+        s.text.setAttribute('display', 'none');
+        s.labelShown = false;
+        done.set++;
+      }
+      continue;
+    }
+    if (!s.labelShown) {
+      s.text.removeAttribute('display');
+      s.labelShown = true;
       done.set++;
     }
-    const str = l?.text ?? '';
-    if (str !== s.str) {
-      s.str = str;
-      s.text.textContent = str;
+    const lb = s.lbl;
+    if (tenth(l.x) !== lb[0] || tenth(l.y) !== lb[1] || tenth(l.deg) !== lb[2]) {
+      lb[0] = tenth(l.x);
+      lb[1] = tenth(l.y);
+      lb[2] = tenth(l.deg);
+      s.text.setAttribute('x', f1(l.x));
+      s.text.setAttribute('y', f1(l.y));
+      s.text.setAttribute('transform', `rotate(${f1(l.deg)} ${f1(l.x)} ${f1(l.y)})`);
+      done.set++;
+    }
+    if (l.fs !== lb[3] || l.sw !== lb[4]) {
+      lb[3] = l.fs;
+      lb[4] = l.sw;
+      s.text.setAttribute('font-size', String(l.fs));
+      s.text.setAttribute('stroke-width', String(l.sw));
+      done.set++;
+    }
+    if (l.text !== s.str) {
+      s.str = l.text;
+      s.text.textContent = l.text;
       done.set++;
     }
   }
