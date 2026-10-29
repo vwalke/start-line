@@ -616,6 +616,14 @@ svg .dot.off { opacity: 0.4; }
 svg .dot-hdg { stroke: var(--ink); stroke-linecap: round; }
 svg text.dot-lbl { fill: var(--ink); stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; font-weight: 600; pointer-events: none; }
 svg .boat-at { pointer-events: none; }
+/* Ladder rungs (ui/rungs.ts): square to the leg's wind through the leader (ink, dashed) and the selected boat (accent); thin and faint, under the boats. */
+svg .rung { pointer-events: none; }
+svg .rung line { fill: none; stroke-linecap: round; }
+svg .rung.leader line { stroke: var(--ink-2); stroke-opacity: 0.45; }
+svg .rung.sel line { stroke: var(--accent); stroke-opacity: 0.6; }
+svg text.rung-lbl { stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; font-weight: 600; }
+svg .rung.leader text.rung-lbl { fill: var(--ink-2); }
+svg .rung.sel text.rung-lbl { fill: var(--act-ink); }
 /* Replay start (Map C): over the line in the warning red, the dip back red dashed, on a surface casing; went back (ring) and recrossed (dot). */
 svg .ocs-case { fill: none; stroke: var(--surface); stroke-linejoin: round; stroke-linecap: round; opacity: 0.85; pointer-events: none; }
 svg .ocs-over, svg .ocs-dip { fill: none; stroke: var(--bad); stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }

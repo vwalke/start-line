@@ -37,6 +37,7 @@ import { FAV_GAP_PX, favouredTexts, lineBiasSvg } from './startLine';
 import { FOLLOW_COURSE_S, type FollowInput } from './follow';
 import { ocsStretch, ocsSvg } from './ocsStyle';
 import { replayLabel } from './replay';
+import { legAxes, raceCourseBox, rungDraws, rungLabel, rungsAt, type RungDraw } from './rungs';
 import { trailPaths, type TrailStretch } from './trail';
 import type { StartReplay } from '../analysis/startReplay';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
@@ -962,7 +963,7 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
           ? `Race Viewer, tracks ${sogLabel}`
           : 'Race Viewer, tracks colored by leg'
       : `Race Viewer on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', tracks colored by speed on the leg: yellow and boldest fastest' : sogLabel ? `, tracks ${sogLabel}` : ''}`;
-  const tracks = layer ? `${layer.paths}${layer.hi}` : '<g class="scrub-trk"></g><g class="scrub-trails"></g><g class="scrub-ocs"></g>';
+  const tracks = layer ? `${layer.paths}${layer.hi}` : '<g class="scrub-trk"></g><g class="scrub-trails"></g><g class="scrub-ocs"></g><g class="scrub-rungs"></g>';
   const top = layer ? layer.labels : '<g class="scrub-dots"></g>';
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map${opts.scrub ? ' scrub' : ''}" role="img" aria-label="${esc(opts.scrub ? `${label}; boats at the scrubber's time` : label)}">
     ${tracks}
@@ -982,6 +983,8 @@ export interface ScrubAt {
   win: [number, number];
   full?: FullRateSet | null;
   trailMs?: number | null;
+  /** The race leader at `t` (coach/progress.ts progressAt), for the ladder rungs (ui/rungs.ts); null or absent: none drawn. */
+  leader?: string | null;
 }
 
 /** One boat's fading trail: path data per fade slice (ui/trail.ts TRAIL_FADE); its color (`cd`: by night), class and width (map units). */
@@ -997,12 +1000,14 @@ export interface BoatTrail {
 /**
  * One scrubber frame: the tracks (into `g.scrub-trk`), the boats' fading trails (into `g.scrub-trails`, by
  * ui/trailLayer.ts, which reuses their paths), a replay's over-the-line tracks (into `g.scrub-ocs`, over the
- * trails), the boats and labels (into `g.scrub-dots`), and what they were drawn from.
+ * trails), the ladder rungs (into `g.scrub-rungs`, by ui/rungs.ts paintRungs, which reuses their elements), the
+ * boats and labels (into `g.scrub-dots`), and what they were drawn from.
  */
 export interface ScrubFrame {
   tracks: string;
   trails: BoatTrail[];
   ocs: string;
+  rungs: RungDraw[];
   dots: string;
   pieces: MapPiece[];
   boats: BoatAt[];
@@ -1142,10 +1147,27 @@ export function scrubFrame(a: RaceAnalysis, highlight: string | null, leg: numbe
     tracks,
     ocs: r?.tracks ?? '',
     trails: s.trailMs ? boatTrails(a, highlight, leg, opts, boats, s.t, s.trailMs, s.full, clip, sc) : [],
+    rungs: mapRungs(a, highlight, boats, s, sc),
     dots: (r?.marks ?? '') + (layer?.labels ?? '') + dotsSvg(a, highlight, leg, opts, boats, sc) + (r?.label ?? ''),
     pieces,
     boats,
   };
+}
+
+/**
+ * The ladder rungs at the scrubber's moment (ui/rungs.ts): the leader's and the selected boat's, on a beat or a
+ * run, across the course; labelled "Leader" and with the selected boat's sail number and distance behind it.
+ */
+function mapRungs(a: RaceAnalysis, highlight: string | null, boats: readonly BoatAt[], s: ScrubAt, sc: MapScale): RungDraw[] {
+  const course = s.leader != null ? raceCourseBox(a) : null;
+  if (!course) return [];
+  const finishMs = new Map(a.boats.map((b) => [b.id, b.finishMs]));
+  const racing = new Set(finishMs.keys());
+  const rungs = rungsAt({ t: s.t, boats, leader: s.leader ?? null, selected: highlight, axes: legAxes(a), finishMs, racing });
+  if (!rungs.length) return [];
+  const dims = startDims(a);
+  const sail = (id: string): string => a.boats.find((b) => b.id === id)?.sail ?? id;
+  return rungDraws(rungs, course, sc, (r) => rungLabel(r, sail(r.id), dims));
 }
 
 /**
