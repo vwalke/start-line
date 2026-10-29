@@ -14,6 +14,7 @@
  * No imports from the app: the landing page loads this.
  */
 import type { Me } from '../data/paywall';
+import { track } from './track';
 
 /** `?notify=1`: carry a Notify me click through a sign-in (or from the landing page) into the app. */
 export const NOTIFY_PARAM = 'notify';
@@ -215,7 +216,11 @@ export function watchAlerts(ready: Promise<Me>, alerts: Pick<Alerts, 'load' | 'o
 export function handleNotify(eventId: string, me: Me, o: { signIn: (eventId: string) => void; alerts?: Pick<Alerts, 'state' | 'set'> }): NotifyAction {
   const a = notifyAction(me);
   if (a === 'signin') o.signIn(eventId);
-  else if (a === 'notify' && o.alerts) void o.alerts.set(eventId, !o.alerts.state(eventId).on);
+  else if (a === 'notify' && o.alerts) {
+    const on = !o.alerts.state(eventId).on;
+    if (on) track('notify_on', { event: eventId });
+    void o.alerts.set(eventId, on);
+  }
   return a;
 }
 
