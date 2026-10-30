@@ -72,8 +72,12 @@ describe('J/105 CBC 2026 ↔ Yachtscoring 50575', async () => {
     expect(d.results).toMatchObject({ places: 'official', officialNumber: 1 });
     expect(d.results!.times).not.toBe('official');
     expect(d.results!.timesNote).toMatch(/outside the gun-to-next-gun window/);
-    // Good Trade has no RaceSense finish: its time is its own finish-line crossing (~), or none.
-    expect(['tracker', undefined]).toContain(d.boats.find((b) => b.sail === 'USA 96')!.finishSource);
+    // USA 96 has no RaceSense finish and no crossing (its tracker skips the last 1.5 km): timed between 1st and 3rd.
+    const fin = (s: string) => d.boats.find((b) => b.sail === s)!;
+    expect(fin('USA 96').finishSource).toBe('estimated');
+    expect(fin('USA 96').finishMs!).toBeGreaterThan(fin('USA 242').finishMs!);
+    expect(fin('USA 96').finishMs!).toBeLessThan(fin('USA 328').finishMs!);
+    expect(d.results!.estimatedFinishes).toBe(1);
     const head = raceHead({ race: list.races.find((r) => r.rsNumber === 1), official: { status: 'done', outcome }, feed: { status: 'idle', used: 0, max: 0, found: 0, exhausted: false }, results: d.results });
     expect(head.chips.map((c) => `${c.warn ? '⚠ ' : ''}${c.text}`)).toEqual(['official results', expect.stringMatching(/^official places · (RaceSense|tracker) times$/)]);
   });

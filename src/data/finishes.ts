@@ -10,7 +10,8 @@
  * from the line, measured along the course axis: the start's wind direction, else square to the
  * start line toward the fleet). Along the axis, not as the crow flies: a boat that sails home
  * cross-wind past the windward mark's distance is still on its way to finish (2026 Fall Brawl).
- * A track that never crosses gets no finish: none is ever invented.
+ * A track that never crosses gets no finish from this file. Only an officially placed boat whose tracker
+ * skips the line is timed without a crossing, between the boats placed either side (data/holeFinish.ts).
  *
  * Official times (Yachtscoring) are used only when plausible: at least 3 matched finishers have
  * a crossing within 10 min of their official time and the median gap is ≤ 60 s, and every
@@ -35,6 +36,17 @@ export interface MarkSeries {
 
 /** Gaps between fixes longer than this aren't bridged when looking for a crossing. */
 export const CROSS_MAX_GAP_MS = 120_000;
+/**
+ * A step between a tracker's consecutive fixes is impossible when it covers over TELEPORT_MIN_M (above GPS
+ * noise at sub-second steps) at over TELEPORT_KN (no boat sails it: M32s race at 25–29 kn, monohulls motor
+ * in at up to ~47 kn). A step with no time between its fixes and over TELEPORT_MIN_M apart is impossible too.
+ * Such a step is never bridged for a crossing either: J/70 North Americans race 6, 151's frozen tracker
+ * caught up 911 m in 1 s, across the finish line, a minute and a half after the boats placed either side
+ * of it had finished (racesense/adapter.ts dropTeleports keeps such a jump: the fixes after it are real).
+ */
+export const TELEPORT_MIN_M = 250;
+export const TELEPORT_KN = 60;
+const MS_PER_KN = 1852 / 3600;
 /** Crossings in the first minutes after the gun are the start, not a finish. */
 export const FINISH_MIN_AFTER_GUN_MS = 5 * 60_000;
 /** The stage onset can precede the boat's own row by a fix or two. */
@@ -102,7 +114,15 @@ export function alongDeg(p: LatLon, o: LatLon, deg: number): number {
 
 const lineMid = (l: Line): LatLon => ({ lat: (l.left.lat + l.right.lat) / 2, lon: (l.left.lon + l.right.lon) / 2 });
 
-/** Times (ms) where the track crosses the line segment (ends extended by 2%) within [t0, t1]. */
+/** No boat sails the step from `a` to `b` (TELEPORT_MIN_M at over TELEPORT_KN). */
+export function impossibleStep(a: { ts: number; lat: number; lon: number }, b: { ts: number; lat: number; lon: number }): boolean {
+  const m = Math.hypot(...xy(b, a));
+  if (m <= TELEPORT_MIN_M) return false;
+  const s = (b.ts - a.ts) / 1000;
+  return s <= 0 || m / s / MS_PER_KN > TELEPORT_KN;
+}
+
+/** Times (ms) where the track crosses the line segment (ends extended by 2%) within [t0, t1]; impossible steps (impossibleStep) are skipped. */
 export function crossings(fixes: readonly Fix[], lineAt: (t: number) => Line | null, t0: number, t1: number): number[] {
   const out: number[] = [];
   for (let i = 1; i < fixes.length; i++) {
@@ -114,6 +134,7 @@ export function crossings(fixes: readonly Fix[], lineAt: (t: number) => Line | n
     const o = line.left;
     const P = xy(a, o);
     const Q = xy(b, o);
+    if (Math.hypot(Q[0] - P[0], Q[1] - P[1]) > TELEPORT_MIN_M && impossibleStep(a, b)) continue;
     const B = xy(line.right, o);
     const d1 = [Q[0] - P[0], Q[1] - P[1]];
     const den = d1[0] * B[1] - d1[1] * B[0];
@@ -192,8 +213,11 @@ export function axisReach(race: readonly Fix[], line: Line, axisDeg: number): nu
   return far;
 }
 
-/** One boat's tracker finish (see the file comment), or null when its track doesn't cross the line in the window; `floorMs` is fleetOnsetFloor(), `axisDeg` courseAxisDeg(). */
-export function trackerFinish(
+/**
+ * Where one boat's finish is looked for (see the file comment): a crossing at or after `from` and after `after`
+ * (its stage onset, else its last visit to the far end); null when it never got far enough out to finish.
+ */
+export function lastLegFrom(
   fixes: readonly Fix[],
   lineAt: (t: number) => Line | null,
   gunMs: number,
@@ -201,14 +225,10 @@ export function trackerFinish(
   feedRn: number | null,
   floorMs: number | null = null,
   axisDeg: number | null = null,
-): number | null {
-  // Crossings are only looked for after the onset or the far end (the first one after it is the finish).
+): { from: number; after: number } | null {
   const from = gunMs + FINISH_MIN_AFTER_GUN_MS;
   const onset = stageOnset(fixes, gunMs, feedRn);
-  if (onset != null) {
-    const after = Math.max(onset - STAGE_SLACK_MS, floorMs ?? -Infinity);
-    return crossings(fixes, lineAt, Math.max(from, after), endMs)[0] ?? null;
-  }
+  if (onset != null) return { from: Math.max(from, onset - STAGE_SLACK_MS, floorMs ?? -Infinity), after: -Infinity };
   // No stage: after the boat's last visit to the far end, up the course axis.
   const line0 = lineAt(gunMs);
   if (!line0) return null;
@@ -220,7 +240,22 @@ export function trackerFinish(
   const mid = lineMid(line0);
   let lastFar = gunMs;
   for (const f of race) if (alongDeg(f, mid, axis) >= FAR_FRAC * far) lastFar = f.ts;
-  return crossings(fixes, lineAt, Math.max(from, lastFar), endMs).find((t) => t > lastFar) ?? null;
+  return { from: Math.max(from, lastFar), after: lastFar };
+}
+
+/** One boat's tracker finish (see the file comment), or null when its track doesn't cross the line in the window; `floorMs` is fleetOnsetFloor(), `axisDeg` courseAxisDeg(). */
+export function trackerFinish(
+  fixes: readonly Fix[],
+  lineAt: (t: number) => Line | null,
+  gunMs: number,
+  endMs: number,
+  feedRn: number | null,
+  floorMs: number | null = null,
+  axisDeg: number | null = null,
+): number | null {
+  // Crossings are only looked for after the onset or the far end (the first one after it is the finish).
+  const w = lastLegFrom(fixes, lineAt, gunMs, endMs, feedRn, floorMs, axisDeg);
+  return w ? (crossings(fixes, lineAt, w.from, endMs).find((t) => t > w.after) ?? null) : null;
 }
 
 /**

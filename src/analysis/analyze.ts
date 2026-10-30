@@ -513,6 +513,9 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     let trail: DrawnTrack = { x: new Float32Array(0), y: new Float32Array(0), t: new Float64Array(0), sog: new Float32Array(0) };
     // Smoothed at the full rate, before the drawn tracks are thinned to ~1 Hz.
     const sogSm = smoothSog(tr.t, tr.sog);
+    // Coverage counts measured fixes only: not the one placed on the finish line (Track.finishFixMs).
+    const placed = b.track.finishFixMs;
+    const measuredT = placed == null ? tr.t : tr.t.filter((t) => t !== placed);
     let courseAtGun: number | null = null;
     let headingAtSample: number | null = null;
     // Tacks and gybes from the gun to the last leg end this boat reached (split by leg below).
@@ -621,7 +624,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       const dist = pathDistance(tr.t, tr.x, tr.y, a, e);
       const bGaps = [gapS[li], gapS[li + 1]].filter((g): g is number => g != null);
       const mv = moves[li];
-      const cov = coverage(tr.t, a, e);
+      const cov = coverage(measuredT, a, e);
       const hs = heel ? heelStats(heel, a, e) : null;
       // SOG is Dist (the interpolated path) ÷ time, in knots.
       legResults.push({
@@ -661,7 +664,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     }
     // Coverage over the race: gun → finish, else gun → the last leg end reached.
     const covEnd = ranked ? (b.finishMs != null && b.finishMs > gun ? b.finishMs : lastEnd) : null;
-    const raceCov = covEnd != null && covEnd > gun ? coverage(tr.t, gun, covEnd) : null;
+    const raceCov = covEnd != null && covEnd > gun ? coverage(measuredT, gun, covEnd) : null;
     const pos = ranked ? finishOrder.indexOf(b.id) : -1;
     // Official results: their place stands (the finish order by time can differ: penalties, a boat with no tracked finish).
     const official = data.results?.places === 'official';
