@@ -7,7 +7,6 @@ import {
   BOAT_SHAPE_ON_PX,
   BOAT_SHAPE_PX,
   boatShapeOr,
-  BOATS_NOT_TO_SCALE,
   headingDir,
   hullCenterFromBow,
   hullEnlarged,
@@ -117,8 +116,7 @@ describe('boat shape: the shape, or the dot', () => {
     }
   });
 
-  it('enlarged (the map says "Boats not to scale") exactly while the hull is stretched to the symbol', () => {
-    expect(BOATS_NOT_TO_SCALE).toBe('Boats not to scale');
+  it('enlarged (the map says how much bigger) exactly while the hull is stretched to the symbol', () => {
     const edge = BOAT_SHAPE_PX / J70.loaM;
     expect(hullEnlarged(J70, edge * 0.99)).toBe(true);
     expect(hullEnlarged(J70, edge)).toBe(false);
@@ -202,12 +200,12 @@ describe('the track map while scrubbing: hulls where they can be (IC37 R5, 11.3 
   });
 });
 
-describe('"Boats not to scale": said at the bottom of the map while hulls are stretched (IC37 R5, 11.3 m)', () => {
+describe('the scale note: said at the bottom of the map while hulls are stretched (IC37 R5, 11.3 m)', () => {
   const a = analyzeRace(ic37Race());
   const dims = startClass(a)!.dims;
-  const note = (svg: string): { x: number; y: number; fs: number } | null => {
-    const m = svg.match(/<text class="scale-note" x="([-\d.]+)" y="([-\d.]+)" font-size="([\d.]+)" text-anchor="end"[^>]*>Boats not to scale<\/text>/);
-    return m ? { x: Number(m[1]), y: Number(m[2]), fs: Number(m[3]) } : null;
+  const note = (svg: string): { x: number; y: number; fs: number; text: string } | null => {
+    const m = svg.match(/<text class="scale-note" x="([-\d.]+)" y="([-\d.]+)" font-size="([\d.]+)" text-anchor="end"[^>]*>([^<]+)<\/text>/);
+    return m ? { x: Number(m[1]), y: Number(m[2]), fs: Number(m[3]), text: m[4] } : null;
   };
   type R = { x0: number; y0: number; x1: number; y1: number };
   const hits = (p: R, q: R): boolean => p.x0 < q.x1 && q.x0 < p.x1 && p.y0 < q.y1 && q.y0 < p.y1;
@@ -220,7 +218,8 @@ describe('"Boats not to scale": said at the bottom of the map while hulls are st
     const hud = svg.slice(svg.indexOf('<g class="map-hud">'));
     const n = note(hud);
     expect(n).not.toBeNull();
-    const nb: R = { x0: n!.x - textWidth('Boats not to scale', n!.fs), y0: n!.y - n!.fs, x1: n!.x, y1: n!.y + 0.3 * n!.fs };
+    expect(n!.text).toBe(`Boats drawn about ${Math.round(BOAT_SHAPE_PX / (dims.loaM / unit))}× actual size`);
+    const nb: R = { x0: n!.x - textWidth(n!.text, n!.fs), y0: n!.y - n!.fs, x1: n!.x, y1: n!.y + 0.3 * n!.fs };
     expect(nb.x1).toBeLessThanOrEqual(view.x1);
     expect(nb.y1).toBeLessThanOrEqual(view.y1);
     // The scale bar (its line and its label above it) and the wind arrow's label.

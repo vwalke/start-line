@@ -535,15 +535,24 @@ Switching races keeps the tab.
   4.9 m on an IC37) where it gives one that fits the hull, else half the
   LOA (`data/classes.ts` `bowAheadM`), so the ladder rungs, measured bow to
   bow, meet the bow on screen. It
-  is to scale from the class's length and beam once that is at least 12 px
-  long on screen (`BOAT_SHAPE_PX`; 15 px for the selected boat), else a
+  is to scale from the class's length and beam once that is at least 12 css
+  px long on screen (`BOAT_SHAPE_PX`; 15 px for the selected boat), else a
   symbol that long with the hull's proportions, at any zoom however far
   out (12 × ~4 px covers less than the 8 px dot it replaced); on the Race
   Viewer the symbol's extra length is all aft, its tip still on the bow.
-  While the hulls are drawn bigger than scale the map says `Boats not to
-  scale` in its bottom right corner (on the Race Viewer part of the scale
-  bar's HUD, kept clear of the scale bar, wind arrow and ladder-rung labels;
-  it goes once zoomed in far enough for the hulls to be to scale). It is filled while the boat
+  Both maps measure that in real screen pixels: the Race Viewer from its
+  SVG's size on screen (drawn "meet", so the axis that limits; measured once
+  per size, and as if 600 px across before it has one), so a J/70 (6.9 m)
+  is to scale at the 8× preset on a desktop card. While the hulls are drawn
+  bigger than scale the map says how much in its bottom right corner:
+  `Boats drawn about 3× actual size` (whole numbers from 2×, one decimal
+  below, as `about 1.5×`), or, with the fleet to scale and only the
+  selected boat's bigger symbol enlarged, `Selected boat drawn about 1.4×
+  actual size`; nothing once that rounds to 1× (`ui/boatShape.ts`
+  `scaleNoteText`). On the Race Viewer it is part of the scale bar's HUD,
+  kept clear of the scale bar, wind arrow and ladder-rung labels, a line
+  above the scale bar where the two don't fit side by side (and smaller if
+  it must be to fit the width); it follows every zoom and resize. It is filled while the boat
   has data and hollow (a quiet outline in its own color) once its tracker has
   stopped for good (held past its final fix, before its finish), so a dropout
   never flips the hull to a dot. Across a hole in its track, however long, the

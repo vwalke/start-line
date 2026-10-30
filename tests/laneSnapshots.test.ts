@@ -1443,7 +1443,7 @@ describe('around the gun: zoom centers on the selected boat (with the look-ahead
     }
   });
 
-  it('hulls at every zoom, even a J/70 a speck to scale at Fit; the map says they are not to scale', () => {
+  it('hulls at every zoom, even a J/70 a speck to scale at Fit; the map says how much bigger they are drawn', () => {
     // J/70s on a 4 km line: at Fit, about 1 px to scale.
     const wide = race(
       [
@@ -1463,7 +1463,7 @@ describe('around the gun: zoom centers on the selected boat (with the look-ahead
     const L = lanes.scrub()!;
     expect(L.dims!.loaM * lanePxPerUnit(L.view)).toBeLessThan(1.5);
     const hulls = (): number => (parts['.lane-stage'].innerHTML.match(/lane-hull/g) ?? []).length;
-    const said = (): boolean => parts['.lane-stage'].innerHTML.includes('>Boats not to scale</text>');
+    const said = (): boolean => /class="scale-note"[^>]*>Boats drawn about \d+× actual size<\/text>/.test(parts['.lane-stage'].innerHTML);
     on.click(btn({ zoom: '1' }));
     expect(hulls()).toBe(2);
     expect(said()).toBe(true);

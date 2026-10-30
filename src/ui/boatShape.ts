@@ -3,8 +3,9 @@
  * track map's boats while scrubbing and the Start tab's "Start Playback" view. Start Playback draws it centred on the
  * boat's position; the track map from its bow (hullCenterFromBow: the ladder rungs meet the bow it draws), both
  * pointing along its course over ground at that moment (or the last heading known while it is held past its final
- * fix, slow or has no course: boatMark), to scale or at least BOAT_SHAPE_PX long at every zoom (the map then says
- * "Boats not to scale": hullEnlarged; on the track map the extra length goes aft of the bow), filled while its data is
+ * fix, slow or has no course: boatMark), to scale or at least BOAT_SHAPE_PX css px long at every zoom (the map then
+ * says how much bigger, "Boats drawn about 3× actual size": scaleNoteText; on the track map the extra length goes aft
+ * of the bow), filled while its data is
  * fresh and hollow once it is lost; the dot only with no heading ever known or no class dimensions. Pure: outlines and
  * SVG path data; the callers draw them.
  */
@@ -144,12 +145,34 @@ export function boatShapeOr(o: ShapeInput): { shape: Vec; dims: ClassDims } | { 
 
 /**
  * Whether a hull of class `dims` is drawn bigger than it is at `pxPerM` css px per meter: stretched to `minPx`
- * (boatShapeOr). The maps then say so (BOATS_NOT_TO_SCALE).
+ * (boatShapeOr). The maps then say by how much (scaleNoteText).
  */
 export const hullEnlarged = (dims: ClassDims | null, pxPerM: number, minPx = BOAT_SHAPE_PX): boolean => !!dims && dims.loaM * pxPerM < minPx;
 
-/** What the maps say at the bottom while hulls are drawn bigger than scale. */
-export const BOATS_NOT_TO_SCALE = 'Boats not to scale';
+/** How many times its real size a hull of class `dims` is drawn at `pxPerM` css px per meter with smallest size `minPx` (1: to scale). */
+export const hullFactor = (dims: ClassDims | null, pxPerM: number, minPx = BOAT_SHAPE_PX): number => {
+  const px = dims ? dims.loaM * pxPerM : 0;
+  return px > 0 ? Math.max(1, minPx / px) : 1;
+};
+
+/** A factor as said: whole numbers from 2 up, one decimal below ("1.5"); null when it rounds to 1. */
+function factorText(f: number): string | null {
+  const r = Math.round(f * 10) / 10;
+  if (!(r > 1)) return null;
+  return r >= 2 ? String(Math.round(f)) : r.toFixed(1);
+}
+
+/**
+ * What the maps say at the bottom while hulls are drawn bigger than scale, at `pxPerM` css px per meter: how many
+ * times bigger the fleet's symbol (BOAT_SHAPE_PX) is ("Boats drawn about 3× actual size"); with the fleet to scale
+ * and a boat `selected`, its bigger symbol's (BOAT_SHAPE_ON_PX). Null (nothing said) once that rounds to 1×.
+ */
+export function scaleNoteText(dims: ClassDims | null, pxPerM: number, selected: boolean): string | null {
+  const fleet = factorText(hullFactor(dims, pxPerM, BOAT_SHAPE_PX));
+  if (fleet) return `Boats drawn about ${fleet}× actual size`;
+  const sel = selected ? factorText(hullFactor(dims, pxPerM, BOAT_SHAPE_ON_PX)) : null;
+  return sel ? `Selected boat drawn about ${sel}× actual size` : null;
+}
 
 /** A boat held past its final fix (its tracker stopped before it finished) is drawn hollow once that fix is older than this, ms. */
 export const BOAT_STALE_MS = 30_000;
