@@ -82,6 +82,7 @@ import {
   startScale,
   startSnapshot,
   scrubFrame,
+  scrubRungs,
   scrubPoints,
   trackMap,
   trackPoints,
@@ -191,6 +192,8 @@ import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type 
 import { followAfter, followCam, followStep, followTarget, reducedMotion, resetFollow } from './follow';
 import { mapPaint } from './mapPaint';
 import { paintTrails } from './trailLayer';
+import { paintRungs } from './rungs';
+import { ladderReader, type LadderNow } from '../analysis/coach/ladderNow';
 import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
 import { createVkxUpload } from './vkxUpload';
 import { createPaywall, hereWithout, lockedRange, startRace } from './paywall';
@@ -647,6 +650,8 @@ export function startApp(): void {
   let coachEach = true;
   let coachCustomOpen = false;
   let coach: { a: RaceAnalysis; model: CoachModel | null } | null = null;
+  /** The fleet's places at any moment (placeReader), from the coach model. */
+  let coachPlace: { model: NonNullable<CoachModel>; base: ProgressBase } | null = null;
   let coachBuilding: RaceAnalysis | null = null;
   let coachLadder: RivalLadder | null = null;
   /** The boat's debrief for the race (cached per model and boat), and the card whose window the chart shades. */
@@ -679,6 +684,8 @@ export function startApp(): void {
       if (analysis === a) {
         renderCoach();
         renderReport();
+        // The ladder rungs wait for the Coach's ladder (ladderAt).
+        if (scrubT != null) drawScrub(a);
       }
     });
     return false;
@@ -1433,6 +1440,7 @@ export function startApp(): void {
     const dots = svg?.querySelector('g.scrub-dots');
     const trails = svg?.querySelector('g.scrub-trails');
     const ocs = svg?.querySelector('g.scrub-ocs');
+    const rungs = svg?.querySelector('g.scrub-rungs');
     if (scrubT == null || !trk || !dots) return;
     // A boat selected (here or on another view): follow it, snapping to it once zoomed in.
     if (highlight !== mapFollowFor) {
@@ -1454,7 +1462,7 @@ export function startApp(): void {
       }
     }
     const win = trailWindow(scrubT, scrubTrail, scrubWindow(a), focusOn ? focusFrom(focusOn) : null);
-    const f = scrubFrame(a, highlight, legSel, mapOpts(), { t: scrubT, win, full, trailMs: fadingTrailMs(scrubTrail) });
+    const f = scrubFrame(a, highlight, legSel, mapOpts(), { t: scrubT, win, full, trailMs: fadingTrailMs(scrubTrail), ladder: ladderAt(a, scrubT) });
     // The tracks layer is empty with a short trail (but a replay's or a card's), so it is only set when it changes;
     // the fading trails reuse their paths (trailLayer.ts); never the map's full redraw.
     if (f.tracks !== scrubTracks.get(trk)) {
@@ -1467,6 +1475,8 @@ export function startApp(): void {
       ocs.innerHTML = f.ocs;
       scrubTracks.set(ocs, f.ocs);
     }
+    // The ladder rungs reuse their lines and labels (rungs.ts).
+    if (rungs) paintRungs(rungs, f.rungs);
     dots.innerHTML = f.dots;
     scrubData = f;
   }
@@ -1648,6 +1658,9 @@ export function startApp(): void {
       if (!svg || !mapFit) return renderMap();
       const vb = viewBox(mapFit, mapView);
       svg.setAttribute('viewBox', `${vb.x0} ${vb.y0} ${vb.w} ${vb.h}`);
+      // The ladder rungs run edge to edge across the view: across the new one.
+      const rungs = svg.querySelector('g.scrub-rungs');
+      if (rungs && scrubT != null && analysis) paintRungs(rungs, scrubRungs(analysis, highlight, legSel, mapOpts(), ladderAt(analysis, scrubT)));
       // The scale bar and wind arrow sit in the view's corner: shifted by the pan from the view drawn.
       const hud = drawn && svg.querySelector('g.map-hud');
       if (!hud || !drawn) return;
@@ -1687,7 +1700,6 @@ export function startApp(): void {
     setMapView(zoomPreset(mapFit, next, mapTarget(next)));
   });
 
-  let coachPlace: { model: NonNullable<CoachModel>; base: ProgressBase } | null = null;
   /**
    * A boat's place at a moment (coach/progress.ts: the fleet by distance to go along the course), once the
    * race's coach model is ready (asked for here); none from interpolated roundings, or with no course.
@@ -1703,6 +1715,17 @@ export function startApp(): void {
       const r = at.byId.get(id);
       return r && !r.est ? { place: r.place, of: at.of } : null;
     };
+  }
+
+  /**
+   * The fleet up the wind ladder at `t` for the ladder rungs (coach/ladderNow.ts: the Coach's leg winds and rungs,
+   * the leader skipping estimated places as the tooltip does); null until the race's coach model is ready (asked
+   * for here: the leg winds come from its wind series, read from the raw fixes in the worker).
+   */
+  function ladderAt(a: RaceAnalysis, t: number): LadderNow | null {
+    if (!ensureCoach(a)) return null;
+    const model = coach?.model;
+    return model ? ladderReader(a, model)(t) : null;
   }
 
   /** The point under the pointer (the selected boat's within 40 px, else anyone's within 8; more for a finger): tooltip and dot. */

@@ -37,6 +37,8 @@ import { FAV_GAP_PX, favouredTexts, lineBiasSvg } from './startLine';
 import { FOLLOW_COURSE_S, type FollowInput } from './follow';
 import { ocsStretch, ocsSvg } from './ocsStyle';
 import { replayLabel } from './replay';
+import { legAxes, Rects, rungDraws, rungsAt, type RungDraw } from './rungs';
+import type { LadderNow } from '../analysis/coach/ladderNow';
 import { trailPaths, type TrailStretch } from './trail';
 import type { StartReplay } from '../analysis/startReplay';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
@@ -885,6 +887,36 @@ function trackLayer(a: RaceAnalysis, highlight: string | null, leg: number | nul
   return { paths: paths.join(''), hi: hi.join(''), labels, pieces: drawn };
 }
 
+interface MarkLabel {
+  m: RaceAnalysis['marks'][number];
+  /** The mark's points, map units. */
+  ps: Vec[];
+  /** The label's anchor, its text and its box (anchor + text width, a font-size high, padded). */
+  at: Vec;
+  name: string;
+  box: Rect;
+  /** False where it would overlap a label before it (skipped). */
+  shown: boolean;
+}
+
+/** The marks and their labels as trackMap draws them at map scale `unit`, `k`: right of each mark's rightmost point, a label that would overlap one before it skipped. */
+function markLabels(a: RaceAnalysis, unit: number, k: number): MarkLabel[] {
+  const rot = rotator(a.wind.twdAtGunDeg);
+  const labelPad = 3 * unit;
+  const taken: Rect[] = [];
+  return a.marks.map((m) => {
+    const ps = m.xy.map(rot);
+    const top = ps.reduce((x, y) => (y[0] > x[0] ? y : x));
+    const name = m.estimated ? `${m.name.replace(/ mark$/i, '')} (est.)` : m.name;
+    const at: Vec = [top[0] + 9 * unit, top[1] + 4 * unit];
+    const fs = 12 * k;
+    const box: Rect = { x0: at[0] - labelPad, y0: at[1] - fs - labelPad, x1: at[0] + textWidth(name, fs) + labelPad, y1: at[1] + labelPad };
+    const shown = !taken.some((q) => box.x0 < q.x1 && q.x0 < box.x1 && box.y0 < q.y1 && q.y0 < box.y1);
+    if (shown) taken.push(box);
+    return { m, ps, at, name, box, shown };
+  });
+}
+
 /** Whole-race tracks coloured by leg (or by speed rank, or boat speed), or only leg `leg` (fitted to it); scrubbing, the static map only. */
 export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number | null = null, opts: TrackMapOptions = {}): string {
   const rot = rotator(a.wind.twdAtGunDeg);
@@ -903,25 +935,15 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
 
   const L = rot(a.line.left);
   const R = rot(a.line.right);
-  // Mark labels drawn so far, as boxes (anchor + text width, a font-size high, padded): one that would overlap is skipped.
-  const labelBoxes: Rect[] = [];
-  const labelPad = 3 * unit;
-  const marks = a.marks
-    .map((m) => {
-      const ps = m.xy.map(rot);
+  const marks = markLabels(a, unit, k)
+    .map(({ m, ps, at, name, shown }) => {
       // Turns placed from the tracks (no tracker): hollow, dashed, labelled "(est.)".
       const cls = m.estimated ? 'mark est' : 'mark';
       const dash = m.estimated ? ` stroke-dasharray="${(3 * k).toFixed(2)} ${(2 * k).toFixed(2)}"` : '';
       // A mark shown by its role ("Reach mark") keeps the feed's own name as its tooltip.
       const tip = m.title ? `<title>${esc(m.title)}</title>` : '';
       const c = ps.map((p) => `<circle class="${cls}" cx="${p[0]}" cy="${p[1]}" r="${5.5 * unit}" stroke-width="${1.5 * k}"${dash}${tip ? `>${tip}</circle>` : '/>'}`).join('');
-      const top = ps.reduce((x, y) => (y[0] > x[0] ? y : x));
-      const name = m.estimated ? `${m.name.replace(/ mark$/i, '')} (est.)` : m.name;
-      const at: Vec = [top[0] + 9 * unit, top[1] + 4 * unit];
-      const fs = 12 * k;
-      const r: Rect = { x0: at[0] - labelPad, y0: at[1] - fs - labelPad, x1: at[0] + textWidth(name, fs) + labelPad, y1: at[1] + labelPad };
-      if (labelBoxes.some((q) => r.x0 < q.x1 && q.x0 < r.x1 && r.y0 < q.y1 && q.y0 < r.y1)) return c;
-      labelBoxes.push(r);
+      if (!shown) return c;
       return `${c}<text x="${at[0]}" y="${at[1]}" font-size="${12 * k}" class="lbl${m.estimated ? ' est' : ''}">${tip}${esc(name)}</text>`;
     })
     .join('');
@@ -962,7 +984,7 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
           ? `Race Viewer, tracks ${sogLabel}`
           : 'Race Viewer, tracks colored by leg'
       : `Race Viewer on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', tracks colored by speed on the leg: yellow and boldest fastest' : sogLabel ? `, tracks ${sogLabel}` : ''}`;
-  const tracks = layer ? `${layer.paths}${layer.hi}` : '<g class="scrub-trk"></g><g class="scrub-trails"></g><g class="scrub-ocs"></g>';
+  const tracks = layer ? `${layer.paths}${layer.hi}` : '<g class="scrub-trk"></g><g class="scrub-trails"></g><g class="scrub-ocs"></g><g class="scrub-rungs"></g>';
   const top = layer ? layer.labels : '<g class="scrub-dots"></g>';
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map${opts.scrub ? ' scrub' : ''}" role="img" aria-label="${esc(opts.scrub ? `${label}; boats at the scrubber's time` : label)}">
     ${tracks}
@@ -982,6 +1004,8 @@ export interface ScrubAt {
   win: [number, number];
   full?: FullRateSet | null;
   trailMs?: number | null;
+  /** The fleet up the wind ladder at `t` (coach/ladderNow.ts), for the ladder rungs (ui/rungs.ts); null or absent: none drawn. */
+  ladder?: LadderNow | null;
 }
 
 /** One boat's fading trail: path data per fade slice (ui/trail.ts TRAIL_FADE); its color (`cd`: by night), class and width (map units). */
@@ -997,12 +1021,15 @@ export interface BoatTrail {
 /**
  * One scrubber frame: the tracks (into `g.scrub-trk`), the boats' fading trails (into `g.scrub-trails`, by
  * ui/trailLayer.ts, which reuses their paths), a replay's over-the-line tracks (into `g.scrub-ocs`, over the
- * trails), the boats and labels (into `g.scrub-dots`), and what they were drawn from.
+ * trails), the ladder rungs (into `g.scrub-rungs`, by ui/rungs.ts paintRungs, which reuses their elements), the
+ * boats and labels (into `g.scrub-dots`), and what they were drawn from.
  */
 export interface ScrubFrame {
   tracks: string;
   trails: BoatTrail[];
   ocs: string;
+  /** Kept and refilled frame to frame (ui/rungs.ts rungDraws). */
+  rungs: readonly RungDraw[];
   dots: string;
   pieces: MapPiece[];
   boats: BoatAt[];
@@ -1068,9 +1095,10 @@ function dotColour(a: RaceAnalysis, b: BoatAt, leg: number | null, opts: TrackMa
  * each the start chart's hull (ui/boatShape.ts boatMark: to scale or a fixed-size symbol, along its course over
  * ground, or its last heading known while held past its final fix or slow) where it can be, else a dot with a short tick along
  * its course; filled while its data is fresh, hollow (same color, a heavier outline) once it is lost; the selected
- * boat bigger, on top and labelled (every boat labelled in a small fleet); boats off a leg shown, faint.
+ * boat bigger, on top and labelled (every boat labelled in a small fleet); boats off a leg shown, faint. Each boat's
+ * box and its label's go into `taken` (what the ladder rungs' labels keep clear of).
  */
-function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, opts: TrackMapOptions, boats: readonly BoatAt[], sc: MapScale): string {
+function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, opts: TrackMapOptions, boats: readonly BoatAt[], sc: MapScale, taken?: Rects): string {
   const { unit, k } = sc;
   const speed = opts.colour === 'rank' ? speedRanking(a, leg, opts.rankBy ?? 'leg') : null;
   const byId = new Map(a.boats.map((b) => [b.id, b]));
@@ -1110,8 +1138,14 @@ function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, 
     // Beside a hull: HULL_LABEL_GAP_PX off it abeam (clear of its track), at any zoom; beside a dot: up and right of it.
     const lbl = 'shape' in shape ? hullLabelBox([b.mx, b.my], shape.shape, shape.dims, textWidth(sail, fs), 1.1 * fs, HULL_LABEL_GAP_PX * unit) : null;
     const [lx, ly] = lbl ? [lbl.x0, lbl.y0 + 0.85 * fs] : [b.mx + r + 3 * unit, b.my - r];
+    const labelled = on || cmp || labelAll;
+    if (taken) {
+      taken.add(b.mx - r, b.my - r, b.mx + r, b.my + r);
+      if (labelled && lbl) taken.add(lbl.x0, lbl.y0, lbl.x1, lbl.y1);
+      else if (labelled) taken.add(lx, ly - fs, lx + textWidth(sail, fs), ly + 0.3 * fs);
+    }
     const text =
-      on || cmp || labelAll
+      labelled
         ? `<text class="dot-lbl${on ? ' on' : cmp ? ' vs' : ''}" x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="${fs}" stroke-width="${(3 * k).toFixed(2)}">${esc(sail)}</text>`
         : '';
     const svg = `<g class="boat-at${on ? ' on' : cmp ? ' vs' : highlight ? ' dim' : ''}">${vsRing}${tick}${ring}${text}</g>`;
@@ -1133,6 +1167,10 @@ export function scrubFrame(a: RaceAnalysis, highlight: string | null, leg: numbe
   const po: PieceOptions = { leg, win: s.win, clip, pre: true, full: s.full };
   const layer = s.trailMs ? null : trackLayer(a, highlight, leg, opts, po, sc);
   const boats = boatsAt(a, highlight, s.t, s.full);
+  // What the rungs' labels keep clear of: the boats and their labels (dotsSvg), the marks and the corners' wind arrow and scale bar.
+  rungTaken.clear();
+  const dots = dotsSvg(a, highlight, leg, opts, boats, sc, s.ladder ? rungTaken : undefined);
+  rungBoats = rungTaken.n;
   const r = opts.replay && opts.replay.boat === highlight && leg == null ? replaySvg(a, opts.replay, s, sc) : null;
   // Short trails: the pieces over the window too (the point details and a card's comparison casing read them).
   const nc = pickedExcluded(a, highlight);
@@ -1142,10 +1180,92 @@ export function scrubFrame(a: RaceAnalysis, highlight: string | null, leg: numbe
     tracks,
     ocs: r?.tracks ?? '',
     trails: s.trailMs ? boatTrails(a, highlight, leg, opts, boats, s.t, s.trailMs, s.full, clip, sc) : [],
-    dots: (r?.marks ?? '') + (layer?.labels ?? '') + dotsSvg(a, highlight, leg, opts, boats, sc) + (r?.label ?? ''),
+    rungs: s.ladder ? mapRungs(a, highlight, s.ladder, sc, rungTaken) : noRungs,
+    dots: (r?.marks ?? '') + (layer?.labels ?? '') + dots + (r?.label ?? ''),
     pieces,
     boats,
   };
+}
+
+const noRungs: readonly RungDraw[] = [];
+/** The boxes the rungs' labels keep clear of, kept frame to frame (scrubFrame fills it). */
+const rungTaken = new Rects();
+/** How many of them are the boats' (the rest, the marks, corners and labels, are added again for each view). */
+let rungBoats = 0;
+
+/** The marks' boxes (each point and its label, and the finish line's label) at map scale `unit`, kept per race and scale. */
+const markBoxes = new WeakMap<RaceAnalysis, { unit: number; boxes: Rect[] }>();
+function markBoxesAt(a: RaceAnalysis, unit: number, k: number): Rect[] {
+  const hit = markBoxes.get(a);
+  if (hit && hit.unit === unit) return hit.boxes;
+  const boxes: Rect[] = [];
+  const r = 7 * unit;
+  for (const l of markLabels(a, unit, k)) {
+    for (const [x, y] of l.ps) boxes.push({ x0: x - r, y0: y - r, x1: x + r, y1: y + r });
+    if (l.shown) boxes.push(l.box);
+  }
+  const fl = a.finishLine;
+  if (fl) {
+    const rot = rotator(a.wind.twdAtGunDeg);
+    const [p, q] = [rot(fl.left), rot(fl.right)];
+    const right = q[0] >= p[0];
+    const fs = 12 * k;
+    const w = textWidth(a.finishLineEstimated ? 'Finish (est.)' : 'Finish', fs);
+    const x = q[0] + (right ? 6 : -6) * unit;
+    const y = q[1] + 4 * unit;
+    boxes.push({ x0: right ? x : x - w, y0: y - fs, x1: right ? x + w : x, y1: y + 0.3 * fs });
+  }
+  markBoxes.set(a, { unit, boxes });
+  return boxes;
+}
+
+/** The wind arrow's and the scale bar's boxes in view `box` (windArrow, scaleBar: the top right and bottom left corners). */
+function hudBoxes(box: Box, unit: number, k: number, taken: Rects): void {
+  const x = box.x1 - 14 * unit;
+  const y = box.y0 + 10 * unit;
+  taken.add(x - 6 * unit - textWidth('wind (est.)', 11 * k), y - 11 * k, x + 6 * unit, y + 34 * unit + 2 * k);
+  const step = niceStep((box.x1 - box.x0) / 1.5);
+  const sx = box.x0 + 8 * unit;
+  const sy = box.y1 - 8 * unit;
+  taken.add(sx - 2 * unit, sy - 4 * unit - 11 * k, sx + step + 2 * unit, sy + 2 * k);
+}
+
+/**
+ * The ladder rungs at the scrubber's moment (ui/rungs.ts) in the view drawn `sc`: the leader's and the selected
+ * boat's, on a beat or a run, edge to edge across the view; labelled "Leader" and with the selected boat's sail
+ * number and distance behind it, clear of `taken` (the boats and their labels) and the marks, wind arrow and scale bar.
+ * Kept and refilled frame to frame.
+ */
+function mapRungs(a: RaceAnalysis, highlight: string | null, now: LadderNow, sc: MapScale, taken: Rects): readonly RungDraw[] {
+  const mapTwdDeg = a.wind.twdAtGunDeg;
+  const rungs = rungsAt({ now, selected: highlight, axes: legAxes(now.course.kinds, now.lw, mapTwdDeg), mapTwdDeg });
+  if (!rungs.length) return noRungs;
+  taken.n = rungBoats;
+  const marks = markBoxesAt(a, sc.unit, sc.k);
+  for (let i = 0; i < marks.length; i++) taken.add(marks[i].x0, marks[i].y0, marks[i].x1, marks[i].y1);
+  hudBoxes(sc.box, sc.unit, sc.k, taken);
+  return rungDraws(rungs, sc, rungText(a), taken);
+}
+
+const rungTexts = new WeakMap<RaceAnalysis, { sail: (id: string) => string; dims: ClassDims | null }>();
+/** What the rungs' labels say for race `a`: sail numbers, and lengths for a known class. */
+function rungText(a: RaceAnalysis): { sail: (id: string) => string; dims: ClassDims | null } {
+  let t = rungTexts.get(a);
+  if (!t) {
+    const sails = new Map(a.boats.map((b) => [b.id, b.sail]));
+    rungTexts.set(a, (t = { sail: (id) => sails.get(id) ?? id, dims: startDims(a) }));
+  }
+  return t;
+}
+
+/**
+ * The ladder rungs alone for a view moved without a redraw (ui/app.ts: a slow gesture's viewBox moves): the frame's
+ * boats are where they were, so their boxes (kept from the last scrubFrame) still hold; the lines and labels follow the view.
+ */
+export function scrubRungs(a: RaceAnalysis, highlight: string | null, leg: number | null, opts: TrackMapOptions, now: LadderNow | null): readonly RungDraw[] {
+  if (!now) return noRungs;
+  const { view: box } = trackMapView(a, leg, opts.view);
+  return mapRungs(a, highlight, now, mapScale(box), rungTaken);
 }
 
 /**
