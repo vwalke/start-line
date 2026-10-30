@@ -5,6 +5,9 @@
  * fleet's minute-by-minute series, the runs read from the gybes where twdSeries.ts has them, smoothed over two
  * minutes), a boat's rung (ladder.ts rung: to its leg's end along that wind, or past the layline `hypot(u, c)·cos(a)`),
  * and its course progress (the legs before plus the share of this leg's ladder climbed, scaled to its rhumb length).
+ * Both are measured from the boat's bow, where the map draws it (ui/charts.ts dotsSvg): the tracker plus the bow's
+ * distance ahead of it (data/classes.ts bowAheadM: the feed's antenna-to-bow distance, else half the LOA) along the
+ * way the map points the hull, so the leader is the boat whose bow is furthest up the ladder.
  *
  * - The wind is the moment's, not one per leg: a leg's ladder turns with a shift as the fleet sails it. (The Coach's
  *   gap chart keeps one wind per leg, timeGap.ts legWinds: it compares a boat with where another was minutes before,
@@ -17,6 +20,7 @@
  * - Worked out once per model; each moment fills the same reads in place (no allocation while scrubbing), and the
  *   last moment asked is kept (a pan or a pause asks again).
  */
+import { bowAheadM, raceClass } from '../../data/classes';
 import { bisectRight } from '../geo';
 import type { LegKind, RaceAnalysis } from '../types';
 import type { CoachModel } from './index';
@@ -30,6 +34,11 @@ import { trackLegAt, type CoachTrack } from './tracks';
 export const PROG_SPAN_S = 60;
 /** …with a real fix this close. */
 export const PROG_NEAR_S = 30;
+
+/** A step shorter than this, m, gives no course (ui/mapPieces.ts COG_MIN_M, which points the map's hulls). */
+const COG_MIN_M = 0.5;
+/** With none on the step a boat is on, its last course is looked for this many steps back. */
+const HEADING_BACK = 30;
 
 /** A leg's progress is scaled by its ladder from the start mark, but by no less than this share of its rhumb length (ladder.ts distToGo): a wind square to the leg can't blow it up. */
 const MIN_FULL_SHARE = 0.3;
@@ -45,13 +54,21 @@ export interface LadderRead {
   est: boolean;
   /** Its leg; −1 when not read. */
   leg: number;
-  /** Where it is, m (the analysis's frame). */
+  /** Where it is (its tracker), m (the analysis's frame). */
   x: number;
   y: number;
+  /** The way its hull points (unit; 0, 0 with no course known): headingInto. */
+  hx: number;
+  hy: number;
+  /** How far its bow is ahead of its tracker, m (data/classes.ts bowAheadM). */
+  bowM: number;
+  /** Its bow, m: `bowM` along `hx, hy` from `x, y`. What `rung` and `prog` are measured from. */
+  bx: number;
+  by: number;
   /** Where its leg ends for it (the mark, or on the last leg the finish line extended), m. */
   ex: number;
   ey: number;
-  /** Its rung: how far it still has to climb (or run) to `ex, ey` along the wind then, m; NaN on a reach. */
+  /** Its rung: how far its bow still has to climb (or run) to `ex, ey` along the wind then, m; NaN on a reach. */
   rung: number;
   /** Course progress, m (the legs before plus the share of this leg's ladder climbed). */
   prog: number;
@@ -124,6 +141,30 @@ function endInto(c: Course, leg: number, px: number, py: number, out: { ex: numb
 const rungOn = (g: LegLadder, w: WindNow, px: number, py: number, ex: number, ey: number): number =>
   g.kind === 'upwind' ? rungXY(px, py, ex, ey, w.wx, w.wy, true, w.upTan, w.upCos) : rungXY(px, py, ex, ey, w.wx, w.wy, false, w.runTan, w.runCos);
 
+/**
+ * The way the map points a boat's hull at `t` (ui/mapPieces.ts boatAt), unit, into `out`: along the step it is on (at a
+ * fix, the one after it; at the track's last fix, the one before), or where that step is too short to give a course,
+ * the last one before it that does (mapPieces.ts lastHeadingAt); false when none (the map's dot).
+ */
+function headingInto(tr: CoachTrack, t: number, out: { hx: number; hy: number }): boolean {
+  const n = tr.t.length;
+  if (n < 2) return false;
+  const j = Math.max(0, Math.min(bisectRight(tr.t, t), n - 1));
+  let b = j + 1 < n ? j + 1 : j;
+  let a = b - 1;
+  for (let k = 0; a >= 0 && k < HEADING_BACK; k++, a--, b--) {
+    const dx = tr.x[b] - tr.x[a];
+    const dy = tr.y[b] - tr.y[a];
+    const l = Math.hypot(dx, dy);
+    if (l >= COG_MIN_M) {
+      out.hx = dx / l;
+      out.hy = dy / l;
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Position at `t` as tracks.ts posAt reads it (fixes ≤ `spanS` apart, one ≤ `nearS` away), into `out`; false when none. */
 function posInto(tr: CoachTrack, t: number, spanS: number, nearS: number, out: { x: number; y: number }): boolean {
   const n = tr.t.length;
@@ -184,7 +225,25 @@ export function ladderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachMo
   const extra = extraTracked(a);
   const racing = a.boats.filter((b) => !extra.has(b.sail) && !extra.has(b.id) && !neverRaced(b.finishCode));
   const tracks = racing.map((b) => m.tracks.get(b.id) ?? null);
-  const reads: LadderRead[] = racing.map((b) => ({ id: b.id, finishMs: b.finishMs, done: false, est: true, leg: -1, x: NaN, y: NaN, ex: NaN, ey: NaN, rung: NaN, prog: NaN }));
+  const dims = raceClass(a.meta)?.dims ?? null;
+  const reads: LadderRead[] = racing.map((b) => ({
+    id: b.id,
+    finishMs: b.finishMs,
+    done: false,
+    est: true,
+    leg: -1,
+    x: NaN,
+    y: NaN,
+    hx: 0,
+    hy: 0,
+    bowM: bowAheadM(b.bowOffsetM, dims),
+    bx: NaN,
+    by: NaN,
+    ex: NaN,
+    ey: NaN,
+    rung: NaN,
+    prog: NaN,
+  }));
   const now: LadderNow = { t: NaN, reads, leader: -1, course, total: start, twdDeg: NaN, taDeg: NaN };
   const n = course.kinds.length;
   const end = { ex: 0, ey: 0 };
@@ -224,15 +283,21 @@ export function ladderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachMo
     const g = legs[leg];
     r.est = false;
     r.leg = leg;
-    endInto(course, leg, r.x, r.y, r);
+    if (!(r.bowM > 0 && headingInto(tr, t, r))) {
+      r.hx = 0;
+      r.hy = 0;
+    }
+    r.bx = r.x + r.bowM * r.hx;
+    r.by = r.y + r.bowM * r.hy;
+    endInto(course, leg, r.bx, r.by, r);
     if (g.full > 0) {
-      r.rung = rungOn(g, w, r.x, r.y, r.ex, r.ey);
+      r.rung = rungOn(g, w, r.bx, r.by, r.ex, r.ey);
       r.prog = g.start + g.L * (1 - r.rung / g.full);
     } else {
       // A reach (or a leg of no length): distance made good along the rhumb line (timeGap.ts legProgress).
       const [x0, y0] = course.pts[leg];
       const [x1, y1] = course.pts[leg + 1];
-      r.prog = g.start + (g.L > 0 ? ((r.x - x0) * (x1 - x0) + (r.y - y0) * (y1 - y0)) / g.L : 0);
+      r.prog = g.start + (g.L > 0 ? ((r.bx - x0) * (x1 - x0) + (r.by - y0) * (y1 - y0)) / g.L : 0);
     }
   };
   const reader: LadderReader = (t) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bearingVec, dot, wrap180, type Vec } from '../src/analysis/geo';
+import { bearingVec, bisectRight, dot, wrap180, type Vec } from '../src/analysis/geo';
 import { ladderReader, leaderOf, rungXY, type LadderNow, type LadderRead } from '../src/analysis/coach/ladderNow';
 import { legEnd, legLengths, rung } from '../src/analysis/coach/ladder';
 import { liveWind } from '../src/analysis/coach/liveWind';
@@ -7,7 +7,9 @@ import { progressAt, progressBase } from '../src/analysis/coach/progress';
 import { gapCourse, legWinds } from '../src/analysis/coach/timeGap';
 import type { CoachModel } from '../src/analysis/coach';
 import { makeTwdAt, windPoints } from '../src/analysis/wind';
-import { scrubFrame, startClass, trackMap, trackMapView } from '../src/ui/charts';
+import { bowAheadM } from '../src/data/classes';
+import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, hullCenterFromBow, hullOutlineAt } from '../src/ui/boatShape';
+import { boatsAt, drawnBow, scrubFrame, startClass, trackMap, trackMapView } from '../src/ui/charts';
 import { rotator } from '../src/ui/mapPieces';
 import {
   clipSpan,
@@ -19,12 +21,13 @@ import {
   rungDraws,
   rungLabel,
   rungsAt,
+  toDrawnBows,
   type Rung,
   type RungAxis,
   type RungDraw,
   type RungLabelDraw,
 } from '../src/ui/rungs';
-import { coachRace, fixtureRace, starRace } from './helpers';
+import { coachRace, fixtureRace, ic37Race, starRace } from './helpers';
 
 /**
  * Ladder rungs on the track map's scrubber (ui/rungs.ts, coach/ladderNow.ts): square to the wind at that moment
@@ -88,7 +91,9 @@ describe('the Coach’s ladder at a moment (coach/ladderNow.ts)', () => {
       expect(now.taDeg).toBe(ta);
       for (const r of now.reads) {
         if (r.est || r.done || course.kinds[r.leg] === 'reach' || r.leg === course.kinds.length - 1) continue;
-        const p: Vec = [r.x, r.y];
+        // From the bow: the tracker and the bow's distance ahead of it (the class's half length on a J/70 with no feed offset).
+        const p: Vec = [r.bx, r.by];
+        expect(Math.hypot(r.bx - r.x, r.by - r.y)).toBeCloseTo(r.hx || r.hy ? r.bowM : 0, 9);
         const kind = course.kinds[r.leg];
         // The legs before the last end on their mark: ladder.ts rung exactly, on the wind then.
         expect(r.rung).toBeCloseTo(rung(p, legEnd(course, r.leg, p), twd, kind, ta), 6);
@@ -279,7 +284,7 @@ describe('a shift up the beat (Star NA race 4, the first beat)', () => {
       for (const x of now.reads) {
         if (x.est || x.done || x.id === lead.id || x.leg !== 0 || lead.leg !== 0) continue;
         const sel = rungsAt({ now, selected: x.id, mapTwdDeg: sMap }).find((r) => r.role === 'sel')!;
-        const behind = rungAt([x.x, x.y]) - rungAt([lead.x, lead.y]);
+        const behind = rungAt([x.bx, x.by]) - rungAt([lead.bx, lead.by]);
         expect(sel.behindM).toBeCloseTo(behind, 6);
         expect(sel.behindM!).toBeGreaterThanOrEqual(-1e-9);
         // Further behind up the ladder is further down the tooltip's places, the same distance to go apart (scaled to the rhumb line).
@@ -346,7 +351,7 @@ describe('leader and behind', () => {
     expect(same).toBeGreaterThan(100);
   });
 
-  it('puts a rung through its boat inside the laylines', () => {
+  it('puts a rung through its boat’s bow inside the laylines', () => {
     let through = 0;
     for (const t of times) {
       const now = read(t);
@@ -354,7 +359,9 @@ describe('leader and behind', () => {
         if (x.est || x.done || x.leg >= course.kinds.length - 1 || course.kinds[x.leg] === 'reach') continue;
         const r = rungsAt({ now, selected: x.id, mapTwdDeg: mapTwd }).find((q) => q.id === x.id);
         if (!r) continue;
-        const p = rotator(mapTwd)([x.x, x.y]);
+        const p = rotator(mapTwd)([x.bx, x.by]);
+        expect(r.bow[0]).toBeCloseTo(p[0], 6);
+        expect(r.bow[1]).toBeCloseTo(p[1], 6);
         const off = dot([p[0] - r.at[0], p[1] - r.at[1]], r.axis.up);
         // Inside the laylines: on the line; past one, the line is behind the boat.
         expect(off * (r.axis.kind === 'upwind' ? 1 : -1)).toBeGreaterThanOrEqual(-1e-6);
@@ -423,7 +430,7 @@ describe('label placement', () => {
   it('reads on a steep line: along it, never upside down', () => {
     for (const twd of [130, 160, 200, 250, 300, 310]) {
       const ax = rungAxis('upwind', twd, 220)!;
-      const rungs: Rung[] = [{ role: 'leader', id: 'A', leg: 0, axis: ax, at: [0, 0], rung: 0, behindM: null }];
+      const rungs: Rung[] = [{ role: 'leader', id: 'A', leg: 0, axis: ax, at: [0, 0], bow: [0, 0], rung: 0, behindM: null }];
       const [d] = rungDraws(rungs, { box: view, unit: 1, k: 1 }, { sail: (id) => id, dims: null }, new Rects());
       const l = d.label!;
       expect(Math.abs(l.deg)).toBeLessThanOrEqual(90);
@@ -439,8 +446,8 @@ describe('label placement', () => {
   it('keeps the selected boat’s label off the leader’s', () => {
     const ax = rungAxis('upwind', 220, 220)!;
     const rungs: Rung[] = [
-      { role: 'leader', id: 'A', leg: 0, axis: ax, at: [0, 0], rung: 100, behindM: null },
-      { role: 'sel', id: 'B', leg: 0, axis: ax, at: [0, 4], rung: 104, behindM: 4 },
+      { role: 'leader', id: 'A', leg: 0, axis: ax, at: [0, 0], bow: [0, 0], rung: 100, behindM: null },
+      { role: 'sel', id: 'B', leg: 0, axis: ax, at: [0, 4], bow: [0, 4], rung: 104, behindM: 4 },
     ];
     // A view so narrow the two would sit on each other at the same spot.
     const [l, s] = rungDraws(rungs, { box: { x0: -80, y0: -300, x1: 80, y1: 300 }, unit: 1, k: 1 }, { sail: (id) => id, dims: null }, new Rects());
@@ -451,7 +458,7 @@ describe('label placement', () => {
 
 describe('across the view', () => {
   const ax = rungAxis('downwind', 235, 220)!;
-  const rungs: Rung[] = [{ role: 'leader', id: 'A', leg: 0, axis: ax, at: [40, -20], rung: 0, behindM: null }];
+  const rungs: Rung[] = [{ role: 'leader', id: 'A', leg: 0, axis: ax, at: [40, -20], bow: [40, -20], rung: 0, behindM: null }];
 
   it('runs edge to edge across the view drawn, through its point', () => {
     for (const box of [
@@ -540,6 +547,237 @@ describe('rungs on the race map', () => {
   });
 });
 
+describe('at the bow (IC37 R5: the feed puts the bow 4.9 m ahead of the tracker, LOA 11.3 m)', () => {
+  const ic = coachRace(ic37Race());
+  const ia = ic.a;
+  const im = ic.m;
+  const iRead = ladderReader(ia, im);
+  const iDims = startClass(ia)!.dims;
+  const iGun = ia.meta.gunMs;
+  const iMap = ia.wind.twdAtGunDeg;
+  const iCourse = gapCourse(im).course;
+  const iBase = progressBase(ia, im);
+  const iLive = liveWind(im);
+  const iLast = Math.max(...ia.boats.map((b) => b.finishMs ?? 0));
+  const iTimes: number[] = [];
+  for (let t = iGun + 30_000; t < iLast; t += 30_000) iTimes.push(t);
+  /** Map units per css px at Fit (charts.ts mapScale: the view drawn 600 px wide). */
+  const fitView = trackMapView(ia, null).view;
+  const fitUnit = Math.max(fitView.x1 - fitView.x0, fitView.y1 - fitView.y0) / 600;
+  /** The tip of boat `id`'s hull as drawn: its path's first point (boatShape.ts HULL starts at the bow). */
+  const tipOf = (dots: string, id: string): Vec | null => {
+    const hit = new RegExp(`<path class="dot hull[^"]*" data-id="${id}" d="M(-?[\\d.]+),(-?[\\d.]+)`).exec(dots);
+    return hit ? [Number(hit[1]), Number(hit[2])] : null;
+  };
+  /** How far `p` is off the line drawn `d`, css px at `unit` map units per px. */
+  const pxOff = (d: RungDraw, p: Vec, unit: number): number => Math.abs(cross([d.x2 - d.x1, d.y2 - d.y1], [p[0] - d.x1, p[1] - d.y1])) / Math.hypot(d.x2 - d.x1, d.y2 - d.y1) / unit;
+  const firstPlace = (t: number): string | null => {
+    let best: string | null = null;
+    let bp = Infinity;
+    for (const [id, r] of progressAt(ia, im, iBase, t).byId) {
+      if (r.est || r.place >= bp) continue;
+      best = id;
+      bp = r.place;
+    }
+    return best;
+  };
+
+  it('measures each boat from its bow: the feed’s 4.9 m ahead of its tracker, the way the map points its hull', () => {
+    expect(iDims.loaM).toBeCloseTo(11.3, 9);
+    let n = 0;
+    let fixes = 0;
+    let along = 0;
+    for (const t of iTimes) {
+      const now = iRead(t);
+      const drawn = new Map(boatsAt(ia, null, t).map((b) => [b.id, b]));
+      for (const r of now.reads) {
+        if (r.est || r.done) continue;
+        expect(r.bowM).toBeCloseTo(4.9, 9);
+        expect(Math.hypot(r.bx - r.x, r.by - r.y)).toBeCloseTo(r.hx || r.hy ? 4.9 : 0, 9);
+        n++;
+        const b = drawn.get(r.id);
+        // Between fixes a few seconds apart: across a hole the map draws a filled-in path (and toDrawnBows moves the line onto its bow).
+        const tr = im.tracks.get(r.id)!;
+        const j = bisectRight(tr.t, t);
+        if (!b?.dir || b.hold || j < 0 || j + 1 >= tr.t.length || tr.t[j + 1] - tr.t[j] > 5000) continue;
+        fixes++;
+        const h = rotator(iMap)([r.hx, r.hy]);
+        // Within half a degree (the drawn tracks keep their fixes to single precision).
+        if (dot(h, b.dir) > Math.cos(Math.PI / 360)) along++;
+      }
+    }
+    expect(n).toBeGreaterThan(200);
+    // The hull's heading on the map, wherever it draws the same fixes.
+    expect(fixes).toBeGreaterThan(100);
+    expect(along).toBeGreaterThan(0.97 * fixes);
+  });
+
+  it('leads with the tooltip’s first place, and measures “behind” bow to bow', () => {
+    let led = 0;
+    let behind = 0;
+    for (const t of iTimes) {
+      const now = iRead(t);
+      const first = firstPlace(t);
+      expect(now.leader >= 0 ? now.reads[now.leader].id : null).toBe(first);
+      if (now.leader < 0) continue;
+      led++;
+      const lead = now.reads[now.leader];
+      const twd = iLive.twdAt(t);
+      const ta = iLive.taAt(t);
+      for (const x of now.reads) {
+        if (x.est || x.done || x.id === lead.id || x.leg !== lead.leg || iCourse.kinds[x.leg] === 'reach' || x.leg === iCourse.kinds.length - 1) continue;
+        const sel = rungsAt({ now, selected: x.id, mapTwdDeg: iMap }).find((r) => r.role === 'sel')!;
+        const kind = iCourse.kinds[x.leg];
+        const rungAt = (p: Vec): number => rung(p, legEnd(iCourse, x.leg, p), twd, kind, ta);
+        expect(sel.behindM).toBeCloseTo(rungAt([x.bx, x.by]) - rungAt([lead.bx, lead.by]), 6);
+        behind++;
+      }
+    }
+    expect(led).toBeGreaterThan(50);
+    expect(behind).toBeGreaterThan(100);
+  });
+  it('meets the bow drawn on the map within a pixel at Fit, 2×, 4× and 8×, at a still view or following the boat, on a laptop or a phone', () => {
+    let n = 0;
+    let worst = 0;
+    const zooms = [1, 2, 4, 8];
+    for (const t of iTimes.filter((_, i) => i % 2 === 0)) {
+      const now = iRead(t);
+      if (now.leader < 0) continue;
+      const lead = now.reads[now.leader];
+      const sel = now.reads.find((r) => !r.est && !r.done && r.id !== lead.id && r.leg === lead.leg);
+      if (!sel) continue;
+      // Inside the laylines a rung runs through its bow (past one it sits behind it: ladder.ts rung).
+      const through = new Set(
+        rungsAt({ now, selected: sel.id, mapTwdDeg: iMap })
+          .filter((r) => Math.abs(dot([r.bow[0] - r.at[0], r.bow[1] - r.at[1]], r.axis.up)) < 1e-6)
+          .map((r) => r.id),
+      );
+      const boat = boatsAt(ia, sel.id, t).find((b) => b.id === sel.id)!;
+      for (const k of zooms) {
+        // Still: the whole course or a view on the fleet's middle; followed: the camera's view on the selected boat.
+        for (const view of [k === 1 ? undefined : { cx: (fitView.x0 + fitView.x1) / 2, cy: (fitView.y0 + fitView.y1) / 2, k }, { cx: boat.mx, cy: boat.my, k }]) {
+          for (const screen of [null, { w: 390, h: 560 }]) {
+            const f = scrubFrame(ia, sel.id, null, view ? { view } : {}, { t, win: [t - 30_000, t], trailMs: 30_000, ladder: now, screen });
+            const vb = trackMapView(ia, null, view).view;
+            const unit = Math.max(vb.x1 - vb.x0, vb.y1 - vb.y0) / 600;
+            expect(unit).toBeCloseTo(fitUnit / k, 6);
+            for (const d of f.rungs) {
+              const id = d.role === 'leader' ? lead.id : sel.id;
+              const tip = tipOf(f.dots, id);
+              if (!tip || !through.has(id)) continue;
+              const off = pxOff(d, tip, unit);
+              worst = Math.max(worst, off);
+              expect(off).toBeLessThan(1);
+              n++;
+            }
+          }
+        }
+      }
+    }
+    expect(n).toBeGreaterThan(100);
+    // The path's two decimals, not the geometry.
+    expect(worst).toBeLessThan(0.05);
+  });
+
+  it('stays on the bow second by second through a tack, the hull turning with it', () => {
+    // A tack on the first beat: a boat's drawn course turns more than 60° within 12 s.
+    const id = ia.boats[0].id;
+    const up = iCourse.kinds.indexOf('upwind');
+    let tack = NaN;
+    for (let t = iGun + 20_000; t < iLast && Number.isNaN(tack); t += 1000) {
+      const b0 = boatsAt(ia, id, t).find((b) => b.id === id);
+      const b1 = boatsAt(ia, id, t + 12_000).find((b) => b.id === id);
+      if (b0?.dir && b1?.dir && b0.leg === up && b1.leg === up && dot(b0.dir, b1.dir) < 0.5) tack = t;
+    }
+    expect(Number.isFinite(tack)).toBe(true);
+    let n = 0;
+    let prev = NaN;
+    let maxStep = 0;
+    for (let t = tack - 5000; t <= tack + 20_000; t += 1000) {
+      const now = iRead(t);
+      const r = now.reads.find((x) => x.id === id)!;
+      if (r.est || r.leg !== up) continue;
+      const boat = boatsAt(ia, id, t).find((b) => b.id === id)!;
+      for (const k of [1, 4, 8]) {
+        const view = { cx: boat.mx, cy: boat.my, k };
+        const f = scrubFrame(ia, id, null, { view }, { t, win: [t - 30_000, t], trailMs: 30_000, ladder: now });
+        const d = f.rungs.find((x) => (now.reads[now.leader].id === id ? x.role === 'leader' : x.role === 'sel'));
+        const tip = tipOf(f.dots, id);
+        if (!d || !tip) continue;
+        const vb = trackMapView(ia, null, view).view;
+        const rr = rungsAt({ now, selected: id, mapTwdDeg: iMap }).find((x) => x.id === id)!;
+        if (Math.abs(dot([rr.bow[0] - rr.at[0], rr.bow[1] - rr.at[1]], rr.axis.up)) > 1e-6) continue;
+        expect(pxOff(d, tip, Math.max(vb.x1 - vb.x0, vb.y1 - vb.y0) / 600)).toBeLessThan(1);
+        n++;
+      }
+      // The bow's reach up the wind from the tracker: the same on either tack, so the line doesn't jump with the hull.
+      const w = bearingVec(now.twdDeg);
+      const o = (r.bx - r.x) * w[0] + (r.by - r.y) * w[1];
+      if (Number.isFinite(prev)) maxStep = Math.max(maxStep, Math.abs(o - prev));
+      prev = o;
+    }
+    expect(n).toBeGreaterThan(30);
+    expect(maxStep).toBeLessThan(4.9);
+  });
+});
+
+describe('the bow at any heading and zoom', () => {
+  const dims = { loaM: 11.3, beamM: 3.65 };
+  const bowM = bowAheadM(4.9, dims);
+  // Css px per meter: an IC37 at Fit (2.5 px long), then 2×, 4× and 8×.
+  const ppms = [2.5 / 11.3, 5 / 11.3, 10 / 11.3, 20 / 11.3];
+
+  it('takes the feed’s offset where it fits the hull, else half the LOA; none with no class', () => {
+    expect(bowM).toBe(4.9);
+    expect(bowAheadM(0, dims)).toBe(5.65);
+    expect(bowAheadM(undefined, dims)).toBe(5.65);
+    expect(bowAheadM(14, dims)).toBe(5.65);
+    expect(bowAheadM(4.9, null)).toBe(0);
+  });
+
+  it('draws the hull’s tip on the real bow at 0°, 90°, 180°, 270° and either tack, at every zoom, symbol or to scale; a rung through the bow meets it', () => {
+    const at: Vec = [120, -340];
+    for (const deg of [0, 90, 180, 270, 42, 318]) {
+      const dir: Vec = [Math.sin((deg * Math.PI) / 180), -Math.cos((deg * Math.PI) / 180)];
+      for (const pxPerM of ppms) {
+        for (const minPx of [BOAT_SHAPE_PX, BOAT_SHAPE_ON_PX]) {
+          const mark = boatMark({ dir, hold: false, sog: 6, dims, pxPerM, minPx });
+          if (!('shape' in mark)) throw new Error('a hull');
+          const tip = hullOutlineAt(hullCenterFromBow(at, dir, bowM, mark.dims), dir, mark.dims)[0];
+          const bow: Vec = [at[0] + dir[0] * bowM, at[1] + dir[1] * bowM];
+          expect(Math.hypot(tip[0] - bow[0], tip[1] - bow[1])).toBeLessThan(1e-9);
+          // A stretched symbol reaches aft, never forward: its stern is a full drawn length behind the bow.
+          const stern = hullOutlineAt(hullCenterFromBow(at, dir, bowM, mark.dims), dir, mark.dims)[8];
+          expect(dot([bow[0] - stern[0], bow[1] - stern[1]], dir)).toBeCloseTo(mark.dims.loaM, 6);
+          for (const twd of [220, 260, 300]) {
+            const axis = rungAxis('upwind', twd, 220)!;
+            const r: Rung = { role: 'leader', id: 'A', leg: 0, axis, at: [bow[0], bow[1]], bow: [bow[0], bow[1]], rung: 0, behindM: null };
+            const unit = 1 / pxPerM;
+            const half = 300 * unit;
+            const [d] = rungDraws([r], { box: { x0: at[0] - half, y0: at[1] - half, x1: at[0] + half, y1: at[1] + half }, unit, k: unit }, { sail: (id) => id, dims }, new Rects());
+            const off = Math.abs(cross([d.x2 - d.x1, d.y2 - d.y1], [tip[0] - d.x1, tip[1] - d.y1])) / Math.hypot(d.x2 - d.x1, d.y2 - d.y1);
+            expect(off / unit).toBeLessThan(1e-6);
+          }
+        }
+      }
+    }
+  });
+
+  it('moves a line onto the bow the map drew from other fixes, along the wind, keeping the distance measured', () => {
+    const axis = rungAxis('upwind', 230, 220)!;
+    const r: Rung = { role: 'sel', id: 'B', leg: 0, axis, at: [10, 20], bow: [12, 18], rung: 400, behindM: 37 };
+    const drawn = new Float64Array([15, 11, 0]);
+    toDrawnBows([r], (id) => (id === 'B' ? drawn : null));
+    // As far behind the drawn bow along the wind as it was behind the measured one (0 inside the laylines).
+    expect(dot([drawn[0] - r.at[0], drawn[1] - r.at[1]], axis.up)).toBeCloseTo(dot([12 - 10, 18 - 20], axis.up), 9);
+    expect(r.behindM).toBe(37);
+    // Not drawn (off the map's boats): where the ladder put it.
+    const q: Rung = { ...r, at: [10, 20], bow: [12, 18] };
+    toDrawnBows([q], () => null);
+    expect(q.at).toEqual([10, 20]);
+  });
+});
+
 /** A minimal SVG DOM: what paintRungs touches. */
 class El {
   attrs = new Map<string, string>();
@@ -573,8 +811,8 @@ describe('reuse from frame to frame', () => {
   const draws = (y: number, sel: boolean): readonly RungDraw[] =>
     rungDraws(
       [
-        { role: 'leader', id: 'A', leg: 0, axis: ax, at: [0, y], rung: 0, behindM: null },
-        ...(sel ? [{ role: 'sel' as const, id: 'B', leg: 0, axis: ax, at: [0, y + 50] as [number, number], rung: 50, behindM: 50 }] : []),
+        { role: 'leader', id: 'A', leg: 0, axis: ax, at: [0, y], bow: [0, y], rung: 0, behindM: null },
+        ...(sel ? [{ role: 'sel' as const, id: 'B', leg: 0, axis: ax, at: [0, y + 50] as [number, number], bow: [0, y + 50] as [number, number], rung: 50, behindM: 50 }] : []),
       ],
       sc,
       txt,
@@ -586,7 +824,7 @@ describe('reuse from frame to frame', () => {
     const sel = now.reads.find((r, i) => i !== now.leader && !r.est)!.id;
     const one = rungsAt({ now, selected: sel, mapTwdDeg: mapTwd });
     const objs = [...one];
-    const axes = one.map((r) => ({ axis: r.axis, up: r.axis.up, across: r.axis.across, at: r.at }));
+    const axes = one.map((r) => ({ axis: r.axis, up: r.axis.up, across: r.axis.across, at: r.at, bow: r.bow }));
     const twd1 = one[0].axis.twdDeg;
     const two = rungsAt({ now: read(times[31]), selected: sel, mapTwdDeg: mapTwd });
     expect(two).toBe(one);
@@ -597,6 +835,7 @@ describe('reuse from frame to frame', () => {
       expect(r.axis.up).toBe(axes[i].up);
       expect(r.axis.across).toBe(axes[i].across);
       expect(r.at).toBe(axes[i].at);
+      expect(r.bow).toBe(axes[i].bow);
     });
     expect(two[0].axis.twdDeg).toBe(live.twdAt(times[31]));
     expect(two[0].axis.twdDeg).not.toBe(twd1);
@@ -612,6 +851,22 @@ describe('reuse from frame to frame', () => {
     expect(d2[1].label).toBe(q.label);
     // The same distance: the very same string, not a new one.
     expect(d2[1].label!.text).toBe(text);
+  });
+
+  it('keeps each boat’s drawn bow in the same place frame to frame, and forgets a boat not drawn', () => {
+    const t = times[30];
+    const now = read(t);
+    const id = now.reads[now.leader].id;
+    scrubFrame(a, id, null, {}, { t, win: [t - 120_000, t], trailMs: 120_000, ladder: now });
+    const p = drawnBow(id)!;
+    expect(p).toBeInstanceOf(Float64Array);
+    const x = p[0];
+    scrubFrame(a, id, null, {}, { t: times[31], win: [times[31] - 120_000, times[31]], trailMs: 120_000, ladder: read(times[31]) });
+    expect(drawnBow(id)).toBe(p);
+    expect(p[0]).not.toBe(x);
+    // Before the gun's window opens no boat is drawn: none kept for the rungs.
+    scrubFrame(a, id, null, {}, { t: gun - 3_600_000, win: [gun - 3_700_000, gun - 3_600_000], trailMs: 120_000 });
+    expect(drawnBow(id)).toBeNull();
   });
 
   it('paints each rung once, then sets only what moved', () => {

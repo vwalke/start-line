@@ -9,12 +9,14 @@ import {
   BOAT_SHAPE_PX,
   boatShapeOr,
   headingDir,
+  hullCenterFromBow,
   hullOutline,
   hullOutlineAt,
   hullPathAt,
   hullPathD,
   shapeRotationDeg,
 } from '../src/ui/boatShape';
+import { bowAheadM } from '../src/data/classes';
 import { boatsAt, scrubFrame, startClass, trackMapView } from '../src/ui/charts';
 import { legRanges } from '../src/ui/mapPieces';
 import { ocsStretch, ocsSvg } from '../src/ui/ocsStyle';
@@ -116,8 +118,15 @@ describe('the track map while scrubbing: hulls where they can be (IC37 R5, 11.3 
   const win = trailWindow(t, '30', w);
   const boats = boatsAt(a, null, t);
   const moving = boats.find((b) => b.dir && !b.hold && b.sog >= BOAT_SHAPE_MIN_KN)!;
+  // The feed's tracker-to-bow distance: the map draws each hull from that bow.
+  const bowM = bowAheadM(a.boats.find((b) => b.id === moving.id)!.bowOffsetM, dims);
+  const bowOf = (b: { mx: number; my: number }, dir: Vec): Vec => [b.mx + dir[0] * bowM, b.my + dir[1] * bowM];
 
-  it('at Fit an IC37 to scale would be 2.5 px: a 12 px hull symbol along its course; a dot with a course tick only for a boat without a course', () => {
+  it('draws from the feed’s bow: 4.9 m ahead of the tracker on an IC37, not half its 11.3 m', () => {
+    expect(bowM).toBeCloseTo(4.9, 9);
+  });
+
+  it('at Fit an IC37 to scale would be 2.5 px: a 12 px hull symbol along its course from the bow, reaching further aft; a dot with a course tick only for a boat without a course', () => {
     const { view } = trackMapView(a, null);
     const unit = Math.max(view.x1 - view.x0, view.y1 - view.y0) / 600;
     const px = dims.loaM / unit;
@@ -125,23 +134,33 @@ describe('the track map while scrubbing: hulls where they can be (IC37 R5, 11.3 
     expect(px).toBeLessThan(BOAT_SHAPE_PX);
     const f = scrubFrame(a, null, null, {}, { t, win });
     const f12 = BOAT_SHAPE_PX / px;
-    const d = hullPathAt([moving.mx, moving.my], moving.dir!, { loaM: dims.loaM * f12, beamM: dims.beamM * f12 });
+    const big = { loaM: dims.loaM * f12, beamM: dims.beamM * f12 };
+    const mid = hullCenterFromBow([moving.mx, moving.my], moving.dir!, bowM, big);
+    const d = hullPathAt(mid, moving.dir!, big);
     expect(f.dots).toContain(`<path class="dot hull" data-id="${moving.id}" d="${d}"`);
+    // Its bow tip is the real bow; the symbol's extra length is all aft of it.
+    const tip = hullOutlineAt(mid, moving.dir!, big)[0];
+    const bow = bowOf(moving, moving.dir!);
+    expect(Math.hypot(tip[0] - bow[0], tip[1] - bow[1])).toBeLessThan(1e-9);
     expect(f.dots).not.toMatch(new RegExp(`<circle class="dot[^"]*" data-id="${moving.id}"`));
     // A boat with no course (if any at this second) keeps its dot; no course tick on a hull.
     for (const b of boats.filter((x) => !x.dir || x.hold)) expect(f.dots).toMatch(new RegExp(`<circle class="dot[^"]*" data-id="${b.id}"`));
     expect(f.dots.match(/class="dot-hdg"/g)?.length ?? 0).toBe(boats.filter((x) => x.dir && !x.hold && 'dot' in boatShapeOr({ dir: x.dir, hold: false, sog: x.sog, dims, pxPerM: 1 / unit })).length);
   });
 
-  it('zoomed in on a boat: its hull to scale, centred on its position, pointing along its course; colours, labels and classes kept', () => {
+  it('zoomed in on a boat: its hull to scale, its bow the feed’s bow ahead of its position, pointing along its course; colours, labels and classes kept', () => {
     const view = { cx: moving.mx, cy: moving.my, k: K_MAX };
     const f = scrubFrame(a, moving.id, null, { view }, { t, win });
     const { view: box } = trackMapView(a, null, view);
     const unit = Math.max(box.x1 - box.x0, box.y1 - box.y0) / 600;
     // To scale: longer than the symbol's 15 px.
     expect(dims.loaM / unit).toBeGreaterThanOrEqual(BOAT_SHAPE_ON_PX);
-    const d = hullPathAt([moving.mx, moving.my], moving.dir!, dims);
+    const mid = hullCenterFromBow([moving.mx, moving.my], moving.dir!, bowM, dims);
+    const d = hullPathAt(mid, moving.dir!, dims);
     expect(f.dots).toContain(`<path class="dot hull on" data-id="${moving.id}" d="${d}" fill="var(--s`);
+    const tip = hullOutlineAt(mid, moving.dir!, dims)[0];
+    const bow = bowOf(moving, moving.dir!);
+    expect(Math.hypot(tip[0] - bow[0], tip[1] - bow[1])).toBeLessThan(1e-9);
     // The selected boat still labelled with its sail number, on top.
     const sail = a.boats.find((b) => b.id === moving.id)!.sail;
     expect(f.dots.endsWith('</g>')).toBe(true);

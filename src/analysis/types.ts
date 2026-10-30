@@ -190,6 +190,8 @@ export interface BoatResult {
   /** The upwind and downwind legs added up; null when the race has none of that kind or the boat completed none. */
   upwind: KindSummary | null;
   downwind: KindSummary | null;
+  /** The feed's distance from the tracker forward to the bow, m; absent when it gives none (classes.ts bowAheadM). */
+  bowOffsetM?: number;
   /** Where heading-based figures (TWA, start heading, bow) come from: the device, or the GPS course when the compass is far off it (manoeuvres.ts headingCheck). */
   headingSource: 'device' | 'cog';
   /** Median |device heading − course over ground| at speed, °; null with too few fixes. */

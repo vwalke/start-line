@@ -9,8 +9,8 @@ import type { Vec } from '../analysis/geo';
 import { awayFromLineThresholdM, lineBias } from '../analysis/line';
 import { shownLateS } from '../analysis/validity';
 import { PRE_LEG, type BoatDrawing, type BoatResult, type ExcludedBoat, type RaceAnalysis } from '../analysis/types';
-import { matchClass, type ClassDims } from '../data/classes';
-import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, HULL_LABEL_GAP_PX, hullLabelBox, hullOutline, hullPathAt, hullPathD } from './boatShape';
+import { bowAheadM, raceClass, type ClassDims } from '../data/classes';
+import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, HULL_LABEL_GAP_PX, hullCenterFromBow, hullLabelBox, hullOutline, hullPathAt, hullPathD } from './boatShape';
 import { esc, f1, f2 } from './format';
 import { placeLabels, textWidth, type LabelReq, type Rect, type StartNames } from './labels';
 import { mapPoints, mapPointsOf, type MapPoints } from './mapPoints';
@@ -37,7 +37,7 @@ import { FAV_GAP_PX, favouredTexts, lineBiasSvg } from './startLine';
 import { FOLLOW_COURSE_S, type FollowInput } from './follow';
 import { ocsStretch, ocsSvg } from './ocsStyle';
 import { replayLabel } from './replay';
-import { Rects, rungDraws, rungsAt, type RungDraw } from './rungs';
+import { Rects, rungDraws, rungsAt, toDrawnBows, type RungDraw } from './rungs';
 import type { LadderNow } from '../analysis/coach/ladderNow';
 import { visibleExtent, type MapScreen } from './mapExtent';
 import { windLabel, WIND_LABEL_WIDEST } from './windArrow';
@@ -328,8 +328,7 @@ function startView(a: RaceAnalysis, v?: View, widthPx?: number, frame?: StartFra
 }
 
 /** The class the hulls are sized from: the division's boat class, then its name, then the event's class label; with the name that matched. */
-export const startClass = (a: RaceAnalysis): { name: string; dims: ClassDims } | null =>
-  matchClass([a.meta.boatClass, a.meta.division, a.meta.classLabel]);
+export const startClass = (a: RaceAnalysis): { name: string; dims: ClassDims } | null => raceClass(a.meta);
 
 const startDims = (a: RaceAnalysis): ClassDims | null => startClass(a)?.dims ?? null;
 
@@ -1120,10 +1119,12 @@ function dotColour(a: RaceAnalysis, b: BoatAt, leg: number | null, opts: TrackMa
 /**
  * The boats at the scrubber's time: coloured as the map is (the leg the boat is on, its rank there, or its SOG),
  * each the start chart's hull (ui/boatShape.ts boatMark: to scale or a fixed-size symbol, along its course over
- * ground, or its last heading known while held past its final fix or slow) where it can be, else a dot with a short tick along
+ * ground, or its last heading known while held past its final fix or slow) drawn from its bow (data/classes.ts
+ * bowAheadM ahead of the tracker; a fixed-size symbol reaches further aft) where it can be, else a dot with a short tick along
  * its course; filled while its data is fresh, hollow (same color, a heavier outline) once it is lost; the selected
  * boat bigger, on top and labelled (every boat labelled in a small fleet); boats off a leg shown, faint. Each boat's
- * box and its label's go into `taken` (what the ladder rungs' labels keep clear of).
+ * box and its label's go into `taken` (what the ladder rungs' labels keep clear of), and its bow as drawn into
+ * drawnBows (the ladder rungs meet it).
  */
 function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, opts: TrackMapOptions, boats: readonly BoatAt[], sc: MapScale, taken?: Rects): string {
   const { unit, k } = sc;
@@ -1137,6 +1138,7 @@ function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, 
   const out: string[] = [];
   const vsOut: string[] = [];
   let sel = '';
+  bowStamp++;
   for (const b of boats) {
     const on = highlight === b.id;
     const cmp = !on && vs.has(b.id);
@@ -1146,6 +1148,11 @@ function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, 
     const hollow = shape.hollow;
     // A hull's half-length, or the dot's radius: what the label and the comparison ring keep clear of.
     const r = 'shape' in shape ? Math.max(shape.dims.loaM / 2, (on ? 6 : 4.2) * unit) : (on ? 6 : 4.2) * unit;
+    // A hull from its bow (its middle `mid`), a dot on the tracker.
+    const who = byId.get(b.id);
+    const bowM = 'shape' in shape ? bowAheadM(who?.bowOffsetM, dims) : 0;
+    const mid: Vec = 'shape' in shape ? hullCenterFromBow([b.mx, b.my], shape.shape, bowM, shape.dims) : [b.mx, b.my];
+    keepBow(b.id, 'shape' in shape ? b.mx + shape.shape[0] * bowM : b.mx, 'shape' in shape ? b.my + shape.shape[1] * bowM : b.my);
     const cls = ['dot', 'shape' in shape ? 'hull' : '', b.hold ? 'hold' : '', hollow ? 'lost' : '', on ? 'on' : cmp ? 'vs' : highlight ? 'dim' : '', leg != null && b.leg !== leg ? 'off' : ''].filter(Boolean).join(' ');
     const [x, y] = [b.mx.toFixed(1), b.my.toFixed(1)];
     const tick =
@@ -1156,18 +1163,17 @@ function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, 
     const fill = hollow ? `fill="var(--surface)" style="--c:${c}${cd ? `;--cd:${cd}` : ''}"` : `fill="${c}"${style}`;
     const ring =
       'shape' in shape
-        ? `<path class="${cls}" data-id="${esc(b.id)}" d="${hullPathAt([b.mx, b.my], shape.shape, shape.dims)}" ${fill} stroke-width="${((hollow ? (on ? 2.2 : 1.5) : on ? 1.4 : 0.8) * k).toFixed(2)}"/>`
+        ? `<path class="${cls}" data-id="${esc(b.id)}" d="${hullPathAt(mid, shape.shape, shape.dims)}" ${fill} stroke-width="${((hollow ? (on ? 2.2 : 1.5) : on ? 1.4 : 0.8) * k).toFixed(2)}"/>`
         : `<circle class="${cls}" data-id="${esc(b.id)}" cx="${x}" cy="${y}" r="${r.toFixed(2)}" ${fill} stroke-width="${((hollow ? (on ? 2.2 : 1.6) : on ? 1.8 : 1) * k).toFixed(2)}"/>`;
-    const vsRing = cmp ? `<circle class="dot-vs" cx="${x}" cy="${y}" r="${(r + 2.6 * unit).toFixed(2)}" stroke-width="${(1.6 * k).toFixed(2)}"/>` : '';
-    const who = byId.get(b.id);
+    const vsRing = cmp ? `<circle class="dot-vs" cx="${mid[0].toFixed(1)}" cy="${mid[1].toFixed(1)}" r="${(r + 2.6 * unit).toFixed(2)}" stroke-width="${(1.6 * k).toFixed(2)}"/>` : '';
     const sail = who ? who.sail : b.id;
     const fs = (on ? 12 : 10.5) * k;
     // Beside a hull: HULL_LABEL_GAP_PX off it abeam (clear of its track), at any zoom; beside a dot: up and right of it.
-    const lbl = 'shape' in shape ? hullLabelBox([b.mx, b.my], shape.shape, shape.dims, textWidth(sail, fs), 1.1 * fs, HULL_LABEL_GAP_PX * unit) : null;
+    const lbl = 'shape' in shape ? hullLabelBox(mid, shape.shape, shape.dims, textWidth(sail, fs), 1.1 * fs, HULL_LABEL_GAP_PX * unit) : null;
     const [lx, ly] = lbl ? [lbl.x0, lbl.y0 + 0.85 * fs] : [b.mx + r + 3 * unit, b.my - r];
     const labelled = on || cmp || labelAll;
     if (taken) {
-      taken.add(b.mx - r, b.my - r, b.mx + r, b.my + r);
+      taken.add(mid[0] - r, mid[1] - r, mid[0] + r, mid[1] + r);
       if (labelled && lbl) taken.add(lbl.x0, lbl.y0, lbl.x1, lbl.y1);
       else if (labelled) taken.add(lx, ly - fs, lx + textWidth(sail, fs), ly + 0.3 * fs);
     }
@@ -1215,6 +1221,22 @@ export function scrubFrame(a: RaceAnalysis, highlight: string | null, leg: numbe
 }
 
 const noRungs: readonly RungDraw[] = [];
+
+/** Each boat's bow as dotsSvg last drew it, map units, and the frame it was drawn in (bowStamp): kept frame to frame. */
+const drawnBows = new Map<string, Float64Array>();
+let bowStamp = 0;
+function keepBow(id: string, x: number, y: number): void {
+  let p = drawnBows.get(id);
+  if (!p) drawnBows.set(id, (p = new Float64Array(3)));
+  p[0] = x;
+  p[1] = y;
+  p[2] = bowStamp;
+}
+/** Boat `id`'s bow as the last frame drew it; null when it wasn't drawn then. */
+export const drawnBow = (id: string): Float64Array | null => {
+  const p = drawnBows.get(id);
+  return p && p[2] === bowStamp ? p : null;
+};
 /** The boxes the rungs' labels keep clear of, kept frame to frame (scrubFrame fills it). */
 const rungTaken = new Rects();
 /** How many of them are the boats' (the rest, the marks, corners and labels, are added again for each view). */
@@ -1271,6 +1293,7 @@ function mapRungs(a: RaceAnalysis, highlight: string | null, now: LadderNow, sc:
   const mapTwdDeg = a.wind.twdAtGunDeg;
   const rungs = rungsAt({ now, selected: highlight, mapTwdDeg });
   if (!rungs.length) return noRungs;
+  toDrawnBows(rungs, drawnBow);
   taken.n = rungBoats;
   const marks = markBoxesAt(a, sc.unit, sc.k);
   for (let i = 0; i < marks.length; i++) taken.add(marks[i].x0, marks[i].y0, marks[i].x1, marks[i].y1);
