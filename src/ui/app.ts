@@ -21,7 +21,7 @@ import type { LandingEvent, RegattaDoc, RegattaResponse } from '../data/racesens
 import { eventFinished, linkRequest, linksOf, mergeOrphans, officialFor, orphanContexts, probeFetcher } from '../data/recovery';
 import { raceWindowsFromListed } from '../data/vkx/match';
 import type { WorkerRequest, WorkerResponse } from '../worker';
-import { boatList, findingsList } from './boats';
+import { boatList, findingsClick, findingsList } from './boats';
 import {
   BOAT_PARAM,
   GROUP_PARAM,
@@ -2144,6 +2144,17 @@ export function startApp(): void {
       const [div, n] = els.race.value.split('|');
       if (div && n) void loadRace(div, Number(n));
     }
+  });
+  // Start findings: the best and worst start boats select the boat, as in the list.
+  els.startFindings.addEventListener('click', (ev) => {
+    const item = (ev.target as HTMLElement).closest('button[data-id]');
+    const next = findingsClick(ev.target as HTMLElement, highlight);
+    if (!item || next === undefined) return;
+    highlight = next;
+    if (highlight) track('boat_select', { detail: 'findings' });
+    if (highlight) syncCoachBoat(highlight);
+    save();
+    renderKeepingFocus(els.startFindings, focusSel(item, 'data-id'));
   });
   // `toggle` doesn't bubble: listen in the capture phase for the "Not racing" group.
   els.boats.addEventListener(

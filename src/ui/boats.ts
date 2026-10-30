@@ -57,14 +57,30 @@ export function boatList(a: RaceAnalysis, highlight: string | null, ncOpen = fal
     <ul class="boat-items" aria-labelledby="boats-title">${items}</ul>${unofficialNoteHtml(a.boats.some((b) => isTracker(a, b)))}${notRacing(a, highlight, ncOpen)}`;
 }
 
-/** The best and worst start side by side: a row per stat, a column per boat (the selected boat's column marked). */
+/**
+ * The best and worst start side by side: a row per stat, a column per boat (the selected boat's column marked).
+ * Each boat heads its column as a button that toggles the shared selection, like the boat list.
+ */
 export function startCompareHtml(c: StartCompare, highlight: string | null): string {
   const sides = [{ head: 'Best', x: c.best }, ...(c.worst ? [{ head: 'Worst', x: c.worst }] : [])];
   const on = (id: string): string => (id === highlight ? ' class="on"' : '');
-  const head = sides.map(({ head, x }) => `<th scope="col"${on(x.id)}><span class="cmp-k">${head}</span> ${esc(x.tag)}</th>`).join('');
+  const boat = (head: string, x: StartCompare['best']): string => {
+    const label = `#${x.sail}${x.name ? ` ${x.name}` : ''}, ${head.toLowerCase()} start`;
+    return `<button type="button" class="cmp-boat ${ACT_ROW}" data-id="${esc(x.id)}" aria-pressed="${highlight === x.id}" aria-label="${esc(label)}" title="${esc(label)}"><span class="${ACT_KEY}">#${esc(x.sail)}</span>${x.name ? ` (${esc(x.name)})` : ''}</button>`;
+  };
+  const head = sides.map(({ head, x }) => `<th scope="col"${on(x.id)}><span class="cmp-k">${head}</span> ${boat(head, x)}</th>`).join('');
   const rows = c.rows.map((r, i) => `<tr><th scope="row">${esc(r)}</th>${sides.map(({ x }) => `<td${on(x.id)}>${esc(x.values[i])}</td>`).join('')}</tr>`).join('');
   const note = c.note ? `<p class="cmp-note">${esc(c.note)}</p>` : '';
   return `<table class="start-cmp" aria-label="${c.worst ? 'Best and worst start' : 'Best start'}"><thead><tr><td></td>${head}</tr></thead><tbody>${rows}</tbody></table>${note}`;
+}
+
+/**
+ * A click in the findings: on a boat's button (`button[data-id]`), the selection it leaves (that boat, or none when
+ * it was already selected, as in the boat list); `undefined` anywhere else.
+ */
+export function findingsClick(target: Element, highlight: string | null): string | null | undefined {
+  const id = target.closest('button[data-id]')?.getAttribute('data-id');
+  return id == null ? undefined : highlight === id ? null : id;
 }
 
 /** Findings; with a boat selected, the ones about it are marked and the rest dimmed. */

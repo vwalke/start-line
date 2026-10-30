@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import { buildFindings, START_COMPARE_ROWS } from '../src/analysis/findings';
 import type { BoatResult, RaceAnalysis, StartResult } from '../src/analysis/types';
-import { findingsList, startCompareHtml } from '../src/ui/boats';
+import { ACT_KEY, ACT_ROW } from '../src/ui/act';
+import { findingsClick, findingsList, startCompareHtml } from '../src/ui/boats';
 import { fixtureRace } from './helpers';
 
 const base = analyzeRace(fixtureRace());
@@ -36,12 +37,29 @@ describe('best vs worst start', () => {
 
   it('renders a two-column table, the selected boat marked, with a plain-text form', () => {
     const html = startCompareHtml(f.compare!, '6');
-    expect(html).toMatch(/^<table class="start-cmp" aria-label="Best and worst start"><thead><tr><td><\/td><th scope="col" class="on"><span class="cmp-k">Best<\/span> #6<\/th><th scope="col"><span class="cmp-k">Worst<\/span> #5<\/th>/);
+    expect(html).toMatch(
+      /^<table class="start-cmp" aria-label="Best and worst start"><thead><tr><td><\/td><th scope="col" class="on"><span class="cmp-k">Best<\/span> <button [^>]+><span class="act-key">#6<\/span><\/button><\/th><th scope="col"><span class="cmp-k">Worst<\/span> <button [^>]+><span class="act-key">#5<\/span><\/button><\/th>/,
+    );
     for (const r of START_COMPARE_ROWS) expect(html).toContain(`<tr><th scope="row">${r}</th>`);
     expect(html).toContain('<td class="on">5.9 m</td><td>18.9 m</td>');
     expect(html).not.toContain('cmp-note');
     expect(findingsList([f], null)).toBe(`<li class="start">${startCompareHtml(f.compare!, null)}</li>`);
     expect(f.text).toMatch(/^Best start: #6 — behind the line at the gun: 5\.9 m; .+\. Worst start: #5 — behind the line at the gun: 18\.9 m; /);
+  });
+
+  it('the best and worst boats are buttons that select the boat, like the boat list', () => {
+    const c = buildFindings(withBoats({ '6': { sail: '1518', name: 'Vale Night' } })).find((x) => x.compare)!.compare!;
+    const button = (id: string, label: string, pressed: boolean): string =>
+      `<button type="button" class="cmp-boat ${ACT_ROW}" data-id="${id}" aria-pressed="${pressed}" aria-label="${label}" title="${label}">`;
+    const html = startCompareHtml(c, '5');
+    expect(html).toContain(`${button('6', '#1518 Vale Night, best start', false)}<span class="${ACT_KEY}">#1518</span> (Vale Night)</button>`);
+    expect(html).toContain(`<th scope="col" class="on"><span class="cmp-k">Worst</span> ${button('5', '#5, worst start', true)}<span class="${ACT_KEY}">#5</span></button></th>`);
+    // Activating one selects its boat; activating the selected one clears it; elsewhere does nothing.
+    const at = (id: string | null): Element => ({ closest: (sel: string) => (sel === 'button[data-id]' && id ? { getAttribute: () => id } : null) }) as unknown as Element;
+    expect(findingsClick(at('6'), null)).toBe('6');
+    expect(findingsClick(at('6'), '5')).toBe('6');
+    expect(findingsClick(at('5'), '5')).toBeNull();
+    expect(findingsClick(at(null), '5')).toBeUndefined();
   });
 
   it('leaves over-early and away boats out of both, with a note', () => {
