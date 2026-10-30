@@ -6,7 +6,7 @@ import type { Finding, RaceAnalysis, StartCompare } from '../analysis/types';
 import { boatColor, NC_COLOR } from './charts';
 import { ACT, ACT_KEY, ACT_MORE, ACT_ROW } from './act';
 import { esc } from './format';
-import { codeShort, codeWords } from './resultText';
+import { UNOFFICIAL_PLACE, codeShort, codeWords, isTracker, unofficialNoteHtml } from './resultText';
 
 /**
  * Boats set aside as not racing: a collapsed group under the competitors
@@ -42,9 +42,9 @@ export function boatList(a: RaceAnalysis, highlight: string | null, ncOpen = fal
     .map((b) => {
       const name = b.name !== `#${b.sail}` ? `<span class="bname">${esc(b.name)}</span>` : '';
       // An official code (DSQ, DNF…) when linked; "~" marks a place from the tracks' finish-line crossings.
-      const tracker = b.finishSource === 'tracker' && a.meta.results?.places === 'tracker';
+      const tracker = isTracker(a, b);
       const pos = b.finishPos == null ? (codeShort(b) ?? 'DNF') : `${tracker ? '~' : ''}${b.finishPos}`;
-      const how = b.finishCode ? codeWords(b) : b.finishPos == null ? 'did not finish' : `finished ${b.finishPos}${tracker ? ' (tracker finish)' : ''}`;
+      const how = b.finishCode ? codeWords(b) : b.finishPos == null ? 'did not finish' : `finished ${b.finishPos}${tracker ? `, ${UNOFFICIAL_PLACE}` : ''}`;
       // An uploaded boat log (data/vkx): a small tag, the full words in the label.
       const log = b.log ? `from boat log · ${b.log.rateHz} Hz` : '';
       const label = `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}, ${how}${log ? `, ${log}` : ''}`;
@@ -54,7 +54,7 @@ export function boatList(a: RaceAnalysis, highlight: string | null, ncOpen = fal
     })
     .join('');
   return `<div class="boats-head"><h3 id="boats-title">Boats</h3><button type="button" class="boats-clear" data-clear${highlight ? '' : ' disabled'}>Clear</button></div>
-    <ul class="boat-items" aria-labelledby="boats-title">${items}</ul>${notRacing(a, highlight, ncOpen)}`;
+    <ul class="boat-items" aria-labelledby="boats-title">${items}</ul>${unofficialNoteHtml(a.boats.some((b) => isTracker(a, b)))}${notRacing(a, highlight, ncOpen)}`;
 }
 
 /** The best and worst start side by side: a row per stat, a column per boat (the selected boat's column marked). */

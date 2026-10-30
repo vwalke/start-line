@@ -327,13 +327,21 @@ describe('Regatta summary', () => {
     const items = [...html.matchAll(/<li class="rp ([a-z ]+)" data-race="(\d+)" title="([^"]*)"><b>([^<]*)<\/b> <span class="rp-place">([^<]*)<\/span>(?:<small>of (\d+)<\/small>)?/g)].map((m) => [m[4], m[5], m[6] ?? null, m[3]]);
     expect(items).toEqual([
       ['R1', '3rd', '97', 'Race 1: 3rd of 97, official'],
-      ['R2', '~7th', '97', 'Race 2: 7th of 97, tracker finish'],
+      ['R2', '~7th', '97', 'Race 2: 7th of 97, unofficial'],
       ['R3', 'DNF', '97', 'Race 3: DNF, official'],
       ['R4', '12th', '97', 'Race 4: 12th of 97, official, no track'],
       ['R5', '…', null, 'Race 5: not analyzed yet'],
       ['R6', '!', null, 'Race 6: couldn&#39;t load: HTTP 500'],
     ]);
     expect(s).toMatchObject({ done: 4, withData: 3, total: 6 });
+  });
+
+  it('a ~ place gets the "Unofficial finish order" note with its tooltip; all official places, none', () => {
+    const note = '<p class="unofficial-note" title="These places come from when each boat&#39;s tracker crossed the finish line, not from official results.">~ Unofficial finish order</p>';
+    expect(regattaPlacesHtml(summarizeRegatta([done(1, { finish: fin(3, 97) }), done(2, { finish: fin(7, 97, 'tracker') })]))).toContain(note);
+    expect(regattaPlacesHtml(summarizeRegatta([done(1, { finish: fin(3, 97) }), done(2, { finish: fin(7, 97) })]))).not.toContain('Unofficial finish order');
+    // A tracker race with no place (a code) shows no ~, so no note.
+    expect(regattaPlacesHtml(summarizeRegatta([done(1, { finish: fin(null, 97, 'tracker', 'DNF') })]))).not.toContain('Unofficial finish order');
   });
 
   it('recurring findings: by weighted seconds, then races — “slow at the gun in 4 of 9 races, ~60 s total”', () => {

@@ -346,6 +346,15 @@ describe('the regatta version (Coach view Regatta)', () => {
     expect(html).toContain('aria-pressed="true">Regatta');
   });
 
+  it('a ~ place gets the "Unofficial finish order" note, spelled out for print; all official, none', () => {
+    const tracker = buildReport({ ...input('USA 016'), scope: 'regatta', regatta: summarizeRegatta([races[1], digest(4, { place: 6, code: null, of: 15, source: 'tracker' })]) });
+    expect(tracker.regatta!.rows.map((r) => r.place)).toEqual(['4th', '~6th']);
+    expect(reportHtml(tracker)).toContain('<p class="unofficial-note"><b>~ Unofficial finish order.</b> These places come from when each boat&#39;s tracker crossed the finish line, not from official results.</p>');
+    const official = buildReport({ ...input('USA 016'), scope: 'regatta', regatta: summarizeRegatta(races.slice(0, 2)) });
+    expect(official.regatta!.unofficial).toBe(false);
+    expect(reportHtml(official)).not.toContain('Unofficial finish order');
+  });
+
   it('without the Regatta view’s data yet: pending, waiting', () => {
     const p = buildReport({ ...input('USA 016'), scope: 'regatta', regatta: null });
     expect(p.state).toBe('pending');

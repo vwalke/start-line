@@ -34,9 +34,9 @@ import type { OfficialRaceInput } from '../data/racesense/adapter';
 import { GROUP_LABEL, coachBoatFor } from './coach';
 import { cardText, cardWarnings, goodTexts, penaltyText, rankedHead, scoredWord, secondsChip, thinText, thinWhat, turnChip, wentText } from './coachCards';
 import { gateChip, groupSecondsChip, placesWord } from './coachLegs';
-import { LEG_TYPE, finishShort, penaltyRowText, regattaWentText, secs } from './coachRegatta';
+import { LEG_TYPE, anyUnofficial, finishShort, penaltyRowText, regattaWentText, secs } from './coachRegatta';
 import { degLabel, duration, f0, f1, localTime, ordinal, tzLabel } from './format';
-import { codeShort, codeWords } from './resultText';
+import { UNOFFICIAL_ORDER, UNOFFICIAL_ORDER_TIP, UNOFFICIAL_PLACE, codeShort, codeWords, isTracker } from './resultText';
 
 /** What the report shows for a figure the data doesn't have. */
 export const MISSING = '—';
@@ -148,6 +148,8 @@ export interface ReportRegattaRow {
 
 export interface ReportRegatta {
   rows: ReportRegattaRow[];
+  /** A place shown is `~` (the tracker finish): the table gets the unofficial finish order note. */
+  unofficial: boolean;
   done: number;
   total: number;
   /** Every race analysed or failed: nothing still to come. */
@@ -173,6 +175,8 @@ export interface ReportModel {
   /** The Coach's comparison group, as its control names it ("Top 3"). */
   groupLabel: string;
   header: ReportField[];
+  /** The header's place is `~` (isTracker): the report gets the unofficial finish order note. */
+  unofficial: boolean;
   start: ReportField[];
   /** The start card's verdict (D1 / the merged start card, else ✓ front row, else none). */
   startVerdict: ReportLine;
@@ -249,10 +253,10 @@ function headerFields(a: RaceAnalysis, b: BoatResult, official: OfficialRaceInpu
   const of = fleetOf(a);
   const out: ReportField[] = [];
   const water = finishRank(b);
-  const tilde = b.finishSource === 'tracker' ? '~' : '';
+  const tracker = isTracker(a, b);
   out.push(
-    field('On the water', water != null ? `${tilde}${ordinal(water)} of ${of}` : MISSING, {
-      note: water == null ? (b.finishCode ? codeWords(b) : 'no finish found') : b.finishSource === 'tracker' ? 'from the tracker finish' : undefined,
+    field('On the water', water != null ? `${tracker ? '~' : ''}${ordinal(water)} of ${of}` : MISSING, {
+      note: water == null ? (b.finishCode ? codeWords(b) : 'no finish found') : tracker ? UNOFFICIAL_PLACE : undefined,
     }),
   );
   if (isOfficial) {
@@ -464,6 +468,8 @@ function coachSection(a: RaceAnalysis, deb: CoachDebrief | null, model: CoachMod
 }
 
 function notesOf(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null): string[] {
+  // With a ~ place the note under the header already says what it means.
+  const tip = isTracker(a, b) ? '' : ` ${UNOFFICIAL_ORDER_TIP}`;
   const out: string[] = [];
   const cov = b.coverage ?? deb?.raceCov ?? null;
   if (cov == null) out.push('No timed legs for this boat: leg figures are —.');
@@ -474,7 +480,7 @@ function notesOf(a: RaceAnalysis, b: BoatResult, deb: CoachDebrief | null): stri
       : r?.places === 'racesense'
         ? 'Places: RaceSense’s finish order (no official results linked).'
         : r?.places === 'tracker'
-          ? 'Places: the tracks’ finish-line crossings (~).'
+          ? `Places: ${UNOFFICIAL_ORDER.toLowerCase()} (~).${tip}`
           : 'Places: the tracked finish order (no official results linked).',
   );
   for (const n of a.notes) if (n.kind === 'legs-fleet' || n.kind === 'marks-est' || n.kind === 'wind-assumed' || n.kind === 'marks-moved' || n.kind === 'shortened') out.push(n.text);
@@ -497,6 +503,7 @@ function regattaSection(s: RegattaSummary): ReportRegatta {
         status: r.status === 'done' ? (r.digest?.tracked ? '' : 'no track') : r.status === 'error' ? `couldn't load` : 'not analyzed yet',
       };
     }),
+    unofficial: anyUnofficial(s),
     done: s.done,
     total: s.total,
     settled: s.rows.every((r) => r.status === 'done' || r.status === 'error'),
@@ -530,6 +537,7 @@ export function buildReport(inp: ReportInput): ReportModel {
       boatName: '',
       boatId: null,
       header: [],
+      unofficial: false,
       start: [],
       startVerdict: { text: MISSING, kind: 'note' },
       legs: [],
@@ -551,6 +559,7 @@ export function buildReport(inp: ReportInput): ReportModel {
     boatName: b.name && b.name !== `#${b.sail}` ? b.name : '',
     boatId: b.id,
     header: headerFields(a, b, inp.official),
+    unofficial: isTracker(a, b),
     start: startFields(a, model, b),
     startVerdict: startVerdict(a, deb, model),
     legs: legRows(a, b, stories, group, model),

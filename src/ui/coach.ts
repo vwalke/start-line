@@ -18,7 +18,7 @@ import type { GapPoint } from '../analysis/coach/ladder';
 import { GROUP_MEAN_MAX_BOATS, groupStatKind } from '../analysis/coach/timeGap';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { finishRank } from '../analysis/result';
-import { codeShort, codeWords } from './resultText';
+import { UNOFFICIAL_PLACE_TIP, codeShort, codeWords, isTracker } from './resultText';
 import { LOW_COVERAGE, fleetOf } from '../analysis/coach/regatta';
 import { boatLabel, degLabel, duration, esc, localTime, ordinal, tzLabel } from './format';
 import { infoHtml, warnChip, type Chip } from './info';
@@ -108,8 +108,8 @@ export function coachChips(
   const tz = a.meta.tzOffsetMs;
   const chips: Chip[] = [];
   const official = a.meta.results?.places === 'official';
-  const placeBy = official ? 'Official place' : b.finishSource === 'tracker' ? 'Place by the tracker finish (~)' : 'Place by the tracked finish';
-  if (b.finishPos != null) chips.push({ text: `${ordinal(b.finishPos)} of ${fleetOf(a)}`, title: placeBy });
+  const placeBy = official ? 'Official place' : isTracker(a, b) ? UNOFFICIAL_PLACE_TIP : 'Place by the tracked finish';
+  if (b.finishPos != null) chips.push({ text: `${isTracker(a, b) ? '~' : ''}${ordinal(b.finishPos)} of ${fleetOf(a)}`, title: placeBy });
   else if (b.finishCode) chips.push({ text: codeShort(b)!, title: `Official result: ${codeWords(b)}` });
   else chips.push(warnChip(official ? 'no official place' : 'no tracked finish'));
   const win = a.boats.find((x) => x.finishPos === 1);
@@ -150,7 +150,7 @@ export function coachGroupHtml(a: RaceAnalysis, boat: string | null, g: Group, e
     .sort((p, q) => (finishRank(p) ?? 1e9) - (finishRank(q) ?? 1e9))
     .map(
       (b) =>
-        `<li><label><input type="checkbox" data-coach-custom="${esc(b.id)}"${ticked.has(b.id) ? ' checked' : ''}> ${b.finishPos != null ? `${ordinal(b.finishPos)} ` : b.finishCode ? `${esc(codeShort(b)!)} ` : ''}${esc(boatLabel(b, b.id))}</label></li>`,
+        `<li><label><input type="checkbox" data-coach-custom="${esc(b.id)}"${ticked.has(b.id) ? ' checked' : ''}> ${b.finishPos != null ? `${isTracker(a, b) ? '~' : ''}${ordinal(b.finishPos)} ` : b.finishCode ? `${esc(codeShort(b)!)} ` : ''}${esc(boatLabel(b, b.id))}</label></li>`,
     )
     .join('');
   const custom = `<details class="coach-custom"${customOpen ? ' open' : ''}><summary${g.kind === 'custom' ? ' class="on"' : ''}>${esc(GROUP_LABEL.custom)}${g.kind === 'custom' ? ` (${ticked.size})` : ''}</summary><ul>${boxes}</ul></details>`;

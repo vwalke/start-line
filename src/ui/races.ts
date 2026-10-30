@@ -46,11 +46,10 @@ export function raceTitleHtml(m: { eventName: string; boatClass: string; raceNum
   return `<h2>${esc(m.eventName)}${free ? ' <span class="free-tag">Free</span>' : ''} · ${esc(m.boatClass)} · ${esc(title)}${rs ? ` <span class="rs-no">${esc(rs)}</span>` : ''}</h2>`;
 }
 
-/** The picker's option: `Race 4 · Wed 11:40 · RS 5`, `Practice · Mon 09:55`, `Race 3 · Wed 08:55 · RS 4 · ~ tracker`. */
+/** The picker's option: `Race 4 · Wed 11:40 · RS 5`, `Practice · Mon 09:55`, `Race 8 · Fri 09:55 · rebuilt`. */
 export function raceOptionText(r: ListedRace, showDivision: boolean): string {
   const parts = [showDivision ? r.division : '', raceName(r), easternDayTime(r.gunMs), rsSuffix(r) ?? ''];
   if (r.rebuilt) parts.push('rebuilt');
-  else if (r.finishes === 'tracker' && !r.practice) parts.push('~ tracker');
   return parts.filter(Boolean).join(' · ');
 }
 
@@ -145,13 +144,10 @@ export function raceHead(o: { race: ListedRace | undefined; official: OfficialSt
     if (results.times !== 'official') bullets.push(`Official finish times not used (${results.timesNote ?? 'not plausible'}): RaceSense’s finishes, else the tracks’ finish-line crossings (~).`);
     else bullets.push('Official finish times agree with the tracks’ finish-line crossings (median within a minute), so they are used.');
     if (results.officialNoTrack?.length) bullets.push(`In the official results without a track here: ${listOf(results.officialNoTrack)}.`);
-  } else if (results?.places === 'tracker') {
-    chips.push(warnChip(results.trackerFinishes ? '~ tracker finishes' : 'no finishes'));
-    bullets.push(
-      results.trackerFinishes
-        ? '~ Tracker finish: where the boat’s track crosses the finish line (its two trackers, where they were then), on its last leg. A track that never crosses gets no finish.'
-        : 'Neither RaceSense nor the tracks give finishes for this race (no finish-line crossing found).',
-    );
+  } else if (results?.places === 'tracker' && !results.trackerFinishes) {
+    // Tracker finishes themselves are explained where the places are (the ~ note), not here.
+    chips.push(warnChip('no finishes'));
+    bullets.push('Neither RaceSense nor the tracks give finishes for this race (no finish-line crossing found).');
   }
 
   // The feed check for unlisted races.
