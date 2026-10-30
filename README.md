@@ -537,20 +537,21 @@ Switching races keeps the tab.
   bow, meet the bow on screen. It
   is to scale from the class's length and beam once that is at least 12 px
   long on screen (`BOAT_SHAPE_PX`; 15 px for the selected boat), else a
-  symbol that long with the hull's proportions (as the start chart's
-  markers when its hulls would be too small); on the Race Viewer the
-  symbol's extra length is all aft, its tip still on the bow. It is filled while the boat
+  symbol that long with the hull's proportions, at any zoom however far
+  out (12 × ~4 px covers less than the 8 px dot it replaced); on the Race
+  Viewer the symbol's extra length is all aft, its tip still on the bow.
+  While the hulls are drawn bigger than scale the map says `Boats not to
+  scale` in its bottom right corner (on the Race Viewer part of the scale
+  bar's HUD, kept clear of the scale bar, wind arrow and ladder-rung labels;
+  it goes once zoomed in far enough for the hulls to be to scale). It is filled while the boat
   has data and hollow (a quiet outline in its own color) once its tracker has
   stopped for good (held past its final fix, before its finish), so a dropout
   never flips the hull to a dot. Across a hole in its track, however long, the
   boat glides along the filled-in path as a normal filled hull (see Data
   gaps on the maps). The boat
   is a dot only when no heading was ever known (no step yet of at least
-  1 kn, `BOAT_SHAPE_MIN_KN`), the class has no dimensions, or the map is
-  zoomed out so far the hull to scale would be under 1.5 px
-  (`BOAT_SHAPE_MIN_PX`: the symbol would overstate it over 8× and a close
-  fleet would run together; zoom in for shapes); that dot is filled or
-  hollow by the same rule. Sail-number labels, the selection, the
+  1 kn, `BOAT_SHAPE_MIN_KN`) or the class has no dimensions; that dot is
+  filled or hollow by the same rule. Sail-number labels, the selection, the
   comparison rings, the over-early styling and the map's colors (by leg,
   rank or boat speed) are the same filled or hollow.
 - **Start Playback: zoom.** The map pans and zooms as the track map does

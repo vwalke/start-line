@@ -46,7 +46,7 @@ import {
   windBadgeHtml,
 } from '../src/ui/laneSnapshotsView';
 import { ocsLegend, ocsStretch, ocsSvg } from '../src/ui/ocsStyle';
-import { BOAT_SHAPE_MIN_PX, BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, BOAT_STALE_MS } from '../src/ui/boatShape';
+import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, BOAT_STALE_MS } from '../src/ui/boatShape';
 import { MAP_HOLD_S } from '../src/ui/mapPieces';
 import { BOAT_TRAIL_MS, TRAIL_FADE } from '../src/ui/trail';
 import { courseStats } from '../src/ui/follow';
@@ -1255,9 +1255,10 @@ describe('around the gun: boats as hulls where they can be', () => {
 
   it('at Fit a J/70 to scale would be 6 px: a symbol BOAT_SHAPE_PX long (15 px selected); zoomed in, to scale; centred on the boat, along its course', () => {
     const px = L.dims!.loaM * ppu;
-    expect(px).toBeGreaterThan(BOAT_SHAPE_MIN_PX);
     expect(px).toBeLessThan(BOAT_SHAPE_PX);
     const fit = laneScrubHtml(a, L, 60);
+    // Stretched: the map says so at the bottom; to scale at 4×, it doesn't.
+    expect(fit).toContain('<text class="scale-note"');
     const bow = (html: string, id: string): number => Number(html.match(new RegExp(`data-id="${id}"><title>${id}</title><path class="lane-dot lane-hull" d="M[-\\d.]+,([-\\d.]+)`))![1]);
     const posB = boatIn(L.frame(60), 'B').pos!;
     const posA = boatIn(L.frame(60), 'A').pos!;
@@ -1265,6 +1266,8 @@ describe('around the gun: boats as hulls where they can be', () => {
     expect(posA[1] - bow(fit, 'A')).toBeCloseTo(BOAT_SHAPE_PX / ppu / 2, 1);
     const z = { ...fitView(L.view), k: 4 };
     const html = laneScrubHtml(a, L, 60, ppu, false, z);
+    expect(L.dims!.loaM * ppu * 4).toBeGreaterThanOrEqual(BOAT_SHAPE_ON_PX);
+    expect(html).not.toContain('scale-note');
     const b = boatIn(L.frame(60), 'B');
     const d = html.match(/data-id="B"><title>B<\/title><path class="lane-dot lane-hull" d="([^"]+)"/)![1];
     // The bow LOA/2 up the page from the boat.
@@ -1293,8 +1296,8 @@ describe('around the gun: boats as hulls where they can be', () => {
     expect(laneShape(L, { ...at, dir: null, lastDir: null }, 10)).toBeNull();
     expect(laneShape(L, { ...at, sog: 0.5, lastDir: null }, 10)).toBeNull();
     expect(laneShape({ dims: null }, at, 10)).toBeNull();
-    expect(laneShape(L, at, BOAT_SHAPE_MIN_PX / L.dims!.loaM - 0.01)).toBeNull();
-    expect(laneShape(L, at, BOAT_SHAPE_MIN_PX / L.dims!.loaM + 0.01)).not.toBeNull();
+    // However far out: the hull, BOAT_SHAPE_PX long.
+    expect(laneShape(L, at, 0.01)!.dims.loaM * 0.01).toBeCloseTo(BOAT_SHAPE_PX, 6);
   });
 });
 
@@ -1440,8 +1443,8 @@ describe('around the gun: zoom centers on the selected boat (with the look-ahead
     }
   });
 
-  it('dots become hulls zoomed in (the size rule at the current zoom, the same frames), and dots again at Fit', () => {
-    // J/70s on a 4 km line: at Fit, under BOAT_SHAPE_MIN_PX to scale.
+  it('hulls at every zoom, even a J/70 a speck to scale at Fit; the map says they are not to scale', () => {
+    // J/70s on a 4 km line: at Fit, about 1 px to scale.
     const wide = race(
       [
         { id: 'A', tr: track(-1900, -100) },
@@ -1458,15 +1461,18 @@ describe('around the gun: zoom centers on the selected boat (with the look-ahead
     (wide.meta as { boatClass?: string }).boatClass = 'J/70';
     const { on, parts, lanes } = mountOn(wide, 'B');
     const L = lanes.scrub()!;
-    expect(L.dims!.loaM * lanePxPerUnit(L.view)).toBeLessThan(BOAT_SHAPE_MIN_PX);
+    expect(L.dims!.loaM * lanePxPerUnit(L.view)).toBeLessThan(1.5);
     const hulls = (): number => (parts['.lane-stage'].innerHTML.match(/lane-hull/g) ?? []).length;
+    const said = (): boolean => parts['.lane-stage'].innerHTML.includes('>Boats not to scale</text>');
     on.click(btn({ zoom: '1' }));
-    expect(hulls()).toBe(0);
+    expect(hulls()).toBe(2);
+    expect(said()).toBe(true);
     on.click(btn({ zoom: '8' }));
-    expect(hulls()).toBeGreaterThan(0);
+    expect(hulls()).toBe(2);
     // Not worked out again: the same precomputed scrub.
     expect(lanes.scrub()).toBe(L);
     on.click(btn({ zoom: '1' }));
-    expect(hulls()).toBe(0);
+    expect(hulls()).toBe(2);
+    expect(said()).toBe(true);
   });
 });

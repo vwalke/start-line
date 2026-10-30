@@ -27,7 +27,8 @@ import {
   type RungDraw,
   type RungLabelDraw,
 } from '../src/ui/rungs';
-import { coachRace, fixtureRace, ic37Race, starRace } from './helpers';
+import { textWidth } from '../src/ui/labels';
+import { cascaisRace, coachRace, fixtureRace, ic37Race, starRace } from './helpers';
 
 /**
  * Ladder rungs on the track map's scrubber (ui/rungs.ts, coach/ladderNow.ts): square to the wind at that moment
@@ -37,6 +38,13 @@ import { coachRace, fixtureRace, ic37Race, starRace } from './helpers';
  */
 
 const cross = (u: Vec, v: Vec): number => u[0] * v[1] - u[1] * v[0];
+/** The tip of boat `id`'s hull as drawn: its path's first point (boatShape.ts HULL starts at the bow). */
+const tipOf = (dots: string, id: string): Vec | null => {
+  const hit = new RegExp(`<path class="dot hull[^"]*" data-id="${id}" d="M(-?[\\d.]+),(-?[\\d.]+)`).exec(dots);
+  return hit ? [Number(hit[1]), Number(hit[2])] : null;
+};
+/** How far `p` is off the line drawn `d`, css px at `unit` map units per px. */
+const pxOff = (d: RungDraw, p: Vec, unit: number): number => Math.abs(cross([d.x2 - d.x1, d.y2 - d.y1], [p[0] - d.x1, p[1] - d.y1])) / Math.hypot(d.x2 - d.x1, d.y2 - d.y1) / unit;
 const { a, m } = coachRace(fixtureRace());
 const gun = a.meta.gunMs;
 const lastFinish = Math.max(...a.boats.map((b) => b.finishMs ?? 0));
@@ -564,13 +572,6 @@ describe('at the bow (IC37 R5: the feed puts the bow 4.9 m ahead of the tracker,
   /** Map units per css px at Fit (charts.ts mapScale: the view drawn 600 px wide). */
   const fitView = trackMapView(ia, null).view;
   const fitUnit = Math.max(fitView.x1 - fitView.x0, fitView.y1 - fitView.y0) / 600;
-  /** The tip of boat `id`'s hull as drawn: its path's first point (boatShape.ts HULL starts at the bow). */
-  const tipOf = (dots: string, id: string): Vec | null => {
-    const hit = new RegExp(`<path class="dot hull[^"]*" data-id="${id}" d="M(-?[\\d.]+),(-?[\\d.]+)`).exec(dots);
-    return hit ? [Number(hit[1]), Number(hit[2])] : null;
-  };
-  /** How far `p` is off the line drawn `d`, css px at `unit` map units per px. */
-  const pxOff = (d: RungDraw, p: Vec, unit: number): number => Math.abs(cross([d.x2 - d.x1, d.y2 - d.y1], [p[0] - d.x1, p[1] - d.y1])) / Math.hypot(d.x2 - d.x1, d.y2 - d.y1) / unit;
   const firstPlace = (t: number): string | null => {
     let best: string | null = null;
     let bp = Infinity;
@@ -718,6 +719,57 @@ describe('at the bow (IC37 R5: the feed puts the bow 4.9 m ahead of the tracker,
     }
     expect(n).toBeGreaterThan(30);
     expect(maxStep).toBeLessThan(4.9);
+  });
+});
+
+describe('at the bow on a speck (Cascais R3, J/70s: under 1.5 px to scale at Fit, stretched to the symbol)', () => {
+  const cc = coachRace(cascaisRace('r3'));
+  const ca = cc.a;
+  const cRead = ladderReader(ca, cc.m);
+  const cDims = startClass(ca)!.dims;
+  const cView = trackMapView(ca, null).view;
+  const cUnit = Math.max(cView.x1 - cView.x0, cView.y1 - cView.y0) / 600;
+  const cLast = Math.max(...ca.boats.map((b) => b.finishMs ?? 0));
+  const noteBox = (svg: string): { x0: number; y0: number; x1: number; y1: number } => {
+    const m = /<text class="scale-note" x="([-\d.]+)" y="([-\d.]+)" font-size="([\d.]+)"/.exec(svg)!;
+    const [x, y, fs] = [1, 2, 3].map((i) => Number(m[i]));
+    return { x0: x - textWidth('Boats not to scale', fs), y0: y - fs, x1: x, y1: y + 0.3 * fs };
+  };
+
+  it('draws every boat with a heading as a hull from its bow, the rung meeting it within a pixel, its label clear of "Boats not to scale"', () => {
+    expect(cDims.loaM / cUnit).toBeLessThan(1.5);
+    let n = 0;
+    let labels = 0;
+    for (let t = ca.meta.gunMs + 60_000; t < cLast; t += 60_000) {
+      const now = cRead(t);
+      if (now.leader < 0) continue;
+      const lead = now.reads[now.leader];
+      const sel = now.reads.find((r) => !r.est && !r.done && r.id !== lead.id && r.leg === lead.leg);
+      if (!sel) continue;
+      const through = new Set(
+        rungsAt({ now, selected: sel.id, mapTwdDeg: ca.wind.twdAtGunDeg })
+          .filter((r) => Math.abs(dot([r.bow[0] - r.at[0], r.bow[1] - r.at[1]], r.axis.up)) < 1e-6)
+          .map((r) => r.id),
+      );
+      const f = scrubFrame(ca, sel.id, null, {}, { t, win: [t - 30_000, t], trailMs: 30_000, ladder: now });
+      // No dot for size: a boat with a heading is a hull at Fit.
+      for (const b of boatsAt(ca, sel.id, t).filter((x) => x.dir && !x.hold && x.sog >= 1)) expect(f.dots).toMatch(new RegExp(`<path class="dot hull[^"]*" data-id="${b.id}"`));
+      const note = noteBox(trackMap(ca, sel.id, null, { scrub: true }));
+      for (const d of f.rungs) {
+        if (d.label) {
+          const q = d.label.box;
+          expect(q.x0 < note.x1 && note.x0 < q.x1 && q.y0 < note.y1 && note.y0 < q.y1).toBe(false);
+          labels++;
+        }
+        const id = d.role === 'leader' ? lead.id : sel.id;
+        const tip = tipOf(f.dots, id);
+        if (!tip || !through.has(id)) continue;
+        expect(pxOff(d, tip, cUnit)).toBeLessThan(1);
+        n++;
+      }
+    }
+    expect(n).toBeGreaterThan(5);
+    expect(labels).toBeGreaterThan(5);
   });
 });
 

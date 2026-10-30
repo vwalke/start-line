@@ -10,7 +10,7 @@ import { awayFromLineThresholdM, lineBias } from '../analysis/line';
 import { shownLateS } from '../analysis/validity';
 import { PRE_LEG, type BoatDrawing, type BoatResult, type ExcludedBoat, type RaceAnalysis } from '../analysis/types';
 import { bowAheadM, raceClass, type ClassDims } from '../data/classes';
-import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, HULL_LABEL_GAP_PX, hullCenterFromBow, hullLabelBox, hullOutline, hullPathAt, hullPathD } from './boatShape';
+import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, BOATS_NOT_TO_SCALE, HULL_LABEL_GAP_PX, hullCenterFromBow, hullEnlarged, hullLabelBox, hullOutline, hullPathAt, hullPathD } from './boatShape';
 import { esc, f1, f2 } from './format';
 import { placeLabels, textWidth, type LabelReq, type Rect, type StartNames } from './labels';
 import { mapPoints, mapPointsOf, type MapPoints } from './mapPoints';
@@ -83,6 +83,31 @@ function scaleBar(box: Box, unit: number, k: number): string {
   return `<g class="scalebar"><line x1="${x}" y1="${y}" x2="${x + step}" y2="${y}" stroke-width="${2 * k}"/>
     <text x="${x + step / 2}" y="${y - 4 * unit}" font-size="${11 * k}" text-anchor="middle">${step} m</text></g>`;
 }
+
+/**
+ * Where "Boats not to scale" sits in view `box`: the bottom right corner, level with the scale bar, or a line above
+ * it where the view is too narrow for both side by side; with its box (what the rungs' labels keep clear of).
+ */
+function scaleNoteAt(box: Box, unit: number, k: number): { x: number; y: number; fs: number; r: Rect } {
+  const fs = 11 * k;
+  const w = textWidth(BOATS_NOT_TO_SCALE, fs);
+  const x = box.x1 - 8 * unit;
+  const barEnd = box.x0 + 8 * unit + niceStep((box.x1 - box.x0) / 1.5);
+  const y = x - w - 8 * unit < barEnd ? box.y1 - 20 * unit - fs : box.y1 - 8 * unit;
+  return { x, y, fs, r: { x0: x - w - 2 * unit, y0: y - fs, x1: x + 2 * unit, y1: y + 0.3 * fs } };
+}
+
+function scaleNote(box: Box, unit: number, k: number): string {
+  const { x, y, fs } = scaleNoteAt(box, unit, k);
+  return `<text class="scale-note" x="${x}" y="${y}" font-size="${fs}" text-anchor="end" stroke-width="${3 * k}">${BOATS_NOT_TO_SCALE}</text>`;
+}
+
+/**
+ * Whether the boats at the scrubber's time (dotsSvg) are drawn bigger than scale at map scale `unit`: the class's
+ * hull shorter on screen than the symbol (the selected boat's, the bigger, when there is one). Zoom only, not per frame.
+ */
+const boatsEnlarged = (dims: ClassDims | null, highlight: string | null, unit: number): boolean =>
+  hullEnlarged(dims, 1 / unit, highlight ? BOAT_SHAPE_ON_PX : BOAT_SHAPE_PX);
 
 /**
  * The wind arrow's label ends this far left of the arrow, screen units: on the Race Viewer clear of it turned to any
@@ -1008,12 +1033,13 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
           ? `Race Viewer, tracks ${sogLabel}`
           : 'Race Viewer, tracks colored by leg'
       : `Race Viewer on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', tracks colored by speed on the leg: yellow and boldest fastest' : sogLabel ? `, tracks ${sogLabel}` : ''}`;
+  const note = opts.scrub && boatsEnlarged(startDims(a), highlight, unit) ? scaleNote(box, unit, k) : '';
   const tracks = layer ? `${layer.paths}${layer.hi}` : '<g class="scrub-trk"></g><g class="scrub-trails"></g><g class="scrub-ocs"></g><g class="scrub-rungs"></g>';
   const top = layer ? layer.labels : '<g class="scrub-dots"></g>';
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map${opts.scrub ? ' scrub' : ''}" role="img" aria-label="${esc(opts.scrub ? `${label}; boats at the scrubber's time` : label)}">
     ${tracks}
     <line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>${finish}${marks}${top}
-    <g class="map-hud">${windArrow(box, unit, k, a.wind.twdAtGunDeg, WIND_LABEL_GAP)}${scaleBar(box, unit, k)}</g></svg>`;
+    <g class="map-hud">${windArrow(box, unit, k, a.wind.twdAtGunDeg, WIND_LABEL_GAP)}${scaleBar(box, unit, k)}${note}</g></svg>`;
 }
 
 // ---- race-time scrubber (Map B) ---------------------------------------------------
@@ -1118,10 +1144,11 @@ function dotColour(a: RaceAnalysis, b: BoatAt, leg: number | null, opts: TrackMa
 
 /**
  * The boats at the scrubber's time: coloured as the map is (the leg the boat is on, its rank there, or its SOG),
- * each the start chart's hull (ui/boatShape.ts boatMark: to scale or a fixed-size symbol, along its course over
- * ground, or its last heading known while held past its final fix or slow) drawn from its bow (data/classes.ts
- * bowAheadM ahead of the tracker; a fixed-size symbol reaches further aft) where it can be, else a dot with a short tick along
- * its course; filled while its data is fresh, hollow (same color, a heavier outline) once it is lost; the selected
+ * each the start chart's hull (ui/boatShape.ts boatMark: to scale, or a fixed-size symbol at any zoom that trackMap
+ * notes as "Boats not to scale"; along its course over ground, or its last heading known while held past its final
+ * fix or slow) drawn from its bow (data/classes.ts bowAheadM ahead of the tracker; a fixed-size symbol reaches further
+ * aft) where it can be, else a dot with a short tick along its course; filled while its data is fresh, hollow (same
+ * color, a heavier outline) once it is lost; the selected
  * boat bigger, on top and labelled (every boat labelled in a small fleet); boats off a leg shown, faint. Each boat's
  * box and its label's go into `taken` (what the ladder rungs' labels keep clear of), and its bow as drawn into
  * drawnBows (the ladder rungs meet it).
@@ -1268,8 +1295,11 @@ function markBoxesAt(a: RaceAnalysis, unit: number, k: number): Rect[] {
   return boxes;
 }
 
-/** The wind arrow's and the scale bar's boxes in view `box` (windArrow, scaleBar: the top right and bottom left corners); the arrow's turned to any angle. */
-function hudBoxes(box: Box, unit: number, k: number, taken: Rects): void {
+/**
+ * The wind arrow's and the scale bar's boxes in view `box` (windArrow, scaleBar: the top right and bottom left
+ * corners), the arrow's turned to any angle; and the bottom right's "Boats not to scale" when it is drawn (`note`).
+ */
+function hudBoxes(box: Box, unit: number, k: number, taken: Rects, note: boolean): void {
   const x = box.x1 - 14 * unit;
   const y = box.y0 + 10 * unit;
   const cy = y + (WIND_ARROW_L / 2) * unit;
@@ -1280,13 +1310,16 @@ function hudBoxes(box: Box, unit: number, k: number, taken: Rects): void {
   const sx = box.x0 + 8 * unit;
   const sy = box.y1 - 8 * unit;
   taken.add(sx - 2 * unit, sy - 4 * unit - 11 * k, sx + step + 2 * unit, sy + 2 * k);
+  if (!note) return;
+  const { r: n } = scaleNoteAt(box, unit, k);
+  taken.add(n.x0, n.y0, n.x1, n.y1);
 }
 
 /**
  * The ladder rungs at the scrubber's moment (ui/rungs.ts) in the view drawn `sc`: the leader's and the selected
  * boat's, on a beat or a run, square to the wind then, edge to edge across what is visible (`sc.vis`); labelled "Leader" and with the
  * selected boat's sail number and distance behind it, clear of `taken` (the boats and their labels) and the marks, wind
- * arrow and scale bar.
+ * arrow, scale bar and "Boats not to scale".
  * Kept and refilled frame to frame.
  */
 function mapRungs(a: RaceAnalysis, highlight: string | null, now: LadderNow, sc: MapScale, taken: Rects): readonly RungDraw[] {
@@ -1297,7 +1330,7 @@ function mapRungs(a: RaceAnalysis, highlight: string | null, now: LadderNow, sc:
   taken.n = rungBoats;
   const marks = markBoxesAt(a, sc.unit, sc.k);
   for (let i = 0; i < marks.length; i++) taken.add(marks[i].x0, marks[i].y0, marks[i].x1, marks[i].y1);
-  hudBoxes(sc.box, sc.unit, sc.k, taken);
+  hudBoxes(sc.box, sc.unit, sc.k, taken, boatsEnlarged(rungText(a).dims, highlight, sc.unit));
   return rungDraws(rungs, sc, rungText(a), taken);
 }
 

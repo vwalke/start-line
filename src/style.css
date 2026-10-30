@@ -491,6 +491,8 @@ svg .wind line, svg .wind path { stroke: var(--accent); }
 svg .wind text { fill: var(--accent); }
 svg .scalebar line { stroke: var(--ink-2); }
 svg .scalebar text { fill: var(--ink-2); }
+/* "Boats not to scale" (hulls stretched to a symbol): muted, a surface halo over the tracks, never a tap target. */
+svg text.scale-note { fill: var(--ink-3); stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; pointer-events: none; }
 
 .legend { display: flex; flex-wrap: wrap; gap: 4px; font-size: 0.8rem; color: var(--ink-2); margin-bottom: 4px; }
 .legend .key { font: inherit; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2); cursor: pointer; }

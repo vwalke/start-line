@@ -2,10 +2,11 @@
  * The boat shape: the start chart's stylized hull (to scale, from the class's LOA and beam), shared with the
  * track map's boats while scrubbing and the Start tab's "Start Playback" view. Start Playback draws it centred on the
  * boat's position; the track map from its bow (hullCenterFromBow: the ladder rungs meet the bow it draws), both
- * pointing along its course over ground at that moment (or the last heading known while it is held
- * past its final fix, slow or has no course: boatMark), to scale or at least BOAT_SHAPE_PX long, filled while its data is
- * fresh and hollow once it is lost; the dot only with no heading ever known, no class dimensions, or so far zoomed
- * out a symbol would overstate the boat too much. Pure: outlines and SVG path data; the callers draw them.
+ * pointing along its course over ground at that moment (or the last heading known while it is held past its final
+ * fix, slow or has no course: boatMark), to scale or at least BOAT_SHAPE_PX long at every zoom (the map then says
+ * "Boats not to scale": hullEnlarged; on the track map the extra length goes aft of the bow), filled while its data is
+ * fresh and hollow once it is lost; the dot only with no heading ever known or no class dimensions. Pure: outlines and
+ * SVG path data; the callers draw them.
  */
 import { add, bearingVec, scale, type Vec } from '../analysis/geo';
 import type { ClassDims } from '../data/classes';
@@ -101,22 +102,16 @@ export function headingDir(cogDeg: number, twdDeg: number): Vec | null {
 
 /**
  * The hull is drawn at least this long on screen, css px (the selected boat BOAT_SHAPE_ON_PX), so it reads as a
- * boat pointing somewhere: to scale once it is bigger, a fixed-size symbol below that (as the start chart's
- * markers are when its hulls would be too small).
+ * boat pointing somewhere: to scale once it is bigger, a fixed-size symbol below that at any zoom, however far out
+ * (12 × ~4 px covers less than the 8 px dot it replaced, and any shorter the bow no longer reads).
  */
 export const BOAT_SHAPE_PX = 12;
 export const BOAT_SHAPE_ON_PX = 15;
-/**
- * Zoomed out so far that the hull to scale would be shorter than this, css px, the symbol would overstate the boat
- * more than BOAT_SHAPE_PX / BOAT_SHAPE_MIN_PX = 8× and a close fleet would run together: the dot is drawn instead
- * (zoom in for shapes).
- */
-export const BOAT_SHAPE_MIN_PX = 1.5;
 /** Below this SOG, kn, the course over ground between fixes is mostly GPS noise: no heading, a dot. */
 export const BOAT_SHAPE_MIN_KN = 1;
 
-/** Why a boat is a dot rather than a shape: no course to point along, held past its final fix, too slow, no class dimensions, or too small on screen. */
-export type DotWhy = 'no-heading' | 'hold' | 'slow' | 'no-class' | 'small';
+/** Why a boat is a dot rather than a shape: no course to point along, held past its final fix, too slow, or no class dimensions. */
+export type DotWhy = 'no-heading' | 'hold' | 'slow' | 'no-class';
 
 export interface ShapeInput {
   /** Direction of travel in map coordinates (unit), null: unknown. */
@@ -142,10 +137,19 @@ export function boatShapeOr(o: ShapeInput): { shape: Vec; dims: ClassDims } | { 
   if (!o.dir || !Number.isFinite(o.dir[0]) || !Number.isFinite(o.dir[1]) || (o.dir[0] === 0 && o.dir[1] === 0)) return { dot: 'no-heading' };
   if (Number.isFinite(o.sog) && o.sog < BOAT_SHAPE_MIN_KN) return { dot: 'slow' };
   if (!o.dims) return { dot: 'no-class' };
-  if (!(o.dims.loaM * o.pxPerM >= BOAT_SHAPE_MIN_PX)) return { dot: 'small' };
-  const f = Math.max(1, (o.minPx ?? BOAT_SHAPE_PX) / (o.dims.loaM * o.pxPerM));
+  const px = o.dims.loaM * o.pxPerM;
+  const f = px > 0 ? Math.max(1, (o.minPx ?? BOAT_SHAPE_PX) / px) : 1;
   return { shape: o.dir, dims: f > 1 ? { loaM: o.dims.loaM * f, beamM: o.dims.beamM * f } : o.dims };
 }
+
+/**
+ * Whether a hull of class `dims` is drawn bigger than it is at `pxPerM` css px per meter: stretched to `minPx`
+ * (boatShapeOr). The maps then say so (BOATS_NOT_TO_SCALE).
+ */
+export const hullEnlarged = (dims: ClassDims | null, pxPerM: number, minPx = BOAT_SHAPE_PX): boolean => !!dims && dims.loaM * pxPerM < minPx;
+
+/** What the maps say at the bottom while hulls are drawn bigger than scale. */
+export const BOATS_NOT_TO_SCALE = 'Boats not to scale';
 
 /** A boat held past its final fix (its tracker stopped before it finished) is drawn hollow once that fix is older than this, ms. */
 export const BOAT_STALE_MS = 30_000;
@@ -168,8 +172,8 @@ const isDir = (d: Vec | null | undefined): d is Vec => !!d && Number.isFinite(d[
 /**
  * The race map's and Start Playback's boat (one rule for both): the hull wherever a heading is known, along the
  * course now while moving with fresh data, else along the last heading known (held past its final fix, under
- * BOAT_SHAPE_MIN_KN, no course this step); the dot only when no heading was ever known, the class has no
- * dimensions, or the hull would be too small on screen (boatShapeOr's size rule). Either is hollow when `stale`.
+ * BOAT_SHAPE_MIN_KN, no course this step); the dot only when no heading was ever known or the class has no
+ * dimensions. Either is hollow when `stale`.
  */
 export function boatMark(o: MarkInput): BoatMark {
   const hollow = !!o.stale;

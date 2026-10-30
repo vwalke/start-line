@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
-import { BOAT_SHAPE_MIN_PX } from '../src/ui/boatShape';
-import { boatsAt, mapBox, scrubFrame, startClass, trackMapView } from '../src/ui/charts';
+import { BOAT_SHAPE_PX } from '../src/ui/boatShape';
+import { boatsAt, mapBox, scrubFrame, startClass, trackMap, trackMapView } from '../src/ui/charts';
 import { attachPanZoom, type PanZoomOptions } from '../src/ui/panzoom';
 import { scrubWindow, trailWindow } from '../src/ui/scrub';
 import {
@@ -215,7 +215,7 @@ describe('panzoom: + / − follow the presets’ centring; 0 is Fit', () => {
   });
 });
 
-describe('the track map (Cascais R3, J/70s): the zoom target from the scrubber’s boats; dots become hulls zoomed in', () => {
+describe('the track map (Cascais R3, J/70s): the zoom target from the scrubber’s boats; hulls at every zoom', () => {
   const a = analyzeRace(cascaisRace('r3'));
   const fit = mapBox(a, null);
   const t = a.meta.gunMs + 120_000;
@@ -243,18 +243,19 @@ describe('the track map (Cascais R3, J/70s): the zoom target from the scrubber�
     expect(zoomPreset(fit, 1, target)).toEqual(fitView(fit));
   });
 
-  it('a J/70 is a dot at Fit (under 1.5 px to scale), a hull once zoomed in on it, a dot again back at Fit', () => {
+  it('a J/70 is a hull at Fit (under 1.5 px to scale: the symbol, the map saying "Boats not to scale"), zoomed in and back at Fit', () => {
     const dims = startClass(a)!.dims;
     const unitAt = (view?: View): number => {
       const { view: b } = trackMapView(a, null, view);
       return Math.max(b.x1 - b.x0, b.y1 - b.y0) / 600;
     };
-    expect(dims.loaM / unitAt()).toBeLessThan(BOAT_SHAPE_MIN_PX);
+    expect(dims.loaM / unitAt()).toBeLessThan(1.5);
     const isHull = (view?: View): boolean => new RegExp(`<path class="dot hull[^"]*" data-id="${me.id}"`).test(scrubFrame(a, me.id, null, { view }, { t, win }).dots);
-    expect(isHull()).toBe(false);
+    expect(isHull()).toBe(true);
+    expect(trackMap(a, me.id, null, { scrub: true })).toContain('>Boats not to scale</text>');
     const zoomed = zoomPreset(fit, 8, [me.mx, me.my]);
-    expect(dims.loaM / unitAt(zoomed)).toBeGreaterThanOrEqual(BOAT_SHAPE_MIN_PX);
+    expect(dims.loaM / unitAt(zoomed)).toBeLessThan(BOAT_SHAPE_PX);
     expect(isHull(zoomed)).toBe(true);
-    expect(isHull(fitView(fit))).toBe(false);
+    expect(isHull(fitView(fit))).toBe(true);
   });
 });
