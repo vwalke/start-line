@@ -302,7 +302,7 @@ input[type='search']:disabled, select:disabled { opacity: 0.6; }
 .digest { display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: 16px; align-items: start; }
 .digest[hidden] { display: none; }
 .content { min-width: 0; }
-.card { background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.card { --card-pad-x: 14px; background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 10px; padding: 12px var(--card-pad-x); min-width: 0; }
 .card h3 { font-size: 0.95rem; margin: 0 0 6px; }
 .card + .card { margin-top: 18px; }
 /* Section titles: each card's heading, and the sections inside a card (Start Playback); larger and bolder than the text under them. */
@@ -439,8 +439,11 @@ tr.nc td { color: var(--ink-2); }
 svg.chart { width: 100%; height: auto; display: block; max-height: 70vh; }
 /* Full-width stacked charts: as big as fits a laptop screen; the viewBox keeps the aspect (letterboxed). */
 svg.chart.start, svg.chart.map { max-height: min(78vh, 760px); }
-/* The track map shows past its sides into the card's padding (app.ts sets the bleeds, ui/mapExtent.ts), so the ladder rungs end on the card's edges; never above or below it. */
-svg.chart.map { overflow: visible; clip-path: inset(0 calc(-1 * var(--map-bleed-r, 0px)) 0 calc(-1 * var(--map-bleed-l, 0px))); }
+/* The track map's container clips it: the SVG fills it, so nothing it draws (the ladder rungs, tracks off the view) reaches the tools above or the scrubber below.
+   In the card it spans the card's padding too, so the rungs end on the card's edges (ui/mapExtent.ts). */
+#map-chart { overflow: hidden; }
+.card > .map-wrap > #map-chart { margin: 0 calc(-1 * var(--card-pad-x)); border-radius: 0; }
+.card > .map-wrap > #map-chart:focus-visible { outline-offset: -2px; }
 svg.chart.start { aspect-ratio: auto; }
 svg .hull { stroke-linejoin: round; stroke-linecap: round; }
 svg .trail { fill: none; opacity: 0.55; stroke-linejoin: round; }

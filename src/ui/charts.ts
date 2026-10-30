@@ -40,7 +40,7 @@ import { replayLabel } from './replay';
 import { Rects, rungDraws, rungsAt, type RungDraw } from './rungs';
 import type { LadderNow } from '../analysis/coach/ladderNow';
 import { visibleExtent, type MapScreen } from './mapExtent';
-import { windTitle } from './windArrow';
+import { windLabel, WIND_LABEL_WIDEST } from './windArrow';
 import { trailPaths, type TrailStretch } from './trail';
 import type { StartReplay } from '../analysis/startReplay';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
@@ -84,26 +84,30 @@ function scaleBar(box: Box, unit: number, k: number): string {
     <text x="${x + step / 2}" y="${y - 4 * unit}" font-size="${11 * k}" text-anchor="middle">${step} m</text></g>`;
 }
 
-/** The wind arrow's label ends this far left of the arrow, screen units: clear of it turned to any angle (ui/windArrow.ts). */
-const WIND_LABEL_GAP = 12;
+/**
+ * The wind arrow's label ends this far left of the arrow, screen units: on the Race Viewer clear of it turned to any
+ * angle (ui/windArrow.ts: the label's bottom right corner outside the circle the arrow sweeps); on the Start chart,
+ * where it never turns, just beside it.
+ */
+const WIND_LABEL_GAP = 15;
+const WIND_LABEL_GAP_FIXED = 6;
 /** The arrow's length, screen units, and the room it takes turned to any angle: a circle about its middle. */
 const WIND_ARROW_L = 34;
 const WIND_ARROW_R = WIND_ARROW_L / 2 + 1;
 
 /**
  * The wind arrow in view `box`'s top right corner: pointing down the wind `twdDeg` blows with (the gun's, at the
- * top of a map drawn wind-up), its label upright beside it, its tooltip the wind's direction. The line and head are
- * their own group (`g.wind-dir`, with their middle in data-cx / data-cy), which the Race Viewer's replay turns to the
- * wind of the moment (ui/windArrow.ts).
+ * top of a map drawn wind-up), its label upright beside it, `gap` screen units left of it, with the wind's direction
+ * ("wind 272° (est.)", ui/windArrow.ts windLabel). The line and head are their own group (`g.wind-dir`, with their
+ * middle in data-cx / data-cy), which the Race Viewer's replay turns to the wind of the moment, the label with it.
  */
-function windArrow(box: Box, unit: number, k: number, label: string, twdDeg: number): string {
+function windArrow(box: Box, unit: number, k: number, twdDeg: number, gap: number): string {
   const x = box.x1 - 14 * unit;
   const y = box.y0 + 10 * unit;
   const L = WIND_ARROW_L * unit;
-  const tip = Number.isFinite(twdDeg) ? `<title>${esc(windTitle(twdDeg))}</title>` : '';
-  return `<g class="wind">${tip}<g class="wind-dir" data-cx="${x.toFixed(1)}" data-cy="${(y + L / 2).toFixed(1)}"><line x1="${x}" y1="${y}" x2="${x}" y2="${y + L}" stroke-width="${2 * k}"/>
+  return `<g class="wind"><g class="wind-dir" data-cx="${x.toFixed(1)}" data-cy="${(y + L / 2).toFixed(1)}"><line x1="${x}" y1="${y}" x2="${x}" y2="${y + L}" stroke-width="${2 * k}"/>
     <path d="M${x - 5 * unit},${y + L - 8 * unit} L${x},${y + L} L${x + 5 * unit},${y + L - 8 * unit}" fill="none" stroke-width="${2 * k}"/></g>
-    <text x="${x - WIND_LABEL_GAP * unit}" y="${y + 3 * unit}" font-size="${11 * k}" text-anchor="end">${esc(label)}</text></g>`;
+    <text x="${x - gap * unit}" y="${y + 3 * unit}" font-size="${11 * k}" text-anchor="end">${esc(windLabel(twdDeg))}</text></g>`;
 }
 
 /** Hulls shorter than this on screen are drawn as the fixed-size marker instead. */
@@ -537,7 +541,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     shape-rendering="geometricPrecision"
     aria-label="${esc(label)}">
     ${bias.ext}${trails.join('')}${lineSvg}${bias.label}${boatSvg.join('')}
-    ${windArrow(view, unit, k, 'wind (est.)', a.wind.twdAtGunDeg)}${scaleBar(view, unit, k)}</svg>`;
+    ${windArrow(view, unit, k, a.wind.twdAtGunDeg, WIND_LABEL_GAP_FIXED)}${scaleBar(view, unit, k)}</svg>`;
 }
 
 /** Full screen, Colour: Boat: a compact key of each boat's colour (up to eight boats; a bigger fleet is one ink, named on the chart). */
@@ -766,8 +770,8 @@ function pieceGroups(pieces: readonly MapPiece[]): PieceGroup[] {
 
 /**
  * The map's window and its sizes: map units per on-screen unit (`unit`), and the stroke/font scale `k`; and what is
- * visible of it on screen `scr` (ui/mapExtent.ts: with the bands either side and the card's padding), the window itself
- * with no screen.
+ * visible of it on screen `scr` (ui/mapExtent.ts: with the bands either side), the window itself with no screen.
+ * `vis` is a scratch box, refilled by the next mapScale: read it before then.
  */
 interface MapScale {
   box: Box;
@@ -778,8 +782,9 @@ interface MapScale {
 
 function mapScale(box: Box, scr?: MapScreen | null): MapScale {
   const unit = Math.max(box.x1 - box.x0, box.y1 - box.y0) / 600;
-  return { box, unit, k: unit, vis: visibleExtent(box, scr, { x0: 0, y0: 0, x1: 0, y1: 0 }) };
+  return { box, unit, k: unit, vis: visibleExtent(box, scr, visScratch) };
 }
+const visScratch: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
 
 /** The tracks as drawn: the tracks, the selected boat's on top, Rank's labels; and the pieces drawn. */
 interface TrackLayer {
@@ -1009,7 +1014,7 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map${opts.scrub ? ' scrub' : ''}" role="img" aria-label="${esc(opts.scrub ? `${label}; boats at the scrubber's time` : label)}">
     ${tracks}
     <line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>${finish}${marks}${top}
-    <g class="map-hud">${windArrow(box, unit, k, 'wind (est.)', a.wind.twdAtGunDeg)}${scaleBar(box, unit, k)}</g></svg>`;
+    <g class="map-hud">${windArrow(box, unit, k, a.wind.twdAtGunDeg, WIND_LABEL_GAP)}${scaleBar(box, unit, k)}</g></svg>`;
 }
 
 // ---- race-time scrubber (Map B) ---------------------------------------------------
@@ -1248,7 +1253,7 @@ function hudBoxes(box: Box, unit: number, k: number, taken: Rects): void {
   const cy = y + (WIND_ARROW_L / 2) * unit;
   const r = WIND_ARROW_R * unit;
   taken.add(x - r, cy - r, x + r, cy + r);
-  taken.add(x - WIND_LABEL_GAP * unit - textWidth('wind (est.)', 11 * k), y + 3 * unit - 11 * k, x - WIND_LABEL_GAP * unit, y + 3 * unit + 2 * k);
+  taken.add(x - WIND_LABEL_GAP * unit - textWidth(WIND_LABEL_WIDEST, 11 * k), y + 3 * unit - 11 * k, x - WIND_LABEL_GAP * unit, y + 3 * unit + 2 * k);
   const step = niceStep((box.x1 - box.x0) / 1.5);
   const sx = box.x0 + 8 * unit;
   const sy = box.y1 - 8 * unit;

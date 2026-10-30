@@ -193,7 +193,7 @@ import { followAfter, followCam, followStep, followTarget, reducedMotion, resetF
 import { mapPaint } from './mapPaint';
 import { paintTrails } from './trailLayer';
 import { paintRungs } from './rungs';
-import { paintWindArrow } from './windArrow';
+import { paintWindArrow, windArrowOf } from './windArrow';
 import { mapScreenOf, type MapScreen } from './mapExtent';
 import { ladderReader, type LadderNow } from '../analysis/coach/ladderNow';
 import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
@@ -1500,7 +1500,7 @@ export function startApp(): void {
     // The ladder rungs reuse their lines and labels (rungs.ts).
     if (rungs) paintRungs(rungs, f.rungs);
     // The wind arrow turns with the wind the rungs lie square to (windArrow.ts); the gun's until the Coach's wind is ready.
-    const arrow = svg?.querySelector('g.map-hud g.wind');
+    const arrow = svg && windArrowOf(svg);
     if (arrow) paintWindArrow(arrow, ladder ? ladder.twdDeg : a.wind.twdAtGunDeg, a.wind.twdAtGunDeg);
     dots.innerHTML = f.dots;
     scrubData = f;
@@ -1705,16 +1705,8 @@ export function startApp(): void {
   function mapScreenNow(svg: Element): MapScreen | null {
     if (!mapScreenStale) return mapScreen;
     mapScreenStale = false;
-    const frame = svg.closest('.card, .fs-body');
-    const fr = frame?.getBoundingClientRect() ?? null;
-    const bl = frame?.clientLeft ?? 0;
-    const br = frame instanceof HTMLElement ? Math.max(0, frame.offsetWidth - frame.clientWidth - bl) : 0;
-    mapScreen = mapScreenOf(svg.getBoundingClientRect(), fr, { l: bl, r: br });
-    // The map shows into the card's padding that far (style.css), so the rungs drawn to it end on the card's edges.
-    const l = `${(mapScreen?.l ?? 0).toFixed(1)}px`;
-    const r = `${(mapScreen?.r ?? 0).toFixed(1)}px`;
-    if (els.map.style.getPropertyValue('--map-bleed-l') !== l) els.map.style.setProperty('--map-bleed-l', l);
-    if (els.map.style.getPropertyValue('--map-bleed-r') !== r) els.map.style.setProperty('--map-bleed-r', r);
+    // The SVG fills #map-chart, which spans the card's padding and clips (style.css): its box is what is visible.
+    mapScreen = mapScreenOf(svg.getBoundingClientRect());
     return mapScreen;
   }
   /** The ladder rungs alone, for a view or a size changed without a new frame (the boats where they were). */

@@ -60,11 +60,9 @@ describe('holes are bridged, never breaks', () => {
   });
 
   it('leaves native <title> off Leg and Rank tracks (the hover/tap tooltip is the details)', () => {
-    // Only the wind arrow, in the corner, has one (the wind's direction).
-    const offHud = (svg: string): string => svg.slice(0, svg.indexOf('<g class="map-hud">'));
-    expect(offHud(trackMap(a, null, 1))).not.toContain('<title>');
-    expect(offHud(trackMap(a, a.drawings[0].id, 1, { colour: 'rank' }))).not.toContain('<title>');
-    expect(offHud(trackMap(a, null, null, { colour: 'rank', rankBy: 'overall' }))).not.toContain('<title>');
+    expect(trackMap(a, null, 1)).not.toContain('<title>');
+    expect(trackMap(a, a.drawings[0].id, 1, { colour: 'rank' })).not.toContain('<title>');
+    expect(trackMap(a, null, null, { colour: 'rank', rankBy: 'overall' })).not.toContain('<title>');
   });
 
   it('a point in a hole reads like any other: picked as a point, its tooltip with no gap note', () => {

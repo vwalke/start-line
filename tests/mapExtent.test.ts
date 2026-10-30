@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ladderReader } from '../src/analysis/coach/ladderNow';
 import { scrubFrame, trackMapView } from '../src/ui/charts';
@@ -7,11 +8,12 @@ import { coachRace, fixtureRace } from './helpers';
 
 /**
  * What of the track map is visible (ui/mapExtent.ts): the viewBox drawn "meet" into the SVG, with the bands either
- * side on a wide card (above and below on a tall screen) and the card's padding beside it; the ladder rungs run to it.
+ * side on a wide card (above and below on a tall screen); the SVG fills a container that spans the card's padding and
+ * clips, so the ladder rungs run to the card's edges and never past the SVG.
  */
 
 const box = (): Box => ({ x0: 0, y0: 0, x1: 0, y1: 0 });
-const screen = (w: number, h: number, l = 0, r = 0): MapScreen => ({ w, h, l, r, t: 0, b: 0 });
+const screen = (w: number, h: number): MapScreen => ({ w, h });
 
 describe('the visible extent', () => {
   const vb: Box = { x0: 100, y0: -50, x1: 1300, y1: 550 };
@@ -22,16 +24,12 @@ describe('the visible extent', () => {
     expect(visibleExtent(vb, screen(0, 0), box())).toEqual(vb);
   });
 
-  it('reaches into the bands either side on a wide card, and on into its padding', () => {
+  it('reaches into the bands either side on a wide card', () => {
     // 1600 × 400 px: 2/3 px a unit, the viewBox 800 px wide, 400 px empty each side (600 units).
     const e = visibleExtent(vb, screen(1600, 400), box());
     expect(e.x0).toBeCloseTo(100 - 600, 9);
     expect(e.x1).toBeCloseTo(1300 + 600, 9);
     expect([e.y0, e.y1]).toEqual([vb.y0, vb.y1]);
-    // 14 px of padding left, 16 right.
-    const p = visibleExtent(vb, screen(1600, 400, 14, 16), box());
-    expect(p.x0).toBeCloseTo(100 - 600 - 21, 9);
-    expect(p.x1).toBeCloseTo(1300 + 600 + 24, 9);
   });
 
   it('reaches above and below on a tall screen', () => {
@@ -45,31 +43,72 @@ describe('the visible extent', () => {
   it('is the screen’s shape, centred on the view, at Fit and zoomed in, after a pan', () => {
     const { a } = coachRace(fixtureRace());
     const full = trackMapView(a, null).box;
-    for (const scr of [screen(1600, 560, 15, 15), screen(360, 700), screen(900, 900)]) {
+    for (const scr of [screen(1630, 560), screen(360, 700), screen(900, 900)]) {
       for (const k of [1, 2, 4, 8]) {
         const cx = (full.x0 + full.x1) / 2 + (k > 1 ? 120 : 0);
         const cy = (full.y0 + full.y1) / 2 - (k > 1 ? 200 : 0);
         const v = trackMapView(a, null, { cx, cy, k }).view;
         const e = visibleExtent(v, scr, box());
-        const w = scr.w + scr.l + scr.r;
-        expect((e.x1 - e.x0) / (e.y1 - e.y0)).toBeCloseTo(w / scr.h, 6);
-        // Never smaller than the view, and around it as the screen sits around the SVG.
+        expect((e.x1 - e.x0) / (e.y1 - e.y0)).toBeCloseTo(scr.w / scr.h, 6);
+        // Never smaller than the view, and centred on it.
         expect(e.x0).toBeLessThanOrEqual(v.x0 + 1e-9);
         expect(e.x1).toBeGreaterThanOrEqual(v.x1 - 1e-9);
         expect(e.y0).toBeLessThanOrEqual(v.y0 + 1e-9);
         expect(e.y1).toBeGreaterThanOrEqual(v.y1 - 1e-9);
-        expect((e.x0 + e.x1) / 2 - (scr.r - scr.l) / 2 / (scr.h / (e.y1 - e.y0))).toBeCloseTo((v.x0 + v.x1) / 2, 6);
+        expect((e.x0 + e.x1) / 2).toBeCloseTo((v.x0 + v.x1) / 2, 6);
         expect((e.y0 + e.y1) / 2).toBeCloseTo((v.y0 + v.y1) / 2, 6);
       }
     }
   });
 
-  it('measures the SVG on screen and the card’s padding beside it (inside its border), never above or below', () => {
-    const svg = { left: 115, right: 1715, top: 200, bottom: 760, width: 1600, height: 560 };
-    const card = { left: 100, right: 1730, top: 100, bottom: 900, width: 1630, height: 800 };
-    expect(mapScreenOf(svg, card, { l: 1, r: 1 })).toEqual({ w: 1600, h: 560, l: 14, r: 14, t: 0, b: 0 });
-    expect(mapScreenOf(svg, null)).toEqual({ w: 1600, h: 560, l: 0, r: 0, t: 0, b: 0 });
-    expect(mapScreenOf({ ...svg, width: 0, height: 0 }, card)).toBeNull();
+  it('measures the SVG’s own box on screen', () => {
+    const svg = { left: 101, right: 1731, top: 200, bottom: 760, width: 1630, height: 560 };
+    expect(mapScreenOf(svg)).toEqual({ w: 1630, h: 560 });
+    expect(mapScreenOf({ ...svg, width: 0, height: 0 })).toBeNull();
+  });
+
+  it('reuses the box it is given: the same object back, refilled', () => {
+    const out = box();
+    expect(visibleExtent(vb, screen(1600, 400), out)).toBe(out);
+    expect(visibleExtent(vb, null, out)).toBe(out);
+    expect(out).toEqual(vb);
+  });
+});
+
+describe('the map’s clip', () => {
+  const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  /** Every declaration block for a selector list containing `sel`. */
+  const rules = (sel: string): string[] => [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter((m) => m[1].split(',').some((s) => s.trim() === sel)).map((m) => m[2]);
+
+  it('is a plain container around the SVG that clips, spanning the card’s padding', () => {
+    // #map-chart (the SVG goes in it, app.ts renderMap) sits in the card between the tools and the scrubber.
+    const card = html.slice(html.indexOf('id="map-full"'));
+    expect(card.indexOf('id="map-zoom"')).toBeLessThan(card.indexOf('id="map-chart"'));
+    expect(card.indexOf('id="map-chart"')).toBeLessThan(card.indexOf('id="map-scrub"'));
+    expect(card).toMatch(/<div class="map-wrap">\s*<div id="map-chart"/);
+    expect(rules('#map-chart').join(';')).toMatch(/overflow:\s*hidden/);
+    // In the card: out to its inner edges, the padding either side (and the SVG at 100% of it).
+    expect(css).toMatch(/\.card\s*\{[^}]*--card-pad-x:\s*14px[^}]*padding:\s*12px var\(--card-pad-x\)/);
+    expect(rules('.card > .map-wrap > #map-chart').join(';')).toMatch(/margin:\s*0 calc\(-1 \* var\(--card-pad-x\)\)/);
+    expect(rules('svg.chart').join(';')).toMatch(/width:\s*100%/);
+  });
+
+  it('never lets the SVG show past its own box: no overflow visible, no negative clip-path', () => {
+    for (const sel of ['svg.chart', 'svg.chart.map', '.fs-body svg.chart.map', '#map-chart svg']) {
+      for (const r of rules(sel)) expect(r).not.toMatch(/overflow:\s*visible/);
+    }
+    expect(css).not.toMatch(/svg\.chart\.map[^{]*\{[^}]*overflow:\s*visible/);
+    expect(css).not.toMatch(/clip-path:\s*inset\([^)]*-/);
+    expect(css).not.toContain('--map-bleed');
+    // Nor the TS that draws or styles the map.
+    const dir = new URL('../src/ui/', import.meta.url);
+    for (const f of readdirSync(dir).filter((n) => n.endsWith('.ts'))) {
+      const src = readFileSync(new URL(f, dir), 'utf8');
+      expect(src, f).not.toMatch(/overflow['"]?\s*[:,]\s*['"]?visible/);
+      expect(src, f).not.toMatch(/clip-?[pP]ath['"]?\s*[:,]\s*['"`]?inset\([^)]*-/);
+      expect(src, f).not.toContain('--map-bleed');
+    }
   });
 });
 
@@ -84,7 +123,7 @@ describe('rungs to the visible extent', () => {
 
   it('end on its edges, past the view, with their labels inside it, at Fit and zoomed, on a wide card and a tall screen', () => {
     let past = 0;
-    for (const scr of [screen(1600, 560, 15, 15), screen(390, 780)]) {
+    for (const scr of [screen(1630, 560), screen(390, 780)]) {
       for (const k of [1, 2, 4, 8]) {
         const view = { cx: (full.x0 + full.x1) / 2 + (k > 1 ? 80 : 0), cy: (full.y0 + full.y1) / 2 - (k > 1 ? 150 : 0), k };
         const v = trackMapView(a, null, view).view;
@@ -119,7 +158,7 @@ describe('rungs to the visible extent', () => {
   });
 
   it('keep the two labels clear of each other in the wider extent', () => {
-    const f = scrubFrame(a, sel, null, {}, { t, win: [t - 120_000, t], trailMs: 120_000, ladder: read(t), screen: screen(1600, 560, 15, 15) });
+    const f = scrubFrame(a, sel, null, {}, { t, win: [t - 120_000, t], trailMs: 120_000, ladder: read(t), screen: screen(1630, 560) });
     const [p, q] = f.rungs.map((d) => d.label && { ...d.label.box });
     expect(p && q).toBeTruthy();
     expect(p!.x0 < q!.x1 && q!.x0 < p!.x1 && p!.y0 < q!.y1 && q!.y0 < p!.y1).toBe(false);
