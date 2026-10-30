@@ -404,7 +404,8 @@ describe('track map in Rank', () => {
     expect(ps.length).toBeGreaterThan(0);
     expect(ps.every((p) => p.includes(`stroke="${legColor(1)}"`) && p.startsWith('<polyline class="trk"'))).toBe(true);
     expect(svg).not.toContain('spd');
-    expect(svg).not.toContain('<title>');
+    // Only the wind arrow, in the corner, has one (the wind's direction).
+    expect(svg.slice(0, svg.indexOf('<g class="map-hud">'))).not.toContain('<title>');
   });
 
   it('colours one leg by rank with plasma, fastest on top, top 3 thicker', () => {

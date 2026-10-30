@@ -439,6 +439,8 @@ tr.nc td { color: var(--ink-2); }
 svg.chart { width: 100%; height: auto; display: block; max-height: 70vh; }
 /* Full-width stacked charts: as big as fits a laptop screen; the viewBox keeps the aspect (letterboxed). */
 svg.chart.start, svg.chart.map { max-height: min(78vh, 760px); }
+/* The track map shows past its sides into the card's padding (app.ts sets the bleeds, ui/mapExtent.ts), so the ladder rungs end on the card's edges; never above or below it. */
+svg.chart.map { overflow: visible; clip-path: inset(0 calc(-1 * var(--map-bleed-r, 0px)) 0 calc(-1 * var(--map-bleed-l, 0px))); }
 svg.chart.start { aspect-ratio: auto; }
 svg .hull { stroke-linejoin: round; stroke-linecap: round; }
 svg .trail { fill: none; opacity: 0.55; stroke-linejoin: round; }

@@ -13,8 +13,9 @@
  * - The rungs turn with the wind as the replay runs; the wind is never missing (liveWind.ts falls back to the nearest
  *   reading), so a rung is never dropped for it.
  * - None before the gun, on a reach, once the boat has finished, or with no position for it then.
- * - Each line runs edge to edge across the view drawn (after pan, zoom or the follow camera), so it reads as a
- *   course-wide line at any zoom.
+ * - Each line runs edge to edge across what is visible of the map (ui/mapExtent.ts: the view drawn, after pan, zoom
+ *   or the follow camera, with the bands either side of it on a wide or tall screen and the card's padding), so it
+ *   reads as a course-wide line at any zoom and ends on the card's edges.
  * - Labels lie along their own line, just off it (rotated with it, never upside down), slid along it clear of the
  *   boats and their labels, the marks and their labels, the wind arrow, the scale bar and the other rung's label.
  *
@@ -243,9 +244,11 @@ export interface RungScale {
   box: Box;
   unit: number;
   k: number;
+  /** What is visible of the map (ui/mapExtent.ts visibleExtent), around `box`; absent: `box`. */
+  vis?: Box;
 }
 
-/** A label is kept this far inside the view, and this far off its line, screen units. */
+/** A label is kept this far inside what is visible, and this far off its line, screen units. */
 const LABEL_INSET = 8;
 const LABEL_GAP = 3;
 /** Its font size and halo, screen units. */
@@ -356,12 +359,13 @@ export function placeLabel(
 }
 
 /**
- * The rungs as drawn in view `sc.box`: each line edge to edge across the view; its label along it (placeLabel), clear
- * of `avoid` (the leader's label is added to it, so the selected boat's keeps clear of it too). The array and the
- * draws are kept and refilled.
+ * The rungs as drawn in view `sc.box`: each line edge to edge across what is visible (`sc.vis`, else the view); its
+ * label along it (placeLabel) inside that, clear of `avoid` (the leader's label is added to it, so the selected boat's
+ * keeps clear of it too). The array and the draws are kept and refilled.
  */
 export function rungDraws(rungs: readonly Rung[], sc: RungScale, txt: RungText, avoid: Rects): readonly RungDraw[] {
-  const { box, unit, k } = sc;
+  const { unit, k } = sc;
+  const box = sc.vis ?? sc.box;
   drawsOut.length = 0;
   const inset = LABEL_INSET * unit;
   inner.x0 = box.x0 + inset;

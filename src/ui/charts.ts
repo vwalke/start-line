@@ -39,6 +39,8 @@ import { ocsStretch, ocsSvg } from './ocsStyle';
 import { replayLabel } from './replay';
 import { Rects, rungDraws, rungsAt, type RungDraw } from './rungs';
 import type { LadderNow } from '../analysis/coach/ladderNow';
+import { visibleExtent, type MapScreen } from './mapExtent';
+import { windTitle } from './windArrow';
 import { trailPaths, type TrailStretch } from './trail';
 import type { StartReplay } from '../analysis/startReplay';
 import { clampView, fitView, viewBox, type Box, type View } from './view';
@@ -82,13 +84,26 @@ function scaleBar(box: Box, unit: number, k: number): string {
     <text x="${x + step / 2}" y="${y - 4 * unit}" font-size="${11 * k}" text-anchor="middle">${step} m</text></g>`;
 }
 
-function windArrow(box: Box, unit: number, k: number, label: string): string {
+/** The wind arrow's label ends this far left of the arrow, screen units: clear of it turned to any angle (ui/windArrow.ts). */
+const WIND_LABEL_GAP = 12;
+/** The arrow's length, screen units, and the room it takes turned to any angle: a circle about its middle. */
+const WIND_ARROW_L = 34;
+const WIND_ARROW_R = WIND_ARROW_L / 2 + 1;
+
+/**
+ * The wind arrow in view `box`'s top right corner: pointing down the wind `twdDeg` blows with (the gun's, at the
+ * top of a map drawn wind-up), its label upright beside it, its tooltip the wind's direction. The line and head are
+ * their own group (`g.wind-dir`, with their middle in data-cx / data-cy), which the Race Viewer's replay turns to the
+ * wind of the moment (ui/windArrow.ts).
+ */
+function windArrow(box: Box, unit: number, k: number, label: string, twdDeg: number): string {
   const x = box.x1 - 14 * unit;
   const y = box.y0 + 10 * unit;
-  const L = 34 * unit;
-  return `<g class="wind"><line x1="${x}" y1="${y}" x2="${x}" y2="${y + L}" stroke-width="${2 * k}"/>
-    <path d="M${x - 5 * unit},${y + L - 8 * unit} L${x},${y + L} L${x + 5 * unit},${y + L - 8 * unit}" fill="none" stroke-width="${2 * k}"/>
-    <text x="${x - 6 * unit}" y="${y + 3 * unit}" font-size="${11 * k}" text-anchor="end">${esc(label)}</text></g>`;
+  const L = WIND_ARROW_L * unit;
+  const tip = Number.isFinite(twdDeg) ? `<title>${esc(windTitle(twdDeg))}</title>` : '';
+  return `<g class="wind">${tip}<g class="wind-dir" data-cx="${x.toFixed(1)}" data-cy="${(y + L / 2).toFixed(1)}"><line x1="${x}" y1="${y}" x2="${x}" y2="${y + L}" stroke-width="${2 * k}"/>
+    <path d="M${x - 5 * unit},${y + L - 8 * unit} L${x},${y + L} L${x + 5 * unit},${y + L - 8 * unit}" fill="none" stroke-width="${2 * k}"/></g>
+    <text x="${x - WIND_LABEL_GAP * unit}" y="${y + 3 * unit}" font-size="${11 * k}" text-anchor="end">${esc(label)}</text></g>`;
 }
 
 /** Hulls shorter than this on screen are drawn as the fixed-size marker instead. */
@@ -522,7 +537,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     shape-rendering="geometricPrecision"
     aria-label="${esc(label)}">
     ${bias.ext}${trails.join('')}${lineSvg}${bias.label}${boatSvg.join('')}
-    ${windArrow(view, unit, k, 'wind (est.)')}${scaleBar(view, unit, k)}</svg>`;
+    ${windArrow(view, unit, k, 'wind (est.)', a.wind.twdAtGunDeg)}${scaleBar(view, unit, k)}</svg>`;
 }
 
 /** Full screen, Colour: Boat: a compact key of each boat's colour (up to eight boats; a bigger fleet is one ink, named on the chart). */
@@ -749,16 +764,21 @@ function pieceGroups(pieces: readonly MapPiece[]): PieceGroup[] {
   return out;
 }
 
-/** The map's window and its sizes: map units per on-screen unit (`unit`), and the stroke/font scale `k`. */
+/**
+ * The map's window and its sizes: map units per on-screen unit (`unit`), and the stroke/font scale `k`; and what is
+ * visible of it on screen `scr` (ui/mapExtent.ts: with the bands either side and the card's padding), the window itself
+ * with no screen.
+ */
 interface MapScale {
   box: Box;
   unit: number;
   k: number;
+  vis: Box;
 }
 
-function mapScale(box: Box): MapScale {
+function mapScale(box: Box, scr?: MapScreen | null): MapScale {
   const unit = Math.max(box.x1 - box.x0, box.y1 - box.y0) / 600;
-  return { box, unit, k: unit };
+  return { box, unit, k: unit, vis: visibleExtent(box, scr, { x0: 0, y0: 0, x1: 0, y1: 0 }) };
 }
 
 /** The tracks as drawn: the tracks, the selected boat's on top, Rank's labels; and the pieces drawn. */
@@ -989,7 +1009,7 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
   return `<svg viewBox="${box.x0} ${box.y0} ${w} ${h}" class="chart map${opts.scrub ? ' scrub' : ''}" role="img" aria-label="${esc(opts.scrub ? `${label}; boats at the scrubber's time` : label)}">
     ${tracks}
     <line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>${finish}${marks}${top}
-    <g class="map-hud">${windArrow(box, unit, k, 'wind (est.)')}${scaleBar(box, unit, k)}</g></svg>`;
+    <g class="map-hud">${windArrow(box, unit, k, 'wind (est.)', a.wind.twdAtGunDeg)}${scaleBar(box, unit, k)}</g></svg>`;
 }
 
 // ---- race-time scrubber (Map B) ---------------------------------------------------
@@ -1006,6 +1026,8 @@ export interface ScrubAt {
   trailMs?: number | null;
   /** The fleet up the wind ladder at `t` (coach/ladderNow.ts), for the ladder rungs (ui/rungs.ts); null or absent: none drawn. */
   ladder?: LadderNow | null;
+  /** The map on screen (ui/mapExtent.ts), so the rungs reach the card's edges; absent: the view drawn's. */
+  screen?: MapScreen | null;
 }
 
 /** One boat's fading trail: path data per fade slice (ui/trail.ts TRAIL_FADE); its color (`cd`: by night), class and width (map units). */
@@ -1162,7 +1184,7 @@ function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, 
  */
 export function scrubFrame(a: RaceAnalysis, highlight: string | null, leg: number | null, opts: TrackMapOptions, s: ScrubAt): ScrubFrame {
   const { view: box, k: zoom } = trackMapView(a, leg, opts.view);
-  const sc = mapScale(box);
+  const sc = mapScale(box, s.screen);
   const clip = mapClip(box, zoom);
   const po: PieceOptions = { leg, win: s.win, clip, pre: true, full: s.full };
   const layer = s.trailMs ? null : trackLayer(a, highlight, leg, opts, po, sc);
@@ -1219,11 +1241,14 @@ function markBoxesAt(a: RaceAnalysis, unit: number, k: number): Rect[] {
   return boxes;
 }
 
-/** The wind arrow's and the scale bar's boxes in view `box` (windArrow, scaleBar: the top right and bottom left corners). */
+/** The wind arrow's and the scale bar's boxes in view `box` (windArrow, scaleBar: the top right and bottom left corners); the arrow's turned to any angle. */
 function hudBoxes(box: Box, unit: number, k: number, taken: Rects): void {
   const x = box.x1 - 14 * unit;
   const y = box.y0 + 10 * unit;
-  taken.add(x - 6 * unit - textWidth('wind (est.)', 11 * k), y - 11 * k, x + 6 * unit, y + 34 * unit + 2 * k);
+  const cy = y + (WIND_ARROW_L / 2) * unit;
+  const r = WIND_ARROW_R * unit;
+  taken.add(x - r, cy - r, x + r, cy + r);
+  taken.add(x - WIND_LABEL_GAP * unit - textWidth('wind (est.)', 11 * k), y + 3 * unit - 11 * k, x - WIND_LABEL_GAP * unit, y + 3 * unit + 2 * k);
   const step = niceStep((box.x1 - box.x0) / 1.5);
   const sx = box.x0 + 8 * unit;
   const sy = box.y1 - 8 * unit;
@@ -1232,7 +1257,7 @@ function hudBoxes(box: Box, unit: number, k: number, taken: Rects): void {
 
 /**
  * The ladder rungs at the scrubber's moment (ui/rungs.ts) in the view drawn `sc`: the leader's and the selected
- * boat's, on a beat or a run, square to the wind then, edge to edge across the view; labelled "Leader" and with the
+ * boat's, on a beat or a run, square to the wind then, edge to edge across what is visible (`sc.vis`); labelled "Leader" and with the
  * selected boat's sail number and distance behind it, clear of `taken` (the boats and their labels) and the marks, wind
  * arrow and scale bar.
  * Kept and refilled frame to frame.
@@ -1263,10 +1288,10 @@ function rungText(a: RaceAnalysis): { sail: (id: string) => string; dims: ClassD
  * The ladder rungs alone for a view moved without a redraw (ui/app.ts: a slow gesture's viewBox moves): the frame's
  * boats are where they were, so their boxes (kept from the last scrubFrame) still hold; the lines and labels follow the view.
  */
-export function scrubRungs(a: RaceAnalysis, highlight: string | null, leg: number | null, opts: TrackMapOptions, now: LadderNow | null): readonly RungDraw[] {
+export function scrubRungs(a: RaceAnalysis, highlight: string | null, leg: number | null, opts: TrackMapOptions, now: LadderNow | null, screen?: MapScreen | null): readonly RungDraw[] {
   if (!now) return noRungs;
   const { view: box } = trackMapView(a, leg, opts.view);
-  return mapRungs(a, highlight, now, mapScale(box), rungTaken);
+  return mapRungs(a, highlight, now, mapScale(box, screen), rungTaken);
 }
 
 /**

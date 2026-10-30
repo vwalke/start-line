@@ -157,16 +157,26 @@ export interface LiveWindModel {
   endMs: number;
 }
 
-const cache = new WeakMap<Wind, LiveWind>();
+/** The smoothed wind kept for a wind series, and the span it was sampled over. */
+interface LiveWindHit {
+  gunMs: number;
+  endMs: number;
+  lw: LiveWind;
+}
 
-/** The model's smoothed wind (liveWindOf, from the gun to its end), worked out once per wind series. */
+const cache = new WeakMap<Wind, LiveWindHit>();
+
+/**
+ * The model's smoothed wind (liveWindOf, from the gun to its end), worked out once per wind series and span: the same
+ * series read from another gun or to another end (a model rebuilt on new times) is sampled again.
+ */
 export function liveWind(m: LiveWindModel): LiveWind {
-  let lw = cache.get(m.wind);
-  if (!lw) {
-    let first = 0;
-    const twd = m.wind.twd ?? [];
-    for (let i = twd.length - 1; i >= 0; i--) if (Number.isFinite(twd[i])) first = twd[i];
-    cache.set(m.wind, (lw = liveWindOf(m.wind, m.gunMs, m.endMs, first)));
-  }
+  const hit = cache.get(m.wind);
+  if (hit && Object.is(hit.gunMs, m.gunMs) && Object.is(hit.endMs, m.endMs)) return hit.lw;
+  let first = 0;
+  const twd = m.wind.twd ?? [];
+  for (let i = twd.length - 1; i >= 0; i--) if (Number.isFinite(twd[i])) first = twd[i];
+  const lw = liveWindOf(m.wind, m.gunMs, m.endMs, first);
+  cache.set(m.wind, { gunMs: m.gunMs, endMs: m.endMs, lw });
   return lw;
 }
