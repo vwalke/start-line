@@ -829,6 +829,9 @@ ul.findings li:has(> .start-cmp) { list-style: none; margin-left: -18px; }
 .start-cmp tbody th { font-weight: 400; color: var(--ink-2); }
 .start-cmp .cmp-k { display: block; font-size: 0.75rem; font-weight: 400; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.04em; }
 .start-cmp .on { color: var(--accent); }
+/* Each column's boat selects it (ui/act.ts act-row: the sail number carries the look). */
+.start-cmp .cmp-boat { font: inherit; color: inherit; text-align: inherit; padding: 0; border: 0; background: none; }
+@media (pointer: coarse) { .start-cmp .cmp-boat { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; max-width: 100%; } }
 ul.findings li.hl .start-cmp tbody, ul.findings li.hl .cmp-note { font-weight: 400; }
 .cmp-note { margin: 4px 0 0; font-size: 0.8rem; color: var(--ink-2); }
 /* The race's data caveats under the findings: chips + ⓘ (ui/captions.ts raceNotesKey). */

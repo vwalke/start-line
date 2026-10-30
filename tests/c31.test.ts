@@ -182,8 +182,8 @@ describe('C31 race 10: findings and chart', () => {
   it('ranks the best start by the Vakaros figure, beside the worst, and omits Late when blank', () => {
     const f = analysis.findings.find((x) => x.compare)!;
     expect(f.boatIds).toEqual(['ITA 78', 'FRA 901']);
-    expect(f.compare!.best).toEqual({ id: 'ITA 78', tag: '#ITA 78 (Milkwave)', values: ['0.4 m', '—', '5.6 kn', '16% from the pin'] });
-    expect(f.compare!.worst).toEqual({ id: 'FRA 901', tag: '#FRA 901 (Outrage)', values: ['12.6 m', '10.8 s', '5.7 kn', '99% from the pin'] });
+    expect(f.compare!.best).toEqual({ id: 'ITA 78', tag: '#ITA 78 (Milkwave)', sail: 'ITA 78', name: 'Milkwave', values: ['0.4 m', '—', '5.6 kn', '16% from the pin'] });
+    expect(f.compare!.worst).toEqual({ id: 'FRA 901', tag: '#FRA 901 (Outrage)', sail: 'FRA 901', name: 'Outrage', values: ['12.6 m', '10.8 s', '5.7 kn', '99% from the pin'] });
     expect(f.text).toBe(
       'Best start: #ITA 78 (Milkwave) — behind the line at the gun: 0.4 m; speed at the gun: 5.6 kn; line position: 16% from the pin. ' +
         'Worst start: #FRA 901 (Outrage) — behind the line at the gun: 12.6 m; late: 10.8 s; speed at the gun: 5.7 kn; line position: 99% from the pin.',

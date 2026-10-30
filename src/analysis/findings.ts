@@ -14,7 +14,8 @@ export function splitFindings(findings: Finding[]): { start: Finding[]; race: Fi
 /** The DTL to show and rank by (see `StartResult.rank`): Vakaros when valid, else ours when valid, else null. */
 export const primaryDtlM = (s: StartResult): number | null => s.rank?.m ?? null;
 
-const tag = (b: BoatResult): string => (b.name && b.name !== `#${b.sail}` ? `#${b.sail} (${b.name})` : `#${b.sail}`);
+const named = (b: BoatResult): string | null => (b.name && b.name !== `#${b.sail}` ? b.name : null);
+const tag = (b: BoatResult): string => (named(b) ? `#${b.sail} (${named(b)})` : `#${b.sail}`);
 const r0 = (x: number): string => Math.round(x).toString();
 const rDeg = (x: number): string => compassRound(x).toString();
 const r1 = (x: number): string => x.toFixed(1);
@@ -32,7 +33,7 @@ export const START_COMPARE_ROWS = ['Behind the line at the gun', 'Late', 'Speed 
 function startSide(b: BoatResult): StartCompareSide {
   const s = b.start!;
   const behind = `${r1(s.rank!.m)} m${s.rank!.source === 'ours' ? ' (our track)' : ''}`;
-  return { id: b.id, tag: tag(b), values: [behind, s.lateS == null ? '—' : `${r1(s.lateS)} s`, `${r1(s.speedKn)} kn`, `${r0(s.linePosPct)}% from the pin`] };
+  return { id: b.id, tag: tag(b), sail: b.sail, name: named(b), values: [behind, s.lateS == null ? '—' : `${r1(s.lateS)} s`, `${r1(s.speedKn)} kn`, `${r0(s.linePosPct)}% from the pin`] };
 }
 
 /** The best clean start (first by start place) beside the worst (last), when there are two or more. */

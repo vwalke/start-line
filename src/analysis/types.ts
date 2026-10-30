@@ -326,10 +326,12 @@ export interface Finding {
   compare?: StartCompare;
 }
 
-/** One boat's column in a start comparison: its tag and one value per row. */
+/** One boat's column in a start comparison: its tag (its sail number and name apart, for the button) and one value per row. */
 export interface StartCompareSide {
   id: string;
   tag: string;
+  sail: string;
+  name: string | null;
   values: string[];
 }
 
