@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { bearingVec, dot, type Vec } from '../src/analysis/geo';
+import { bearingVec, dot, wrap180, type Vec } from '../src/analysis/geo';
 import { ladderReader, leaderOf, rungXY, type LadderNow, type LadderRead } from '../src/analysis/coach/ladderNow';
-import { legEnd, rung } from '../src/analysis/coach/ladder';
+import { legEnd, legLengths, rung } from '../src/analysis/coach/ladder';
+import { liveWind } from '../src/analysis/coach/liveWind';
 import { progressAt, progressBase } from '../src/analysis/coach/progress';
-import { gapCourse, legAlong, legWinds } from '../src/analysis/coach/timeGap';
+import { gapCourse, legWinds } from '../src/analysis/coach/timeGap';
 import type { CoachModel } from '../src/analysis/coach';
 import { makeTwdAt, windPoints } from '../src/analysis/wind';
 import { scrubFrame, startClass, trackMap, trackMapView } from '../src/ui/charts';
@@ -11,7 +12,6 @@ import { rotator } from '../src/ui/mapPieces';
 import {
   clipSpan,
   ladderText,
-  legAxes,
   paintRungs,
   placeLabel,
   Rects,
@@ -24,12 +24,13 @@ import {
   type RungDraw,
   type RungLabelDraw,
 } from '../src/ui/rungs';
-import { coachRace, fixtureRace } from './helpers';
+import { coachRace, fixtureRace, starRace } from './helpers';
 
 /**
- * Ladder rungs on the track map's scrubber (ui/rungs.ts, coach/ladderNow.ts): square to the leg's wind (the Coach's
- * leg winds) at the leader's and the selected boat's rungs (the Coach's layline rung), edge to edge across the view,
- * on beats and runs only; the selected boat's distance behind the leader along the wind; labels along their lines.
+ * Ladder rungs on the track map's scrubber (ui/rungs.ts, coach/ladderNow.ts): square to the wind at that moment
+ * (coach/liveWind.ts) at the leader's and the selected boat's rungs (the Coach's layline rung), edge to edge across
+ * the view, on beats and runs only; the selected boat's distance behind the leader along the wind; labels along their
+ * lines. The leader is the map tooltip's first place (coach/progress.ts reads the same ladder).
  */
 
 const cross = (u: Vec, v: Vec): number => u[0] * v[1] - u[1] * v[0];
@@ -44,6 +45,7 @@ const snap = (t: number): { leader: number; reads: LadderRead[]; now: LadderNow 
 };
 const times: number[] = [];
 for (let t = gun + 30_000; t < lastFinish; t += 20_000) times.push(t);
+const live = liveWind(m);
 
 describe('rung geometry', () => {
   it('lies square to the leg’s wind, in map coordinates', () => {
@@ -73,20 +75,28 @@ describe('rung geometry', () => {
 });
 
 describe('the Coach’s ladder at a moment (coach/ladderNow.ts)', () => {
-  const { course, lw } = gapCourse(m);
+  const { course } = gapCourse(m);
+  const lens = legLengths(course);
 
-  it('is the Coach’s layline rung and course progress, on the Coach’s leg winds', () => {
+  it('is the Coach’s layline rung and course progress, on the wind at that moment', () => {
     let n = 0;
     for (const t of times) {
-      for (const r of read(t).reads) {
-        if (r.est || r.done || course.kinds[r.leg] === 'reach') continue;
+      const now = read(t);
+      const twd = live.twdAt(t);
+      const ta = live.taAt(t);
+      expect(now.twdDeg).toBe(twd);
+      expect(now.taDeg).toBe(ta);
+      for (const r of now.reads) {
+        if (r.est || r.done || course.kinds[r.leg] === 'reach' || r.leg === course.kinds.length - 1) continue;
         const p: Vec = [r.x, r.y];
-        // The legs before the last end on their mark: ladder.ts rung exactly.
-        if (r.leg < course.kinds.length - 1) {
-          expect(r.rung).toBeCloseTo(rung(p, legEnd(course, r.leg, p), lw[r.leg].twdDeg, course.kinds[r.leg], lw[r.leg].taDeg), 6);
-        }
-        const before = course.pts.slice(0, r.leg).reduce((s, q, i) => s + Math.hypot(course.pts[i + 1][0] - q[0], course.pts[i + 1][1] - q[1]), 0);
-        expect(r.prog).toBeCloseTo(before + legAlong(course, lw, r.leg, p), 6);
+        const kind = course.kinds[r.leg];
+        // The legs before the last end on their mark: ladder.ts rung exactly, on the wind then.
+        expect(r.rung).toBeCloseTo(rung(p, legEnd(course, r.leg, p), twd, kind, ta), 6);
+        // Progress: the share of the leg's ladder from its start mark (on the same wind) climbed, scaled to its rhumb length.
+        const a0 = course.pts[r.leg];
+        const full = Math.max(rung(a0, legEnd(course, r.leg, a0), twd, kind, ta), 0.3 * lens[r.leg]);
+        const before = lens.slice(0, r.leg).reduce((s, x) => s + x, 0);
+        expect(r.prog).toBeCloseTo(before + lens[r.leg] * (1 - r.rung / full), 6);
         n++;
       }
     }
@@ -165,39 +175,147 @@ describe('the Coach’s ladder at a moment (coach/ladderNow.ts)', () => {
   });
 });
 
-describe('the run’s wind: the Coach’s leg wind', () => {
-  const { course, lw } = gapCourse(m);
+describe('the wind of the moment, beats and runs alike', () => {
+  const { course } = gapCourse(m);
   const runs = course.kinds.flatMap((k, i) => (k === 'downwind' ? [i] : []));
 
-  it('every leg’s rungs lie on the Coach’s leg wind (legWinds), beats and runs alike', () => {
+  it('lays every rung square to the wind then, on whatever leg its boat is on', () => {
     expect(runs.length).toBeGreaterThan(0);
-    const axes = legAxes(course.kinds, lw, mapTwd);
-    const fleet = legWinds(course, m.wind, m.tracks.values(), m.gunMs, m.endMs);
-    course.kinds.forEach((kind, i) => {
-      if (kind === 'reach') return expect(axes[i]).toBeNull();
-      expect(axes[i]!.twdDeg).toBe(lw[i].twdDeg);
-      expect(axes[i]!.twdDeg).toBeCloseTo(fleet[i].twdDeg, 9);
-    });
+    let onRun = 0;
+    for (const t of times) {
+      const now = read(t);
+      for (const x of now.reads) {
+        if (x.est || x.done) continue;
+        const r = rungsAt({ now, selected: x.id, mapTwdDeg: mapTwd }).find((q) => q.id === x.id);
+        if (course.kinds[x.leg] === 'reach') {
+          expect(r).toBeUndefined();
+          continue;
+        }
+        expect(r!.axis.twdDeg).toBe(live.twdAt(t));
+        expect(r!.axis.kind).toBe(course.kinds[x.leg]);
+        if (course.kinds[x.leg] === 'downwind') onRun++;
+      }
+    }
+    expect(onRun).toBeGreaterThan(20);
   });
 
-  it('follows the Coach’s wind series, not the beats’ estimates at the middle of the run', () => {
+  it('follows the Coach’s wind series on the runs, not the beats’ estimates at the middle of the run', () => {
     // The same race with the Coach's wind series reading 300° throughout: the runs' rungs follow it.
     const m2: CoachModel = { ...m, wind: { ...m.wind, twdAt: () => 300 } };
-    const now = ladderReader(a, m2)(times[0]);
-    const axes = legAxes(now.course.kinds, now.lw, mapTwd);
+    const read2 = ladderReader(a, m2);
     const beatsMid = makeTwdAt(windPoints(a.wind), a.wind.twdAtGunDeg);
     for (const i of runs) {
-      expect(axes[i]!.twdDeg).toBeCloseTo(300, 6);
       const legs = a.boats.map((b) => b.legs[i]).filter((l) => l != null);
       const mid = legs.reduce((s, l) => s + (l.startMs + l.endMs) / 2, 0) / legs.length;
+      const now = read2(mid);
+      const x = now.reads.find((r) => r.leg === i && !r.est)!;
+      const r = rungsAt({ now, selected: x.id, mapTwdDeg: mapTwd }).find((q) => q.id === x.id)!;
+      expect(r.axis.twdDeg).toBeCloseTo(300, 6);
       expect(Math.abs(beatsMid(mid) - 300)).toBeGreaterThan(5);
     }
   });
 });
 
+describe('a shift up the beat (Star NA race 4, the first beat)', () => {
+  // The fleet's wind backs from ~52° at the gun to ~35° five minutes in and comes back to ~44° by eight; the leg's one
+  // wind (timeGap.ts legWinds) is ~43° all the way.
+  const star = coachRace(starRace());
+  const sa = star.a;
+  const sm = star.m;
+  const sRead = ladderReader(sa, sm);
+  const sLive = liveWind(sm);
+  const sBase = progressBase(sa, sm);
+  const sCourse = gapCourse(sm).course;
+  const L0 = legLengths(sCourse)[0];
+  const sGun = sa.meta.gunMs;
+  const sMap = sa.wind.twdAtGunDeg;
+  const firstRound = Math.min(...[...sm.tracks.values()].map((tr) => tr.bounds[1] ?? Infinity));
+  const beat: number[] = [];
+  for (let t = sGun + 10_000; t < firstRound; t += 10_000) beat.push(t);
+  /** The tooltip's first measured place at `t` (app.ts placeReader shows no place for an estimated one). */
+  const firstPlace = (t: number): string | null => {
+    let best: string | null = null;
+    let bp = Infinity;
+    for (const [id, r] of progressAt(sa, sm, sBase, t).byId) {
+      if (r.est || r.place >= bp) continue;
+      best = id;
+      bp = r.place;
+    }
+    return best;
+  };
+
+  it('is a real shift: the wind then moves well off the leg’s one wind', () => {
+    const lw = legWinds(sCourse, sm.wind, sm.tracks.values(), sm.gunMs, sm.endMs)[0].twdDeg;
+    const offs = beat.map((t) => wrap180(sLive.twdAt(t) - lw));
+    expect(Math.max(...offs)).toBeGreaterThan(6);
+    expect(Math.min(...offs)).toBeLessThan(-6);
+  });
+
+  it('leads with the tooltip’s first place at every moment through it, and over the whole race', () => {
+    const lastFin = Math.max(...sa.boats.map((b) => b.finishMs ?? 0));
+    const all = [...beat];
+    for (let t = firstRound; t < lastFin; t += 30_000) all.push(t);
+    let led = 0;
+    for (const t of all) {
+      const now = sRead(t);
+      const first = firstPlace(t);
+      expect(now.leader >= 0 ? now.reads[now.leader].id : null).toBe(first);
+      if (first) led++;
+    }
+    expect(led).toBeGreaterThan(all.length * 0.9);
+  });
+
+  it('measures “behind” on the same wind as the places: the rung difference on the wind then, the places in its order', () => {
+    let n = 0;
+    for (const t of beat) {
+      const now = sRead(t);
+      if (now.leader < 0) continue;
+      const lead = now.reads[now.leader];
+      const places = progressAt(sa, sm, sBase, t).byId;
+      const twd = sLive.twdAt(t);
+      const ta = sLive.taAt(t);
+      const rungAt = (p: Vec): number => rung(p, legEnd(sCourse, 0, p), twd, 'upwind', ta);
+      const full = Math.max(rungAt(sCourse.pts[0]), 0.3 * L0);
+      for (const x of now.reads) {
+        if (x.est || x.done || x.id === lead.id || x.leg !== 0 || lead.leg !== 0) continue;
+        const sel = rungsAt({ now, selected: x.id, mapTwdDeg: sMap }).find((r) => r.role === 'sel')!;
+        const behind = rungAt([x.x, x.y]) - rungAt([lead.x, lead.y]);
+        expect(sel.behindM).toBeCloseTo(behind, 6);
+        expect(sel.behindM!).toBeGreaterThanOrEqual(-1e-9);
+        // Further behind up the ladder is further down the tooltip's places, the same distance to go apart (scaled to the rhumb line).
+        const pl = places.get(x.id)!;
+        const pd = places.get(lead.id)!;
+        if (behind > 1e-6) expect(pl.place).toBeGreaterThan(pd.place);
+        expect(pl.dtg - pd.dtg).toBeCloseTo((behind * L0) / full, 6);
+        n++;
+      }
+    }
+    expect(n).toBeGreaterThan(200);
+  });
+
+  it('turns the rungs with the wind: square to it at two moments across the shift', () => {
+    const seen: number[] = [];
+    for (const t of [sGun + 30_000, sGun + 270_000]) {
+      const now = sRead(t);
+      const [r] = rungsAt({ now, selected: null, mapTwdDeg: sMap });
+      const twd = sLive.twdAt(t);
+      expect(r.axis.twdDeg).toBe(twd);
+      // Into the wind then, in map coordinates, and the line square to it.
+      const up = rotator(sMap)(bearingVec(twd));
+      expect(r.axis.up[0]).toBeCloseTo(up[0], 9);
+      expect(r.axis.up[1]).toBeCloseTo(up[1], 9);
+      expect(dot(r.axis.up, r.axis.across)).toBeCloseTo(0, 9);
+      const [d] = rungDraws([r], { box: { x0: -5000, y0: -5000, x1: 5000, y1: 5000 }, unit: 1, k: 1 }, { sail: (id) => id, dims: null }, new Rects());
+      expect(dot([d.x2 - d.x1, d.y2 - d.y1], r.axis.up)).toBeCloseTo(0, 6);
+      seen.push(twd);
+    }
+    // More than 10° apart: the rungs turned with the shift.
+    expect(Math.abs(wrap180(seen[1] - seen[0]))).toBeGreaterThan(10);
+  });
+});
+
 describe('leader and behind', () => {
   const { course } = gapCourse(m);
-  const axes = legAxes(course.kinds, gapCourse(m).lw, mapTwd);
 
   it('the leader’s rung is never behind the selected boat’s, and the distance is the Coach’s rung difference', () => {
     let same = 0;
@@ -205,7 +323,7 @@ describe('leader and behind', () => {
       const now = read(t);
       if (now.leader < 0) continue;
       for (const sel of now.reads) {
-        const rungs = rungsAt({ now, selected: sel.id, axes, mapTwdDeg: mapTwd }).map((r) => ({ ...r, at: [...r.at] as Vec }));
+        const rungs = rungsAt({ now, selected: sel.id, mapTwdDeg: mapTwd }).map((r) => ({ ...r, at: [...r.at] as Vec }));
         const lead = rungs.find((r) => r.role === 'leader');
         const mine = rungs.find((r) => r.role === 'sel');
         if (!lead || !mine) continue;
@@ -233,8 +351,8 @@ describe('leader and behind', () => {
     for (const t of times) {
       const now = read(t);
       for (const x of now.reads) {
-        if (x.est || x.done || x.leg >= course.kinds.length - 1 || !axes[x.leg]) continue;
-        const r = rungsAt({ now, selected: x.id, axes, mapTwdDeg: mapTwd }).find((q) => q.id === x.id);
+        if (x.est || x.done || x.leg >= course.kinds.length - 1 || course.kinds[x.leg] === 'reach') continue;
+        const r = rungsAt({ now, selected: x.id, mapTwdDeg: mapTwd }).find((q) => q.id === x.id);
         if (!r) continue;
         const p = rotator(mapTwd)([x.x, x.y]);
         const off = dot([p[0] - r.at[0], p[1] - r.at[1]], r.axis.up);
@@ -463,15 +581,28 @@ describe('reuse from frame to frame', () => {
       new Rects(),
     );
 
-  it('fills the same rungs, draws and labels, and keeps the label text while it says the same', () => {
+  it('fills the same rungs, axes, draws and labels, and keeps the label text while it says the same', () => {
     const now = read(times[30]);
-    const axes = legAxes(now.course.kinds, now.lw, mapTwd);
     const sel = now.reads.find((r, i) => i !== now.leader && !r.est)!.id;
-    const one = rungsAt({ now, selected: sel, axes, mapTwdDeg: mapTwd });
+    const one = rungsAt({ now, selected: sel, mapTwdDeg: mapTwd });
     const objs = [...one];
-    const two = rungsAt({ now: read(times[31]), selected: sel, axes, mapTwdDeg: mapTwd });
+    const axes = one.map((r) => ({ axis: r.axis, up: r.axis.up, across: r.axis.across, at: r.at }));
+    const twd1 = one[0].axis.twdDeg;
+    const two = rungsAt({ now: read(times[31]), selected: sel, mapTwdDeg: mapTwd });
     expect(two).toBe(one);
-    two.forEach((r, i) => expect(r).toBe(objs[i]));
+    two.forEach((r, i) => {
+      expect(r).toBe(objs[i]);
+      // The wind moved and the axis with it, in the same objects.
+      expect(r.axis).toBe(axes[i].axis);
+      expect(r.axis.up).toBe(axes[i].up);
+      expect(r.axis.across).toBe(axes[i].across);
+      expect(r.at).toBe(axes[i].at);
+    });
+    expect(two[0].axis.twdDeg).toBe(live.twdAt(times[31]));
+    expect(two[0].axis.twdDeg).not.toBe(twd1);
+    // The wind's samples are worked out once per race, and the moment read is kept.
+    expect(liveWind(m)).toBe(live);
+    expect(read(times[31])).toBe(read(times[31]));
     const d1 = draws(-300, true);
     const [p, q] = d1;
     const text = q.label!.text;

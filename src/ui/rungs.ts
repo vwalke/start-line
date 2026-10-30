@@ -1,35 +1,36 @@
 /**
- * Ladder rungs on the track map's scrubber (Map B): on a beat or a run, a thin line square to that leg's wind at the
- * race leader's rung, and one at the selected boat's, labelled with how far it is behind the leader up (or down) the
- * wind. Measured as the Coach measures the ladder (analysis/coach/ladderNow.ts): each leg's one wind (timeGap.ts
- * legWinds, the runs read from the gybes where the Coach has them), the layline rung (ladder.ts rung), and the leader
- * first by course progress with estimated places skipped (as the map's tooltip skips them).
+ * Ladder rungs on the track map's scrubber (Map B): on a beat or a run, a thin line square to the wind at the race
+ * leader's rung, and one at the selected boat's, labelled with how far it is behind the leader up (or down) the
+ * wind. Measured as analysis/coach/ladderNow.ts measures the ladder, which the map tooltip's places read too: the wind
+ * at that moment (coach/liveWind.ts: the fleet's minute-by-minute series, the runs read from the gybes where the Coach
+ * has them, smoothed over two minutes), the layline rung (ladder.ts rung), and the leader first by course progress
+ * with estimated places skipped (as the tooltip skips them), so "Leader" is always the tooltip's first place.
  *
  * - A rung lies where its boat's rung puts it: `rung` from the leg's mark along the wind (the last leg's from the
  *   finish line's middle). Inside the laylines that is through the boat; past one, a little behind it, where its
  *   rung says it is. So the leader's is never behind the selected boat's, and the two lines are the distance in the
  *   label apart.
+ * - The rungs turn with the wind as the replay runs; the wind is never missing (liveWind.ts falls back to the nearest
+ *   reading), so a rung is never dropped for it.
  * - None before the gun, on a reach, once the boat has finished, or with no position for it then.
  * - Each line runs edge to edge across the view drawn (after pan, zoom or the follow camera), so it reads as a
  *   course-wide line at any zoom.
  * - Labels lie along their own line, just off it (rotated with it, never upside down), slid along it clear of the
  *   boats and their labels, the marks and their labels, the wind arrow, the scale bar and the other rung's label.
  *
- * Nothing here allocates per frame once warm: the rungs, the draws and their labels are kept and filled in place,
- * the label text is only rebuilt when what it says changes, and paintRungs only sets what changed.
+ * Nothing here allocates per frame once warm: the rungs, their axes, the draws and their labels are kept and filled
+ * in place, the label text is only rebuilt when what it says changes, and paintRungs only sets what changed.
  */
-import { bearingVec, type Vec } from '../analysis/geo';
+import type { Vec } from '../analysis/geo';
 import type { LadderNow } from '../analysis/coach/ladderNow';
-import type { LegWind } from '../analysis/coach/timeGap';
 import type { LegKind } from '../analysis/types';
 import type { ClassDims } from '../data/classes';
 import { textWidth } from './labels';
-import { rotator } from './mapPieces';
 import type { Box } from './view';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-/** A leg's wind in map coordinates: `up` (unit) points into the wind, `across` (unit) along the rungs. */
+/** The wind in map coordinates: `up` (unit) points into the wind, `across` (unit) along the rungs. */
 export interface RungAxis {
   kind: Exclude<LegKind, 'reach'>;
   twdDeg: number;
@@ -37,29 +38,35 @@ export interface RungAxis {
   across: Vec;
 }
 
-/** The axis of a leg of kind `kind` with wind `twdDeg`, on a map drawn with `mapTwdDeg` at the top; null on a reach. */
-export function rungAxis(kind: LegKind, twdDeg: number, mapTwdDeg: number): RungAxis | null {
-  if (kind === 'reach' || !Number.isFinite(twdDeg)) return null;
-  const rot = rotator(mapTwdDeg);
-  const up = rot(bearingVec(twdDeg));
-  return { kind, twdDeg, up, across: [-up[1], up[0]] };
+/** Fill `out` with the axis of a leg of kind `kind` with wind `twdDeg`, on a map drawn with `mapTwdDeg` at the top (mapPieces.ts rotator); false on a reach or with no wind. */
+export function axisInto(kind: LegKind, twdDeg: number, mapTwdDeg: number, out: RungAxis): boolean {
+  if (kind === 'reach' || !Number.isFinite(twdDeg)) return false;
+  const tw = (twdDeg * Math.PI) / 180;
+  const th = (mapTwdDeg * Math.PI) / 180;
+  const c = Math.cos(th);
+  const s = Math.sin(th);
+  const ux = Math.sin(tw);
+  const uy = Math.cos(tw);
+  out.kind = kind;
+  out.twdDeg = twdDeg;
+  out.up[0] = ux * c - uy * s;
+  out.up[1] = -(ux * s + uy * c);
+  out.across[0] = -out.up[1];
+  out.across[1] = out.up[0];
+  return true;
 }
 
-const axesCache = new WeakMap<readonly LegWind[], { mapTwdDeg: number; axes: (RungAxis | null)[] }>();
-
-/** Each leg's rung axis from the Coach's leg winds `lw` (timeGap.ts legWinds; null on a reach), worked out once per model. */
-export function legAxes(kinds: readonly LegKind[], lw: readonly LegWind[], mapTwdDeg: number): (RungAxis | null)[] {
-  const hit = axesCache.get(lw);
-  if (hit && hit.mapTwdDeg === mapTwdDeg) return hit.axes;
-  const axes = kinds.map((kind, k) => (lw[k] ? rungAxis(kind, lw[k].twdDeg, mapTwdDeg) : null));
-  axesCache.set(lw, { mapTwdDeg, axes });
-  return axes;
+/** The axis as a new value (axisInto); null on a reach or with no wind. */
+export function rungAxis(kind: LegKind, twdDeg: number, mapTwdDeg: number): RungAxis | null {
+  const out: RungAxis = { kind: 'upwind', twdDeg, up: [0, 0], across: [0, 0] };
+  return axisInto(kind, twdDeg, mapTwdDeg, out) ? out : null;
 }
 
 export interface Rung {
   role: 'leader' | 'sel';
   id: string;
   leg: number;
+  /** Square to the wind at the moment (kept and filled in place). */
   axis: RungAxis;
   /** A point on the rung, map units (kept and filled in place). */
   at: [number, number];
@@ -71,29 +78,29 @@ export interface Rung {
 
 /** What decides the rungs at one moment. */
 export interface RungInput {
+  /** The fleet up the ladder then, and the wind it was read on (`twdDeg`). */
   now: LadderNow;
   selected: string | null;
-  axes: readonly (RungAxis | null)[];
   /** The map's rotation (charts.ts: the gun's wind at the top). */
   mapTwdDeg: number;
 }
 
-const newRung = (role: Rung['role']): Rung => ({ role, id: '', leg: -1, axis: null as unknown as RungAxis, at: [0, 0], rung: 0, behindM: null });
+const newRung = (role: Rung['role']): Rung => ({ role, id: '', leg: -1, axis: { kind: 'upwind', twdDeg: NaN, up: [0, 0], across: [0, 0] }, at: [0, 0], rung: 0, behindM: null });
 const rungSlots = { leader: newRung('leader'), sel: newRung('sel') };
 const rungsOut: Rung[] = [];
 
 /**
  * Fill `r` from read `i` of `o.now`: false (no rung) when it has finished, has no position, or is on a reach.
- * The point is the leg's mark (the finish line's middle on the last leg) less the rung along the wind, in map units.
+ * The point is the leg's mark (the finish line's middle on the last leg) less the rung along the wind then, in map units.
  */
 function fillRung(o: RungInput, i: number, r: Rung): boolean {
-  const x = o.now.reads[i];
+  const { now } = o;
+  const x = now.reads[i];
   if (!x || x.done || x.est || x.leg < 0 || !Number.isFinite(x.rung)) return false;
-  const axis = o.axes[x.leg];
-  if (!axis) return false;
-  const mark = o.now.course.pts[x.leg + 1];
-  const tw = (axis.twdDeg * Math.PI) / 180;
-  const s = axis.kind === 'upwind' ? -x.rung : x.rung;
+  if (!axisInto(now.course.kinds[x.leg], now.twdDeg, o.mapTwdDeg, r.axis)) return false;
+  const mark = now.course.pts[x.leg + 1];
+  const tw = (now.twdDeg * Math.PI) / 180;
+  const s = r.axis.kind === 'upwind' ? -x.rung : x.rung;
   const px = mark[0] + s * Math.sin(tw);
   const py = mark[1] + s * Math.cos(tw);
   const th = (o.mapTwdDeg * Math.PI) / 180;
@@ -101,7 +108,6 @@ function fillRung(o: RungInput, i: number, r: Rung): boolean {
   const sn = Math.sin(th);
   r.id = x.id;
   r.leg = x.leg;
-  r.axis = axis;
   r.at[0] = px * c - py * sn;
   r.at[1] = -(px * sn + py * c);
   r.rung = x.rung;

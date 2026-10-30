@@ -37,7 +37,7 @@ import { FAV_GAP_PX, favouredTexts, lineBiasSvg } from './startLine';
 import { FOLLOW_COURSE_S, type FollowInput } from './follow';
 import { ocsStretch, ocsSvg } from './ocsStyle';
 import { replayLabel } from './replay';
-import { legAxes, Rects, rungDraws, rungsAt, type RungDraw } from './rungs';
+import { Rects, rungDraws, rungsAt, type RungDraw } from './rungs';
 import type { LadderNow } from '../analysis/coach/ladderNow';
 import { trailPaths, type TrailStretch } from './trail';
 import type { StartReplay } from '../analysis/startReplay';
@@ -1232,13 +1232,14 @@ function hudBoxes(box: Box, unit: number, k: number, taken: Rects): void {
 
 /**
  * The ladder rungs at the scrubber's moment (ui/rungs.ts) in the view drawn `sc`: the leader's and the selected
- * boat's, on a beat or a run, edge to edge across the view; labelled "Leader" and with the selected boat's sail
- * number and distance behind it, clear of `taken` (the boats and their labels) and the marks, wind arrow and scale bar.
+ * boat's, on a beat or a run, square to the wind then, edge to edge across the view; labelled "Leader" and with the
+ * selected boat's sail number and distance behind it, clear of `taken` (the boats and their labels) and the marks, wind
+ * arrow and scale bar.
  * Kept and refilled frame to frame.
  */
 function mapRungs(a: RaceAnalysis, highlight: string | null, now: LadderNow, sc: MapScale, taken: Rects): readonly RungDraw[] {
   const mapTwdDeg = a.wind.twdAtGunDeg;
-  const rungs = rungsAt({ now, selected: highlight, axes: legAxes(now.course.kinds, now.lw, mapTwdDeg), mapTwdDeg });
+  const rungs = rungsAt({ now, selected: highlight, mapTwdDeg });
   if (!rungs.length) return noRungs;
   taken.n = rungBoats;
   const marks = markBoxesAt(a, sc.unit, sc.k);
