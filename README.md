@@ -473,11 +473,16 @@ Switching races keeps the tab.
 
 - **Start View - Gun:** each boat's bow (GPS tracker + class bow offset)
   against the line with a 60 s trail (`START_TRAIL_MS`) shifted so it ends on
-  that bow, arrows along course over ground, plus the line length and bias and
-  which end was favored. Wind bearings display as 0° rather than 360°.
-  Hulls are drawn to scale when the class is known (division `boatClass`,
-  then division name, then the event's class label; e.g. Cape 31 = C31,
-  9.55 m); otherwise the key line says `hulls not to scale` (and the ⓘ why).
+  that bow, plus the line length and bias and which end was favored. Wind
+  bearings display as 0° rather than 360°. When the class is known (division
+  `boatClass`, then division name, then the event's class label; e.g. Cape 31
+  = C31, 9.55 m) each boat is the same hull as on the other maps, its bow on
+  that bow and pointing along its heading, at the same smallest size
+  (`BOAT_SHAPE_PX` css px, measured on the chart's real width), the selected
+  boat no bigger than the rest; while that stretches them the key line says
+  how much, `Boats drawn about 3× actual size`, and nothing once they are to
+  scale. With no class dimensions boats are arrows along course over ground
+  and the key line says `hulls not to scale` (and the ⓘ why).
   The line continues dashed past each end, and the favored end is labeled
   with its bias in degrees and meters (and boat lengths when the class is
   known), e.g. `Pin favored 7° · 18 m (1.9 lengths)`, or `Square line`
@@ -524,9 +529,10 @@ Switching races keeps the tab.
   scrubbing only redraws the map. Each second draws every boat with the
   Race Viewer's fading trail, its last 2 minutes (never before gun −1:30,
   or where the data starts), and the start line.
-- **Boat shapes** (`ui/boatShape.ts` `boatMark`): Start Playback and the
-  Race Viewer while scrubbing or replaying draw each boat as the start
-  chart's hull, pointing along its course over
+- **Boat shapes** (`ui/boatShape.ts` `boatMark`): Start Playback, the
+  start chart and the Race Viewer while scrubbing or replaying draw each
+  boat as the same hull (the start chart along its heading at the gun, from
+  its bow), the others pointing along its course over
   ground at that moment (the scrubber's: the step between the fixes either
   side), or, while it is held past its final fix, slower than 1 kn or has no
   course, along the last heading it had. Start Playback centers it on the
@@ -535,20 +541,21 @@ Switching races keeps the tab.
   4.9 m on an IC37) where it gives one that fits the hull, else half the
   LOA (`data/classes.ts` `bowAheadM`), so the ladder rungs, measured bow to
   bow, meet the bow on screen. It
-  is to scale from the class's length and beam once that is at least 12 css
-  px long on screen (`BOAT_SHAPE_PX`; 15 px for the selected boat), else a
-  symbol that long with the hull's proportions, at any zoom however far
-  out (12 × ~4 px covers less than the 8 px dot it replaced); on the Race
-  Viewer the symbol's extra length is all aft, its tip still on the bow.
+  is to scale from the class's length and beam once that is at least
+  `BOAT_SHAPE_PX` css px long on screen (one constant for all three maps,
+  10: any shorter and the hull reads as an ellipse, its bow unclear on a 1×
+  screen; the selected boat too: it stands out by its color, outline
+  and place on top, not its size), else a symbol that long with the hull's
+  proportions, at any zoom however far out; on the Race Viewer and the
+  start chart the symbol's extra length is all aft, its tip still on the
+  bow.
   Both maps measure that in real screen pixels: the Race Viewer from its
   SVG's size on screen (drawn "meet", so the axis that limits; measured once
   per size, and as if 600 px across before it has one), so a J/70 (6.9 m)
   is to scale at the 8× preset on a desktop card. While the hulls are drawn
   bigger than scale the map says how much in its bottom right corner:
   `Boats drawn about 3× actual size` (whole numbers from 2×, one decimal
-  below, as `about 1.5×`), or, with the fleet to scale and only the
-  selected boat's bigger symbol enlarged, `Selected boat drawn about 1.4×
-  actual size`; nothing once that rounds to 1× (`ui/boatShape.ts`
+  below, as `about 1.5×`); nothing once that rounds to 1× (`ui/boatShape.ts`
   `scaleNoteText`). On the Race Viewer it is part of the scale bar's HUD,
   kept clear of the scale bar, wind arrow and ladder-rung labels, a line
   above the scale bar where the two don't fit side by side (and smaller if
@@ -623,7 +630,7 @@ Switching races keeps the tab.
   happens.
 - **Key lines** (`ui/info.ts`, `ui/captions.ts`): under every chart and
   table, one short row of chips with the key facts only, e.g.
-  `Line 143 m · RC fav. 2° · 4 m · wind est. · hulls to scale`,
+  `Line 143 m · RC fav. 2° · 4 m · wind est. · Boats drawn about 3× actual size`,
   plus legend swatches (`○ estimated mark`, `- - not racing`,
   `● crossed the line`). Caveats stay in sight as
   red ⚠ chips: low wind confidence (`⚠ wind est. low`, `⚠ wind assumed`),
@@ -706,7 +713,7 @@ Switching races keeps the tab.
   aspect, so the fleet fills the width. The spare height always goes below
   the line, to the trails (the line sits near the top under just its margin
   for names, PIN/RC and the wind arrow). Text stays ~10 px at any size, so a
-  big screen draws the hulls to scale. Inline, Fit also takes in every trail
+  big screen draws the hulls closer to scale. Inline, Fit also takes in every trail
   near the line and the chart keeps that frame's aspect, so a long line on a
   phone is a thin strip (a 500 m line is ~0.5 px per meter at 390 px); in
   landscape full screen the same start is drawn about 2.5× larger. In

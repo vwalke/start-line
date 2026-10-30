@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import type { Vec } from '../src/analysis/geo';
 import type { RaceAnalysis } from '../src/analysis/types';
-import { BOAT_SHAPE_ON_PX, HULL_LABEL_GAP_PX, HULL_LABEL_SIDES, boatShapeOr, hullLabelBox, hullOutlineAt } from '../src/ui/boatShape';
+import { BOAT_SHAPE_PX, HULL_LABEL_GAP_PX, HULL_LABEL_SIDES, boatShapeOr, hullLabelBox, hullOutlineAt } from '../src/ui/boatShape';
 import { boatsAt, mapBox, mapFollowInput, scrubFrame, startClass, trackMapView } from '../src/ui/charts';
 import {
   FOLLOW_COURSE_S,
@@ -558,7 +558,7 @@ describe('labels: a few px off the hull at every zoom, on both maps', () => {
       const unit = Math.max(vb.x1 - vb.x0, vb.y1 - vb.y0) / 600;
       const dots = scrubFrame(a, ME, null, { view }, { t, win }).dots;
       expect(dots).toContain(`class="dot hull on" data-id="${ME}"`);
-      const s = boatShapeOr({ dir: me.dir, hold: me.hold, sog: me.sog, dims: startClass(a)?.dims ?? null, pxPerM: 1 / unit, minPx: BOAT_SHAPE_ON_PX });
+      const s = boatShapeOr({ dir: me.dir, hold: me.hold, sog: me.sog, dims: startClass(a)?.dims ?? null, pxPerM: 1 / unit, minPx: BOAT_SHAPE_PX });
       expect('shape' in s).toBe(true);
       if (!('shape' in s)) continue;
       const gap = rectToHull(textBox(dots, 'dot-lbl on', ME), hullOutlineAt([me.mx, me.my], s.shape, s.dims)) / unit;

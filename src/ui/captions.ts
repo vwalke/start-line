@@ -12,8 +12,8 @@ import { biasBullets, lineChips } from './startLine';
 const GESTURES = 'Zoom: pinch, Ctrl/⌘ + scroll or double-tap; drag to pan when zoomed.';
 
 /** Start chart: line, favoured end, wind, scale; bullets for the rest. */
-export function startKey(a: RaceAnalysis, o: { scale: { chip: string; info: string }; highlight?: string | null; colour?: StartColour }): KeyLine {
-  const chips = [...lineChips(a), { text: o.scale.chip }];
+export function startKey(a: RaceAnalysis, o: { scale: { chip: string | null; info: string }; highlight?: string | null; colour?: StartColour }): KeyLine {
+  const chips = [...lineChips(a), ...(o.scale.chip ? [{ text: o.scale.chip }] : [])];
   const away = a.boats.filter((b) => b.start?.awayFromLine).length;
   if (away) chips.push({ text: away === 1 ? '1 away from the line' : `${away} away from the line` });
   if (pickedExcluded(a, o.highlight ?? null)) chips.push({ text: 'not racing', swatch: 'nc' });

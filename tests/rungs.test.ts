@@ -8,7 +8,7 @@ import { gapCourse, legWinds } from '../src/analysis/coach/timeGap';
 import type { CoachModel } from '../src/analysis/coach';
 import { makeTwdAt, windPoints } from '../src/analysis/wind';
 import { bowAheadM } from '../src/data/classes';
-import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, hullCenterFromBow, hullOutlineAt } from '../src/ui/boatShape';
+import { BOAT_SHAPE_PX, boatMark, hullCenterFromBow, hullOutlineAt } from '../src/ui/boatShape';
 import { boatsAt, drawnBow, scrubFrame, startClass, trackMap, trackMapView } from '../src/ui/charts';
 import { rotator } from '../src/ui/mapPieces';
 import {
@@ -784,7 +784,7 @@ describe('at the bow on a speck (Cascais R3, J/70s: under 1.5 px to scale at Fit
     return Math.hypot((p[0] + q[0]) / 2 - bow[0], (p[1] + q[1]) / 2 - bow[1]);
   };
 
-  it('measured on screen (a desktop card, a phone): the symbol 12 css px long, 15 selected; the rung through its bow within a pixel, its label clear of the note', () => {
+  it('measured on screen (a desktop card, a phone): every symbol BOAT_SHAPE_PX css px long, the selected boat’s too; the rungs through the selected boat’s and the leader’s bows within a pixel, its label clear of the note', () => {
     for (const scr of [
       { w: 1050, h: 600 },
       { w: 390, h: 300 },
@@ -793,6 +793,7 @@ describe('at the bow on a speck (Cascais R3, J/70s: under 1.5 px to scale at Fit
       const px = Math.max((cView.x1 - cView.x0) / scr.w, (cView.y1 - cView.y0) / scr.h);
       expect(cDims.loaM / px).toBeLessThan(BOAT_SHAPE_PX);
       let n = 0;
+      let nSel = 0;
       let lens = 0;
       for (let t = ca.meta.gunMs + 60_000; t < cLast; t += 120_000) {
         const now = cRead(t);
@@ -804,7 +805,7 @@ describe('at the bow on a speck (Cascais R3, J/70s: under 1.5 px to scale at Fit
         for (const b of boatsAt(ca, sel.id, t).filter((x) => x.dir && !x.hold && x.sog >= 1)) {
           const len = hullLen(f.dots, b.id);
           expect(len).not.toBeNull();
-          expect(len! / px).toBeCloseTo(b.id === sel.id ? BOAT_SHAPE_ON_PX : BOAT_SHAPE_PX, 1);
+          expect(len! / px).toBeCloseTo(BOAT_SHAPE_PX, 1);
           lens++;
         }
         const through = new Set(
@@ -821,10 +822,12 @@ describe('at the bow on a speck (Cascais R3, J/70s: under 1.5 px to scale at Fit
           if (!tip || !through.has(id)) continue;
           expect(pxOff(d, tip, px)).toBeLessThan(1);
           n++;
+          if (d.role === 'sel') nSel++;
         }
       }
       expect(lens).toBeGreaterThan(20);
       expect(n).toBeGreaterThan(2);
+      expect(nSel).toBeGreaterThan(0);
     }
   });
 });
@@ -848,24 +851,22 @@ describe('the bow at any heading and zoom', () => {
     for (const deg of [0, 90, 180, 270, 42, 318]) {
       const dir: Vec = [Math.sin((deg * Math.PI) / 180), -Math.cos((deg * Math.PI) / 180)];
       for (const pxPerM of ppms) {
-        for (const minPx of [BOAT_SHAPE_PX, BOAT_SHAPE_ON_PX]) {
-          const mark = boatMark({ dir, hold: false, sog: 6, dims, pxPerM, minPx });
-          if (!('shape' in mark)) throw new Error('a hull');
-          const tip = hullOutlineAt(hullCenterFromBow(at, dir, bowM, mark.dims), dir, mark.dims)[0];
-          const bow: Vec = [at[0] + dir[0] * bowM, at[1] + dir[1] * bowM];
-          expect(Math.hypot(tip[0] - bow[0], tip[1] - bow[1])).toBeLessThan(1e-9);
-          // A stretched symbol reaches aft, never forward: its stern is a full drawn length behind the bow.
-          const stern = hullOutlineAt(hullCenterFromBow(at, dir, bowM, mark.dims), dir, mark.dims)[8];
-          expect(dot([bow[0] - stern[0], bow[1] - stern[1]], dir)).toBeCloseTo(mark.dims.loaM, 6);
-          for (const twd of [220, 260, 300]) {
-            const axis = rungAxis('upwind', twd, 220)!;
-            const r: Rung = { role: 'leader', id: 'A', leg: 0, axis, at: [bow[0], bow[1]], bow: [bow[0], bow[1]], rung: 0, behindM: null };
-            const unit = 1 / pxPerM;
-            const half = 300 * unit;
-            const [d] = rungDraws([r], { box: { x0: at[0] - half, y0: at[1] - half, x1: at[0] + half, y1: at[1] + half }, unit, k: unit }, { sail: (id) => id, dims }, new Rects());
-            const off = Math.abs(cross([d.x2 - d.x1, d.y2 - d.y1], [tip[0] - d.x1, tip[1] - d.y1])) / Math.hypot(d.x2 - d.x1, d.y2 - d.y1);
-            expect(off / unit).toBeLessThan(1e-6);
-          }
+        const mark = boatMark({ dir, hold: false, sog: 6, dims, pxPerM, minPx: BOAT_SHAPE_PX });
+        if (!('shape' in mark)) throw new Error('a hull');
+        const tip = hullOutlineAt(hullCenterFromBow(at, dir, bowM, mark.dims), dir, mark.dims)[0];
+        const bow: Vec = [at[0] + dir[0] * bowM, at[1] + dir[1] * bowM];
+        expect(Math.hypot(tip[0] - bow[0], tip[1] - bow[1])).toBeLessThan(1e-9);
+        // A stretched symbol reaches aft, never forward: its stern is a full drawn length behind the bow.
+        const stern = hullOutlineAt(hullCenterFromBow(at, dir, bowM, mark.dims), dir, mark.dims)[8];
+        expect(dot([bow[0] - stern[0], bow[1] - stern[1]], dir)).toBeCloseTo(mark.dims.loaM, 6);
+        for (const twd of [220, 260, 300]) {
+          const axis = rungAxis('upwind', twd, 220)!;
+          const r: Rung = { role: 'leader', id: 'A', leg: 0, axis, at: [bow[0], bow[1]], bow: [bow[0], bow[1]], rung: 0, behindM: null };
+          const unit = 1 / pxPerM;
+          const half = 300 * unit;
+          const [d] = rungDraws([r], { box: { x0: at[0] - half, y0: at[1] - half, x1: at[0] + half, y1: at[1] + half }, unit, k: unit }, { sail: (id) => id, dims }, new Rects());
+          const off = Math.abs(cross([d.x2 - d.x1, d.y2 - d.y1], [tip[0] - d.x1, tip[1] - d.y1])) / Math.hypot(d.x2 - d.x1, d.y2 - d.y1);
+          expect(off / unit).toBeLessThan(1e-6);
         }
       }
     }

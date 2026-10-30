@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
-import { ROTATE_ASPECT, rotator, startBoatKey, startFitBox, startFullFrame, startHullScale, startSnapshot } from '../src/ui/charts';
+import { BOAT_SHAPE_PX, scaleNoteText } from '../src/ui/boatShape';
+import { ROTATE_ASPECT, rotator, startBoatKey, startClass, startFitBox, startFullFrame, startPxPerM, startScale, startSnapshot } from '../src/ui/charts';
 import { carryView, clampView, fitView, presetActive, type Box } from '../src/ui/view';
 import { fixtureRace, m24Race } from './helpers';
 
@@ -93,11 +94,20 @@ describe('full-screen start frame', () => {
     });
   }
 
-  it('the M24 hulls are drawn to scale in landscape full screen, though only markers inline on a phone', () => {
+  it('the M24 hulls in landscape full screen and inline on a phone: hulls (no arrows), at least BOAT_SHAPE_PX css px long, the chip saying how much bigger', () => {
     const a = races.m24;
+    const dims = startClass(a)!.dims;
     const f = startFullFrame(a, 1400, 800);
-    expect(startHullScale(a, undefined, 1400, f)?.loaM).toBe(7.31);
-    expect(startHullScale(a, undefined, 390)).toBeNull();
+    for (const [widthPx, frame] of [[1400, f], [390, undefined]] as const) {
+      const ppm = startPxPerM(a, undefined, widthPx, frame);
+      const svg = startSnapshot(a, null, undefined, 'boat', { widthPx, frame });
+      expect(svg).not.toContain('<polygon');
+      expect((svg.match(/<path class="hull" d="M/g) ?? []).length).toBe(a.drawings.filter((d) => d.bow && d.courseAtGun != null && a.boats.find((b) => b.id === d.id)?.start).length);
+      expect(startScale(a, undefined, widthPx, frame).chip).toBe(scaleNoteText(dims, ppm));
+    }
+    // On the phone at Fit an M24 is shorter than the smallest size: stretched, and said.
+    expect(dims.loaM * startPxPerM(a, undefined, 390)).toBeLessThan(BOAT_SHAPE_PX);
+    expect(startScale(a, undefined, 390).chip).toMatch(/^Boats drawn about [\d.]+× actual size$/);
   });
 
   it('with trails longer than the spare height, the line sits at the top under its 52 px margin and the rest is trail', () => {

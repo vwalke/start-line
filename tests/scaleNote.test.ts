@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import { startReplays } from '../src/analysis/startReplay';
 import { classDims } from '../src/data/classes';
-import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, scaleNoteText } from '../src/ui/boatShape';
+import { BOAT_SHAPE_PX, scaleNoteText } from '../src/ui/boatShape';
 import { mapBox, startClass, trackMap, trackMapView } from '../src/ui/charts';
 import { laneScrub } from '../src/ui/laneSnapshots';
 import { laneScrubHtml, lanePxPerUnit } from '../src/ui/laneSnapshotsView';
@@ -21,29 +21,26 @@ const noteOf = (svg: string): { x: number; y: number; fs: number; text: string }
 describe('scaleNoteText: how much bigger than scale the boats are drawn', () => {
   it('whole numbers from 2×, one decimal below, hidden once it rounds to 1×', () => {
     expect(J70.loaM).toBe(6.934);
-    expect(scaleNoteText(J70, at(9.2), false)).toBe('Boats drawn about 9× actual size');
-    expect(scaleNoteText(J70, at(2.3), false)).toBe('Boats drawn about 2× actual size');
-    expect(scaleNoteText(J70, at(1.96), false)).toBe('Boats drawn about 2× actual size');
-    expect(scaleNoteText(J70, at(1.46), false)).toBe('Boats drawn about 1.5× actual size');
-    expect(scaleNoteText(J70, at(1.1), false)).toBe('Boats drawn about 1.1× actual size');
-    expect(scaleNoteText(J70, at(1.04), false)).toBeNull();
-    expect(scaleNoteText(J70, at(1), false)).toBeNull();
+    expect(scaleNoteText(J70, at(9.2))).toBe('Boats drawn about 9× actual size');
+    expect(scaleNoteText(J70, at(2.3))).toBe('Boats drawn about 2× actual size');
+    expect(scaleNoteText(J70, at(1.96))).toBe('Boats drawn about 2× actual size');
+    expect(scaleNoteText(J70, at(1.46))).toBe('Boats drawn about 1.5× actual size');
+    expect(scaleNoteText(J70, at(1.1))).toBe('Boats drawn about 1.1× actual size');
+    expect(scaleNoteText(J70, at(1.04))).toBeNull();
+    expect(scaleNoteText(J70, at(1))).toBeNull();
     // To scale (longer than the symbol on screen), no class, no size on screen.
-    expect(scaleNoteText(J70, at(0.5), false)).toBeNull();
-    expect(scaleNoteText(null, 0.01, true)).toBeNull();
-    expect(scaleNoteText(J70, 0, false)).toBeNull();
+    expect(scaleNoteText(J70, at(0.5))).toBeNull();
+    expect(scaleNoteText(null, 0.01)).toBeNull();
+    expect(scaleNoteText(J70, 0)).toBeNull();
   });
 
-  it('the fleet to scale but the selected boat’s bigger symbol enlarged: says so of the selected boat', () => {
-    // Fleet at 1.02× (said as 1×: hidden); the selected boat's 15 px symbol 1.275×.
-    expect(scaleNoteText(J70, at(1.02), false)).toBeNull();
-    expect(scaleNoteText(J70, at(1.02), true)).toBe('Selected boat drawn about 1.3× actual size');
-    expect(scaleNoteText(J70, at(0.96), true)).toBe('Selected boat drawn about 1.2× actual size');
-    // The fleet enlarged too: the fleet's factor, whatever is selected.
-    expect(scaleNoteText(J70, at(3.2), true)).toBe('Boats drawn about 3× actual size');
-    // At true scale for the selected boat too: nothing.
-    expect(scaleNoteText(J70, BOAT_SHAPE_ON_PX / J70.loaM, true)).toBeNull();
-    expect(scaleNoteText(J70, (BOAT_SHAPE_ON_PX / J70.loaM) * 1.01, true)).toBeNull();
+  it('one note for every boat, the selected one included: nothing at true scale', () => {
+    expect(scaleNoteText(J70, at(3.2))).toBe('Boats drawn about 3× actual size');
+    // Just past the symbol's size, and well past it: to scale, nothing said.
+    expect(scaleNoteText(J70, at(1.02))).toBeNull();
+    expect(scaleNoteText(J70, BOAT_SHAPE_PX / J70.loaM)).toBeNull();
+    expect(scaleNoteText(J70, (BOAT_SHAPE_PX / J70.loaM) * 1.3)).toBeNull();
+    for (const f of [9.2, 2.3, 1.46, 1.1, 1.02, 0.96]) expect(scaleNoteText(J70, at(f)) ?? '').not.toMatch(/[Ss]elected/);
   });
 });
 
@@ -54,17 +51,24 @@ describe('J/70 NAs R2 on the Race Viewer (Fit ~3209 m across, a 1050 css px desk
   const pxPerM = (k: number): number => (CARD_PX * k) / FIT_M;
   const factor = (k: number): number => BOAT_SHAPE_PX / (J70.loaM * pxPerM(k));
 
-  it('Fit: about 5×; 4×: about 1.3×; the 8× preset: to scale, nothing said', () => {
-    expect(factor(1)).toBeCloseTo(5.29, 2);
-    expect(scaleNoteText(J70, pxPerM(1), false)).toBe(`Boats drawn about ${Math.round(factor(1))}× actual size`);
-    expect(scaleNoteText(J70, pxPerM(1), false)).toBe('Boats drawn about 5× actual size');
-    expect(factor(4)).toBeCloseTo(1.32, 2);
-    expect(scaleNoteText(J70, pxPerM(4), false)).toBe(`Boats drawn about ${(Math.round(factor(4) * 10) / 10).toFixed(1)}× actual size`);
-    expect(scaleNoteText(J70, pxPerM(4), false)).toBe('Boats drawn about 1.3× actual size');
-    // 8×: an 18 px J/70, longer than either symbol.
-    expect(J70.loaM * pxPerM(8)).toBeGreaterThan(BOAT_SHAPE_ON_PX);
-    expect(scaleNoteText(J70, pxPerM(8), false)).toBeNull();
-    expect(scaleNoteText(J70, pxPerM(8), true)).toBeNull();
+  it('Fit: a 2.3 px J/70, 4×: 9.1 px, the 8× preset: 18 px; said as BOAT_SHAPE_PX over that, nothing once to scale', () => {
+    expect(J70.loaM * pxPerM(1)).toBeCloseTo(2.27, 2);
+    expect(J70.loaM * pxPerM(4)).toBeCloseTo(9.08, 2);
+    // Whole numbers from 2×, one decimal below, nothing once it rounds to 1×.
+    const said = (f: number): string | null => {
+      const r = Math.round(f * 10) / 10;
+      return r > 1 ? `Boats drawn about ${r >= 2 ? Math.round(f) : r.toFixed(1)}× actual size` : null;
+    };
+    for (const k of [1, 2, 4]) expect(scaleNoteText(J70, pxPerM(k))).toBe(said(factor(k)));
+    expect(scaleNoteText(J70, pxPerM(1))).toBe(`Boats drawn about ${Math.round(factor(1))}× actual size`);
+    // As said at the size chosen (10 px): 4.4× at Fit, 1.1× at 4×.
+    if (BOAT_SHAPE_PX === 10) {
+      expect(scaleNoteText(J70, pxPerM(1))).toBe('Boats drawn about 4× actual size');
+      expect(scaleNoteText(J70, pxPerM(4))).toBe('Boats drawn about 1.1× actual size');
+    }
+    // 8×: an 18 px J/70, longer than the symbol.
+    expect(J70.loaM * pxPerM(8)).toBeGreaterThan(BOAT_SHAPE_PX);
+    expect(scaleNoteText(J70, pxPerM(8))).toBeNull();
   });
 });
 
@@ -82,7 +86,7 @@ describe('the Race Viewer map measures the note on screen (Cascais R3, J/70s)', 
     const scr = { w: 1050, h: 600 };
     let said = 0;
     for (const v of [fitView(fit), centre(4), centre(8)]) {
-      const want = scaleNoteText(dims, 1 / pxOf(v, scr), false);
+      const want = scaleNoteText(dims, 1 / pxOf(v, scr));
       const n = noteOf(trackMap(a, null, null, { scrub: true, view: v, screen: scr }));
       expect(n?.text ?? null).toBe(want);
       if (want) said++;
@@ -92,21 +96,19 @@ describe('the Race Viewer map measures the note on screen (Cascais R3, J/70s)', 
     expect(noteOf(trackMap(a, null, null, { scrub: true, screen: scr }))!.text).toMatch(/^Boats drawn about \d+× actual size$/);
   });
 
-  it('hidden once the hulls are to scale on screen; the selected boat’s bigger symbol said alone; never on the static map', () => {
+  it('hidden once the hulls are to scale on screen, a boat selected or not; the same words either way; never on the static map', () => {
     const scr = { w: 1050, h: 600 };
-    // Zoomed all the way in on this big course: a J/70 12.5 px long, the fleet to scale, the selected boat's 15 px symbol not.
+    const id = a.boats[0].id;
+    // At Fit: the same note with a boat selected.
+    const fitNote = noteOf(trackMap(a, null, null, { scrub: true, screen: scr }))!.text;
+    expect(noteOf(trackMap(a, id, null, { scrub: true, screen: scr }))!.text).toBe(fitNote);
+    expect(fitNote).not.toMatch(/[Ss]elected/);
+    // Zoomed all the way in on this big course: a J/70 12.5 px long, to scale.
     const v = centre(K_MAX);
     const len = dims.loaM / pxOf(v, scr);
     expect(len).toBeGreaterThanOrEqual(BOAT_SHAPE_PX);
-    expect(len).toBeLessThan(BOAT_SHAPE_ON_PX);
     expect(noteOf(trackMap(a, null, null, { scrub: true, view: v, screen: scr }))).toBeNull();
-    const id = a.boats[0].id;
-    expect(noteOf(trackMap(a, id, null, { scrub: true, view: v, screen: scr }))!.text).toBe(
-      `Selected boat drawn about ${(Math.round((BOAT_SHAPE_ON_PX / len) * 10) / 10).toFixed(1)}× actual size`,
-    );
-    // A wider screen at that zoom: the selected boat to scale too, nothing said.
-    const big = { w: 1050 * (BOAT_SHAPE_ON_PX / len) * 1.1, h: 600 * (BOAT_SHAPE_ON_PX / len) * 1.1 };
-    expect(noteOf(trackMap(a, id, null, { scrub: true, view: v, screen: big }))).toBeNull();
+    expect(noteOf(trackMap(a, id, null, { scrub: true, view: v, screen: scr }))).toBeNull();
     expect(noteOf(trackMap(a, null, null, { view: fitView(fit), screen: scr }))).toBeNull();
   });
 
@@ -117,7 +119,7 @@ describe('the Race Viewer map measures the note on screen (Cascais R3, J/70s)', 
     ]) {
       const svg = trackMap(a, null, null, { scrub: true, screen: scr });
       const n = noteOf(svg)!;
-      expect(n.text).toBe(scaleNoteText(dims, 1 / pxOf(fitView(fit), scr), false));
+      expect(n.text).toBe(scaleNoteText(dims, 1 / pxOf(fitView(fit), scr)));
       const { view } = trackMapView(a, null);
       const x0 = n.x - textWidth(n.text, n.fs);
       expect(x0).toBeGreaterThanOrEqual(view.x0);
@@ -142,10 +144,10 @@ describe('Start Playback: the note says the factor at Fit and goes at true scale
   const ppu = lanePxPerUnit(L.view);
 
   it('the factor at Fit, nothing once a hull is longer than the symbol', () => {
-    const want = scaleNoteText(dims, ppu, false);
+    const want = scaleNoteText(dims, ppu);
     expect(want).not.toBeNull();
     expect(noteOf(laneScrubHtml(a, L, 0, ppu))?.text).toBe(want);
-    const k = Math.ceil(BOAT_SHAPE_ON_PX / (dims.loaM * ppu)) + 1;
+    const k = Math.ceil(BOAT_SHAPE_PX / (dims.loaM * ppu)) + 1;
     const cx = (L.view.x0 + L.view.x1) / 2;
     const cy = (L.view.y0 + L.view.y1) / 2;
     expect(noteOf(laneScrubHtml(a, L, 0, ppu, false, { cx, cy, k }))).toBeNull();

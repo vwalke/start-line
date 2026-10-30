@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
-import { boatsAt, mapBox, scrubFrame, trackMap, trackMapView } from '../src/ui/charts';
+import { BOAT_SHAPE_PX } from '../src/ui/boatShape';
+import { boatsAt, mapBox, scrubFrame, startClass, trackMap, trackMapView } from '../src/ui/charts';
 import { MAP_SLOW_MS, mapPaint } from '../src/ui/mapPaint';
 import { scrubWindow, trailWindow } from '../src/ui/scrub';
 import { clampView, type View } from '../src/ui/view';
@@ -136,12 +137,15 @@ describe('the track map: a pan at the same zoom changes no size, only the scale 
 
   it('the static map: the same line widths, text and mark sizes; the scale bar, wind arrow and scale note shifted by exactly the pan', () => {
     expect(v2.cx).not.toBe(v1.cx);
-    const s1 = trackMap(a, ME, null, { view: v1, scrub: true });
-    const s2 = trackMap(a, ME, null, { view: v2, scrub: true });
+    // A screen narrow enough that the hulls are stretched (a J/105 a third of BOAT_SHAPE_PX long), so the note is drawn.
+    const W = trackMapView(a, null, v1).view;
+    const screen = { w: ((BOAT_SHAPE_PX / 3) * (W.x1 - W.x0)) / startClass(a)!.dims.loaM, h: 10_000 };
+    const s1 = trackMap(a, ME, null, { view: v1, scrub: true, screen });
+    const s2 = trackMap(a, ME, null, { view: v2, scrub: true, screen });
     expect(s1).toContain('<g class="map-hud"><g class="wind">');
     expect(sizes(s1)).toEqual(sizes(s2));
     // The scale note ("Boats drawn about 3× actual size") in the HUD too, moved with it.
-    expect(s1).toMatch(/>(Boats|Selected boat) drawn about [\d.]+× actual size<\/text><\/g><\/svg>/);
+    expect(s1).toMatch(/>Boats drawn about [\d.]+× actual size<\/text><\/g><\/svg>/);
     const hud = (s: string): number[] => [.../<g class="map-hud">[\s\S]*?<\/svg>/.exec(s)![0].matchAll(/ (?:x|x1)="([-\d.]+)"/g)].map((m) => Number(m[1]));
     const b1 = trackMapView(a, null, v1).view;
     const b2 = trackMapView(a, null, v2).view;

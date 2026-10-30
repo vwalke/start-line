@@ -3,7 +3,8 @@ import { analyzeRace } from '../src/analysis/analyze';
 import { primaryDtlM } from '../src/analysis/findings';
 import { OCS_BLIND_NOTE } from '../src/analysis/validity';
 import { currentDoc } from '../src/data/racesense/adapter';
-import { startClass, startHullScale, startScale, startSnapshot } from '../src/ui/charts';
+import { BOAT_SHAPE_PX } from '../src/ui/boatShape';
+import { startClass, startScale, startSnapshot } from '../src/ui/charts';
 import { startKey } from '../src/ui/captions';
 import { startNotesHtml, startTable, startTableKey } from '../src/ui/table';
 import { c31Fixture, c31Race } from './helpers';
@@ -221,19 +222,19 @@ describe('C31 race 10: Cape 31 hulls to scale', () => {
     expect(analysis.meta.division).toBe('C31');
   });
 
-  it('draws every boat as a 9.55 m hull at Fit, captioned with the class', () => {
+  it('draws every boat as a Cape 31 hull at Fit, captioned with the class', () => {
     expect(startClass(analysis)).toEqual({ name: 'Cape 31', dims: { loaM: 9.55, beamM: 3.05 } });
-    expect(startHullScale(analysis)?.loaM).toBe(9.55);
     const svg = startSnapshot(analysis, null);
     expect((svg.match(/<path class="hull" d="M/g) ?? []).length).toBe(analysis.drawings.length);
-    expect(svg).not.toContain('boat-min');
-    expect(startScale(analysis)).toEqual({ chip: 'hulls to scale', info: 'Hulls to scale (Cape 31, 9.55 m), pointing along heading.' });
+    expect(svg).not.toContain('<polygon');
+    expect(startScale(analysis).info).toBe(`Hulls: Cape 31, 9.55 m LOA, along heading; at least ${BOAT_SHAPE_PX} px long to stay readable.`);
   });
 
   it('falls back to the division name, then the event class label', () => {
     const byDiv = { ...analysis, meta: { ...analysis.meta, boatClass: 'Unknown' } };
     expect(startClass(byDiv)?.name).toBe('C31');
     const byLabel = { ...analysis, meta: { ...analysis.meta, boatClass: 'Unknown', division: 'Gold', classLabel: 'C 31' } };
-    expect(startHullScale(byLabel)?.loaM).toBe(9.55);
+    expect(startClass(byLabel)?.dims.loaM).toBe(9.55);
+    expect(startScale(byLabel).info).toContain('C 31, 9.55 m LOA');
   });
 });
