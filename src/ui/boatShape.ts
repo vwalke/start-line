@@ -1,11 +1,11 @@
 /**
- * The boat shape: the start chart's stylized hull (to scale, from the class's LOA and beam), shared with the
- * track map's boats while scrubbing and the Start tab's "Start Playback" view. Start Playback draws it centred on the
- * boat's position; the track map from its bow (hullCenterFromBow: the ladder rungs meet the bow it draws), both
- * pointing along its course over ground at that moment (or the last heading known while it is held past its final
+ * The boat shape: a stylized hull (to scale, from the class's LOA and beam), one for the start chart (Start View -
+ * Gun, from the bow along its heading), the track map's boats while scrubbing and the Start tab's "Start Playback"
+ * view. Start Playback draws it centred on the boat's position; the track map from its bow (hullCenterFromBow: the
+ * ladder rungs meet the bow it draws), both pointing along its course over ground at that moment (or the last heading known while it is held past its final
  * fix, slow or has no course: boatMark), to scale or at least BOAT_SHAPE_PX css px long at every zoom (the map then
- * says how much bigger, "Boats drawn about 3× actual size": scaleNoteText; on the track map the extra length goes aft
- * of the bow), filled while its data is
+ * says how much bigger, "Boats drawn about 3× actual size": scaleNoteText; on the track map and the start chart the
+ * extra length goes aft of the bow), filled while its data is
  * fresh and hollow once it is lost; the dot only with no heading ever known or no class dimensions. Pure: outlines and
  * SVG path data; the callers draw them.
  */
@@ -102,12 +102,11 @@ export function headingDir(cogDeg: number, twdDeg: number): Vec | null {
 }
 
 /**
- * The hull is drawn at least this long on screen, css px (the selected boat BOAT_SHAPE_ON_PX), so it reads as a
- * boat pointing somewhere: to scale once it is bigger, a fixed-size symbol below that at any zoom, however far out
- * (12 × ~4 px covers less than the 8 px dot it replaced, and any shorter the bow no longer reads).
+ * The hull is drawn at least this long on screen, css px, on all three maps (every boat, the selected one too), so
+ * it reads as a boat pointing somewhere: to scale once it is bigger, a fixed-size symbol below that at any zoom,
+ * however far out. The one place to change the smallest size; nothing else assumes its value.
  */
-export const BOAT_SHAPE_PX = 12;
-export const BOAT_SHAPE_ON_PX = 15;
+export const BOAT_SHAPE_PX = 10;
 /** Below this SOG, kn, the course over ground between fixes is mostly GPS noise: no heading, a dot. */
 export const BOAT_SHAPE_MIN_KN = 1;
 
@@ -164,14 +163,12 @@ function factorText(f: number): string | null {
 
 /**
  * What the maps say at the bottom while hulls are drawn bigger than scale, at `pxPerM` css px per meter: how many
- * times bigger the fleet's symbol (BOAT_SHAPE_PX) is ("Boats drawn about 3× actual size"); with the fleet to scale
- * and a boat `selected`, its bigger symbol's (BOAT_SHAPE_ON_PX). Null (nothing said) once that rounds to 1×.
+ * times bigger the symbol (BOAT_SHAPE_PX) is ("Boats drawn about 3× actual size"). Null (nothing said) once that
+ * rounds to 1×.
  */
-export function scaleNoteText(dims: ClassDims | null, pxPerM: number, selected: boolean): string | null {
-  const fleet = factorText(hullFactor(dims, pxPerM, BOAT_SHAPE_PX));
-  if (fleet) return `Boats drawn about ${fleet}× actual size`;
-  const sel = selected ? factorText(hullFactor(dims, pxPerM, BOAT_SHAPE_ON_PX)) : null;
-  return sel ? `Selected boat drawn about ${sel}× actual size` : null;
+export function scaleNoteText(dims: ClassDims | null, pxPerM: number): string | null {
+  const f = factorText(hullFactor(dims, pxPerM, BOAT_SHAPE_PX));
+  return f ? `Boats drawn about ${f}× actual size` : null;
 }
 
 /** A boat held past its final fix (its tracker stopped before it finished) is drawn hollow once that fix is older than this, ms. */

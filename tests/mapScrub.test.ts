@@ -511,7 +511,7 @@ describe('the scrubber map', () => {
     expect(svg).toContain('class="startline"');
   });
 
-  it('draws a boat (its hull, or a dot: ui/boatShape.ts) per boat in the colouring, the selected boat last, bigger and labelled', () => {
+  it('draws a boat (its hull, or a dot: ui/boatShape.ts) per boat in the colouring, the selected boat last (on top) and labelled', () => {
     const w = scrubWindow(a);
     const t = gun + 200_000;
     const id = a.boats[2].id;

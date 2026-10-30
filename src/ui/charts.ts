@@ -10,7 +10,7 @@ import { awayFromLineThresholdM, lineBias } from '../analysis/line';
 import { shownLateS } from '../analysis/validity';
 import { PRE_LEG, type BoatDrawing, type BoatResult, type ExcludedBoat, type RaceAnalysis } from '../analysis/types';
 import { bowAheadM, raceClass, type ClassDims } from '../data/classes';
-import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, HULL_LABEL_GAP_PX, hullCenterFromBow, hullLabelBox, hullOutline, hullPathAt, hullPathD, scaleNoteText } from './boatShape';
+import { BOAT_SHAPE_PX, boatMark, headingDir, HULL_LABEL_GAP_PX, hullCenterFromBow, hullLabelBox, hullOutline, hullPathAt, hullPathD, scaleNoteText } from './boatShape';
 import { esc, f1, f2 } from './format';
 import { placeLabels, textWidth, type LabelReq, type Rect, type StartNames } from './labels';
 import { mapPoints, mapPointsOf, type MapPoints } from './mapPoints';
@@ -107,22 +107,19 @@ function scaleNote(box: Box, unit: number, k: number, text: string): string {
 
 /**
  * What the map says of the boats' size at the scrubber's time (dotsSvg) at `px` map units per css px: how much
- * bigger than scale the fleet's symbol is, or the selected boat's (scaleNoteText); null: to scale. Zoom and size
- * only, not per frame.
+ * bigger than scale the boats' symbol is (scaleNoteText); null: to scale. Zoom and size only, not per frame.
  */
-function boatsNote(dims: ClassDims | null, highlight: string | null, px: number): string | null {
-  const sel = highlight != null;
+function boatsNote(dims: ClassDims | null, px: number): string | null {
   const c = noteCache;
-  if (c.dims !== dims || c.sel !== sel || c.px !== px) {
+  if (c.dims !== dims || c.px !== px) {
     c.dims = dims;
-    c.sel = sel;
     c.px = px;
-    c.text = scaleNoteText(dims, 1 / px, sel);
+    c.text = scaleNoteText(dims, 1 / px);
   }
   return c.text;
 }
-/** The last scale note worked out (the rungs ask each frame; it changes only with the zoom, the size or a selection). */
-const noteCache: { dims: ClassDims | null; sel: boolean; px: number; text: string | null } = { dims: null, sel: false, px: NaN, text: null };
+/** The last scale note worked out (the rungs ask each frame; it changes only with the zoom or the size). */
+const noteCache: { dims: ClassDims | null; px: number; text: string | null } = { dims: null, px: NaN, text: null };
 
 /**
  * The wind arrow's label ends this far left of the arrow, screen units: on the Race Viewer clear of it turned to any
@@ -149,9 +146,6 @@ function windArrow(box: Box, unit: number, k: number, twdDeg: number, gap: numbe
     <path d="M${x - 5 * unit},${y + L - 8 * unit} L${x},${y + L} L${x + 5 * unit},${y + L - 8 * unit}" fill="none" stroke-width="${2 * k}"/></g>
     <text x="${x - gap * unit}" y="${y + 3 * unit}" font-size="${11 * k}" text-anchor="end">${esc(windLabel(twdDeg))}</text></g>`;
 }
-
-/** Hulls shorter than this on screen are drawn as the fixed-size marker instead. */
-const MIN_HULL_PX = 6;
 
 /**
  * The start chart's Fit box: the line, bows and nearby trails, padded, with room for the
@@ -372,20 +366,29 @@ export const startClass = (a: RaceAnalysis): { name: string; dims: ClassDims } |
 
 const startDims = (a: RaceAnalysis): ClassDims | null => startClass(a)?.dims ?? null;
 
-/** The class dims when hulls are drawn to scale in this view (default Fit), else null (markers). */
-export function startHullScale(a: RaceAnalysis, v?: View, widthPx?: number, frame?: StartFrame): ClassDims | null {
-  const dims = startDims(a);
-  return dims && dims.loaM / startView(a, v, widthPx, frame).unit >= MIN_HULL_PX ? dims : null;
+/**
+ * The start chart's css px per meter in this view (default Fit): the chart drawn `widthPx` wide (its width on
+ * screen; full screen and inline alike), else its frame's reference width, else 600 px. What the hulls' smallest
+ * size (BOAT_SHAPE_PX) is measured in, as on the Race Viewer and Start Playback.
+ */
+export function startPxPerM(a: RaceAnalysis, v?: View, widthPx?: number, frame?: StartFrame): number {
+  const { view } = startView(a, v, widthPx, frame);
+  return startWidePx(widthPx, frame) / (view.x1 - view.x0);
 }
+const startWidePx = (widthPx?: number, frame?: StartFrame): number => (widthPx && widthPx > 0 ? widthPx : (frame?.refPx ?? 600));
 
-/** The start chart's scale: a chip (hulls to scale, markers at this zoom, or not to scale) and its ⓘ detail (class, LOA, what the shapes point along). */
-export function startScale(a: RaceAnalysis, v?: View, widthPx?: number, frame?: StartFrame): { chip: string; info: string } {
+/**
+ * The start chart's scale: a chip saying how much bigger than scale the hulls are drawn at this zoom ("Boats drawn
+ * about 3× actual size", scaleNoteText; null once they are to scale) and its ⓘ detail (class, LOA, what the hulls
+ * point along). No class dimensions: arrows along the course over ground, not to scale.
+ */
+export function startScale(a: RaceAnalysis, v?: View, widthPx?: number, frame?: StartFrame): { chip: string | null; info: string } {
   const cls = startClass(a);
   if (!cls) return { chip: 'hulls not to scale', info: `No dimensions for class "${a.meta.boatClass}"; arrows follow course over ground.` };
-  const spec = `${cls.name}, ${f2(cls.dims.loaM)} m`;
-  return startHullScale(a, v, widthPx, frame)
-    ? { chip: 'hulls to scale', info: `Hulls to scale (${spec}), pointing along heading.` }
-    : { chip: 'markers at this zoom', info: `${spec} hulls would be under ${MIN_HULL_PX} px: zoom in to draw them.` };
+  return {
+    chip: scaleNoteText(cls.dims, startPxPerM(a, v, widthPx, frame)),
+    info: `Hulls: ${cls.name}, ${f2(cls.dims.loaM)} m LOA, along heading; at least ${BOAT_SHAPE_PX} px long to stay readable.`,
+  };
 }
 
 /** Name font sizes in chart units (~css px at 600 px wide); below 480 px wide they're scaled up to stay legible. */
@@ -403,7 +406,9 @@ export interface StartOptions {
 }
 
 /**
- * Boats vs the line at the gun: to-scale hulls (or markers) at the bow, START_TRAIL_MS trails.
+ * Boats vs the line at the gun: hulls from the bow along heading (to scale, or at least BOAT_SHAPE_PX css px long,
+ * the selected boat the same size, drawn on top), START_TRAIL_MS trails; an arrow along the course with no class
+ * dimensions.
  * `colour` 'speed': trails shaded by SOG (ui/sog.ts, range fitted to the trails) and each hull
  * filled by its SOG at the gun; 'boat' (default): the boat's own colour. The line is continued
  * dashed past each end with the favoured end labelled (ui/startLine.ts); names per `opts.names`.
@@ -419,8 +424,8 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
   const tk = k * (opts.widthPx ? Math.max(1, NAME_MIN_W / opts.widthPx) : 1);
   const nameFs = NAME_FS * tk;
   const dtlFs = DTL_FS * tk;
-  const dims = startHullScale(a, v, opts.widthPx, opts.frame);
-  const minCls = startDims(a) && !dims ? ' boat-min' : '';
+  const classDims = startDims(a);
+  const pxPerM = startWidePx(opts.widthPx, opts.frame) / w;
   const range = colour === 'speed' ? (startSogRange(a) ?? { lo: 0, hi: 1 }) : null;
   /** Speed: the whole fleet's trails batched by bin, the dimmed boats in their own group. */
   const sogTrails = { on: emptySogPaths(), dim: emptySogPaths() };
@@ -471,15 +476,19 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     const paint = range && !isNc ? `${sogFill(st.speedKn, range)} stroke="var(--ink)"` : `fill="${col}" stroke="var(--surface)"`;
     const sogCls = range && !isNc ? ' sog-fill' : '';
     let shape: string;
-    const hullDrawn = !!dims && d.headingAtSample != null;
+    // Along heading (else the course): the hull as the other maps draw it (boatMark), or the arrow with no class.
+    const hdg = d.headingAtSample ?? d.courseAtGun;
+    const dir = headingDir(hdg, a.wind.twdAtGunDeg);
+    const mark = boatMark({ dir, lastDir: dir, hold: false, sog: st.speedKn, dims: classDims, pxPerM });
+    const dims = 'shape' in mark ? mark.dims : null;
     // Screen angle of the way the shape points (0 = up the page), for placing its name.
-    const fwdAng = ((hullDrawn ? d.headingAtSample! : d.courseAtGun) - a.wind.twdAtGunDeg) * (Math.PI / 180);
-    // What other boats' names should keep off: the hull's extent, or the marker's.
+    const fwdAng = ((dims ? hdg : d.courseAtGun) - a.wind.twdAtGunDeg) * (Math.PI / 180);
+    // What other boats' names should keep off: the hull's extent, or the arrow's.
     const m = 13 * unit;
     let extent: Rect = { x0: x - m, y0: y - m, x1: x + m, y1: y + m };
-    if (dims && d.headingAtSample != null) {
-      // True scale, along heading (not COG): the bow tip is the DTL bow point.
-      const hull = hullOutline(d.bow, d.headingAtSample, dims).map(rot);
+    if (dims) {
+      // To scale or stretched aft to the smallest size: the bow tip is the DTL bow point.
+      const hull = hullOutline(d.bow, hdg, dims).map(rot);
       extent = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
       for (const p of hull) grow(extent, p);
       shape = isNc
@@ -492,8 +501,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
       const tri = isNc
         ? `<polygon points="${tip} ${s * 0.7},${s * 0.9} 0,${s * 0.4} ${-s * 0.7},${s * 0.9}" fill="none" stroke="${col}"${dash} stroke-width="${1.5 * k}"/>`
         : `<polygon${range ? ' class="sog-fill"' : ''} points="${tip} ${s * 0.7},${s * 0.9} 0,${s * 0.4} ${-s * 0.7},${s * 0.9}" ${paint} stroke-width="${((range ? 1 : 1.5) * k).toFixed(2)}"/>`;
-      const ring = minCls ? `<circle class="min-ring" r="${13 * unit}" stroke="${col}" stroke-width="${k}" stroke-dasharray="${2 * k} ${2 * k}"/>` : '';
-      shape = `<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">${ring}<g transform="rotate(${ang.toFixed(1)})">${tri}</g></g>`;
+      shape = `<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><g transform="rotate(${ang.toFixed(1)})">${tri}</g></g>`;
     }
     const sail = b.sail;
     // The ranked figure (Vakaros, else ours), else ours interpolated across a hole, shown like any other.
@@ -501,7 +509,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     const dtl = dtlM != null ? `${f1(dtlM)} m` : '—';
     boats.push({
       id: b.id,
-      cls: `boat${minCls}${dim}`,
+      cls: `boat${dim}`,
       head: `<title>#${esc(b.sail)}${isNc ? ' (not racing)' : ''}: ${f1(dtlM)} m behind (${st.rank?.source === 'vakaros' ? `Vakaros; ours ${f1(st.dtlM)} m` : 'our track check'})${shownLateS(st) != null ? `, ${f1(shownLateS(st))} s late` : ''}, SOG ${f1(st.speedKn)} kn at the gun</title>
       <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${16 * unit}" fill="transparent"/>
       ${shape}`,
@@ -511,15 +519,14 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     shapes.push({ id: b.id, box: extent });
     // Off: only the selected boat is named.
     if (names === 'off' && highlight !== d.id) continue;
-    const ring = minCls ? 13 * unit : 0;
     reqs.push({
       id: b.id,
       at: [x, y],
       fwd: [Math.sin(fwdAng), -Math.cos(fwdAng)],
       w: Math.max(textWidth(sail, nameFs), textWidth(dtl, dtlFs)),
       h: nameFs + dtlFs + unit,
-      // A hull runs aft from the bow; a marker sits centred on it.
-      reach: hullDrawn ? { ahead: 0, side: dims!.beamM / 2, behind: dims!.loaM } : { ahead: Math.max(13 * unit, ring), side: Math.max(9 * unit, ring), behind: Math.max(9 * unit, ring) },
+      // A hull (as drawn) runs aft from the bow; an arrow sits centred on it.
+      reach: dims ? { ahead: 0, side: dims.beamM / 2, behind: dims.loaM } : { ahead: 13 * unit, side: 9 * unit, behind: 9 * unit },
     });
   }
 
@@ -555,6 +562,9 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     cull: names !== 'all',
     force: highlight,
   });
+  // The selected boat on top.
+  const sel = boats.findIndex((b) => b.id === highlight);
+  if (sel >= 0) boats.push(...boats.splice(sel, 1));
   const boatSvg = boats.map(({ id, cls, head, sail, dtl }) => {
     const r = placed.get(id);
     if (!r) return `<g class="${cls} nolbl" data-id="${esc(id)}">${head}</g>`;
@@ -1062,7 +1072,7 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
           ? `Race Viewer, tracks ${sogLabel}`
           : 'Race Viewer, tracks colored by leg'
       : `Race Viewer on ${a.legs[leg]?.name ?? 'one leg'}${speed ? ', tracks colored by speed on the leg: yellow and boldest fastest' : sogLabel ? `, tracks ${sogLabel}` : ''}`;
-  const said = opts.scrub ? boatsNote(startDims(a), highlight, sc.px) : null;
+  const said = opts.scrub ? boatsNote(startDims(a), sc.px) : null;
   const note = said ? scaleNote(box, unit, k, said) : '';
   const tracks = layer ? `${layer.paths}${layer.hi}` : '<g class="scrub-trk"></g><g class="scrub-trails"></g><g class="scrub-ocs"></g><g class="scrub-rungs"></g>';
   const top = layer ? layer.labels : '<g class="scrub-dots"></g>';
@@ -1179,7 +1189,7 @@ function dotColour(a: RaceAnalysis, b: BoatAt, leg: number | null, opts: TrackMa
  * fix or slow) drawn from its bow (data/classes.ts bowAheadM ahead of the tracker; a fixed-size symbol reaches further
  * aft) where it can be, else a dot with a short tick along its course; filled while its data is fresh, hollow (same
  * color, a heavier outline) once it is lost; the selected
- * boat bigger, on top and labelled (every boat labelled in a small fleet); boats off a leg shown, faint. Each boat's
+ * boat the same size, set apart by its color and outline, on top and labelled (every boat labelled in a small fleet); boats off a leg shown, faint. Each boat's
  * box and its label's go into `taken` (what the ladder rungs' labels keep clear of), and its bow as drawn into
  * drawnBows (the ladder rungs meet it).
  */
@@ -1201,7 +1211,7 @@ function dotsSvg(a: RaceAnalysis, highlight: string | null, leg: number | null, 
     const cmp = !on && vs.has(b.id);
     const { c, cd } = dotColour(a, b, leg, opts, speed, highlight);
     const style = cd ? ` style="--cd:${cd}"` : '';
-    const shape = boatMark({ dir: b.dir, lastDir: b.lastDir, hold: b.hold, stale: b.stale, sog: b.sog, dims, pxPerM: 1 / px, minPx: on ? BOAT_SHAPE_ON_PX : BOAT_SHAPE_PX });
+    const shape = boatMark({ dir: b.dir, lastDir: b.lastDir, hold: b.hold, stale: b.stale, sog: b.sog, dims, pxPerM: 1 / px, minPx: BOAT_SHAPE_PX });
     const hollow = shape.hollow;
     // A hull's half-length, or the dot's radius: what the label and the comparison ring keep clear of.
     const r = 'shape' in shape ? Math.max(shape.dims.loaM / 2, (on ? 6 : 4.2) * px) : (on ? 6 : 4.2) * unit;
@@ -1361,7 +1371,7 @@ function mapRungs(a: RaceAnalysis, highlight: string | null, now: LadderNow, sc:
   taken.n = rungBoats;
   const marks = markBoxesAt(a, sc.unit, sc.k);
   for (let i = 0; i < marks.length; i++) taken.add(marks[i].x0, marks[i].y0, marks[i].x1, marks[i].y1);
-  hudBoxes(sc.box, sc.unit, sc.k, taken, boatsNote(rungText(a).dims, highlight, sc.px));
+  hudBoxes(sc.box, sc.unit, sc.k, taken, boatsNote(rungText(a).dims, sc.px));
   return rungDraws(rungs, sc, rungText(a), taken);
 }
 

@@ -4,7 +4,6 @@ import type { Vec } from '../src/analysis/geo';
 import { startReplays } from '../src/analysis/startReplay';
 import {
   BOAT_SHAPE_MIN_KN,
-  BOAT_SHAPE_ON_PX,
   BOAT_SHAPE_PX,
   boatShapeOr,
   headingDir,
@@ -78,18 +77,18 @@ describe('boat shape: the shape, or the dot', () => {
   const base = { dir: [0, -1] as Vec, hold: false, sog: 5, dims: J70, pxPerM: 2 };
 
   it('a moving boat with a course and a known class: the hull along its course, to scale once over BOAT_SHAPE_PX, else that long', () => {
-    expect([BOAT_SHAPE_PX, BOAT_SHAPE_ON_PX]).toEqual([12, 15]);
+    // The two sizes below sit either side of the smallest size, whatever it is set to.
+    expect(BOAT_SHAPE_PX).toBeGreaterThan(3.5);
+    expect(BOAT_SHAPE_PX).toBeLessThan(13.8);
     // 6.93 m at 2 px/m = 13.9 px: to scale.
     expect(boatShapeOr(base)).toEqual({ shape: [0, -1], dims: J70 });
     // Unknown SOG (NaN) with a course: still a shape.
     expect(boatShapeOr({ ...base, sog: NaN })).toEqual({ shape: [0, -1], dims: J70 });
-    // At 0.5 px/m (3.5 px to scale): a 12 px symbol, the hull's proportions kept; the selected boat's 15 px.
+    // At 0.5 px/m (3.5 px to scale): a BOAT_SHAPE_PX symbol, the hull's proportions kept.
     const small = boatShapeOr({ ...base, pxPerM: 0.5 });
     if (!('shape' in small)) throw new Error('a shape');
     expect(small.dims.loaM * 0.5).toBeCloseTo(BOAT_SHAPE_PX, 9);
     expect(small.dims.beamM / small.dims.loaM).toBeCloseTo(J70.beamM / J70.loaM, 9);
-    const on = boatShapeOr({ ...base, pxPerM: 0.5, minPx: BOAT_SHAPE_ON_PX });
-    expect('shape' in on && on.dims.loaM * 0.5).toBeCloseTo(BOAT_SHAPE_ON_PX, 9);
   });
 
   it('falls back to the dot only for unknown heading, held in a gap, too slow or no class', () => {
@@ -104,15 +103,13 @@ describe('boat shape: the shape, or the dot', () => {
   });
 
   it('however far zoomed out, the hull at the fixed symbol size, never a dot', () => {
-    // 0.01 px/m: a J/70 to scale is 0.07 px, drawn BOAT_SHAPE_PX long (the selected boat BOAT_SHAPE_ON_PX), its proportions kept.
+    // 0.01 px/m: a J/70 to scale is 0.07 px, drawn BOAT_SHAPE_PX long, its proportions kept.
     for (const pxPerM of [0.2, 0.05, 0.01, 1e-4]) {
       const s = boatShapeOr({ ...base, pxPerM });
       if (!('shape' in s)) throw new Error(`a shape at ${pxPerM} px/m`);
       expect(s.shape).toEqual([0, -1]);
       expect(s.dims.loaM * pxPerM).toBeCloseTo(BOAT_SHAPE_PX, 6);
       expect(s.dims.beamM / s.dims.loaM).toBeCloseTo(J70.beamM / J70.loaM, 9);
-      const on = boatShapeOr({ ...base, pxPerM, minPx: BOAT_SHAPE_ON_PX });
-      expect('shape' in on && on.dims.loaM * pxPerM).toBeCloseTo(BOAT_SHAPE_ON_PX, 6);
     }
   });
 
@@ -121,9 +118,6 @@ describe('boat shape: the shape, or the dot', () => {
     expect(hullEnlarged(J70, edge * 0.99)).toBe(true);
     expect(hullEnlarged(J70, edge)).toBe(false);
     expect(hullEnlarged(J70, 0.01)).toBe(true);
-    // The selected boat's bigger symbol: enlarged a little further in.
-    expect(hullEnlarged(J70, edge, BOAT_SHAPE_ON_PX)).toBe(true);
-    expect(hullEnlarged(J70, BOAT_SHAPE_ON_PX / J70.loaM, BOAT_SHAPE_ON_PX)).toBe(false);
     // No class: no hulls, nothing to say.
     expect(hullEnlarged(null, 0.01)).toBe(false);
     for (const pxPerM of [0.01, edge * 0.5, edge, 4]) {
@@ -151,7 +145,7 @@ describe('the track map while scrubbing: hulls where they can be (IC37 R5, 11.3 
     expect(bowM).toBeCloseTo(4.9, 9);
   });
 
-  it('at Fit an IC37 to scale would be 2.5 px: a 12 px hull symbol along its course from the bow, reaching further aft; a dot with a course tick only for a boat without a course', () => {
+  it('at Fit an IC37 to scale would be 2.5 px: a BOAT_SHAPE_PX hull symbol along its course from the bow, reaching further aft; a dot with a course tick only for a boat without a course', () => {
     const { view } = trackMapView(a, null);
     const unit = Math.max(view.x1 - view.x0, view.y1 - view.y0) / 600;
     const px = dims.loaM / unit;
@@ -177,8 +171,8 @@ describe('the track map while scrubbing: hulls where they can be (IC37 R5, 11.3 
     const f = scrubFrame(a, moving.id, null, { view }, { t, win });
     const { view: box } = trackMapView(a, null, view);
     const unit = Math.max(box.x1 - box.x0, box.y1 - box.y0) / 600;
-    // To scale: longer than the symbol's 15 px.
-    expect(dims.loaM / unit).toBeGreaterThanOrEqual(BOAT_SHAPE_ON_PX);
+    // To scale: longer than the symbol (BOAT_SHAPE_PX).
+    expect(dims.loaM / unit).toBeGreaterThanOrEqual(BOAT_SHAPE_PX);
     const mid = hullCenterFromBow([moving.mx, moving.my], moving.dir!, bowM, dims);
     const d = hullPathAt(mid, moving.dir!, dims);
     expect(f.dots).toContain(`<path class="dot hull on" data-id="${moving.id}" d="${d}" fill="var(--s`);
@@ -191,6 +185,27 @@ describe('the track map while scrubbing: hulls where they can be (IC37 R5, 11.3 
     expect(f.dots.slice(f.dots.lastIndexOf('<g class="boat-at on">'))).toContain(`>${sail}</text>`);
     // No course tick on a hull (the shape points the way).
     expect(f.dots.slice(f.dots.lastIndexOf('<g class="boat-at on">'))).not.toContain('dot-hdg');
+  });
+
+  it('the selected boat’s hull the same size as the others, at Fit and zoomed in: set apart by its color and outline only', () => {
+    const pathOf = (dots: string, id: string, on: boolean): string =>
+      new RegExp(`<path class="dot hull${on ? ' on' : '[^"]*'}" data-id="${id}" d="([^"]+)"`).exec(dots)![1];
+    for (const view of [undefined, { cx: moving.mx, cy: moving.my, k: K_MAX }]) {
+      const plain = scrubFrame(a, null, null, { view }, { t, win }).dots;
+      const sel = scrubFrame(a, moving.id, null, { view }, { t, win }).dots;
+      // The same outline selected or not; another boat's hull the same length.
+      expect(pathOf(sel, moving.id, true)).toBe(pathOf(plain, moving.id, false));
+      const { view: box } = trackMapView(a, null, view);
+      const unit = Math.max(box.x1 - box.x0, box.y1 - box.y0) / 600;
+      const s = boatShapeOr({ dir: moving.dir, hold: false, sog: moving.sog, dims, pxPerM: 1 / unit });
+      expect('shape' in s && s.dims.loaM / unit).toBeCloseTo(Math.max(BOAT_SHAPE_PX, dims.loaM / unit), 6);
+      const other = boats.find((b) => b.id !== moving.id && b.dir && !b.hold && b.sog >= BOAT_SHAPE_MIN_KN)!;
+      const len = (d: string): number => {
+        const xy = [...d.matchAll(/-?\d+\.\d+,-?\d+\.\d+/g)].map((m) => m[0].split(',').map(Number));
+        return Math.max(...xy.flatMap((p) => xy.map((q) => Math.hypot(p[0] - q[0], p[1] - q[1]))));
+      };
+      expect(len(pathOf(sel, other.id, false))).toBeCloseTo(len(pathOf(sel, moving.id, true)), 0);
+    }
   });
 
   it('zoomed in, a held boat or one with no course stays a dot', () => {
@@ -237,7 +252,7 @@ describe('the scale note: said at the bottom of the map while hulls are stretche
     const view = { cx: b.mx, cy: b.my, k: K_MAX };
     const { view: box } = trackMapView(a, null, view);
     const unit = Math.max(box.x1 - box.x0, box.y1 - box.y0) / 600;
-    expect(dims.loaM / unit).toBeGreaterThanOrEqual(BOAT_SHAPE_ON_PX);
+    expect(dims.loaM / unit).toBeGreaterThanOrEqual(BOAT_SHAPE_PX);
     expect(note(trackMap(a, b.id, null, { scrub: true, view }))).toBeNull();
     expect(note(trackMap(a, null, null, { scrub: true, view }))).toBeNull();
     expect(note(trackMap(a, null))).toBeNull();
@@ -249,7 +264,7 @@ describe('the scale note: said at the bottom of the map while hulls are stretche
     const fit = laneScrubHtml(a, L, 0);
     expect(note(fit) != null).toBe(dims.loaM * ppu < BOAT_SHAPE_PX);
     // Zoomed in until a hull is longer than the symbol: none.
-    const k = Math.ceil(BOAT_SHAPE_ON_PX / (dims.loaM * ppu)) + 1;
+    const k = Math.ceil(BOAT_SHAPE_PX / (dims.loaM * ppu)) + 1;
     const cx = (L.view.x0 + L.view.x1) / 2;
     const cy = (L.view.y0 + L.view.y1) / 2;
     expect(note(laneScrubHtml(a, L, 0, ppu, false, { cx, cy, k }))).toBeNull();

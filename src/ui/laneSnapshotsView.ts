@@ -24,7 +24,7 @@ import type { Vec } from '../analysis/geo';
 import type { StartReplay } from '../analysis/startReplay';
 import type { RaceAnalysis } from '../analysis/types';
 import type { ClassDims } from '../data/classes';
-import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, HULL_LABEL_GAP_PX, HULL_LABEL_SIDES, hullLabelBox, hullPathAt, scaleNoteText } from './boatShape';
+import { BOAT_SHAPE_PX, boatMark, HULL_LABEL_GAP_PX, HULL_LABEL_SIDES, hullLabelBox, hullPathAt, scaleNoteText } from './boatShape';
 import { boatColor, DOT_LABEL_MAX } from './charts';
 import { esc } from './format';
 import { textWidth, type Rect } from './labels';
@@ -96,15 +96,15 @@ const dotR = (b: LaneBoat): number => (b.role === 'me' ? 5 : b.role === 'group' 
 
 /**
  * Boat `b` at `ppu` css px per meter as the hull (its direction: its course, or its last heading; and its size to
- * draw, meters: to scale, or at least BOAT_SHAPE_PX long, the selected boat BOAT_SHAPE_ON_PX), or null: a dot (the
- * track map's rule, ui/boatShape.ts boatMark).
+ * draw, meters: to scale, or at least BOAT_SHAPE_PX long, the selected boat too), or null: a dot (the track map's
+ * rule, ui/boatShape.ts boatMark).
  */
 export function laneShape(
   L: Pick<LaneScrub, 'dims'>,
-  b: Pick<LaneBoat, 'dir' | 'hold' | 'sog'> & Partial<Pick<LaneBoat, 'lastDir' | 'stale' | 'role'>>,
+  b: Pick<LaneBoat, 'dir' | 'hold' | 'sog'> & Partial<Pick<LaneBoat, 'lastDir' | 'stale'>>,
   ppu: number,
 ): { dir: Vec; dims: ClassDims } | null {
-  const s = boatMark({ dir: b.dir, lastDir: b.lastDir, hold: b.hold, stale: b.stale, sog: b.sog, dims: L.dims, pxPerM: ppu, minPx: b.role === 'me' ? BOAT_SHAPE_ON_PX : BOAT_SHAPE_PX });
+  const s = boatMark({ dir: b.dir, lastDir: b.lastDir, hold: b.hold, stale: b.stale, sog: b.sog, dims: L.dims, pxPerM: ppu, minPx: BOAT_SHAPE_PX });
   return 'shape' in s ? { dir: s.shape, dims: s.dims } : null;
 }
 
@@ -248,8 +248,8 @@ function frameHtml(a: RaceAnalysis, L: LaneScrub, f: LaneFrame, ppu: number, zoo
   const sel = L.me != null && f.boats.some((b) => b.id === L.me);
   // The track map's rule: a fleet within the colour slots has every boat labelled, in its own colour.
   const small = fleet <= DOT_LABEL_MAX;
-  // Hulls stretched past scale at this zoom (the selected boat's symbol the bigger): how much, in the bottom right corner.
-  const said = scaleNoteText(L.dims, 1 / u, sel);
+  // Hulls stretched past scale at this zoom: how much, in the bottom right corner.
+  const said = scaleNoteText(L.dims, 1 / u);
   const note = said ? scaleNoteAt(v, u, said) : null;
   const labels = placeLabels(f.boats, (b) => b.role !== 'other' || (!sel && small), u, v, (b) => reachOf(L, b, u), (b) => laneShape(L, b, 1 / u), note ? [note.r] : []);
   // A small fleet in the boats' own colours; a big one (the colours run out): the selected boat ink, its group accent.

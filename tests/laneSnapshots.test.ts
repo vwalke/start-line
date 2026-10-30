@@ -46,7 +46,7 @@ import {
   windBadgeHtml,
 } from '../src/ui/laneSnapshotsView';
 import { ocsLegend, ocsStretch, ocsSvg } from '../src/ui/ocsStyle';
-import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, BOAT_STALE_MS } from '../src/ui/boatShape';
+import { BOAT_SHAPE_PX, BOAT_STALE_MS } from '../src/ui/boatShape';
 import { MAP_HOLD_S } from '../src/ui/mapPieces';
 import { BOAT_TRAIL_MS, TRAIL_FADE } from '../src/ui/trail';
 import { courseStats } from '../src/ui/follow';
@@ -1253,7 +1253,7 @@ describe('around the gun: boats as hulls where they can be', () => {
     expect(laneScrub(race([{ id: 'A', tr: track(0, -100) }]), { me: null }).dims).toBeNull();
   });
 
-  it('at Fit a J/70 to scale would be 6 px: a symbol BOAT_SHAPE_PX long (15 px selected); zoomed in, to scale; centred on the boat, along its course', () => {
+  it('at Fit a J/70 to scale would be 6 px: a symbol BOAT_SHAPE_PX long, the selected boat the same; zoomed in, to scale, the same again; centred on the boat, along its course', () => {
     const px = L.dims!.loaM * ppu;
     expect(px).toBeLessThan(BOAT_SHAPE_PX);
     const fit = laneScrubHtml(a, L, 60);
@@ -1262,12 +1262,15 @@ describe('around the gun: boats as hulls where they can be', () => {
     const bow = (html: string, id: string): number => Number(html.match(new RegExp(`data-id="${id}"><title>${id}</title><path class="lane-dot lane-hull" d="M[-\\d.]+,([-\\d.]+)`))![1]);
     const posB = boatIn(L.frame(60), 'B').pos!;
     const posA = boatIn(L.frame(60), 'A').pos!;
-    expect(posB[1] - bow(fit, 'B')).toBeCloseTo(BOAT_SHAPE_ON_PX / ppu / 2, 1);
+    expect(posB[1] - bow(fit, 'B')).toBeCloseTo(BOAT_SHAPE_PX / ppu / 2, 1);
     expect(posA[1] - bow(fit, 'A')).toBeCloseTo(BOAT_SHAPE_PX / ppu / 2, 1);
+    expect(posB[1] - bow(fit, 'B')).toBeCloseTo(posA[1] - bow(fit, 'A'), 2);
     const z = { ...fitView(L.view), k: 4 };
     const html = laneScrubHtml(a, L, 60, ppu, false, z);
-    expect(L.dims!.loaM * ppu * 4).toBeGreaterThanOrEqual(BOAT_SHAPE_ON_PX);
+    expect(L.dims!.loaM * ppu * 4).toBeGreaterThanOrEqual(BOAT_SHAPE_PX);
     expect(html).not.toContain('scale-note');
+    expect(posB[1] - bow(html, 'B')).toBeCloseTo(L.dims!.loaM / 2, 2);
+    expect(posA[1] - bow(html, 'A')).toBeCloseTo(L.dims!.loaM / 2, 2);
     const b = boatIn(L.frame(60), 'B');
     const d = html.match(/data-id="B"><title>B<\/title><path class="lane-dot lane-hull" d="([^"]+)"/)![1];
     // The bow LOA/2 up the page from the boat.
