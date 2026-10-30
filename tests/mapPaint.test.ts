@@ -134,14 +134,14 @@ describe('the track map: a pan at the same zoom changes no size, only the scale 
   const v2 = clampView(fit, { cx: me.mx + (fit.x1 - fit.x0) / 40, cy: me.my - (fit.y1 - fit.y0) / 60, k: 4 });
   const sizes = (svg: string): string[] => [...svg.matchAll(/(stroke-width|font-size| r)="([-\d.]+)"/g)].map((m) => `${m[1]}=${m[2]}`);
 
-  it('the static map: the same line widths, text and mark sizes; the scale bar, wind arrow and not-to-scale note shifted by exactly the pan', () => {
+  it('the static map: the same line widths, text and mark sizes; the scale bar, wind arrow and scale note shifted by exactly the pan', () => {
     expect(v2.cx).not.toBe(v1.cx);
     const s1 = trackMap(a, ME, null, { view: v1, scrub: true });
     const s2 = trackMap(a, ME, null, { view: v2, scrub: true });
     expect(s1).toContain('<g class="map-hud"><g class="wind">');
     expect(sizes(s1)).toEqual(sizes(s2));
-    // "Boats not to scale" in the HUD too, moved with it.
-    expect(s1).toContain('>Boats not to scale</text></g></svg>');
+    // The scale note ("Boats drawn about 3× actual size") in the HUD too, moved with it.
+    expect(s1).toMatch(/>(Boats|Selected boat) drawn about [\d.]+× actual size<\/text><\/g><\/svg>/);
     const hud = (s: string): number[] => [.../<g class="map-hud">[\s\S]*?<\/svg>/.exec(s)![0].matchAll(/ (?:x|x1)="([-\d.]+)"/g)].map((m) => Number(m[1]));
     const b1 = trackMapView(a, null, v1).view;
     const b2 = trackMapView(a, null, v2).view;

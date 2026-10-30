@@ -22,8 +22,8 @@
  *   or the follow camera, with the bands either side of it on a wide or tall screen and the card's padding), so it
  *   reads as a course-wide line at any zoom and ends on the card's edges.
  * - Labels lie along their own line, just off it (rotated with it, never upside down), slid along it clear of the
- *   boats and their labels, the marks and their labels, the wind arrow, the scale bar, "Boats not to scale" (while
- *   it is drawn) and the other rung's label.
+ *   boats and their labels, the marks and their labels, the wind arrow, the scale bar, the scale note ("Boats drawn
+ *   about 3× actual size", while it is drawn) and the other rung's label.
  *
  * Nothing here allocates per frame once warm: the rungs, their axes, the draws and their labels are kept and filled
  * in place, the label text is only rebuilt when what it says changes, and paintRungs only sets what changed.

@@ -190,7 +190,7 @@ import {
 } from './speed';
 import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
 import { followAfter, followCam, followStep, followTarget, reducedMotion, resetFollow } from './follow';
-import { mapPaint } from './mapPaint';
+import { MAP_SETTLE_MS, mapPaint } from './mapPaint';
 import { paintTrails } from './trailLayer';
 import { paintRungs } from './rungs';
 import { paintWindArrow, windArrowOf } from './windArrow';
@@ -1192,6 +1192,16 @@ export function startApp(): void {
   });
 
   // ---- Track map: pan/zoom as the start chart, and point details in every colour mode.
+  /** The map's SVG on screen (mapExtent.ts), measured once per size: a new map at the same size keeps it. */
+  let mapScreen: MapScreen | null = null;
+  let mapScreenStale = true;
+  function mapScreenNow(svg: Element): MapScreen | null {
+    if (!mapScreenStale) return mapScreen;
+    mapScreenStale = false;
+    // The SVG fills #map-chart, which spans the card's padding and clips (style.css): its box is what is visible.
+    mapScreen = mapScreenOf(svg.getBoundingClientRect());
+    return mapScreen;
+  }
   /** The map drawn for the race, leg selection, colouring, selection and view; any tooltip goes with the old drawing. */
   function renderMap(): void {
     const a = analysis;
@@ -1202,7 +1212,8 @@ export function startApp(): void {
     if (focusOn && (scrubT == null || legSel != null || highlight !== focusOn.boat)) leaveFocus(false);
     const t0 = performance.now();
     // Scrubbing: the static map, then this moment's trails and boats into its two layers (drawScrub, every frame).
-    els.map.innerHTML = trackMap(a, highlight, legSel, { ...mapOpts(), full: mapFullRate(a), scrub: scrubT != null });
+    // Its size on screen (the SVG fills #map-chart) sets the hulls' smallest size in css px and the scale note.
+    els.map.innerHTML = trackMap(a, highlight, legSel, { ...mapOpts(), full: mapFullRate(a), scrub: scrubT != null, screen: mapScreenNow(els.map) });
     mapPainter.rendered(mapView);
     scrubData = null;
     if (scrubT != null) drawScrub(a);
@@ -1699,27 +1710,24 @@ export function startApp(): void {
     drawMs: () => mapDrawMs,
     view: () => mapView,
   });
-  /** The map's SVG on screen (mapExtent.ts), measured once per size: a new map at the same size keeps it. */
-  let mapScreen: MapScreen | null = null;
-  let mapScreenStale = true;
-  function mapScreenNow(svg: Element): MapScreen | null {
-    if (!mapScreenStale) return mapScreen;
-    mapScreenStale = false;
-    // The SVG fills #map-chart, which spans the card's padding and clips (style.css): its box is what is visible.
-    mapScreen = mapScreenOf(svg.getBoundingClientRect());
-    return mapScreen;
-  }
   /** The ladder rungs alone, for a view or a size changed without a new frame (the boats where they were). */
   function paintMapRungs(svg: Element): void {
     const rungs = svg.querySelector('g.scrub-rungs');
     if (rungs && scrubT != null && analysis) paintRungs(rungs, scrubRungs(analysis, highlight, legSel, mapOpts(), ladderAt(analysis, scrubT), mapScreenNow(svg)));
   }
-  // A new size (the window, the card's layout, full screen, another leg's shape): measured again, the rungs redrawn to it.
+  // A new size (the window, the card's layout, full screen, another leg's shape): measured again, the rungs redrawn to
+  // it; while scrubbing, the map redrawn once the size rests (the hulls' smallest size and the scale note are css px).
+  let resized = 0;
   if (typeof ResizeObserver !== 'undefined') {
     new ResizeObserver(() => {
+      const was = mapScreen;
       mapScreenStale = true;
       const svg = els.map.querySelector('svg');
       if (svg) paintMapRungs(svg);
+      const now = mapScreenNow(els.map);
+      if (scrubT == null || (was && now && was.w === now.w && was.h === now.h) || (!was && !now)) return;
+      clearTimeout(resized);
+      resized = window.setTimeout(renderMap, MAP_SETTLE_MS);
     }).observe(els.map);
   }
 

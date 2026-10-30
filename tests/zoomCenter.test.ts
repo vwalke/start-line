@@ -243,7 +243,7 @@ describe('the track map (Cascais R3, J/70s): the zoom target from the scrubberâ€
     expect(zoomPreset(fit, 1, target)).toEqual(fitView(fit));
   });
 
-  it('a J/70 is a hull at Fit (under 1.5 px to scale: the symbol, the map saying "Boats not to scale"), zoomed in and back at Fit', () => {
+  it('a J/70 is a hull at Fit (under 1.5 px to scale: the symbol, the map saying how much bigger), zoomed in and back at Fit', () => {
     const dims = startClass(a)!.dims;
     const unitAt = (view?: View): number => {
       const { view: b } = trackMapView(a, null, view);
@@ -252,7 +252,7 @@ describe('the track map (Cascais R3, J/70s): the zoom target from the scrubberâ€
     expect(dims.loaM / unitAt()).toBeLessThan(1.5);
     const isHull = (view?: View): boolean => new RegExp(`<path class="dot hull[^"]*" data-id="${me.id}"`).test(scrubFrame(a, me.id, null, { view }, { t, win }).dots);
     expect(isHull()).toBe(true);
-    expect(trackMap(a, me.id, null, { scrub: true })).toContain('>Boats not to scale</text>');
+    expect(trackMap(a, me.id, null, { scrub: true })).toMatch(/>Boats drawn about \d+Ã— actual size<\/text>/);
     const zoomed = zoomPreset(fit, 8, [me.mx, me.my]);
     expect(dims.loaM / unitAt(zoomed)).toBeLessThan(BOAT_SHAPE_PX);
     expect(isHull(zoomed)).toBe(true);

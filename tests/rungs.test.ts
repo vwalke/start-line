@@ -731,12 +731,12 @@ describe('at the bow on a speck (Cascais R3, J/70s: under 1.5 px to scale at Fit
   const cUnit = Math.max(cView.x1 - cView.x0, cView.y1 - cView.y0) / 600;
   const cLast = Math.max(...ca.boats.map((b) => b.finishMs ?? 0));
   const noteBox = (svg: string): { x0: number; y0: number; x1: number; y1: number } => {
-    const m = /<text class="scale-note" x="([-\d.]+)" y="([-\d.]+)" font-size="([\d.]+)"/.exec(svg)!;
+    const m = /<text class="scale-note" x="([-\d.]+)" y="([-\d.]+)" font-size="([\d.]+)"[^>]*>([^<]+)</.exec(svg)!;
     const [x, y, fs] = [1, 2, 3].map((i) => Number(m[i]));
-    return { x0: x - textWidth('Boats not to scale', fs), y0: y - fs, x1: x, y1: y + 0.3 * fs };
+    return { x0: x - textWidth(m[4], fs), y0: y - fs, x1: x, y1: y + 0.3 * fs };
   };
 
-  it('draws every boat with a heading as a hull from its bow, the rung meeting it within a pixel, its label clear of "Boats not to scale"', () => {
+  it('draws every boat with a heading as a hull from its bow, the rung meeting it within a pixel, its label clear of the scale note', () => {
     expect(cDims.loaM / cUnit).toBeLessThan(1.5);
     let n = 0;
     let labels = 0;
@@ -770,6 +770,62 @@ describe('at the bow on a speck (Cascais R3, J/70s: under 1.5 px to scale at Fit
     }
     expect(n).toBeGreaterThan(5);
     expect(labels).toBeGreaterThan(5);
+  });
+
+  // A hull's length as drawn, map units: its bow (the path's start) to the middle of its transom (the corners either side of its one L).
+  const hullLen = (dots: string, id: string): number | null => {
+    const d = new RegExp(`<path class="dot hull[^"]*" data-id="${id}" d="([^"]+)"`).exec(dots)?.[1];
+    if (!d) return null;
+    const num = (s: string): number[] => [...s.matchAll(/-?[\d.]+/g)].map((x) => Number(x[0]));
+    const bow = num(d).slice(0, 2);
+    const [before, after] = d.split('L');
+    const p = num(before).slice(-2);
+    const q = num(after).slice(0, 2);
+    return Math.hypot((p[0] + q[0]) / 2 - bow[0], (p[1] + q[1]) / 2 - bow[1]);
+  };
+
+  it('measured on screen (a desktop card, a phone): the symbol 12 css px long, 15 selected; the rung through its bow within a pixel, its label clear of the note', () => {
+    for (const scr of [
+      { w: 1050, h: 600 },
+      { w: 390, h: 300 },
+    ]) {
+      // Map units per css px: the axis that limits the "meet" fit.
+      const px = Math.max((cView.x1 - cView.x0) / scr.w, (cView.y1 - cView.y0) / scr.h);
+      expect(cDims.loaM / px).toBeLessThan(BOAT_SHAPE_PX);
+      let n = 0;
+      let lens = 0;
+      for (let t = ca.meta.gunMs + 60_000; t < cLast; t += 120_000) {
+        const now = cRead(t);
+        if (now.leader < 0) continue;
+        const lead = now.reads[now.leader];
+        const sel = now.reads.find((r) => !r.est && !r.done && r.id !== lead.id && r.leg === lead.leg);
+        if (!sel) continue;
+        const f = scrubFrame(ca, sel.id, null, {}, { t, win: [t - 30_000, t], trailMs: 30_000, ladder: now, screen: scr });
+        for (const b of boatsAt(ca, sel.id, t).filter((x) => x.dir && !x.hold && x.sog >= 1)) {
+          const len = hullLen(f.dots, b.id);
+          expect(len).not.toBeNull();
+          expect(len! / px).toBeCloseTo(b.id === sel.id ? BOAT_SHAPE_ON_PX : BOAT_SHAPE_PX, 1);
+          lens++;
+        }
+        const through = new Set(
+          rungsAt({ now, selected: sel.id, mapTwdDeg: ca.wind.twdAtGunDeg })
+            .filter((r) => Math.abs(dot([r.bow[0] - r.at[0], r.bow[1] - r.at[1]], r.axis.up)) < 1e-6)
+            .map((r) => r.id),
+        );
+        const note = noteBox(trackMap(ca, sel.id, null, { scrub: true, screen: scr }));
+        for (const d of f.rungs) {
+          const q = d.label?.box;
+          if (q) expect(q.x0 < note.x1 && note.x0 < q.x1 && q.y0 < note.y1 && note.y0 < q.y1).toBe(false);
+          const id = d.role === 'leader' ? lead.id : sel.id;
+          const tip = tipOf(f.dots, id);
+          if (!tip || !through.has(id)) continue;
+          expect(pxOff(d, tip, px)).toBeLessThan(1);
+          n++;
+        }
+      }
+      expect(lens).toBeGreaterThan(20);
+      expect(n).toBeGreaterThan(2);
+    }
   });
 });
 
