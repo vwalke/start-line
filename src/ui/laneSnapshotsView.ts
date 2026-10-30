@@ -13,9 +13,10 @@
  *
  * Sizes stay constant on screen whatever the frame's rendered size and zoom: strokes are non-scaling (css px),
  * and text, dots and label offsets are given in view units from the measured css px per unit (lanePxPerUnit,
- * × the zoom). Boats are the start chart's hull (to scale, or at least BOAT_SHAPE_PX long) along their course or
- * last heading, filled or hollow, by the track map's rule (ui/boatShape.ts boatMark), else dots, with its fading
- * trail (ui/trail.ts); a boat over early is drawn as the track map's replay draws it (ui/ocsStyle.ts).
+ * × the zoom). Boats are the start chart's hull (to scale, or at least BOAT_SHAPE_PX long at any zoom, the map
+ * then saying "Boats not to scale" in its bottom right corner) along their course or last heading, filled or hollow,
+ * by the track map's rule (ui/boatShape.ts boatMark), else dots, with its fading trail (ui/trail.ts); a boat over
+ * early is drawn as the track map's replay draws it (ui/ocsStyle.ts).
  * The true wind is a small badge over the map's top-right corner (HTML, outside the map's extent).
  */
 import { groupIds, type Group } from '../analysis/coach/groups';
@@ -23,7 +24,7 @@ import type { Vec } from '../analysis/geo';
 import type { StartReplay } from '../analysis/startReplay';
 import type { RaceAnalysis } from '../analysis/types';
 import type { ClassDims } from '../data/classes';
-import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, HULL_LABEL_GAP_PX, HULL_LABEL_SIDES, hullLabelBox, hullPathAt } from './boatShape';
+import { BOAT_SHAPE_ON_PX, BOAT_SHAPE_PX, boatMark, BOATS_NOT_TO_SCALE, HULL_LABEL_GAP_PX, HULL_LABEL_SIDES, hullEnlarged, hullLabelBox, hullPathAt } from './boatShape';
 import { boatColor, DOT_LABEL_MAX } from './charts';
 import { esc } from './format';
 import { textWidth, type Rect } from './labels';
@@ -122,7 +123,8 @@ interface LabelAt {
 
 /**
  * Sail-number labels that don't overlap: the selected boat's first, then its group's, then (nothing selected, a
- * small fleet) everyone's; each beside its boat where it clears the other boats and labels and stays in the frame,
+ * small fleet) everyone's; each beside its boat where it clears the other boats and labels (and `keepOff`, the
+ * map's own text) and stays in the frame,
  * else left out (its boat's title still names it). Beside a hull, HULL_LABEL_GAP_PX off it abeam (clear of its own
  * track), else off the bow or stern (boatShape.ts hullLabelBox); beside a dot, just right, left, above or below it.
  * The gaps are css px, so a label stays as close to its boat at every zoom.
@@ -134,6 +136,7 @@ function placeLabels(
   view: Box,
   reach: (b: LaneBoat) => number,
   hullOf: (b: LaneBoat) => { dir: Vec; dims: ClassDims } | null,
+  keepOff: readonly Rect[] = [],
 ): Map<string, LabelAt> {
   const out = new Map<string, LabelAt>();
   // Every other boat is in the way of a label (as are the labels placed); a label is placed clear of its own.
@@ -143,6 +146,7 @@ function placeLabels(
       const r = reach(b);
       return { id: b.id, x0: b.pos![0] - r, y0: b.pos![1] - r, x1: b.pos![0] + r, y1: b.pos![1] + r };
     });
+  taken.push(...keepOff);
   const hit = (q: Rect, id: string): boolean => taken.some((t) => t.id !== id && q.x0 < t.x1 && q.x1 > t.x0 && q.y0 < t.y1 && q.y1 > t.y0);
   const order = { me: 0, group: 1, other: 2 } as const;
   for (const b of [...boats].filter((x) => x.pos && want(x)).sort((p, q) => order[p.role] - order[q.role])) {
@@ -172,6 +176,14 @@ function placeLabels(
     out.set(b.id, pick.label);
   }
   return out;
+}
+
+/** "Boats not to scale" in view `v`'s bottom right corner at `u` view units per css px: its baseline's end, size and box. */
+function scaleNoteAt(v: Box, u: number): { x: number; y: number; fs: number; r: Rect } {
+  const fs = 11 * u;
+  const x = v.x1 - 6 * u;
+  const y = v.y1 - 6 * u;
+  return { x, y, fs, r: { x0: x - textWidth(BOATS_NOT_TO_SCALE, fs) - 2 * u, y0: y - fs, x1: x + 2 * u, y1: y + 0.3 * fs } };
 }
 
 /** "+26 s" (from the gun). */
@@ -231,7 +243,9 @@ function frameHtml(a: RaceAnalysis, L: LaneScrub, f: LaneFrame, ppu: number, zoo
   const sel = L.me != null && f.boats.some((b) => b.id === L.me);
   // The track map's rule: a fleet within the colour slots has every boat labelled, in its own colour.
   const small = fleet <= DOT_LABEL_MAX;
-  const labels = placeLabels(f.boats, (b) => b.role !== 'other' || (!sel && small), u, v, (b) => reachOf(L, b, u), (b) => laneShape(L, b, 1 / u));
+  // Hulls stretched past scale at this zoom (the selected boat's symbol the bigger): said in the bottom right corner.
+  const note = hullEnlarged(L.dims, 1 / u, sel ? BOAT_SHAPE_ON_PX : BOAT_SHAPE_PX) ? scaleNoteAt(v, u) : null;
+  const labels = placeLabels(f.boats, (b) => b.role !== 'other' || (!sel && small), u, v, (b) => reachOf(L, b, u), (b) => laneShape(L, b, 1 / u), note ? [note.r] : []);
   // A small fleet in the boats' own colours; a big one (the colours run out): the selected boat ink, its group accent.
   const colourOf = (b: LaneBoat): string => {
     const r = byId.get(b.id);
@@ -249,7 +263,11 @@ function frameHtml(a: RaceAnalysis, L: LaneScrub, f: LaneFrame, ppu: number, zoo
     `<svg class="chart lane-svg" viewBox="${v.x0.toFixed(1)} ${v.y0.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${esc(f.label)}">` +
     `<title>${esc(f.label)}</title>${lineSvg(L, u)}` +
     `<g class="lane-trails">${drawn.map((d) => d.trail).join('')}</g><g class="lane-ocs">${drawn.map((d) => d.ocs).join('')}</g>` +
-    `<g class="lane-dots">${drawn.map((d) => d.dot).join('')}</g><g class="lane-flags">${drawn.map((d) => d.flag).join('')}</g>${empty}</svg>`;
+    `<g class="lane-dots">${drawn.map((d) => d.dot).join('')}</g><g class="lane-flags">${drawn.map((d) => d.flag).join('')}</g>${empty}` +
+    (note
+      ? `<text class="scale-note" x="${note.x.toFixed(1)}" y="${note.y.toFixed(1)}" font-size="${note.fs.toFixed(2)}" text-anchor="end" stroke-width="${(3 * u).toFixed(2)}">${BOATS_NOT_TO_SCALE}</text>`
+      : '') +
+    `</svg>`;
   return `<figure class="lane-frame${f.empty ? ' empty' : ''}" data-s="${f.s}"><figcaption><b class="lane-time">${esc(f.title)}</b> <span class="lane-cap">${esc(f.caption)}</span></figcaption><div class="lane-map">${svg}${windBadgeHtml(L)}</div></figure>`;
 }
 

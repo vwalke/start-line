@@ -4,12 +4,13 @@ import type { Vec } from '../src/analysis/geo';
 import { startReplays } from '../src/analysis/startReplay';
 import {
   BOAT_SHAPE_MIN_KN,
-  BOAT_SHAPE_MIN_PX,
   BOAT_SHAPE_ON_PX,
   BOAT_SHAPE_PX,
   boatShapeOr,
+  BOATS_NOT_TO_SCALE,
   headingDir,
   hullCenterFromBow,
+  hullEnlarged,
   hullOutline,
   hullOutlineAt,
   hullPathAt,
@@ -17,7 +18,8 @@ import {
   shapeRotationDeg,
 } from '../src/ui/boatShape';
 import { bowAheadM } from '../src/data/classes';
-import { boatsAt, scrubFrame, startClass, trackMapView } from '../src/ui/charts';
+import { boatsAt, scrubFrame, startClass, trackMap, trackMapView } from '../src/ui/charts';
+import { textWidth } from '../src/ui/labels';
 import { legRanges } from '../src/ui/mapPieces';
 import { ocsStretch, ocsSvg } from '../src/ui/ocsStyle';
 import { laneScrub } from '../src/ui/laneSnapshots';
@@ -91,7 +93,7 @@ describe('boat shape: the shape, or the dot', () => {
     expect('shape' in on && on.dims.loaM * 0.5).toBeCloseTo(BOAT_SHAPE_ON_PX, 9);
   });
 
-  it('falls back to the dot: unknown heading, held in a gap, too slow, no class, too small on screen', () => {
+  it('falls back to the dot only for unknown heading, held in a gap, too slow or no class', () => {
     expect(boatShapeOr({ ...base, dir: null })).toEqual({ dot: 'no-heading' });
     expect(boatShapeOr({ ...base, dir: [0, 0] })).toEqual({ dot: 'no-heading' });
     expect(boatShapeOr({ ...base, dir: [NaN, 1] })).toEqual({ dot: 'no-heading' });
@@ -100,11 +102,36 @@ describe('boat shape: the shape, or the dot', () => {
     expect(boatShapeOr({ ...base, sog: 0.9 })).toEqual({ dot: 'slow' });
     expect(boatShapeOr({ ...base, sog: BOAT_SHAPE_MIN_KN })).toEqual({ shape: [0, -1], dims: J70 });
     expect(boatShapeOr({ ...base, dims: null })).toEqual({ dot: 'no-class' });
-    // Zoomed out too far: the hull to scale under 1.5 px on screen (a 12 px symbol would overstate it over 8×).
-    expect(BOAT_SHAPE_MIN_PX).toBe(1.5);
-    const edge = BOAT_SHAPE_MIN_PX / J70.loaM;
-    expect('shape' in boatShapeOr({ ...base, pxPerM: edge })).toBe(true);
-    expect(boatShapeOr({ ...base, pxPerM: edge * 0.99 })).toEqual({ dot: 'small' });
+  });
+
+  it('however far zoomed out, the hull at the fixed symbol size, never a dot', () => {
+    // 0.01 px/m: a J/70 to scale is 0.07 px, drawn BOAT_SHAPE_PX long (the selected boat BOAT_SHAPE_ON_PX), its proportions kept.
+    for (const pxPerM of [0.2, 0.05, 0.01, 1e-4]) {
+      const s = boatShapeOr({ ...base, pxPerM });
+      if (!('shape' in s)) throw new Error(`a shape at ${pxPerM} px/m`);
+      expect(s.shape).toEqual([0, -1]);
+      expect(s.dims.loaM * pxPerM).toBeCloseTo(BOAT_SHAPE_PX, 6);
+      expect(s.dims.beamM / s.dims.loaM).toBeCloseTo(J70.beamM / J70.loaM, 9);
+      const on = boatShapeOr({ ...base, pxPerM, minPx: BOAT_SHAPE_ON_PX });
+      expect('shape' in on && on.dims.loaM * pxPerM).toBeCloseTo(BOAT_SHAPE_ON_PX, 6);
+    }
+  });
+
+  it('enlarged (the map says "Boats not to scale") exactly while the hull is stretched to the symbol', () => {
+    expect(BOATS_NOT_TO_SCALE).toBe('Boats not to scale');
+    const edge = BOAT_SHAPE_PX / J70.loaM;
+    expect(hullEnlarged(J70, edge * 0.99)).toBe(true);
+    expect(hullEnlarged(J70, edge)).toBe(false);
+    expect(hullEnlarged(J70, 0.01)).toBe(true);
+    // The selected boat's bigger symbol: enlarged a little further in.
+    expect(hullEnlarged(J70, edge, BOAT_SHAPE_ON_PX)).toBe(true);
+    expect(hullEnlarged(J70, BOAT_SHAPE_ON_PX / J70.loaM, BOAT_SHAPE_ON_PX)).toBe(false);
+    // No class: no hulls, nothing to say.
+    expect(hullEnlarged(null, 0.01)).toBe(false);
+    for (const pxPerM of [0.01, edge * 0.5, edge, 4]) {
+      const s = boatShapeOr({ ...base, pxPerM });
+      expect('shape' in s && s.dims.loaM > J70.loaM).toBe(hullEnlarged(J70, pxPerM));
+    }
   });
 });
 
@@ -130,7 +157,6 @@ describe('the track map while scrubbing: hulls where they can be (IC37 R5, 11.3 
     const { view } = trackMapView(a, null);
     const unit = Math.max(view.x1 - view.x0, view.y1 - view.y0) / 600;
     const px = dims.loaM / unit;
-    expect(px).toBeGreaterThan(BOAT_SHAPE_MIN_PX);
     expect(px).toBeLessThan(BOAT_SHAPE_PX);
     const f = scrubFrame(a, null, null, {}, { t, win });
     const f12 = BOAT_SHAPE_PX / px;
@@ -173,6 +199,61 @@ describe('the track map while scrubbing: hulls where they can be (IC37 R5, 11.3 
     const view = { cx: moving.mx, cy: moving.my, k: K_MAX };
     const f = scrubFrame(a, null, null, { view }, { t, win });
     for (const b of boats.filter((x) => x.hold || !x.dir)) expect(f.dots).toMatch(new RegExp(`<circle class="dot[^"]*" data-id="${b.id}"`));
+  });
+});
+
+describe('"Boats not to scale": said at the bottom of the map while hulls are stretched (IC37 R5, 11.3 m)', () => {
+  const a = analyzeRace(ic37Race());
+  const dims = startClass(a)!.dims;
+  const note = (svg: string): { x: number; y: number; fs: number } | null => {
+    const m = svg.match(/<text class="scale-note" x="([-\d.]+)" y="([-\d.]+)" font-size="([\d.]+)" text-anchor="end"[^>]*>Boats not to scale<\/text>/);
+    return m ? { x: Number(m[1]), y: Number(m[2]), fs: Number(m[3]) } : null;
+  };
+  type R = { x0: number; y0: number; x1: number; y1: number };
+  const hits = (p: R, q: R): boolean => p.x0 < q.x1 && q.x0 < p.x1 && p.y0 < q.y1 && q.y0 < p.y1;
+
+  it('scrubbing at Fit (hulls stretched to the symbol): in the map’s HUD, bottom right, clear of the scale bar and the wind label', () => {
+    const { view } = trackMapView(a, null);
+    const unit = Math.max(view.x1 - view.x0, view.y1 - view.y0) / 600;
+    expect(dims.loaM / unit).toBeLessThan(BOAT_SHAPE_PX);
+    const svg = trackMap(a, null, null, { scrub: true });
+    const hud = svg.slice(svg.indexOf('<g class="map-hud">'));
+    const n = note(hud);
+    expect(n).not.toBeNull();
+    const nb: R = { x0: n!.x - textWidth('Boats not to scale', n!.fs), y0: n!.y - n!.fs, x1: n!.x, y1: n!.y + 0.3 * n!.fs };
+    expect(nb.x1).toBeLessThanOrEqual(view.x1);
+    expect(nb.y1).toBeLessThanOrEqual(view.y1);
+    // The scale bar (its line and its label above it) and the wind arrow's label.
+    const bar = hud.match(/<g class="scalebar"><line x1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)"[\s\S]*?font-size="([\d.]+)"[^>]*>([^<]+)</)!;
+    const [bx0, by, bx1, bfs] = [1, 2, 3, 4].map((i) => Number(bar[i]));
+    expect(hits(nb, { x0: bx0, y0: by - 4 * unit - bfs, x1: bx1, y1: by + 2 * unit })).toBe(false);
+    const wind = hud.match(/<g class="wind"[\s\S]*?<text x="([-\d.]+)" y="([-\d.]+)" font-size="([\d.]+)"[^>]*>([^<]+)</)!;
+    const [wx, wy, wfs] = [1, 2, 3].map((i) => Number(wind[i]));
+    const ww = textWidth(wind[4], wfs);
+    expect(hits(nb, { x0: wx - ww, y0: wy - wfs, x1: wx + ww, y1: wy + 0.3 * wfs })).toBe(false);
+  });
+
+  it('hidden once the hulls are to scale (zoomed in on a big boat), and on the static map (no boats drawn)', () => {
+    const b = boatsAt(a, null, a.meta.gunMs + 60_000).find((x) => x.dir)!;
+    const view = { cx: b.mx, cy: b.my, k: K_MAX };
+    const { view: box } = trackMapView(a, null, view);
+    const unit = Math.max(box.x1 - box.x0, box.y1 - box.y0) / 600;
+    expect(dims.loaM / unit).toBeGreaterThanOrEqual(BOAT_SHAPE_ON_PX);
+    expect(note(trackMap(a, b.id, null, { scrub: true, view }))).toBeNull();
+    expect(note(trackMap(a, null, null, { scrub: true, view }))).toBeNull();
+    expect(note(trackMap(a, null))).toBeNull();
+  });
+
+  it('Start Playback says it too while its hulls are stretched, and not once they are to scale', () => {
+    const L = laneScrub(a, { me: null, replays: startReplays(a, ic37Race()) });
+    const ppu = lanePxPerUnit(L.view);
+    const fit = laneScrubHtml(a, L, 0);
+    expect(note(fit) != null).toBe(dims.loaM * ppu < BOAT_SHAPE_PX);
+    // Zoomed in until a hull is longer than the symbol: none.
+    const k = Math.ceil(BOAT_SHAPE_ON_PX / (dims.loaM * ppu)) + 1;
+    const cx = (L.view.x0 + L.view.x1) / 2;
+    const cy = (L.view.y0 + L.view.y1) / 2;
+    expect(note(laneScrubHtml(a, L, 0, ppu, false, { cx, cy, k }))).toBeNull();
   });
 });
 

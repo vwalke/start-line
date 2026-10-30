@@ -152,13 +152,15 @@ describe('the boat: filled while its data is fresh, hollow once lost, the last h
     expect(boatMark({ ...base, hold: true, stale: true, lastDir: null })).toEqual({ dot: 'hold', hollow: true });
   });
 
-  it('the zoomed-out rule is unchanged: the symbol (or the dot when too small) follows the same filled / hollow rule', () => {
+  it('zoomed out, the symbol follows the same filled / hollow rule, however far out', () => {
     // At Fit a J/70 is a symbol BOAT_SHAPE_PX long, hollow when lost.
     const sym = boatMark({ ...base, pxPerM: 1, hold: true, stale: true });
     expect('shape' in sym && sym.dims.loaM).toBeCloseTo(BOAT_SHAPE_PX, 6);
     expect(sym.hollow).toBe(true);
-    // Too small for a symbol: the dot, hollow too.
-    expect(boatMark({ ...base, pxPerM: 0.1, hold: true, stale: true })).toEqual({ dot: 'small', hollow: true });
+    // Far out (0.7 px to scale): still the symbol, BOAT_SHAPE_PX long, hollow too.
+    const far = boatMark({ ...base, pxPerM: 0.1, hold: true, stale: true });
+    expect('shape' in far && far.dims.loaM * 0.1).toBeCloseTo(BOAT_SHAPE_PX, 6);
+    expect(far.hollow).toBe(true);
     expect(boatMark({ ...base, dims: null })).toEqual({ dot: 'no-class', hollow: false });
   });
 
