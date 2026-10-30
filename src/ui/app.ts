@@ -1725,8 +1725,9 @@ export function startApp(): void {
   });
 
   /**
-   * A boat's place at a moment (coach/progress.ts: the fleet by distance to go along the course), once the
-   * race's coach model is ready (asked for here); none from interpolated roundings, or with no course.
+   * A boat's place at a moment (coach/progress.ts: the fleet by distance to go along the course, up the ladder the
+   * rungs draw, on the wind then), once the race's coach model is ready (asked for here); none from interpolated
+   * roundings, or with no course.
    */
   function placeReader(a: RaceAnalysis): ((id: string, t: number) => PlaceRead | null) | undefined {
     if (!ensureCoach(a)) return undefined;
@@ -1742,9 +1743,9 @@ export function startApp(): void {
   }
 
   /**
-   * The fleet up the wind ladder at `t` for the ladder rungs (coach/ladderNow.ts: the Coach's leg winds and rungs,
-   * the leader skipping estimated places as the tooltip does); null until the race's coach model is ready (asked
-   * for here: the leg winds come from its wind series, read from the raw fixes in the worker).
+   * The fleet up the wind ladder at `t` for the ladder rungs (coach/ladderNow.ts: the wind then and the Coach's rungs,
+   * the reads the tooltip's places rank, so the leader is its first place); null until the race's coach model is
+   * ready (asked for here: the wind comes from its wind series, read from the raw fixes in the worker).
    */
   function ladderAt(a: RaceAnalysis, t: number): LadderNow | null {
     if (!ensureCoach(a)) return null;

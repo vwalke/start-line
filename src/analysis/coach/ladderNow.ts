@@ -1,14 +1,19 @@
 /**
- * The fleet up the wind ladder at one moment, for the Race Viewer's ladder rungs (ui/rungs.ts), measured as the
- * Coach's gap chart measures course progress (timeGap.ts legAlong): on the course and leg winds of gapCourse (each
- * leg's one wind from the fleet's wind series, legWinds, so a run reads the gybes where twdSeries.ts has them), a
- * boat's rung (ladder.ts rung: to its leg's end along that wind, or past the layline `hypot(u, c)·cos(a)`), and its
- * course progress (the legs before plus the share of this leg's ladder climbed, scaled to its rhumb length).
+ * The fleet up the wind ladder at one moment: the Race Viewer's ladder rungs (ui/rungs.ts) and the map tooltip's
+ * places (progress.ts progressAt) both read it, so the rungs' leader is always the tooltip's first measured place.
+ * On the course of gapCourse (the finish line where the finishers crossed it) and the wind then (liveWind.ts: the
+ * fleet's minute-by-minute series, the runs read from the gybes where twdSeries.ts has them, smoothed over two
+ * minutes), a boat's rung (ladder.ts rung: to its leg's end along that wind, or past the layline `hypot(u, c)·cos(a)`),
+ * and its course progress (the legs before plus the share of this leg's ladder climbed, scaled to its rhumb length).
  *
- * - Positions are read as progress.ts reads them for the places (PROG_SPAN_S, PROG_NEAR_S). A boat with no position
- *   then, or no known leg, is estimated (`est`): the map's tooltip gives it no place, and it never leads.
+ * - The wind is the moment's, not one per leg: a leg's ladder turns with a shift as the fleet sails it. (The Coach's
+ *   gap chart keeps one wind per leg, timeGap.ts legWinds: it compares a boat with where another was minutes before,
+ *   which needs one fixed scale; here every boat is read at the same moment, on the same wind.)
+ * - Positions are read as progress.ts reads them (PROG_SPAN_S, PROG_NEAR_S). A boat with no position then, or no
+ *   known leg, is estimated (`est`): the tooltip places it from its roundings instead and shows no place, and it
+ *   never leads.
  * - A finished boat is ahead of every boat still racing, the earlier finisher first; DNS/DNC/DNE and tracked boats
- *   official results don't list are left out (progress.ts progressAt).
+ *   official results don't list are left out.
  * - Worked out once per model; each moment fills the same reads in place (no allocation while scrubbing), and the
  *   last moment asked is kept (a pan or a pause asks again).
  */
@@ -17,9 +22,17 @@ import type { LegKind, RaceAnalysis } from '../types';
 import type { CoachModel } from './index';
 import { extraTracked, neverRaced } from './fleet';
 import { laylineDeg, legLengths, type Course } from './ladder';
-import { PROG_NEAR_S, PROG_SPAN_S } from './progress';
-import { gapCourse, type LegWind } from './timeGap';
+import { liveWind, type LiveWind } from './liveWind';
+import { gapCourse } from './timeGap';
 import { trackLegAt, type CoachTrack } from './tracks';
+
+/** Positions are read across gaps up to this long (the feed's 0.25 Hz with short holes)… */
+export const PROG_SPAN_S = 60;
+/** …with a real fix this close. */
+export const PROG_NEAR_S = 30;
+
+/** A leg's progress is scaled by its ladder from the start mark, but by no less than this share of its rhumb length (ladder.ts distToGo): a wind square to the leg can't blow it up. */
+const MIN_FULL_SHARE = 0.3;
 
 /** One boat at the moment read (filled in place). */
 export interface LadderRead {
@@ -38,9 +51,9 @@ export interface LadderRead {
   /** Where its leg ends for it (the mark, or on the last leg the finish line extended), m. */
   ex: number;
   ey: number;
-  /** Its rung: how far it still has to climb (or run) to `ex, ey` along the leg's wind, m; NaN on a reach. */
+  /** Its rung: how far it still has to climb (or run) to `ex, ey` along the wind then, m; NaN on a reach. */
   rung: number;
-  /** Course progress, m (the legs before plus legAlong). */
+  /** Course progress, m (the legs before plus the share of this leg's ladder climbed). */
   prog: number;
 }
 
@@ -50,23 +63,30 @@ export interface LadderNow {
   /** The leader (first by course progress, finished boats first, `est` reads skipped): an index into `reads`, −1 for none. */
   leader: number;
   course: Course;
-  /** Each leg's wind (timeGap.ts legWinds): the rungs' wind. */
-  lw: readonly LegWind[];
+  /** The course's length, m (the rhumb lengths): course progress at the finish. */
+  total: number;
+  /** The wind then (liveWind.ts), °: the rungs lie square to it. */
+  twdDeg: number;
+  /** The tack angle then, °: the beats' laylines. */
+  taDeg: number;
 }
 
-/** A leg's ladder, worked out once: its wind as a unit vector into it, the layline and its full rung. */
+/** A leg's ladder: kind, where it starts in course progress and its rhumb length, m; `full` the rung from its start mark at the moment read. */
 interface LegLadder {
   kind: LegKind;
-  /** Course progress where it starts, m, and its rhumb length. */
   start: number;
   L: number;
-  /** Into the wind (bearingVec), and the layline's tan and cos. */
+  full: number;
+}
+
+/** The wind of the moment, as rungXY reads it: into the wind (unit), and the laylines' tan and cos up a beat and down a run. */
+interface WindNow {
   wx: number;
   wy: number;
-  tanA: number;
-  cosA: number;
-  /** The rung from its start mark (legAlong's `full`); 0: measured along the rhumb line instead. */
-  full: number;
+  upTan: number;
+  upCos: number;
+  runTan: number;
+  runCos: number;
 }
 
 /**
@@ -100,24 +120,9 @@ function endInto(c: Course, leg: number, px: number, py: number, out: { ex: numb
   out.ey = c.pts[leg + 1][1];
 }
 
-function legLadders(c: Course, lw: readonly LegWind[]): LegLadder[] {
-  const lens = legLengths(c);
-  let start = 0;
-  const end = { ex: 0, ey: 0 };
-  return c.kinds.map((kind, k) => {
-    const w = lw[k];
-    const th = ((w?.twdDeg ?? 0) * Math.PI) / 180;
-    const a = (laylineDeg(kind, w?.taDeg ?? 90) * Math.PI) / 180;
-    const leg: LegLadder = { kind, start, L: lens[k], wx: Math.sin(th), wy: Math.cos(th), tanA: Math.tan(a), cosA: Math.cos(a), full: 0 };
-    start += lens[k];
-    if (kind !== 'reach' && w && lens[k] > 0) {
-      const [px, py] = c.pts[k];
-      endInto(c, k, px, py, end);
-      leg.full = rungXY(px, py, end.ex, end.ey, leg.wx, leg.wy, kind === 'upwind', leg.tanA, leg.cosA);
-    }
-    return leg;
-  });
-}
+/** The rung from (px, py) on leg `g` (not a reach) to (ex, ey), on the wind `w`. */
+const rungOn = (g: LegLadder, w: WindNow, px: number, py: number, ex: number, ey: number): number =>
+  g.kind === 'upwind' ? rungXY(px, py, ex, ey, w.wx, w.wy, true, w.upTan, w.upCos) : rungXY(px, py, ex, ey, w.wx, w.wy, false, w.runTan, w.runCos);
 
 /** Position at `t` as tracks.ts posAt reads it (fixes ≤ `spanS` apart, one ≤ `nearS` away), into `out`; false when none. */
 function posInto(tr: CoachTrack, t: number, spanS: number, nearS: number, out: { x: number; y: number }): boolean {
@@ -165,14 +170,44 @@ const readers = new WeakMap<CoachModel, LadderReader>();
 export function ladderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel): LadderReader {
   const have = readers.get(m);
   if (have) return have;
-  const { course, lw } = gapCourse(m);
-  const legs = legLadders(course, lw);
+  const { course } = gapCourse(m);
+  const live: LiveWind = liveWind(m);
+  const lens = legLengths(course);
+  let start = 0;
+  const legs: LegLadder[] = course.kinds.map((kind, k) => {
+    const g = { kind, start, L: lens[k], full: 0 };
+    start += lens[k];
+    return g;
+  });
+  const runA = (laylineDeg('downwind', 90) * Math.PI) / 180;
+  const w: WindNow = { wx: 0, wy: 1, upTan: 0, upCos: 1, runTan: Math.tan(runA), runCos: Math.cos(runA) };
   const extra = extraTracked(a);
   const racing = a.boats.filter((b) => !extra.has(b.sail) && !extra.has(b.id) && !neverRaced(b.finishCode));
   const tracks = racing.map((b) => m.tracks.get(b.id) ?? null);
   const reads: LadderRead[] = racing.map((b) => ({ id: b.id, finishMs: b.finishMs, done: false, est: true, leg: -1, x: NaN, y: NaN, ex: NaN, ey: NaN, rung: NaN, prog: NaN }));
-  const now: LadderNow = { t: NaN, reads, leader: -1, course, lw };
+  const now: LadderNow = { t: NaN, reads, leader: -1, course, total: start, twdDeg: NaN, taDeg: NaN };
   const n = course.kinds.length;
+  const end = { ex: 0, ey: 0 };
+  /** The wind at `t`, and each leg's full rung on it. */
+  const windAt = (t: number): void => {
+    now.twdDeg = live.twdAt(t);
+    now.taDeg = live.taAt(t);
+    const th = (now.twdDeg * Math.PI) / 180;
+    const up = (laylineDeg('upwind', now.taDeg) * Math.PI) / 180;
+    w.wx = Math.sin(th);
+    w.wy = Math.cos(th);
+    w.upTan = Math.tan(up);
+    w.upCos = Math.cos(up);
+    for (let k = 0; k < n; k++) {
+      const g = legs[k];
+      g.full = 0;
+      if (g.kind === 'reach' || !(g.L > 0)) continue;
+      const px = course.pts[k][0];
+      const py = course.pts[k][1];
+      endInto(course, k, px, py, end);
+      g.full = Math.max(rungOn(g, w, px, py, end.ex, end.ey), MIN_FULL_SHARE * g.L);
+    }
+  };
   const read = (r: LadderRead, tr: CoachTrack | null, t: number): void => {
     r.done = r.finishMs != null && t >= r.finishMs;
     r.leg = -1;
@@ -191,10 +226,10 @@ export function ladderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachMo
     r.leg = leg;
     endInto(course, leg, r.x, r.y, r);
     if (g.full > 0) {
-      r.rung = rungXY(r.x, r.y, r.ex, r.ey, g.wx, g.wy, g.kind === 'upwind', g.tanA, g.cosA);
+      r.rung = rungOn(g, w, r.x, r.y, r.ex, r.ey);
       r.prog = g.start + g.L * (1 - r.rung / g.full);
     } else {
-      // A reach (or a leg with no ladder): distance made good along the rhumb line (timeGap.ts legProgress).
+      // A reach (or a leg of no length): distance made good along the rhumb line (timeGap.ts legProgress).
       const [x0, y0] = course.pts[leg];
       const [x1, y1] = course.pts[leg + 1];
       r.prog = g.start + (g.L > 0 ? ((r.x - x0) * (x1 - x0) + (r.y - y0) * (y1 - y0)) / g.L : 0);
@@ -203,6 +238,7 @@ export function ladderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachMo
   const reader: LadderReader = (t) => {
     if (t === now.t) return now;
     now.t = t;
+    windAt(t);
     for (let i = 0; i < reads.length; i++) read(reads[i], tracks[i], t);
     now.leader = leaderOf(reads);
     return now;

@@ -195,8 +195,10 @@ describe('Melges 24 R5 and J/24 R2: one side-of-course card a race, material lin
     // 17 before the top 3's line was their mean). 5 in the top 3 since the last run's wind is read from the gybes: 626's
     // last-run D7 (111 s) outranks its 12 s D16.
     expect(tally(m24)).toEqual({ found: 8, card: 5, good: 18 });
-    // J/24 R2: none in PR #46's start-window wind (pin 1.5°); Beat 1's, RC 6.7°: found on 4, 2 in their top 3.
-    expect(tally(j24)).toEqual({ found: 4, card: 2, good: 13 });
+    // J/24 R2: none in PR #46's start-window wind (pin 1.5°); Beat 1's, RC 6.7°: found on 4, 2 in their top 3. 1 since the
+    // places (D9's fallback) are read on the wind of the moment smoothed over two minutes (liveWind.ts): USA 3361's
+    // windward rounding (28 s) now outranks its 13 s D16.
+    expect(tally(j24)).toEqual({ found: 4, card: 1, good: 13 });
     for (const r of [m24, j24]) for (const b of r.a.boats) for (const c of debriefOf(r.a, r.m, b.id)!.cards) if (c.kind === 'D16') expect(c.seconds).toBeGreaterThanOrEqual(MIN_SECONDS[c.confidence]);
   }, 60_000);
 });
