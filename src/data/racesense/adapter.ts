@@ -612,6 +612,86 @@ export function dropReplayedFixes<R extends { sn: number; role: string; lat: num
   return kept.length === rows.length ? rows : kept;
 }
 
+const MS_PER_KN = 1852 / 3600;
+
+/**
+ * A step between a tracker's consecutive fixes is impossible when it covers over TELEPORT_MIN_M (above GPS
+ * noise at sub-second steps) at over TELEPORT_KN (no boat sails it: M32s race at 25–29 kn, monohulls motor
+ * in at up to ~47 kn). A step with no time between its fixes and over TELEPORT_MIN_M apart is impossible too.
+ * J/70 North Americans race 6: 898's tracker sent 6 fixes over 6.3 s ~16.5 km off the course, entered at
+ * ~16,900 kn and left at ~8,700 kn, and the boat went on from where it had been. Within FLEET_OUTLIER_M of
+ * the fleet, so they stayed, and the race's extent took them in. Cascais J/70 Worlds (Open) races 6 and 9:
+ * POR 1685's and DEN 1185's tracks began with 1–4 stale fixes from the previous race, 2.3–3.3 km off.
+ */
+export const TELEPORT_MIN_M = 250;
+export const TELEPORT_KN = 60;
+/** A run of fixes cut off by impossible steps is dropped only if it lasts at most this long. */
+export const TELEPORT_RUN_MS = 120_000;
+
+function impossibleStep(a: { ts: number; lat: number; lon: number }, b: { ts: number; lat: number; lon: number }): boolean {
+  const m = metresBetween(a, b);
+  if (m <= TELEPORT_MIN_M) return false;
+  const s = (b.ts - a.ts) / 1000;
+  return s <= 0 || m / s / MS_PER_KN > TELEPORT_KN;
+}
+
+/** The runs [from, to) to drop from one tracker's fixes (sorted by time), or none. */
+function teleportRuns(s: { ts: number; lat: number; lon: number }[]): [number, number][] {
+  const jumps: number[] = [];
+  for (let i = 1; i < s.length; i++) if (impossibleStep(s[i - 1], s[i])) jumps.push(i);
+  if (!jumps.length) return [];
+  const short = (from: number, to: number): boolean => s[to - 1].ts - s[from].ts <= TELEPORT_RUN_MS;
+  const runs: [number, number][] = [];
+  // Out and back: the fixes either side of the run are close, and going straight between them is possible.
+  for (let j = 0; j + 1 < jumps.length; j++) {
+    const [a, b] = [jumps[j], jumps[j + 1]];
+    if (!short(a, b)) continue;
+    const [before, after] = [s[a - 1], s[b]];
+    const out = Math.min(metresBetween(before, s[a]), metresBetween(s[b - 1], after));
+    if (metresBetween(before, after) < out / 2 && !impossibleStep(before, after)) {
+      runs.push([a, b]);
+      j++;
+    }
+  }
+  if (runs.length) return runs;
+  // At either end: a short run of one stale fix (possibly repeated), with fewer fixes than the rest.
+  const stale = (from: number, to: number): boolean => s.slice(from, to).every((r) => r.lat === s[from].lat && r.lon === s[from].lon);
+  const [first, last, n] = [jumps[0], jumps[jumps.length - 1], s.length];
+  if (short(0, first) && first < n - first && stale(0, first)) runs.push([0, first]);
+  if (short(last, n) && n - last < last && stale(last, n)) runs.push([last, n]);
+  return runs;
+}
+
+/**
+ * Drop a competitor tracker's fixes reached and left by impossible steps (TELEPORT_MIN_M at TELEPORT_KN):
+ * a run of fixes lasting at most TELEPORT_RUN_MS that jumps out and back to about where it left, or one at
+ * the start or end of the tracker's fixes, shorter than the rest and all at the exact same coordinates (one
+ * stale fix, possibly repeated). Repeated until none is left, as dropping one run can show another. A single
+ * jump to a moving run is kept, mid-track or at its end: a frozen tracker catching up with the boat (J/70
+ * North Americans race 6: 151 held one position ~350 s, then moved 912 m in 1.3 s and went on from there;
+ * C31 Gold Cup race 8: GER 21 held, jumped 1,258 m in 0.3 s and sailed on at 8–11 kn for its last 116 s).
+ * Rows sorted by time; other roles and order are kept as they are.
+ */
+export function dropTeleports<R extends { ts: number; sn: number; role: string; lat: number; lon: number }>(rows: R[]): R[] {
+  const bySn = new Map<number, R[]>();
+  for (const r of rows) {
+    if (r.role !== 'competitor') continue;
+    let s = bySn.get(r.sn);
+    if (!s) bySn.set(r.sn, (s = []));
+    s.push(r);
+  }
+  const dropped = new Set<R>();
+  for (let s of bySn.values()) {
+    for (let runs = teleportRuns(s); runs.length; runs = teleportRuns(s)) {
+      const cut = new Set<R>();
+      for (const [from, to] of runs) for (let i = from; i < to; i++) cut.add(s[i]);
+      for (const r of cut) dropped.add(r);
+      s = s.filter((r) => !cut.has(r));
+    }
+  }
+  return dropped.size ? rows.filter((r) => !dropped.has(r)) : rows;
+}
+
 /**
  * A reported SOG over this is checked against the fix's position-derived speed. Real readings go past it
  * (M32s racing at 25–29 kn; monohulls towed or motoring in at up to ~47 kn) and their positions agree.
@@ -625,7 +705,6 @@ export const SOG_SPIKE_CEIL_KN = 25;
 export const SOG_SPIKE_X = 2;
 export const SOG_SPIKE_MARGIN_KN = 10;
 export const SOG_SPIKE_REACH_MS = 10_000;
-const MS_PER_KN = 1852 / 3600;
 
 /**
  * Null out (NaN: the analysis fills it from the positions, as for any missing SOG) a competitor's reported
@@ -1005,8 +1084,9 @@ export function buildRaceData(
   if (!st.startLine) throw new Error('Race has no recorded start line');
   const gunMs = st.startTime;
   // Before tracks, starts and finishes: replayed fixes go, a boat whose tracker is far off the fleet has no
-  // data there, and a SOG spike is no reading.
-  const rows = dropFleetOutliers(dropReplayedFixes(parseTelemetry(pages)));
+  // data there, fixes a boat could not have reached (out and back, or stale at a track's ends) go, and a SOG
+  // spike is no reading.
+  const rows = dropTeleports(dropFleetOutliers(dropReplayedFixes(parseTelemetry(pages))));
   dropSogSpikes(rows);
   // Older feeds (and some fixtures) have no roll / pitch columns at all.
   const imu = pages.some((p) => !!p?.Fields && (p.Fields.includes('roll') || p.Fields.includes('pitch')));
