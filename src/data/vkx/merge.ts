@@ -129,6 +129,8 @@ export function mergeTrack(feed: Track | null, log: PayloadTrack, gunMs: number)
       }
     } else {
       const k = feedKeep[j++];
+      // The feed's fix placed on the finish line stays marked as placed (outside the log, or in a hole of it).
+      if (ft === feed!.finishFixMs) out.finishFixMs = ft;
       out.t[o] = ft;
       out.lat[o] = feed!.lat[k];
       out.lon[o] = feed!.lon[k];

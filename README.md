@@ -1171,8 +1171,32 @@ next class. An automatically matched event must also beat the next candidate by
   course has no finish line) after the boat's own `race_stage` turned
   `finishing` (its last leg), and not before the fleet's onset (20th
   percentile) less a minute. Without stage rows it is the first crossing after
-  the boat's last time ≥ 70% of its furthest distance out. A track that doesn't
-  cross gets no finish.
+  the boat's last time ≥ 70% of its furthest distance out. A step no boat could
+  sail (over 250 m at over 60 kn: a frozen tracker catching up) is no crossing.
+  A track that doesn't cross gets no finish, unless the boat is officially
+  placed (below).
+- **A finish the tracker skips** (`src/data/holeFinish.ts`): an officially
+  placed boat (or one that finished with a code) with no finish time from any
+  source, because its tracker has a hole of over 2 min on its last leg or stops
+  before the line, is timed between the boats placed just ahead and behind that
+  have one (`finishSource` `'estimated'`, counted in `results.estimatedFinishes`).
+  From where it was last measured (the first of any fixes a frozen tracker
+  repeats at one position), the distance to the line at its speed over the
+  minute before (median SOG, at least 2 kn), kept between those two times and
+  inside the hole; halfway between them when there's no speed. Only when the
+  speed it takes to reach the line by then is within 2× of its own either way
+  (and under 30 kn), and no faster from the line on to where its tracker picks
+  it up again. Places, codes and points stay the official ones, and an estimate
+  never bounds another boat's. J/70 North Americans race 6: 314, 151 and 14
+  (21st, 18th, 26th) land between their neighbors.
+- **Drawn through the line.** A finish time (estimated, official or RaceSense)
+  that falls in such a hole gets one fix on the finish line at that time, where
+  the boat's course over the minute before meets the line (5 m inside its
+  ends), with the SOG and course that take it there (`Track.finishFixMs`), so
+  the map, the replay and the places chart take the boat through the line like
+  any finisher; the hole's fill (`src/ui/gapFill.ts`) curves into it and the
+  track ends there. Coverage leaves it out. A known time the boat couldn't have
+  sailed more or less straight to (outside 2× its speed) gets no such fix.
 - Cascais race 2, with RaceSense finishes as truth: 98/100 reproduced, median
   0.6 s off.
 - **Not in the race:** in such a race (no RaceSense finishes, no official

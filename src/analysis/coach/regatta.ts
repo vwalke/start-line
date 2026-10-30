@@ -50,7 +50,8 @@ export function analysedFinishes(a: RaceAnalysis): Map<string, RaceFinish> {
         place: b.finishPos,
         code: b.finishCode ?? null,
         of,
-        source: places ?? b.finishSource ?? 'racesense',
+        // An estimated time only comes with official places.
+        source: places ?? (b.finishSource === 'estimated' ? 'official' : b.finishSource) ?? 'racesense',
         ...(b.finishCode && b.scoredPoints != null ? { points: b.scoredPoints } : {}),
         ...(b.onWaterPlace != null ? { onWater: b.onWaterPlace, penaltyPlaces: b.penaltyPlaces ?? null } : {}),
       },

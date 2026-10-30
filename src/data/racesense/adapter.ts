@@ -13,14 +13,18 @@ import {
   destination,
   feedRaceNumber,
   fleetOnsetFloor,
+  lastLegFrom,
   lineFrom,
   officialTimesPlausible,
   trackerFinish,
   PLAUSIBLE_SEARCH_MS,
+  TELEPORT_KN,
+  TELEPORT_MIN_M,
   type Fix,
   type MarkSeries,
   type Plausibility,
 } from '../finishes';
+import { holeFinish, lineFix, withLineFix } from '../holeFinish';
 import { finishedWithCode } from '../official/codes';
 import type { OfficialResultRow } from '../official/link';
 import type { Boat, CourseMark, EntryResults, LatLon, Line, MarkTrack, RaceData, RaceResults, RcStart, Track, WindSample } from '../types';
@@ -615,16 +619,13 @@ export function dropReplayedFixes<R extends { sn: number; role: string; lat: num
 const MS_PER_KN = 1852 / 3600;
 
 /**
- * A step between a tracker's consecutive fixes is impossible when it covers over TELEPORT_MIN_M (above GPS
- * noise at sub-second steps) at over TELEPORT_KN (no boat sails it: M32s race at 25–29 kn, monohulls motor
- * in at up to ~47 kn). A step with no time between its fixes and over TELEPORT_MIN_M apart is impossible too.
- * J/70 North Americans race 6: 898's tracker sent 6 fixes over 6.3 s ~16.5 km off the course, entered at
- * ~16,900 kn and left at ~8,700 kn, and the boat went on from where it had been. Within FLEET_OUTLIER_M of
- * the fleet, so they stayed, and the race's extent took them in. Cascais J/70 Worlds (Open) races 6 and 9:
- * POR 1685's and DEN 1185's tracks began with 1–4 stale fixes from the previous race, 2.3–3.3 km off.
+ * Impossible steps (data/finishes.ts TELEPORT_MIN_M at TELEPORT_KN). J/70 North Americans race 6: 898's tracker
+ * sent 6 fixes over 6.3 s ~16.5 km off the course, entered at ~16,900 kn and left at ~8,700 kn, and the boat went
+ * on from where it had been. Within FLEET_OUTLIER_M of the fleet, so they stayed, and the race's extent took them
+ * in. Cascais J/70 Worlds (Open) races 6 and 9: POR 1685's and DEN 1185's tracks began with 1–4 stale fixes from
+ * the previous race, 2.3–3.3 km off.
  */
-export const TELEPORT_MIN_M = 250;
-export const TELEPORT_KN = 60;
+export { TELEPORT_KN, TELEPORT_MIN_M };
 /** A run of fixes cut off by impossible steps is dropped only if it lasts at most this long. */
 export const TELEPORT_RUN_MS = 120_000;
 
@@ -945,6 +946,8 @@ function resolveResults(
   const endMs = Math.min(lastTs, ctx.nextGunMs != null ? ctx.nextGunMs - 30_000 : Infinity);
   const series = (hex: string): MarkSeries => markSeries(rows, hex);
   const lineAt = finishLineAt(ctx.course, rows, ctx.finishLine);
+  // The line the finishes are found on: the feed's, else one estimated below.
+  let finishAt = lineAt;
   const fixes = new Map<string, Row[]>();
   for (const b of boats) fixes.set(b.id, rowsOf(b.sail) ?? []);
   const feedRn = feedRaceNumber(fixes.values(), gunMs);
@@ -999,6 +1002,7 @@ function resolveResults(
       if (est && better) {
         tracker.clear();
         for (const [id, t] of est.finishes) tracker.set(id, t);
+        finishAt = est.fit.lineAt;
         if (estPlaus) plaus = estPlaus;
         // Drawn where the committee boat was at the fleet's median finish.
         const ts = [...est.finishes].filter(([id]) => finishers.has(id)).map(([, t]) => t);
@@ -1056,6 +1060,32 @@ function resolveResults(
       b.finishMs = null;
     }
   }
+  // An officially placed boat (or one that finished with a code) whose tracker skips the line: timed between the
+  // boats placed just ahead and behind that have a finish time (data/holeFinish.ts). Those times are all known
+  // first, so one estimate never bounds another; places, codes and points stay the official ones.
+  const estimates = new Map<Boat, number>();
+  if (finishAt) {
+    const rankOf = (o: OfficialResultRow): number | null => (o.code == null ? o.place : (o.onWater ?? null));
+    const timed = boats.filter((b) => b.finishMs != null).map((b) => ({ rank: rankOf(byRs.get(b.sail)!), ms: b.finishMs! }));
+    const nearest = (r: number, side: 1 | -1): number | null => {
+      let best: { rank: number; ms: number } | null = null;
+      for (const x of timed) if (x.rank != null && (x.rank - r) * side > 0 && (!best || (x.rank - best.rank) * side < 0)) best = { rank: x.rank, ms: x.ms };
+      return best?.ms ?? null;
+    };
+    for (const b of boats) {
+      const o = byRs.get(b.sail);
+      if (b.finishMs != null || !o || !finished(o)) continue;
+      const fx = fixes.get(b.id)!;
+      const w = lastLegFrom(fx, finishAt, gunMs, endMs, feedRn, floor, ctx.axisDeg);
+      const r = rankOf(o);
+      const est = w && holeFinish({ fixes: fx, lineAt: finishAt, gunMs, endMs, from: w.from, ahead: r != null ? nearest(r, -1) : null, behind: r != null ? nearest(r, 1) : null });
+      if (est) estimates.set(b, est.ms);
+    }
+    for (const [b, ms] of estimates) {
+      b.finishMs = ms;
+      b.finishSource = 'estimated';
+    }
+  }
   const tracked = new Set(boats.map((b) => b.sail));
   const out: RaceResults = {
     places: 'official',
@@ -1063,6 +1093,7 @@ function resolveResults(
     officialNumber: official.number,
     trackerFinishes: trackerN,
   };
+  if (estimates.size) out.estimatedFinishes = estimates.size;
   if (!plaus.ok) out.timesNote = plaus.why ?? 'official times not plausible';
   const noTrack = official.rows.filter((r) => !r.rsSail || !tracked.has(r.rsSail)).map((r) => r.rsSail ?? [r.prefix, r.sail].filter(Boolean).join(' '));
   const noOfficial = boats.filter((b) => !byRs.has(b.sail)).map((b) => b.sail);
@@ -1301,19 +1332,27 @@ export function buildRaceData(
     data.finishLine = estimated;
     data.finishLineEstimated = true;
   }
-  // Display only: a boat with no accepted finish is drawn to its own crossing of the finish line (Boat.lineCrossMs),
-  // found as tracker finishes are (the stage onset, else its last visit to the far end), not its first pass of the line.
-  const open = boats.filter((b) => b.finishMs == null || b.entry?.finishPlausible === false);
-  const lineAt = open.length ? (estimated ? () => estimated : finishLineAt(course, rows, finishLine)) : null;
+  const lineAt = estimated ? () => estimated : finishLineAt(course, rows, finishLine);
   if (lineAt) {
     const all = boats.map((b) => rowsOf(b.sail) ?? []);
     const feedRn = feedRaceNumber(all, gunMs);
     const floor = fleetOnsetFloor(all, gunMs, feedRn);
     const lastTs = rows.length ? rows[rows.length - 1].ts : gunMs;
     const endMs = Math.min(lastTs, opts.nextGunMs != null ? opts.nextGunMs - 30_000 : Infinity);
-    for (const b of open) {
-      const t = trackerFinish(rowsOf(b.sail) ?? [], lineAt, gunMs, endMs, feedRn, floor, axisDeg);
-      if (t != null) b.lineCrossMs = t;
+    for (const b of boats) {
+      const fx = rowsOf(b.sail) ?? [];
+      if (b.finishMs != null && b.entry?.finishPlausible !== false) {
+        // A finish time inside a hole in the boat's tracker, with no crossing: one fix on the line at that time, so
+        // the track is drawn and replayed through the line like any finisher's (data/holeFinish.ts lineFix).
+        const w = lastLegFrom(fx, lineAt, gunMs, endMs, feedRn, floor, axisDeg);
+        const fix = w && lineFix(fx, lineAt, b.finishMs, w.from);
+        if (fix) b.track = withLineFix(b.track, fix);
+      } else {
+        // Display only: a boat with no accepted finish is drawn to its own crossing of the finish line (Boat.lineCrossMs),
+        // found as tracker finishes are (the stage onset, else its last visit to the far end), not its first pass of the line.
+        const t = trackerFinish(fx, lineAt, gunMs, endMs, feedRn, floor, axisDeg);
+        if (t != null) b.lineCrossMs = t;
+      }
     }
   }
   if (ws?.length) {

@@ -29,6 +29,13 @@ export interface Track {
   roll?: Float32Array;
   /** Trim (RaceSense `pitch`), degrees; NaN / absent as `roll`. */
   pitch?: Float32Array;
+  /**
+   * The time of the one fix the source placed rather than measured: on the finish line at the boat's finish
+   * time, when that falls in a hole in its tracker's fixes with no crossing of the line (data/holeFinish.ts),
+   * so the track is drawn and replayed through the line like any finisher's. Its SOG and heading are the ones
+   * that take the boat there from the fix before; it has no roll or pitch (NaN). Measured figures leave it out.
+   */
+  finishFixMs?: number;
 }
 
 export interface Boat {
@@ -53,7 +60,7 @@ export interface Boat {
   /** Event-wide results, when the source has them (RaceSense: the regatta doc's finishes for every race). */
   entry?: EntryResults;
   /** Where `finishMs` came from, when the race's results were resolved (see RaceData.results). */
-  finishSource?: FinishSource;
+  finishSource?: TimeSource;
   /**
    * Display only, for a boat with no accepted finish (none, or one shown implausible): where its own track crossed
    * the finish line (data/finishes.ts trackerFinish), so its last leg is drawn to there and not on past it.
@@ -89,6 +96,11 @@ export interface Boat {
 }
 
 export type FinishSource = 'official' | 'racesense' | 'tracker';
+/**
+ * Where one boat's finish time came from: a FinishSource, or 'estimated' (an officially placed boat whose tracker
+ * skips the finish, timed between the boats placed either side of it: data/holeFinish.ts).
+ */
+export type TimeSource = FinishSource | 'estimated';
 
 /** How a race's places and finish times were decided (data/finishes.ts, racesense/adapter.ts). */
 export interface RaceResults {
@@ -102,6 +114,8 @@ export interface RaceResults {
   officialNumber?: number;
   /** Boats whose finish is a tracker crossing. */
   trackerFinishes: number;
+  /** Officially placed boats whose tracker skips the finish, timed from the boats placed either side (finishSource 'estimated'); set when any. */
+  estimatedFinishes?: number;
   /** Official results with no track in this race (RaceSense sail, or the official sail when unpaired). */
   officialNoTrack?: string[];
   /** Tracked boats the official results don't list. */
