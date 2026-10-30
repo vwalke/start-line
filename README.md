@@ -209,8 +209,8 @@ The landing hero is two files, one per theme. The masthead stays carbon in both.
     **Low-resolution fallback** (`placesThrough`, `src/analysis/coach/progress.ts`):
     wherever the zone time can't be used (the coverage gate fails, no reference
     passes it, or the mark is estimated), the boat's place in the fleet is read
-    by distance to go along the course (the wind ladder to its mark plus the
-    legs after; the leg table's fixed fleet; a sparse track's position read
+    by distance to go along the course (the wind ladder from its bow to its
+    mark plus the legs after; the leg table's fixed fleet; a sparse track's position read
     across gaps up to 60 s, otherwise interpolated between its rounding times)
     at its own fix nearest 60 s before the rounding (20 s–2 min) and the same
     after.     Losing max(3, min(5, ceil(5 % of the fleet))) places or more (3 up to
@@ -526,14 +526,20 @@ Switching races keeps the tab.
   or where the data starts), and the start line.
 - **Boat shapes** (`ui/boatShape.ts` `boatMark`): Start Playback and the
   Race Viewer while scrubbing or replaying draw each boat as the start
-  chart's hull, centered on its position and pointing along its course over
+  chart's hull, pointing along its course over
   ground at that moment (the scrubber's: the step between the fixes either
   side), or, while it is held past its final fix, slower than 1 kn or has no
-  course, along the last heading it had. It
+  course, along the last heading it had. Start Playback centers it on the
+  boat's position. The Race Viewer draws it from its bow: the feed's
+  tracker-to-bow distance ahead of the tracker (RaceSense `bowOffsetCm`,
+  4.9 m on an IC37) where it gives one that fits the hull, else half the
+  LOA (`data/classes.ts` `bowAheadM`), so the ladder rungs, measured bow to
+  bow, meet the bow on screen. It
   is to scale from the class's length and beam once that is at least 12 px
   long on screen (`BOAT_SHAPE_PX`; 15 px for the selected boat), else a
   symbol that long with the hull's proportions (as the start chart's
-  markers when its hulls would be too small). It is filled while the boat
+  markers when its hulls would be too small); on the Race Viewer the
+  symbol's extra length is all aft, its tip still on the bow. It is filled while the boat
   has data and hollow (a quiet outline in its own color) once its tracker has
   stopped for good (held past its final fix, before its finish), so a dropout
   never flips the hull to a dot. Across a hole in its track, however long, the

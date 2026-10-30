@@ -688,6 +688,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       downwind: ranked ? kindSummary(legResults, legs, 'downwind') : null,
       headingSource: headings.get(b.id)?.source ?? 'device',
       headingOffDeg: headings.get(b.id)?.offDeg ?? null,
+      ...(b.bowOffsetM > 0 ? { bowOffsetM: b.bowOffsetM } : {}),
       ...(b.log ? { log: b.log } : {}),
     };
 

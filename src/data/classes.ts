@@ -95,3 +95,17 @@ export function matchClass(names: (string | null | undefined)[]): { name: string
   }
   return null;
 }
+
+/** A race's class with dimensions: its division's boat class, then the division's name, then the event's class label. */
+export const raceClass = (meta: { boatClass?: string | null; division?: string | null; classLabel?: string | null }): { name: string; dims: ClassDims } | null =>
+  matchClass([meta.boatClass, meta.division, meta.classLabel]);
+
+/**
+ * How far the bow is ahead of the tracker, m: the feed's antenna-to-bow distance where it gives one that fits the
+ * hull (over 0, at most its LOA), else half the LOA (the tracker taken as amidships); 0 with no class dimensions
+ * (no hull drawn, nothing to measure from).
+ */
+export function bowAheadM(bowOffsetM: number | null | undefined, dims: ClassDims | null): number {
+  if (!dims || !(dims.loaM > 0)) return 0;
+  return bowOffsetM != null && bowOffsetM > 0 && bowOffsetM <= dims.loaM ? bowOffsetM : dims.loaM / 2;
+}

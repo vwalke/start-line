@@ -1,7 +1,8 @@
 /**
  * The boat shape: the start chart's stylized hull (to scale, from the class's LOA and beam), shared with the
- * track map's boats while scrubbing and the Start tab's "Start Playback" view. Those two draw it centred on the
- * boat's position, pointing along its course over ground at that moment (or the last heading known while it is held
+ * track map's boats while scrubbing and the Start tab's "Start Playback" view. Start Playback draws it centred on the
+ * boat's position; the track map from its bow (hullCenterFromBow: the ladder rungs meet the bow it draws), both
+ * pointing along its course over ground at that moment (or the last heading known while it is held
  * past its final fix, slow or has no course: boatMark), to scale or at least BOAT_SHAPE_PX long, filled while its data is
  * fresh and hollow once it is lost; the dot only with no heading ever known, no class dimensions, or so far zoomed
  * out a symbol would overstate the boat too much. Pure: outlines and SVG path data; the callers draw them.
@@ -178,6 +179,13 @@ export function boatMark(o: MarkInput): BoatMark {
   const s = boatShapeOr({ ...o, dir: heading, hold: false, sog: NaN });
   return 'shape' in s ? { ...s, hollow } : { dot: s.dot, hollow };
 }
+
+/**
+ * The middle of a hull drawn `dims` (boatMark's: to scale, or stretched to its smallest size on screen) along `dir`
+ * (unit, map coordinates) whose bow is `bowM` ahead of the tracker at `at` (data/classes.ts bowAheadM): the bow stays
+ * there at any size, a stretched hull reaching further aft, never forward of the real bow.
+ */
+export const hullCenterFromBow = (at: Vec, dir: Vec, bowM: number, dims: ClassDims): Vec => [at[0] + dir[0] * (bowM - dims.loaM / 2), at[1] + dir[1] * (bowM - dims.loaM / 2)];
 
 /** The hull's SVG path data in map coordinates, centred on `at`, pointing along `dir`. */
 export const hullPathAt = (at: Vec, dir: Vec, dims: ClassDims): string => hullPathD(hullOutlineAt(at, dir, dims));

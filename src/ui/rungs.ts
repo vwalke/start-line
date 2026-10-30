@@ -7,9 +7,14 @@
  * with estimated places skipped (as the tooltip skips them), so "Leader" is always the tooltip's first place.
  *
  * - A rung lies where its boat's rung puts it: `rung` from the leg's mark along the wind (the last leg's from the
- *   finish line's middle). Inside the laylines that is through the boat; past one, a little behind it, where its
- *   rung says it is. So the leader's is never behind the selected boat's, and the two lines are the distance in the
- *   label apart.
+ *   finish line's middle). The rung is measured from the bow (ladderNow.ts: the tracker plus the bow's distance
+ *   ahead of it, along the way the hull points), so inside the laylines the line runs through the bow; past one, a
+ *   little behind it, where its rung says it is. So the leader's is never behind the selected boat's, and the two
+ *   lines are the distance in the label apart, bow to bow.
+ * - The map draws each hull from that same bow (ui/charts.ts dotsSvg; a hull stretched to its smallest size on
+ *   screen reaches further aft, never forward), so the line meets the bow as drawn at any zoom. Where the map draws
+ *   a boat from other fixes than the ladder reads (a full-rate track, a filled hole), toDrawnBows moves the line the
+ *   difference along the wind, onto the bow on screen.
  * - The rungs turn with the wind as the replay runs; the wind is never missing (liveWind.ts falls back to the nearest
  *   reading), so a rung is never dropped for it.
  * - None before the gun, on a reach, once the boat has finished, or with no position for it then.
@@ -71,6 +76,8 @@ export interface Rung {
   axis: RungAxis;
   /** A point on the rung, map units (kept and filled in place). */
   at: [number, number];
+  /** Its boat's bow as the ladder measures it (ladderNow.ts LadderRead bx, by), map units (kept and filled in place). */
+  bow: [number, number];
   /** The boat's rung, m (ladderNow.ts LadderRead.rung). */
   rung: number;
   /** The selected boat's distance behind the leader along the wind, m (its rung less the leader's); null across legs or with no leader rung. */
@@ -86,7 +93,7 @@ export interface RungInput {
   mapTwdDeg: number;
 }
 
-const newRung = (role: Rung['role']): Rung => ({ role, id: '', leg: -1, axis: { kind: 'upwind', twdDeg: NaN, up: [0, 0], across: [0, 0] }, at: [0, 0], rung: 0, behindM: null });
+const newRung = (role: Rung['role']): Rung => ({ role, id: '', leg: -1, axis: { kind: 'upwind', twdDeg: NaN, up: [0, 0], across: [0, 0] }, at: [0, 0], bow: [0, 0], rung: 0, behindM: null });
 const rungSlots = { leader: newRung('leader'), sel: newRung('sel') };
 const rungsOut: Rung[] = [];
 
@@ -111,6 +118,8 @@ function fillRung(o: RungInput, i: number, r: Rung): boolean {
   r.leg = x.leg;
   r.at[0] = px * c - py * sn;
   r.at[1] = -(px * sn + py * c);
+  r.bow[0] = x.bx * c - x.by * sn;
+  r.bow[1] = -(x.bx * sn + x.by * c);
   r.rung = x.rung;
   r.behindM = null;
   return true;
@@ -135,6 +144,25 @@ export function rungsAt(o: RungInput): readonly Rung[] {
     rungsOut.push(sel);
   }
   return rungsOut;
+}
+
+/**
+ * Move each rung along the wind by however far the bow the map drew for its boat (`drawn`: its id → that bow, map
+ * units, or null when not drawn) is from the bow the ladder measured, so the line meets the bow on screen. The two
+ * are the same point but where the map draws a boat from other fixes (a full-rate track, a filled hole); the
+ * distance in the label stays the measured one. In place.
+ */
+export function toDrawnBows(rungs: readonly Rung[], drawn: (id: string) => ArrayLike<number> | null): void {
+  for (let i = 0; i < rungs.length; i++) {
+    const r = rungs[i];
+    const p = drawn(r.id);
+    if (!p) continue;
+    const up = r.axis.up;
+    const d = (p[0] - r.bow[0]) * up[0] + (p[1] - r.bow[1]) * up[1];
+    if (!Number.isFinite(d)) continue;
+    r.at[0] += d * up[0];
+    r.at[1] += d * up[1];
+  }
 }
 
 /** Closer than this, m (or this share of a boat length), the selected boat reads as level with the leader. */
