@@ -8,9 +8,10 @@
  * Owner and crew names never reach the report: the official rows are read for their times only, and the
  * boat is named by RaceSense's sail and boat name.
  *
- * The report is opened by the `#report` hash (the tabs' own hash, replaced, never pushed) or `report=1`, and
- * follows the Coach's view: `cview=regatta` gives the regatta version (one line per race, the Regatta view's
- * penalties, things to work on and Went well).
+ * The report is opened by the `#report` hash (where the tabs' hash goes) or `report=1`, at /regattas/report.
+ * Opening or closing it pushes a history entry (ui/nav.ts), so back closes it; the app's popstate handler
+ * opens or closes it to match the entry. It follows the Coach's view: `cview=regatta` gives the regatta
+ * version (one line per race, the Regatta view's penalties, things to work on and Went well).
  */
 import type { CoachModel } from '../analysis/coach';
 import { coachDebrief, type CoachDebrief } from '../analysis/coach/debrief';

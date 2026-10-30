@@ -22,12 +22,16 @@ A [Walke Forward](https://walkeforward.com) project, sibling to
   screenshots of the running app on public demo races, made by `scripts/landing-thumbs.mjs` (below).
 - **`/regattas`**: the app's event picker, as `/` used to be (reopens the last race viewed, else the latest).
   The installed web app starts here.
+- **`/regattas/start`, `/regattas/race`, `/regattas/coach`, `/regattas/report`**: a race, on that tab or its
+  report (`?event=…&div=…&race=…`, as before; an event with no races yet is `/regattas?event=…`). The path
+  only names the view: the app reads the query and hash, so an older `/?event=…#coach` link opens the same
+  view and is rewritten to its path in place (`src/ui/nav.ts`). See [Page views](#page-views).
 - **Every other URL** is the app, unchanged: any `/` link with an app parameter (`event`, `div`, `race`,
   `nc`, `ys`, `ysc`, `boat`, `grp`, `cview`, `t`, `trail`, `report`, `buy`, `checkout`, `signin`, …: anything
   but `utm_*`-style tagging) or hash (`#start`, `#race`, `#coach`, `#report`). The rule is
   `src/landing/route.ts` `routeOf`, mirrored by an inline script in `index.html` so the right page shows
-  before first paint. Cloudflare Pages serves `index.html` for `/regattas` (no `404.html`: single-page
-  fallback), so there is no `_redirects`.
+  before first paint. Cloudflare Pages serves `index.html` for `/regattas` and the paths under it (no
+  `404.html`: single-page fallback), so there is no `_redirects`.
 
 **Live now.** Above Upcoming on the landing page, cards for the `/api/landing` events underway: the
 event's own today (same day rule as below) is between its first and last day, inclusive. Each links to the
@@ -461,8 +465,9 @@ Each table stays on the tab with the charts it's read against, because
 picking a boat in a chart and finding its row (or the reverse) is the main
 way they're used; a separate Tables tab would split every such pair. The tabs
 are a tablist (arrow keys, Home / End) that sticks under the boat strip on a
-phone. The tab is in the URL hash (`#start`, `#race`, `#coach`; replaced, never added to
-history) and kept with the last race viewed. A hash on the URL wins; a link
+phone. The tab is in the URL hash (`#start`, `#race`, `#coach`) and the path
+(`/regattas/coach`, …); picking a tab adds a history entry, so back returns to the last one, and it is
+kept with the last race viewed. A hash on the URL wins; a link
 without one opens Start, or the saved tab when it reopens the saved race.
 Switching races keeps the tab.
 
@@ -1263,6 +1268,9 @@ functions/_auth.ts, _stripe.ts, _authDb.ts, _entitlements.ts  sign-in, payments,
 src/data/freeRace.ts         race 1 and its free telemetry window (shared by the gate and the page)
 src/ui/paywall.ts            lock card and account sheet (only when /api/auth/me says the paywall is on)
 src/feedback/, functions/_feedback.ts, functions/api/feedback.ts  the Feedback button and sheet, and POST /api/feedback (see Feedback)
+src/ui/nav.ts                the app's paths and history entries (see Page views)
+src/ui/track.ts, functions/_track.ts, _trackSchema.ts, functions/api/track.ts  usage events and POST /api/track (see Usage tracking)
+scripts/usage-report.mjs     a day's usage from Analytics Engine (read-only)
 migrations/0001_paywall.sql  D1 schema for the paywall (not applied: see Paywall)
 tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1–r3, ic37_r5, gate_*, cascais_r2, cascais_r3, anom_*: tracker glitches, vkx/, stripe/: fake webhook events); tests/d1mem.ts runs the paywall's SQL against the migration's schema in memory; tests/setup.ts yields to the event loop after each test (a long run of synchronous tests otherwise times out vitest's worker RPC, 'Timeout calling "onTaskUpdate"')
 scripts/make-fixture.mjs     builds the trimmed fixtures from raw downloads (--preset benelux|c31|m24|j88|j105|j105r1|j105r3|ic37|gate-*|cascais-r2|cascais-r3)
@@ -2222,6 +2230,139 @@ node scripts/feedback.mjs show 79733007-b065-4920-b85d-51fc2d817d9a
 # A picture: npx wrangler r2 object get <bucket>/feedback/<id>/image.webp --remote --file shot.webp
 ```
 
+## Page views
+
+Recall changes views without loading a page, so the URL carries the view. A user's move to another event,
+race, tab (Start, Race, Coach) or the report adds **one** history entry, with `history.pushState`, once the
+new view is on screen; back and forward go through them and the app shows what each entry names (a
+`popstate` handler in `src/ui/app.ts`, deciding with `popAction` in `src/ui/nav.ts`): the empty `/regattas`
+picker, an event's card, another event, another race of the same event, a tab or the report. A hash typed or
+linked in the page arrives as a `popstate` as well (there is no separate `hashchange` handler); an old
+`#coach` link still opens its tab at load. Everything finer (the replay's time and trail, the selected boat,
+the Coach's group or Race / Regatta view, a load settling, a link tidied at boot) uses
+`history.replaceState`, so scrubbing or playing never adds entries. Full screen keeps its own entry at the
+same URL (closing it pops that entry), and nothing is pushed while it is open.
+
+**Cloudflare Web Analytics.** The site is proxied through Cloudflare, so the zone injects the Web Analytics
+beacon into every page (there is no snippet in `index.html`; adding one as well would count every view
+twice). The beacon tracks single-page navigations itself (on by default): it watches `pushState` (or the
+Soft Navigations / Navigation API where the browser has them) and `popstate`, not `replaceState`. So after
+this change a page view is:
+
+- a page load: the landing page (`/`), or the app opened from a link, a bookmark or the installed app;
+- each push: another event (`/regattas?event=…`) or race (`/regattas/start?…`), a tab (`/regattas/race`,
+  `/regattas/coach`), the report (`/regattas/report`), and closing it;
+- each back or forward between those;
+- possibly opening a chart full screen (an entry at the same URL; the beacon may or may not count it).
+
+The scrubber, playback, boat picks and sign-in sheets are never page views. Web Analytics groups views by
+path, so its Top paths show the views (landing, picker, Start, Race, Coach, report); which events and races
+are opened is in the first-party events below. The first view of an app link may be recorded under the
+URL it was opened with (`/?event=…`) before it is tidied to its path.
+
+No dashboard change is needed with the automatic setup. To use a manual snippet instead (for example to set
+`"spa": false`), first turn automatic setup off for the site (Web Analytics → the site → Manage site →
+disable automatic setup), then add the snippet from that page, with its own token, to `index.html`.
+Never both.
+
+## Usage tracking
+
+First-party, anonymous usage events, stored in a **Workers Analytics Engine** dataset (no new database, KV
+or R2; the per-IP rate limit reuses D1's existing `auth_rate_limits`). The page's tracker (`src/ui/track.ts`)
+queues events and sends them in small batches to `POST /api/track` (`functions/_track.ts`), a few seconds
+after the first, when a batch of 20 is full, and when the page is hidden or left. Each batch is one JSON
+`fetch` with `keepalive: true` (so it outlives the page; a 4 KB batch is far inside keepalive's 64 KB) and
+`credentials: 'omit'` (no cookies go with it, so never `navigator.sendBeacon`, which sends them). Each event
+becomes one data point.
+It is off in development and tests (`VITE_TRACK=1` turns it on in `npm run dev`).
+
+**Privacy.** No cookies are set, read or sent, and no IP address, email, name, user id or user agent is sent
+or stored in the dataset. The server reads the IP only to count the batch against its hourly limit, under a
+salted SHA-256 of it (as feedback and race emails do); it is never written to a data point. The session is a random id (`crypto.randomUUID`) in `sessionStorage`: one tab, gone when it closes,
+never in `localStorage`. The referrer is kept as its host only, on a session's first event. The server
+adds only Cloudflare's two-letter country. Do Not Track and Global Privacy Control turn tracking off
+entirely. A failed send is dropped silently.
+
+**Events** (`TRACK_EVENTS`, `functions/_trackSchema.ts`): `landing_view`, `live_card_click`,
+`upcoming_card_click`; `app_open`, `regatta_open` (detail `card` for an event with no races yet),
+`race_open` (once each time another race is shown; `locked` for its lock card), `tab` (`start` / `race` /
+`coach`), `report_open`, `coach_view` (`race` / `regatta`), `coach_ask` (never the question),
+`table_sort` and `boat_select` (`start` / `legs` / `list`), `full_screen` (`start` / `map` / `places`),
+`replay_play` (once per press), `replay_scrub` (at most one every 5 seconds), `replay_boat` (`map` /
+`start`); `signin_prompt` (`button` / `buy` / `notify` / `note`), `signin_start` (`email` / `google` /
+`apple` / `microsoft`), `signin_done`, `account_open`, `paywall_shown`, `checkout_start`, `notify_on`;
+`feedback_open`, `feedback_sent` (its type), `theme` (`light` / `dark` / `system`). The same event twice
+within a second counts once, and a session stops at 300 events.
+
+**Data points** (dataset `recall_events`):
+
+| column | holds |
+| --- | --- |
+| `index1` | event name (the sampling key: kept low-cardinality, never the session) |
+| `blob1` | event name |
+| `blob2` | path: `/`, `/regattas`, `/regattas/start`, `/regattas/race`, `/regattas/coach`, `/regattas/report`, else `other` (never the query) |
+| `blob3` | RaceSense event id |
+| `blob4` | race: `<division>\|<race number>` |
+| `blob5` | signed in: `yes` / `no` / `unknown` (paywall off, or not known yet) |
+| `blob6` | device: `mobile` / `tablet` / `desktop` |
+| `blob7` | referrer host, on the session's first event only |
+| `blob8` | theme drawn: `light` / `dark` |
+| `blob9` | detail (a tab, a provider, …) |
+| `blob10` | country (two letters, else empty) |
+| `blob11` | session id |
+| `double1` | the event's number in the session (1, 2, …) |
+| `double2` | ms since the session's first event |
+
+Analytics Engine samples a busy dataset by its index, so the index is the event name (a couple of dozen
+values). A per-session index would make each session its own sampling bucket, and that hurts sampling.
+
+**Limits.** The endpoint takes POST only, `application/json` only (415 otherwise), a body of at most 4 KB,
+1 to 20 events, only the known keys and event names, and every string matched to its pattern; any bad part
+refuses the whole batch (400, 413 over size). The `Origin` header is required and must be exactly
+`https://recall.walkeforward.com`, `https://start-line.pages.dev` or a preview,
+`https://<one label>.start-line.pages.dev`; `http://localhost:<port>` and `http://127.0.0.1:<port>` pass only
+when the request itself was made to localhost (`wrangler pages dev`). A missing or `null` Origin, or any
+other, is a 403. Each batch then counts once against its IP's hour in `auth_rate_limits` (key
+`track-ip:<salted sha256 of the IP>`, one upsert per batch): past **2,000 batches an hour per IP** it answers
+429. That is generous on purpose (a fleet on one club's Wi-Fi shares an IP). With no `AUTH_DB`, or when D1
+errs, the batch goes through: analytics never breaks the page. Without the `RECALL_EVENTS` binding it answers 204 and stores nothing,
+so it was safe to ship before the dataset existed. Analytics Engine's own write limits (250 data points per
+invocation) are far above the batch cap.
+
+**Report.** `scripts/usage-report.mjs` (read-only, no dependencies) asks the Analytics Engine SQL API about
+one day, midnight to midnight Eastern (`--tz UTC` or any IANA zone), yesterday by default: sessions,
+bounce rate (sessions with exactly one event), the funnel `landing_view` → `race_open` → `signin_start` →
+`signin_done`, top regattas and races, events by type and detail, signed in or not, device mix and
+referrer hosts. Event counts are `SUM(_sample_interval)`. Sessions are `COUNT(DISTINCT blob11)`, and bounce
+rate and the funnel group the kept rows by session (`blob11`). Analytics Engine samples busy datasets, so
+all of it is exact at Recall's volume and an estimate beyond it (sessions then a floor).
+
+```sh
+# Yesterday (Eastern). The token is read from the environment, sent only in the Authorization header, never printed.
+CF_ACCOUNT_ID=<account id> CF_ANALYTICS_TOKEN=<token> node scripts/usage-report.mjs
+# A given day, in UTC
+CF_ACCOUNT_ID=… CF_ANALYTICS_TOKEN=… node scripts/usage-report.mjs --day 2026-10-28 --tz UTC
+# Print the SQL only (calls nothing)
+node scripts/usage-report.mjs --sql --day 2026-10-28
+```
+
+**To provision** (one-time, by the owner; nothing here was created or deployed):
+
+1. **The dataset binding.** Workers & Pages → `start-line` → Settings → Bindings → Add → **Analytics
+   engine** → Variable name `RECALL_EVENTS`, dataset `recall_events`. Do it for **Production** and again
+   for **Preview** (a separate dataset such as `recall_events_preview` keeps test traffic apart). The
+   dataset is created on its first write; there is nothing else to create. Then **redeploy** (bindings
+   apply to new deployments only). The repo has no `wrangler.toml` for Pages (see Cloudflare Pages setup);
+   with one, it would be `analytics_engine_datasets = [{ binding = "RECALL_EVENTS", dataset = "recall_events" }]`.
+2. **An API token for the report.** My Profile → API Tokens → Create Token → Custom token, with the one
+   permission **Account · Account Analytics · Read**, for this account only. Use it as
+   `CF_ANALYTICS_TOKEN`, with the account id (Workers & Pages overview, right-hand side) as `CF_ACCOUNT_ID`.
+3. **Web Analytics:** no change with the automatic setup (above). Only if a manual snippet is wanted:
+   turn automatic setup off first, then add the snippet.
+
+Check after the redeploy: browse a race or two, wait a minute, then
+`node scripts/usage-report.mjs --day <today> --tz UTC` lists the session.
+
 ## Race emails
 
 "Email me when races are posted": a signed-in sailor turns emails on per regatta, and gets an email
@@ -2462,6 +2603,9 @@ position columns, except the J/105 ones.
 
    No CORS settings are needed (same-origin), and no public bucket access:
    the bucket is read only through `/api/vkx/data`.
+
+7. **Usage tracking (optional): an Analytics Engine dataset, bound as `RECALL_EVENTS`.** Until it is
+   bound, `/api/track` stores nothing. Steps in [Usage tracking](#usage-tracking).
 
 To test the function locally: `npx wrangler pages dev dist` after a build;
 `npx wrangler pages dev dist --r2=VKX_BUCKET` adds a local (simulated,

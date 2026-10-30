@@ -6,6 +6,7 @@
  * It sends to POST /api/feedback (functions/_feedback.ts) with the context from context.ts.
  */
 import './feedback.css';
+import { track } from '../ui/track';
 import { createTurnstile, type Turnstile } from '../ui/turnstile';
 import { APP_BUILT_AT, APP_COMMIT } from './build';
 import { buildContext, deviceInfo, readTheme, timeOnPage } from './context';
@@ -186,6 +187,7 @@ export function startFeedback(): void {
   async function open(from: HTMLElement): Promise<void> {
     opener = from;
     if (!dialog.open) {
+      track('feedback_open');
       info = null;
       render();
       dialog.showModal();
@@ -294,6 +296,7 @@ export function startFeedback(): void {
         setBusy(false);
         return note(sendError(res.status, out));
       }
+      track('feedback_sent', { detail: body.type });
       turnstile?.unmount();
       box.innerHTML = thanksHtml();
       box.querySelector<HTMLElement>('.switcher-close')?.focus();

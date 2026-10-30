@@ -41,6 +41,7 @@ import {
   type SignedOutReason,
 } from '../data/paywall';
 import { THEME_PREFS, parseThemePref, setThemePref, themePref, type ThemePref } from '../theme';
+import { track } from './track';
 import { createTurnstile, type Turnstile } from './turnstile';
 import { dateRangeText } from '../data/upcoming';
 import type { Alerts, RaceAlert } from './notify';
@@ -693,6 +694,8 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     sheet = bumpText ? { ...s, note: bumpText } : s;
     renderSheet();
     if (dialog && !dialog.open) {
+      if (s.mode === 'signin') track('signin_prompt', { detail: pendingBuy ? 'buy' : pendingBack ? 'notify' : s.note ? 'note' : 'button' });
+      else if (s.mode === 'account') track('account_open');
       openBtn?.setAttribute('aria-expanded', 'true');
       dialog.showModal();
     }
@@ -729,6 +732,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
       return openSheet({ mode: 'signin', note: 'Sign in first: checkout opens right after.' });
     }
     if (!eventId) return;
+    track('checkout_start', { event: eventId });
     lockMsg = 'Opening the payment page…';
     renderLock();
     const r = await startCheckout(eventId, hereWithout(location.href));
@@ -772,6 +776,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
         return renderSheet();
       }
     }
+    if (action === 'signin') track('signin_start', { detail: 'email' });
     const r = action === 'signin' ? await sendSignInLink(email, back(), undefined, pendingBuy, token) : await sendRestoreLink(email, back(), undefined, token);
     // A token is good once: ask for a fresh one whatever the answer.
     turnstile?.reset();
@@ -796,6 +801,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     const a = el.dataset.pw;
     if (a === 'google' || a === 'microsoft' || a === 'apple') {
       ev.preventDefault();
+      track('signin_start', { detail: a });
       location.assign(oauthStartUrl(a, back(), pendingBuy));
     } else if (a === 'buy-regatta') void buy();
     else if (a === 'signin') {
@@ -808,6 +814,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
       // In place, not a re-render, so focus stays on the button.
       const pref = parseThemePref(el.dataset.value);
       setThemePref(pref);
+      track('theme', { detail: pref });
       for (const b of el.parentElement?.querySelectorAll<HTMLElement>('[data-pw="theme"]') ?? []) b.setAttribute('aria-pressed', String(b.dataset.value === pref));
     }
     else if (a === 'portal') void manage();
@@ -894,6 +901,7 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
     if (!p) return;
     history.replaceState(history.state, '', hereWithout(location.href));
     if (p.kind === 'signin') {
+      if (p.value === 'ok') track('signin_done', { detail: p.via ?? 'email' });
       if (p.value === 'ok') welcome();
       // An expired link: the sign-in sheet, to ask for a new one (a note instead when signed in already, or without email sign-in here).
       else if (p.value === 'expired' && me.paywall && !me.user && me.signIn.email) openSheet({ mode: 'signin', note: EXPIRED_NOTE });
@@ -940,7 +948,10 @@ export function createPaywall(o: { onChange: () => void; notice: (text: string) 
         lockEl.addEventListener('click', onAction);
         before.parentElement?.insertBefore(lockEl, before);
       }
-      if (target?.eventId !== t.eventId || target?.raceNumber !== t.raceNumber || target?.division !== t.division) lockMsg = undefined;
+      if (target?.eventId !== t.eventId || target?.raceNumber !== t.raceNumber || target?.division !== t.division) {
+        lockMsg = undefined;
+        track('paywall_shown', { event: t.eventId });
+      }
       target = t;
       lockEl.hidden = false;
       renderLock();

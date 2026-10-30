@@ -3,9 +3,11 @@
  * findings and table), Race (track map, Rounding & Finish Positions, Race Analysis, Performance Metrics
  * table) and Coach (one boat's debrief, ui/coach.ts). The tab is page state,
  * not per-race: it stays put when another race is picked. It lives in the URL
- * hash (`#start` / `#race` / `#coach`, replaced, never pushed) and in
- * recall.lastView. A hash on the URL wins; else the saved tab when the saved
- * view is being restored; else Start.
+ * hash (`#start` / `#race` / `#coach`) and path (`/regattas/start`, …) and in
+ * recall.lastView. A user's switch to another tab pushes a history entry (ui/nav.ts),
+ * so back returns to the last tab; the app's popstate handler shows the tab an entry
+ * names. A hash on the URL wins at load (old `#coach` links still work); else the
+ * saved tab when the saved view is being restored; else Start.
  */
 
 export const TABS = ['start', 'race', 'coach'] as const;
@@ -39,7 +41,7 @@ export function tabForKey(cur: Tab, key: string, tabs: readonly Tab[] = TABS): T
   return null;
 }
 
-/** `href` with its hash set to `tab` (search and path untouched), for history.replaceState. */
+/** `href` with its hash set to `tab` (search and path untouched), for ui/nav.ts's write (which sets the path). */
 export function withTabHash(href: string, tab: Tab): string {
   const u = new URL(href);
   u.hash = tabHash(tab);

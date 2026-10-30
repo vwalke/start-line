@@ -200,7 +200,8 @@ import { createPaywall, hereWithout, lockedRange, startRace } from './paywall';
 import { eventCardHtml, eventCardView } from './eventCard';
 import { NOTIFY_PARAM, createAlerts, handleNotify, handleNotifyParam, notifyButtonHtml, watchAlerts, withNotify } from './notify';
 import { eventStarted, upcomingEvents } from '../data/upcoming';
-import { appPath } from '../landing/route';
+import { createNav, popAction, type Screen } from './nav';
+import { raceId, setTrackAuth, setTrackPage, track } from './track';
 import { setPageState } from '../feedback/state';
 import { freeRacesOf, type FreeRaces } from '../data/freeRace';
 import { isPaywallError } from '../data/paywall';
@@ -310,6 +311,8 @@ export function startApp(): void {
   /** Start | Race | Coach: the URL hash, else the saved tab when restoring the saved view, else Start. */
   let tab: Tab = startTab(location.hash, plan, saved, tabs);
   const params = plan.params;
+  /** The URL's history entries (nav.ts): a user's move to another event, race, tab or the report pushes one. */
+  const nav = createNav({ history, href: () => location.href });
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   /** Paywall (only when /api/auth/me says it is on): a lock card instead of the digest for a race the viewer can't open. */
   /** The signed-in user's race emails (notify.ts): the toggles and the account sheet's list. */
@@ -330,6 +333,8 @@ export function startApp(): void {
   const notifySignIn = (): void => paywall.signIn(withNotify(hereWithout(location.href)));
   /** A Notify me click: the only way the emails are turned on. */
   const notify = (id: string): void => void handleNotify(id, paywall.me(), { signIn: notifySignIn, alerts });
+  const authOf = (me: ReturnType<typeof paywall.me>): 'yes' | 'no' | 'unknown' => (me.paywall ? (me.user ? 'yes' : 'no') : 'unknown');
+  void paywall.ready.then((me) => setTrackAuth(authOf(me)));
   const freeMemo = new WeakMap<RegattaResponse, FreeRaces>();
   /** Race 1 of each division, from the regatta as fetched (rebuilt races are never free). */
   const freeOf = (r: RegattaResponse): FreeRaces => {
@@ -466,6 +471,8 @@ export function startApp(): void {
   let listed: LandingEvent[] = [];
   /** The event on the event card (no races yet: eventCard.ts), shown in place of the digest; '' when none. */
   let cardEventId = '';
+  /** Back at the bare /regattas (showPicker): no event on screen, though the last one stays loaded. */
+  let pickerShown = false;
   let cardDoc: RegattaDoc | null = null;
   /** The document of the last event loadEvent found with no races, for its card. */
   let emptyDoc: RegattaDoc | null = null;
@@ -550,8 +557,8 @@ export function startApp(): void {
     }
     // Keep the current state (the full-screen marker, if any) so a race-load URL
     // update while the overlay is open doesn't leave a stuck history entry.
-    // Never the landing page's URL (all parameters dropped at `/`): the app stays on /regattas.
-    history.replaceState(history.state, '', appPath(u.href));
+    // Never the landing page's URL: the path names the view (nav.ts), under /regattas. Never pushed while full screen is open.
+    nav.write(u.href, { push: !full });
   }
 
   /** The race header's chips and ⓘ (official link, numbering, finishes, feed check); kept open across redraws. */
@@ -729,16 +736,23 @@ export function startApp(): void {
   function setReport(on: boolean): void {
     if (on === reportOn) return;
     reportOn = on;
-    history.replaceState(history.state, '', reportHref(location.href, on, `#${tab}`));
+    nav.write(reportHref(location.href, on, `#${tab}`), { push: !full });
+    if (on) track('report_open');
     renderReport();
     if (!on) remeasure(tab);
     scrollTo({ top: 0 });
   }
-  els.reportOpen.addEventListener('click', () => setReport(true));
+  els.reportOpen.addEventListener('click', () => {
+    nav.begin();
+    setReport(true);
+  });
   els.report.addEventListener('click', (ev) => {
     const el = ev.target as HTMLElement;
     const v = el.closest('[data-report-scope]')?.getAttribute('data-report-scope');
-    if (el.closest('[data-report-close]')) setReport(false);
+    if (el.closest('[data-report-close]')) {
+      nav.begin();
+      setReport(false);
+    }
     else if (el.closest('[data-report-print]')) window.print();
     else if (v && v !== coachView) {
       coachView = parseCoachView(v);
@@ -820,6 +834,7 @@ export function startApp(): void {
     const st = ask.state();
     // Busy / no questions left: keep the draft (Enter still fires while Ask is disabled).
     if (!ctx || !text.trim() || st.busy || !st.avail?.enabled || st.remaining === 0) return;
+    track('coach_ask');
     void ask.ask(text, ctx, askIds);
     const q = askBox<HTMLTextAreaElement>('[data-ask-q]');
     if (q) q.value = '';
@@ -970,6 +985,7 @@ export function startApp(): void {
     const v = (ev.target as HTMLElement).closest('button[data-coach-view]')?.getAttribute('data-coach-view');
     if (!v || v === coachView) return;
     coachView = parseCoachView(v);
+    track('coach_view', { detail: coachView });
     setUrl({ [VIEW_PARAM]: coachView === 'regatta' ? 'regatta' : null });
     renderCoach();
     els.coachPick.querySelector<HTMLElement>(`[data-coach-view="${coachView}"]`)?.focus();
@@ -1001,6 +1017,7 @@ export function startApp(): void {
     const r = route?.kind === 'replay' ? replaysOf(a).find((x) => x.boat === route.boat) : undefined;
     if (!route || (route.kind === 'replay' && !r)) return;
     ev.preventDefault();
+    nav.begin();
     setTab('race');
     if (r) openReplay(r);
     else if (route.kind === 'focus') openFocus(route.focus);
@@ -1407,6 +1424,7 @@ export function startApp(): void {
       [...els.mapReplay.querySelectorAll<HTMLButtonElement>('button[data-replay]')].find((b) => b.getAttribute('data-replay') === r.boat)?.focus();
       return;
     }
+    track('replay_boat', { detail: 'map' });
     openReplay(r);
     els.map.focus({ preventScroll: true });
   });
@@ -1418,6 +1436,7 @@ export function startApp(): void {
     const r = id != null && replays?.a === analysis ? replays.list.find((x) => x.boat === id) : undefined;
     if (!r) return;
     ev.preventDefault();
+    track('replay_boat', { detail: 'start' });
     if (highlight !== r.boat) {
       highlight = r.boat;
       syncCoachBoat(r.boat);
@@ -1568,13 +1587,18 @@ export function startApp(): void {
       mapPainter.settle();
     }
   }
-  const togglePlay = (): void => (playing ? stopPlay(true) : startPlay());
+  const togglePlay = (): void => {
+    if (playing) return stopPlay(true);
+    track('replay_play');
+    startPlay();
+  };
 
   els.mapPlay.addEventListener('click', togglePlay);
   // Dragging or arrowing the slider pauses and moves the time; the URL follows once it is let go.
   els.mapTime.addEventListener('input', () => {
     const a = analysis;
     if (!a) return;
+    track('replay_scrub');
     stopPlay(false);
     setScrub(a.meta.gunMs + Number(els.mapTime.value) * 1000, false);
   });
@@ -1861,7 +1885,8 @@ export function startApp(): void {
     }
     // At boot a link without a hash stays as it is on Start (a restored Race tab gets its hash).
     const keep = opts.boot && !location.hash && t === DEFAULT_TAB;
-    if (!keep && !reportOn && tabFromHash(location.hash, tabs) !== t) history.replaceState(history.state, '', withTabHash(location.href, t));
+    if (!keep && !reportOn && tabFromHash(location.hash, tabs) !== t) nav.write(withTabHash(location.href, t), { push: !full });
+    if (changed && !opts.boot) track('tab', { detail: t });
     if (opts.focus) els.tabBtn[t].focus();
     remeasure(t);
     // Scrolled down past the panel's top: bring it to just under the (sticky) tabs.
@@ -1875,19 +1900,16 @@ export function startApp(): void {
   els.tabs.addEventListener('click', (ev) => {
     const btn = (ev.target as HTMLElement).closest('[role="tab"]');
     const t = parseTab(btn?.id.replace(/^tab-/, ''), tabs);
-    if (t) setTab(t);
+    if (!t) return;
+    if (t !== tab) nav.begin();
+    setTab(t);
   });
   els.tabs.addEventListener('keydown', (ev) => {
     const t = tabForKey(tab, ev.key, tabs);
     if (!t) return;
     ev.preventDefault();
+    if (t !== tab) nav.begin();
     setTab(t, { focus: true });
-  });
-  addEventListener('hashchange', () => {
-    const t = tabFromHash(location.hash, tabs);
-    if (reportFromUrl('', location.hash)) setReport(true);
-    else if (t) setReport(false);
-    if (t && t !== tab) setTab(t);
   });
   setTab(tab, { scroll: false, boot: true });
   // On a phone the boat strip sticks to the top; the tabs stick just under it.
@@ -2020,6 +2042,7 @@ export function startApp(): void {
 
   function toggleHighlight(id: string | null): void {
     highlight = highlight === id ? null : id;
+    if (highlight) track('boat_select');
     if (highlight) syncCoachBoat(highlight);
     render();
     save();
@@ -2032,6 +2055,7 @@ export function startApp(): void {
     const toggleRow = (tr: Element): void => {
       const id = tr.getAttribute('data-id');
       highlight = highlight === id ? null : id;
+      if (highlight) track('boat_select', { detail: which });
       if (highlight) syncCoachBoat(highlight);
       save();
       renderKeepingFocus(wrap, focusSel(tr, 'data-id'));
@@ -2040,6 +2064,7 @@ export function startApp(): void {
       const btn = (ev.target as HTMLElement).closest('button[data-sort]');
       if (btn && analysis) {
         const key = btn.getAttribute('data-sort')!;
+        track('table_sort', { detail: which });
         if (which === 'start') startSort = toggleSort(analysis, startSort, key);
         else sort = toggleSort(analysis, sort, key);
         save();
@@ -2063,6 +2088,7 @@ export function startApp(): void {
     if (item) {
       const id = item.getAttribute('data-id');
       highlight = highlight === id ? null : id;
+      if (highlight) track('boat_select', { detail: 'list' });
       if (highlight) syncCoachBoat(highlight);
       save();
       renderKeepingFocus(els.boats, focusSel(item, 'data-id'));
@@ -2236,6 +2262,7 @@ export function startApp(): void {
   for (const f of ['start', 'map', 'places'] as const) {
     els.fullBtn[f].addEventListener('click', () => {
       if (!analysis || fullscreen.isOpen) return;
+      track('full_screen', { detail: f });
       full = f;
       fullscreen.open();
     });
@@ -2323,6 +2350,7 @@ export function startApp(): void {
       const req = { type: 'live' as const, eventId: id, regatta: reg, division, raceNumber, allCompetitors, classLabel, ...(off ? { official: off } : {}), ...(logs.length ? { vkx: logs } : {}) };
       if (!(await show(run(req), view))) return 'superseded';
       current = { eventId: id, division, raceNumber };
+      racePage(false);
       if (analysis) vkx.raceShown({ eventId: id, division, raceNumber, regatta: reg, analysis });
       setUrl({ event: id, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
       save();
@@ -2344,11 +2372,23 @@ export function startApp(): void {
     }
   }
 
+  /** The race on screen, for the usage events (track.ts): race_open once each time another race is shown. */
+  let trackedRace = '';
+  function racePage(locked: boolean): void {
+    if (!current) return;
+    const race = raceId(current.division, current.raceNumber);
+    setTrackPage({ event: current.eventId, race });
+    if (`${current.eventId}|${race}` === trackedRace) return;
+    trackedRace = `${current.eventId}|${race}`;
+    track('race_open', locked ? { detail: 'locked' } : {});
+  }
+
   /** The lock card for a race of the loaded event (the URL names it, so a reload or a shared link comes back to it). */
   function showLocked(division: string, raceNumber: number): void {
     if (!regatta || !baseRegatta) return;
     current = { eventId, division, raceNumber };
     setUrl({ event: eventId, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
+    racePage(true);
     setStatus('');
     els.digest.hidden = true;
     paywall.showLock(els.digest, {
@@ -2363,6 +2403,7 @@ export function startApp(): void {
 
   /** Signed in or out, or a pass arrived: reload the race on screen if its lock changed. */
   function paywallChanged(): void {
+    setTrackAuth(authOf(paywall.me()));
     void alerts.load(paywall.me());
     // The "Free" badges follow the paywall (on or off).
     if (events.length || upcoming.length) renderEventOptions();
@@ -2375,7 +2416,7 @@ export function startApp(): void {
   /** Rebuild the Event select from the search query, keeping the loaded event selected. */
   function renderEventOptions(): void {
     const q = els.search.value;
-    const shown = cardEventId || eventId;
+    const shown = pickerShown ? '' : cardEventId || eventId;
     const { options, upcoming: soon, matches } = pickerOptions(events, q, shown, paywall.free, { events: upcoming, now: Date.now() });
     matchCount = matches.length;
     // Nothing loaded yet: a placeholder, so picking the first event still fires `change`.
@@ -2529,6 +2570,7 @@ export function startApp(): void {
       }
       hideEventCard();
       if (id !== eventId) {
+        track('regatta_open', { event: id });
         // Another event: the Regatta view's queue for the last one stops (its cache stays, keyed by event).
         regattaRunner.want([]);
         official = { status: ysParam === 0 ? 'off' : 'pending' };
@@ -2573,6 +2615,9 @@ export function startApp(): void {
    * picker showing it, and the URL naming it (so a reload, or a sign-in from Notify me, comes back here).
    */
   function showEventCard(id: string, doc: RegattaDoc | null): void {
+    if (cardEventId !== id) track('regatta_open', { event: id, detail: 'card' });
+    pickerShown = false;
+    setTrackPage({ event: id });
     cardEventId = id;
     cardDoc = doc;
     els.digest.hidden = true;
@@ -2613,18 +2658,27 @@ export function startApp(): void {
 
   /** A user pick (select, or Enter in the search). On failure the select goes back to the loaded event. */
   function pickEvent(id: string): void {
-    if (!id || (id === eventId && !cardEventId) || id === cardEventId) return;
+    if (!id || (id === eventId && !cardEventId && !pickerShown) || id === cardEventId) return;
     // A hand-set official link belongs to the event it was set on.
     if (ysParam !== undefined) {
       ysParam = undefined;
       yscParam = undefined;
       setUrl({ [YS_PARAM]: null, [YSC_PARAM]: null });
     }
-    loadEvent(id).then(
+    nav.begin();
+    openEvent(id);
+  }
+
+  /** Load an event (and its wanted race, else its default), or show its card when it has no races yet. */
+  function openEvent(id: string, want?: { division: string; raceNumber: number }): void {
+    pickerShown = false;
+    loadEvent(id, want).then(
       (r) => {
         if (r === 'empty') showEventCard(id, emptyDoc);
+        else if (r instanceof Error) nav.cancel();
       },
       (e: Error) => {
+        nav.cancel();
         setStatus(`Couldn't load ${titleOf(id)}: ${e.message}`);
         renderEventOptions();
       },
@@ -2634,12 +2688,58 @@ export function startApp(): void {
   els.event.addEventListener('change', () => pickEvent(els.event.value));
   /** Open a race of the list, as the Race menu does (the menu shows it; `restore` sets the view, else it carries over or resets). */
   function chooseRace(division: string, raceNumber: number, restore?: ViewState): void {
+    pickerShown = false;
     els.race.value = `${division}|${raceNumber}`;
-    void loadRace(division, raceNumber, restore);
+    void loadRace(division, raceNumber, restore).then((r) => r instanceof Error && nav.cancel());
   }
   els.race.addEventListener('change', () => {
     const [div, n] = els.race.value.split('|');
+    nav.begin();
     chooseRace(div, Number(n));
+  });
+
+  /**
+   * Back at the bare /regattas: nothing on screen and the picker empty, as a boot with nothing to open leaves
+   * it. Any load in flight is dropped; the last event stays loaded (its cache too) for a forward.
+   */
+  function showPicker(): void {
+    ++eventReq;
+    ++showGen;
+    if (playing) stopPlay(false);
+    pickerShown = true;
+    current = null;
+    hideEventCard();
+    paywall.hideLock();
+    els.digest.hidden = true;
+    els.race.innerHTML = '<option>—</option>';
+    els.race.disabled = true;
+    setStatus('');
+    setNotice('');
+    setTrackPage({});
+    renderEventOptions();
+  }
+
+  /** What is on screen, for popAction (nav.ts). */
+  const screenNow = (): Screen =>
+    pickerShown
+      ? { card: '', eventId: '', race: null }
+      : { card: cardEventId, eventId, race: current && current.eventId === eventId ? { division: current.division, raceNumber: current.raceNumber } : null };
+
+  // Back / forward between the app's pages (nav.ts), and a hash typed or linked in the page: show what the
+  // entry's URL names (each write then replaces it). Full screen's own entry has the page's URL, so its back
+  // changes nothing here. An old `#coach` link is read at load (startTab), not here.
+  addEventListener('popstate', () => {
+    nav.cancel();
+    const t = tabFromHash(location.hash, tabs);
+    const on = reportFromUrl(location.search, location.hash);
+    if (on !== reportOn) setReport(on);
+    if (t && t !== tab) setTab(t, { scroll: false });
+    const a = popAction(location.search, screenNow());
+    if (a.kind === 'picker') showPicker();
+    else if (a.kind === 'event') {
+      els.event.value = a.eventId;
+      openEvent(a.eventId, a.want);
+    } else if (a.kind === 'race') chooseRace(a.division, a.raceNumber);
   });
 
   // Typing only filters; it never loads an event (each load fetches telemetry).
@@ -2671,6 +2771,7 @@ export function startApp(): void {
   });
 
   async function boot(): Promise<void> {
+    track('app_open');
     setNotice('');
     try {
       setStatus('Loading events…');

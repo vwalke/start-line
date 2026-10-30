@@ -17,6 +17,7 @@ import { fetchLanding } from '../data/racesense/api';
 import type { LandingEvent } from '../data/racesense/types';
 import { dateRangeText, liveDayText, liveEvents, startsInText, upcomingEvents } from '../data/upcoming';
 import { createAlerts, eventPath, handleNotify, notifyButtonHtml, notifyHref, type Alerts } from '../ui/notify';
+import { setTrackAuth, track } from '../ui/track';
 import { startLightbox } from './lightbox';
 import { REGATTAS_PATH } from './route';
 
@@ -116,6 +117,7 @@ export async function showUpcoming(
   } catch {
     return;
   }
+  setTrackAuth(me.paywall ? (me.user ? 'yes' : 'no') : 'unknown');
   const live = doc.getElementById('land-live');
   const liveList = live?.querySelector<HTMLElement>('.land-live-list');
   if (live && liveList) {
@@ -140,6 +142,26 @@ export async function showUpcoming(
   if (me.paywall && me.user && section.hidden === false) await alerts.load(me);
 }
 
+/** The event id a card's link opens (`/?event=…`), or undefined. */
+export function cardEventId(href: string | null | undefined): string | undefined {
+  if (!href) return undefined;
+  const id = new URL(href, 'https://x.invalid').searchParams.get('event');
+  return id && /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : undefined;
+}
+
+/** A click on a Live now or Upcoming card's link (the page then leaves: the tracker's keepalive fetch goes on pagehide). */
+function trackCardClicks(doc: Document): void {
+  for (const [id, name] of [
+    ['land-live', 'live_card_click'],
+    ['land-upcoming', 'upcoming_card_click'],
+  ] as const) {
+    doc.getElementById(id)?.addEventListener('click', (ev) => {
+      const a = (ev.target as Element | null)?.closest?.('a[href]');
+      if (a) track(name, { event: cardEventId(a.getAttribute('href')) });
+    });
+  }
+}
+
 export function startLanding(doc: Document = document): void {
   for (const n of doc.querySelectorAll<HTMLElement>('[data-price="regatta"]')) n.textContent = PRICE_REGATTA;
   const link = continueLink(readSaved());
@@ -150,5 +172,7 @@ export function startLanding(doc: Document = document): void {
     a.hidden = false;
   }
   startLightbox(doc);
+  track('landing_view');
+  trackCardClicks(doc);
   void showUpcoming(doc);
 }
