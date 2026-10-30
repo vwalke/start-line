@@ -108,6 +108,22 @@ describe('on a race (Star NA race 4)', () => {
     expect(liveWind({ ...m })).toBe(live);
   });
 
+  it('is sampled again for the same wind series over another span (its gun or its end)', () => {
+    const later = liveWind({ ...m, gunMs: m.gunMs + 600_000 });
+    expect(later).not.toBe(live);
+    expect(later.t0).toBe(m.gunMs + 600_000);
+    const shorter = liveWind({ ...m, endMs: m.gunMs + 900_000 });
+    expect(shorter).not.toBe(live);
+    expect(shorter.t0).toBe(m.gunMs);
+    expect(shorter.sin.length).toBeLessThan(live.sin.length);
+    // The original span again: sampled for it, the same wind as before.
+    const back = liveWind(m);
+    expect(back.t0).toBe(m.gunMs);
+    expect(back.sin.length).toBe(live.sin.length);
+    for (const t of [m.gunMs + 60_000, m.gunMs + 300_000]) expect(back.twdAt(t)).toBe(live.twdAt(t));
+    expect(liveWind(m)).toBe(back);
+  });
+
   it('keeps the rungs through a hole in the wind estimate, at the leg’s start and at its end', () => {
     // The Coach's series with nothing from 2 to 6 minutes after the gun, in the middle of the first beat.
     const gun = m.gunMs;

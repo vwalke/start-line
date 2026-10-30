@@ -193,6 +193,8 @@ import { followAfter, followCam, followStep, followTarget, reducedMotion, resetF
 import { mapPaint } from './mapPaint';
 import { paintTrails } from './trailLayer';
 import { paintRungs } from './rungs';
+import { paintWindArrow, windArrowOf } from './windArrow';
+import { mapScreenOf, type MapScreen } from './mapExtent';
 import { ladderReader, type LadderNow } from '../analysis/coach/ladderNow';
 import { boatsZoomTarget, carryView, clampView, clientToChart, fitView, presetActive, viewBox, zoomPreset, type Box, type View } from './view';
 import { createVkxUpload } from './vkxUpload';
@@ -1481,7 +1483,8 @@ export function startApp(): void {
       }
     }
     const win = trailWindow(scrubT, scrubTrail, scrubWindow(a), focusOn ? focusFrom(focusOn) : null);
-    const f = scrubFrame(a, highlight, legSel, mapOpts(), { t: scrubT, win, full, trailMs: fadingTrailMs(scrubTrail), ladder: ladderAt(a, scrubT) });
+    const ladder = ladderAt(a, scrubT);
+    const f = scrubFrame(a, highlight, legSel, mapOpts(), { t: scrubT, win, full, trailMs: fadingTrailMs(scrubTrail), ladder, screen: svg ? mapScreenNow(svg) : null });
     // The tracks layer is empty with a short trail (but a replay's or a card's), so it is only set when it changes;
     // the fading trails reuse their paths (trailLayer.ts); never the map's full redraw.
     if (f.tracks !== scrubTracks.get(trk)) {
@@ -1496,6 +1499,9 @@ export function startApp(): void {
     }
     // The ladder rungs reuse their lines and labels (rungs.ts).
     if (rungs) paintRungs(rungs, f.rungs);
+    // The wind arrow turns with the wind the rungs lie square to (windArrow.ts); the gun's until the Coach's wind is ready.
+    const arrow = svg && windArrowOf(svg);
+    if (arrow) paintWindArrow(arrow, ladder ? ladder.twdDeg : a.wind.twdAtGunDeg, a.wind.twdAtGunDeg);
     dots.innerHTML = f.dots;
     scrubData = f;
   }
@@ -1682,9 +1688,8 @@ export function startApp(): void {
       if (!svg || !mapFit) return renderMap();
       const vb = viewBox(mapFit, mapView);
       svg.setAttribute('viewBox', `${vb.x0} ${vb.y0} ${vb.w} ${vb.h}`);
-      // The ladder rungs run edge to edge across the view: across the new one.
-      const rungs = svg.querySelector('g.scrub-rungs');
-      if (rungs && scrubT != null && analysis) paintRungs(rungs, scrubRungs(analysis, highlight, legSel, mapOpts(), ladderAt(analysis, scrubT)));
+      // The ladder rungs run edge to edge across what is visible: across the new view.
+      paintMapRungs(svg);
       // The scale bar and wind arrow sit in the view's corner: shifted by the pan from the view drawn.
       const hud = drawn && svg.querySelector('g.map-hud');
       if (!hud || !drawn) return;
@@ -1694,6 +1699,30 @@ export function startApp(): void {
     drawMs: () => mapDrawMs,
     view: () => mapView,
   });
+  /** The map's SVG on screen (mapExtent.ts), measured once per size: a new map at the same size keeps it. */
+  let mapScreen: MapScreen | null = null;
+  let mapScreenStale = true;
+  function mapScreenNow(svg: Element): MapScreen | null {
+    if (!mapScreenStale) return mapScreen;
+    mapScreenStale = false;
+    // The SVG fills #map-chart, which spans the card's padding and clips (style.css): its box is what is visible.
+    mapScreen = mapScreenOf(svg.getBoundingClientRect());
+    return mapScreen;
+  }
+  /** The ladder rungs alone, for a view or a size changed without a new frame (the boats where they were). */
+  function paintMapRungs(svg: Element): void {
+    const rungs = svg.querySelector('g.scrub-rungs');
+    if (rungs && scrubT != null && analysis) paintRungs(rungs, scrubRungs(analysis, highlight, legSel, mapOpts(), ladderAt(analysis, scrubT), mapScreenNow(svg)));
+  }
+  // A new size (the window, the card's layout, full screen, another leg's shape): measured again, the rungs redrawn to it.
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => {
+      mapScreenStale = true;
+      const svg = els.map.querySelector('svg');
+      if (svg) paintMapRungs(svg);
+    }).observe(els.map);
+  }
+
   /** Pan/zoom: store the view now, redraw on the next frame (line widths, labels and the scale bar follow the zoom). */
   function setMapView(v: View): void {
     if (!mapFit) return;
