@@ -891,7 +891,7 @@ Switching races keeps the tab.
   blackouts, 13:16–13:24 and 13:37–13:44 UTC) the share of boat-time drawn
   blank went from 46% (and 29% lighter) to 0, and on race 10 around the gun
   (ITA 78's 31.7 s hole) from 1% to 0. The bad data the filters drop (fixes
-  far off the fleet, a replayed tracker, SOG spikes, the start chart's
+  far off the fleet or out of reach, a replayed tracker, SOG spikes, the start chart's
   off-scale boats with their `▲ off scale` caret) is not a gap and stays
   dropped. The filled points are drawn and nothing else: the results,
   finishes, OCS, start-line crossings, penalties, places, coverage and every
@@ -1054,7 +1054,13 @@ CAP = high ∞, medium ∞, low 60 s                        (IMPACT_CAP_S; LOW_I
   most. A fix a moving boat (over 1 kn) already sent earlier, at the exact
   same coordinates, is a held fix replayed among the live ones and is dropped
   (sending the same fix twice in a row is kept). A boat's fixes over 20 km
-  from the fleet are dropped. A reported speed over 25 kn that is more than
+  from the fleet are dropped. So are fixes no boat could have reached: a
+  step over 250 m at over 60 kn out to a run of fixes lasting at most 2 min
+  and straight back to about where it left (898 at the J/70 North Americans,
+  6 fixes ~16.5 km off), or such a run at the start or end of a tracker's
+  fixes when it sits at one position (a stale fix from the previous race). A
+  single jump to a boat on the move, mid-track or at its end, is a frozen
+  tracker catching up and stays. A reported speed over 25 kn that is more than
   twice its positions' speed plus 10 kn is no reading, and the speed comes
   from the positions instead (single spikes of 1,500–12,000 kn; M32s at
   25–29 kn keep theirs).
