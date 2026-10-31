@@ -47,7 +47,9 @@ export type WorkerRequest =
   /** Track map, "Replay start": the over-early boats' start facts of the race last analysed, from its raw fixes (analysis/startReplay.ts). */
   | { id: number; type: 'start-replay'; key: string }
   /** The Start tab: an earlier start attempt of the race (data/attempts.ts), analysed on its own for its picture; nothing kept. */
-  | (RaceRequest & { type: 'attempt'; index: number });
+  | (RaceRequest & { type: 'attempt'; index: number })
+  /** Stop attempt request `id` (another was asked for, or it was closed): its fetches are aborted and no answer comes. */
+  | { id: number; type: 'cancel' };
 
 export type WorkerResponse =
   | { id: number; type: 'progress'; message: string }
@@ -71,12 +73,14 @@ const ctx = self as unknown as {
 let last: { key: string; analysis: RaceAnalysis; data: RaceData } | null = null;
 /** The newest race request: an older one finishing late doesn't take `last`. */
 let latest = 0;
+/** The attempt requests in flight, by id, so a `cancel` can abort their fetches. */
+const attemptAborts = new Map<number, AbortController>();
 
 /**
  * Fetch, normalise and analyse one race; `attempt` (a start index): that earlier start of it alone, its short window,
  * no official results or uploaded logs (data/attempts.ts).
  */
-async function analyse(req: RaceRequest, attempt: number | null = null): Promise<{ analysis: RaceAnalysis; data: RaceData }> {
+async function analyse(req: RaceRequest, attempt: number | null = null, signal?: AbortSignal): Promise<{ analysis: RaceAnalysis; data: RaceData }> {
   const progress = (message: string): void => ctx.postMessage({ id: req.id, type: 'progress', message });
   const ref = { division: req.division, raceNumber: req.raceNumber };
   const at = attempt != null ? earlierAttempts(findRace(currentDoc(req.regatta), ref).race).find((x) => x.index === attempt) : null;
@@ -94,19 +98,22 @@ async function analyse(req: RaceRequest, attempt: number | null = null): Promise
   progress('Fetching tracks for this race…');
   const pages = await fetchTelemetry(req.eventId, req.division, win.after, win.before, {
     finished,
+    signal,
     onPage: (n, rows) => progress(`Fetched page ${n} (${rows.toLocaleString()} points)…`),
   });
   const { race } = findRace(doc, ref);
   const line = race.starts.at(-1)?.startLine;
   const gun = race.starts.at(-1)?.startTime ?? win.after;
-  const wind = line ? await fetchWind((line.leftEnd[0] + line.rightEnd[0]) / 2, (line.leftEnd[1] + line.rightEnd[1]) / 2, gun) : undefined;
+  const wind = line ? await fetchWind((line.leftEnd[0] + line.rightEnd[0]) / 2, (line.leftEnd[1] + line.rightEnd[1]) / 2, gun, signal) : undefined;
+  // The wind is best-effort (an abort there reads as no wind): a cancelled attempt stops here, before the crunching.
+  signal?.throwIfAborted();
   progress('Crunching…');
   let data = buildRaceData(regatta, ref, pages, { eventId: req.eventId, wind, classLabel: req.classLabel, ...resolve });
   // Marks shared across divisions may not carry this division's tag: top up from a 1-minute unfiltered window.
   if (data.course.length === 0 && (findRace(doc, ref).div.courses?.[0]?.achievements?.length ?? 0) > 2) {
     progress('Fetching mark positions…');
     // Paywall: an unfiltered window can carry another division's later race, so it may be refused (401 / 402): race on without marks.
-    const extra = await fetchTelemetry(req.eventId, null, gun, gun + 60_000, { finished }).catch((e: unknown) => {
+    const extra = await fetchTelemetry(req.eventId, null, gun, gun + 60_000, { finished, signal }).catch((e: unknown) => {
       if (e instanceof Error && isPaywallError(e.message)) return [];
       throw e;
     });
@@ -163,8 +170,21 @@ ctx.onmessage = (ev) => {
     return;
   }
   const fail = (err: unknown): void => ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) });
+  if (req.type === 'cancel') {
+    attemptAborts.get(req.id)?.abort();
+    attemptAborts.delete(req.id);
+    return;
+  }
   if (req.type === 'attempt') {
-    analyse(req, req.index).then(({ analysis }) => ctx.postMessage({ id: req.id, type: 'attempt', analysis }, drawingBuffers(analysis)), fail);
+    const ac = new AbortController();
+    attemptAborts.set(req.id, ac);
+    analyse(req, req.index, ac.signal)
+      .then(({ analysis }) => {
+        if (!ac.signal.aborted) ctx.postMessage({ id: req.id, type: 'attempt', analysis }, drawingBuffers(analysis));
+      }, (err: unknown) => {
+        if (!ac.signal.aborted) fail(err);
+      })
+      .finally(() => attemptAborts.delete(req.id));
     return;
   }
   if (req.type === 'regatta-race') {

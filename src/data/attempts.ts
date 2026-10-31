@@ -15,6 +15,8 @@ import { PRE_START_FETCH_MS } from './racesense/adapter';
 
 /** An attempt's telemetry runs this long past its gun: the start chart, Start Playback and the wind's first minutes. */
 export const ATTEMPT_POST_MS = 5 * 60_000;
+/** An attempt's telemetry always runs at least this long past its gun, even when the race was started again sooner. */
+export const ATTEMPT_MIN_POST_MS = 60_000;
 export const ATTEMPT_PARAM = 'attempt';
 
 export interface EarlierAttempt {
@@ -86,7 +88,12 @@ export function attemptRegatta(resp: RegattaResponse, ref: RaceRef, index: numbe
   return { ...resp, revisions: [...revs.slice(0, -1), { ...last, doc: { ...doc, divisions } }] };
 }
 
-/** The telemetry an attempt needs: the usual pre-start, ATTEMPT_POST_MS after its gun (never into the next start's). */
+/**
+ * The telemetry an attempt needs: the usual pre-start, ATTEMPT_POST_MS after its gun, stopping short of the next
+ * start's pre-start when that comes sooner; but always ATTEMPT_MIN_POST_MS past its gun, however soon the race was
+ * started again (its start chart needs the boats crossing).
+ */
 export function attemptWindow(at: Pick<EarlierAttempt, 'gunMs' | 'nextGunMs'>): { after: number; before: number } {
-  return { after: at.gunMs - PRE_START_FETCH_MS, before: Math.min(at.gunMs + ATTEMPT_POST_MS, at.nextGunMs - PRE_START_FETCH_MS) };
+  const beforeNext = Math.min(at.gunMs + ATTEMPT_POST_MS, at.nextGunMs - PRE_START_FETCH_MS);
+  return { after: at.gunMs - PRE_START_FETCH_MS, before: Math.max(beforeNext, at.gunMs + ATTEMPT_MIN_POST_MS) };
 }

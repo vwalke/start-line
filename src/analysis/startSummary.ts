@@ -98,35 +98,41 @@ export function startDigest(a: RaceAnalysis, id: string): StartDigest | null {
   };
 }
 
-/** The gun readout (Vakaros terms): SOG and VMG (kn), heading (°), TWA (° and tack), distance to the line (m). */
+/** The gun readout (Vakaros terms): SOG and VMG (kn), heading (°), TWA (° and tack), distance to the line (m); each null when unknown. */
 export interface GunReadout {
-  sogKn: number;
-  /** Speed made good toward the wind, kn: SOG × cos TWA (the start display's VMG). */
-  vmgKn: number;
-  hdgDeg: number;
+  sogKn: number | null;
+  /** Speed made good toward the wind, kn: SOG × cos TWA (the start display's VMG); null without both. */
+  vmgKn: number | null;
+  hdgDeg: number | null;
   /** TWA, unsigned (0–180), and its tack: + starboard. */
-  twaDeg: number;
-  tack: 'starboard' | 'port';
+  twaDeg: number | null;
+  tack: 'starboard' | 'port' | null;
   /** As the Start view shows it; null when unknown. */
   dtlM: number | null;
 }
 
+const finite = (v: number | null | undefined): number | null => (v != null && Number.isFinite(v) ? v : null);
+
 /**
- * Boat `b`'s readout at the gun; null without start figures. TWA and VMG rest on the wind at the gun, which is always
- * worked out (the fleet's tacks, a weather model or the course), never measured: the UI marks them "(est.)" as the
- * wind arrow does.
+ * Boat `b`'s readout at the gun; null without start figures, or with neither its speed nor its distance. TWA and VMG
+ * rest on the wind at the gun, which is always worked out (the fleet's tacks, a weather model or the course), never
+ * measured: the UI marks them "(est.)" as the wind arrow does. A figure not known (no heading, no TWA) is left out alone.
  */
 export function gunReadout(b: Pick<BoatResult, 'start'>): GunReadout | null {
   const st = b.start;
-  if (!st || !Number.isFinite(st.speedKn) || !Number.isFinite(st.twaDeg) || !Number.isFinite(st.headingDeg)) return null;
-  const twa = Math.abs(st.twaDeg);
-  const dtl = shownDtlM(st);
+  if (!st) return null;
+  const sog = finite(st.speedKn);
+  const twaSigned = finite(st.twaDeg);
+  const hdg = finite(st.headingDeg);
+  const dtl = finite(shownDtlM(st));
+  if (sog == null && dtl == null) return null;
+  const twa = twaSigned == null ? null : Math.abs(twaSigned);
   return {
-    sogKn: st.speedKn,
-    vmgKn: st.speedKn * Math.cos((twa * Math.PI) / 180),
-    hdgDeg: ((Math.round(st.headingDeg) % 360) + 360) % 360,
+    sogKn: sog,
+    vmgKn: sog != null && twa != null ? sog * Math.cos((twa * Math.PI) / 180) : null,
+    hdgDeg: hdg == null ? null : ((Math.round(hdg) % 360) + 360) % 360,
     twaDeg: twa,
-    tack: st.twaDeg >= 0 ? 'starboard' : 'port',
-    dtlM: Number.isFinite(dtl) ? dtl : null,
+    tack: twaSigned == null ? null : twaSigned >= 0 ? 'starboard' : 'port',
+    dtlM: dtl,
   };
 }

@@ -11,13 +11,13 @@ import { raceDigest } from '../src/analysis/coach/regatta';
 import { placeChanges } from '../src/analysis/places';
 import { gunReadout, linePart, startDigest } from '../src/analysis/startSummary';
 import type { RaceAnalysis } from '../src/analysis/types';
-import { attemptNumbered, attemptRegatta, attemptTitle, attemptWindow, earlierAttempts, parseAttemptParam } from '../src/data/attempts';
+import { ATTEMPT_MIN_POST_MS, attemptNumbered, attemptRegatta, attemptTitle, attemptWindow, earlierAttempts, parseAttemptParam } from '../src/data/attempts';
 import { buildRaceData, currentDoc } from '../src/data/racesense/adapter';
 import type { Race, RegattaResponse, Start, TelemetryPage } from '../src/data/racesense/types';
 import { attemptNote } from '../src/ui/attemptView';
 import { speedPickPlace, speedPickTexts, startSnapshot } from '../src/ui/charts';
 import { gunReadoutCells, gunReadoutHtml } from '../src/ui/gunReadout';
-import { FAST_PARAM, LEG_PARAM, NO_FOCUS, cardRoute, focusResume, legFocus, legMapHref, parseMapFocus } from '../src/ui/mapLink';
+import { FAST_PARAM, LEG_PARAM, NO_FOCUS, cardMapHref, cardRoute, focusColouring, focusResume, legFocus, legMapHref, parseMapFocus } from '../src/ui/mapLink';
 import { gainLabels, placesChart, segHitsRect } from '../src/ui/places';
 import { favoredShort, linePosText, startStripHtml, startThumbSvg, startViewHref } from '../src/ui/startStrip';
 import { startPngName, startPngSvg } from '../src/ui/startPng';
@@ -94,19 +94,35 @@ describe('gun readout (Vakaros terms), 1513 race 6', () => {
     expect(r.hdgDeg).toBe(257);
     expect(r.tack).toBe('starboard');
     expect(r.twaDeg).toBeCloseTo(me.start!.twaDeg, 6);
-    expect(r.vmgKn).toBeCloseTo(r.sogKn * Math.cos((r.twaDeg * Math.PI) / 180), 6);
+    expect(r.vmgKn).toBeCloseTo(r.sogKn! * Math.cos((r.twaDeg! * Math.PI) / 180), 6);
     expect(r.dtlM).toBeCloseTo(2.09, 2);
   });
 
   it('labels them as a Vakaros display does, TWA marked estimated, the distance a plain number', () => {
     const cells = gunReadoutCells(r);
     expect(cells.map((c) => c.label)).toEqual(['SOG', 'VMG', 'HDG', 'TWA', 'Dist. to line']);
-    expect(cells.map((c) => c.value)).toEqual(['4.1 kn', `${r.vmgKn.toFixed(1)} kn`, '257°', `${Math.round(r.twaDeg)}° stbd (est.)`, '2.1 m']);
+    expect(cells.map((c) => c.value)).toEqual(['4.1 kn', `${r.vmgKn!.toFixed(1)} kn`, '257°', `${Math.round(r.twaDeg!)}° stbd (est.)`, '2.1 m']);
     const html = gunReadoutHtml(r6, me.id);
     expect(html).toContain('#1513 at the gun');
     expect(html).not.toMatch(/over early|over the line|OCS/i);
     expect(gunReadoutHtml(r6, null)).toBe('');
     expect(gunReadoutCells({ ...r, dtlM: null }).map((c) => c.label)).not.toContain('Dist. to line');
+  });
+
+  it('still shows SOG and the distance with no TWA or heading (VMG too when the TWA is known)', () => {
+    const noTwaHdg = gunReadout({ start: { ...me.start!, twaDeg: NaN, headingDeg: NaN } })!;
+    expect(noTwaHdg).toMatchObject({ sogKn: me.start!.speedKn, vmgKn: null, hdgDeg: null, twaDeg: null, tack: null });
+    expect(gunReadoutCells(noTwaHdg).map((c) => c.label)).toEqual(['SOG', 'Dist. to line']);
+    const noHdg = gunReadout({ start: { ...me.start!, headingDeg: NaN } })!;
+    expect(gunReadoutCells(noHdg).map((c) => c.label)).toEqual(['SOG', 'VMG', 'TWA', 'Dist. to line']);
+    const a = { ...r6, boats: r6.boats.map((b) => (b.id === me.id ? { ...b, start: { ...b.start!, twaDeg: NaN, headingDeg: NaN } } : b)) };
+    const html = gunReadoutHtml(a, me.id);
+    expect(html).toContain('#1513 at the gun');
+    expect(html).toContain('<dt>SOG</dt>');
+    expect(html).toContain('<dt>Dist. to line</dt>');
+    expect(html).not.toContain('<dt>TWA</dt>');
+    // Nothing to show at all: no readout.
+    expect(gunReadout({ start: { ...me.start!, speedKn: NaN, twaDeg: NaN, headingDeg: NaN, dtlM: NaN, rank: null } })).toBeNull();
   });
 });
 
@@ -161,12 +177,40 @@ describe('a leg’s view on the map', () => {
     expect(parseMapFocus('?boat=A&win=0,10&leg=0&fast=7', gun)).toEqual({ boat: 'A', vs: [], spans: [[gun, gun + 10_000]] });
   });
 
-  it('is where a side-of-the-course card goes', () => {
-    const card = { kind: 'D14' as const, t0: boat.legs[1]!.startMs, t1: boat.legs[1]!.endMs, refBoats: ['x'], facts: { leg: a.legs[1].name } };
-    const route = cardRoute(a, boat.id, card, []);
-    expect(route).toEqual({ kind: 'focus', focus: legFocus(a, boat.id, 1) });
-    // Any other card keeps its own window.
-    expect(cardRoute(a, boat.id, { ...card, kind: 'D6' as const }, [])).toMatchObject({ kind: 'focus', focus: { spans: [[card.t0, card.t1]] } });
+  it('is where a side-of-the-course card goes, over the card’s own window', () => {
+    const l = boat.legs[1]!;
+    // A card window inside the leg (as a rate card trimmed for the start's window has), not the boat's whole leg.
+    const t0 = l.startMs + 60_000;
+    const t1 = l.endMs - 30_000;
+    const other = a.boats.find((b) => b.id !== boat.id)!.id;
+    const card = { kind: 'D14' as const, t0, t1, refBoats: [other], facts: { leg: a.legs[1].name } };
+    const own = { boat: boat.id, vs: [other], spans: [[t0, t1]] };
+    expect(cardRoute(a, boat.id, card, [])).toEqual({ kind: 'focus', focus: { ...own, leg: 1, fast: 10 } });
+    const href = cardMapHref('?event=E&div=D&race=4', a, boat.id, card, [])!;
+    const p = new URLSearchParams(href.replace(/#race$/, ''));
+    expect([p.get('win'), p.get(LEG_PARAM), p.get(FAST_PARAM), p.get('vs')]).toEqual([
+      `${Math.floor((t0 - gun) / 1000)},${Math.ceil((t1 - gun) / 1000)}`,
+      '2',
+      '10',
+      other,
+    ]);
+    // A D14 whose leg isn't found keeps its own window, with no leg's view; so does any other card.
+    expect(cardRoute(a, boat.id, { ...card, facts: { leg: 'Nowhere' } }, [])).toEqual({ kind: 'focus', focus: own });
+    expect(cardRoute(a, boat.id, { ...card, kind: 'D6' as const }, [])).toEqual({ kind: 'focus', focus: own });
+  });
+
+  it('colors by rank on the leg while open and puts the coloring before it back when left', () => {
+    const mine = { colour: 'sog' as const, rankBy: 'overall' as const, top: 'all' as const };
+    const open = focusColouring(mine, null, { fast: 10 });
+    expect(open).toEqual({ now: { colour: 'rank', rankBy: 'leg', top: 10 }, before: mine });
+    // Another leg's view on top keeps the coloring from before the first.
+    const again = focusColouring(open.now, open.before, { fast: 3 });
+    expect(again).toEqual({ now: { colour: 'rank', rankBy: 'leg', top: 3 }, before: mine });
+    // Left (closed, another race, back past it) or a card's window without a leg: the coloring before it.
+    expect(focusColouring(again.now, again.before, null)).toEqual({ now: mine, before: null });
+    expect(focusColouring(again.now, again.before, {})).toEqual({ now: mine, before: null });
+    // Nothing replaced: nothing changes.
+    expect(focusColouring(mine, null, null)).toEqual({ now: mine, before: null });
   });
 });
 
@@ -208,15 +252,41 @@ describe('an earlier start attempt (race 5: stopped at 16:36Z, restarted at 16:5
     const list = earlierAttempts(race5);
     expect(list).toEqual([{ index: 0, attempt: 1, of: 2, gunMs: Date.parse('2026-10-30T16:36:01Z'), nextGunMs: Date.parse('2026-10-30T16:53:01Z') }]);
     expect(attemptTitle('Race 5', list[0])).toBe('Start 5 · attempt 1 of 2 (restarted)');
-    expect(attemptNote(list[0], -4 * 3_600_000)).toBe(
-      "Race control stopped this start (gun 12:36:01) and started the race again at 12:53:01. It's here to look at only: results, times, places and the Coach all use the start the race was sailed from.",
+    expect(attemptNote(list, -4 * 3_600_000)).toBe(
+      "Race control stopped attempt 1 of 2 (gun 12:36:01) and started the race again at 12:53:01. It's here to look at only: results, times, places and the Coach all use the start the race was sailed from.",
     );
+    // Race 5's 17 minutes between guns: the usual 130 s before and 5 min after.
     expect(attemptWindow(list[0])).toEqual({ after: list[0].gunMs - 130_000, before: list[0].gunMs + 5 * 60_000 });
     expect(attemptNumbered(list, parseAttemptParam('1'))).toBe(list[0]);
     expect(attemptNumbered(list, parseAttemptParam('x'))).toBeNull();
     // Race 1: the first start, abandoned with no line and sailed the next day, is not one to draw; one start, none.
     expect(earlierAttempts({ starts: [{ ...attempt1, startLine: null }, race5.starts[1]] })).toEqual([]);
     expect(earlierAttempts({ starts: [race5.starts[1]] })).toEqual([]);
+  });
+
+  it('numbers the note by the attempt it is about', () => {
+    const g = Date.parse('2026-10-30T16:36:01Z');
+    const thrice: Pick<Race, 'starts'> = {
+      starts: [attempt1, { ...attempt1, startNumber: 2, startTime: g + 10 * 60_000 }, { ...attempt1, startNumber: 3, startTime: g + 20 * 60_000, stopReason: 'finished' }],
+    };
+    const list = earlierAttempts(thrice);
+    expect(list.map((x) => x.attempt)).toEqual([1, 2]);
+    expect(attemptNote([list[1]], -4 * 3_600_000)).toBe(
+      "Race control stopped attempt 2 of 3 (gun 12:46:01) and started the race again at 12:56:01. It's here to look at only: results, times, places and the Coach all use the start the race was sailed from.",
+    );
+    expect(attemptNote(list, -4 * 3_600_000)).toMatch(/^Race control stopped attempt 1 of 3 .*Race control stopped attempt 2 of 3 /);
+  });
+
+  it('keeps the gun and a minute after it in the window however soon the race was started again', () => {
+    const gunMs = Date.parse('2026-10-30T16:36:01Z');
+    for (const spacing of [60_000, 120_000]) {
+      const w = attemptWindow({ gunMs, nextGunMs: gunMs + spacing });
+      expect(w).toEqual({ after: gunMs - 130_000, before: gunMs + ATTEMPT_MIN_POST_MS });
+      expect(w.before).toBeGreaterThan(gunMs);
+    }
+    // Room for more than the minute but less than 5 min: up to the next start's pre-start.
+    expect(attemptWindow({ gunMs, nextGunMs: gunMs + 240_000 })).toEqual({ after: gunMs - 130_000, before: gunMs + 110_000 });
+    expect(attemptWindow({ gunMs, nextGunMs: gunMs + 17 * 60_000 })).toEqual({ after: gunMs - 130_000, before: gunMs + 5 * 60_000 });
   });
 
   // Race 6 as if started twice: a stopped start 17 minutes before the real one.

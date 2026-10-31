@@ -24,6 +24,7 @@ import { esc } from './format';
 import { boatAt, filledRanges, rotTrack, rotator, timeRange } from './mapPieces';
 import { REPLAY_PARAM, replayLink, replayPendFromUrl, type ReplayPend } from './replay';
 import { DEFAULT_TRAIL, T_PARAM, TRAIL_PARAM, WINDOW_TRAIL, mapTimeSearch, parseTParam, parseTrail, playFrom, type ScrubWindow, type Trail } from './scrub';
+import type { RankBy, SpeedTop, TrackColour } from './speed';
 import { clampView, type Box, type View } from './view';
 
 export const VS_PARAM = 'vs';
@@ -171,13 +172,33 @@ export type MapRoute = { kind: 'replay'; boat: string } | { kind: 'focus'; focus
 
 export function cardRoute(a: RaceAnalysis, boat: string, c: Windowed & Pick<Card, 'refBoats'> & Partial<Pick<Card, 'facts'>>, replays: readonly Pick<StartReplay, 'boat'>[]): MapRoute {
   if (!windowSpans(c).length) return null;
-  // The side of the course: that leg's view, as the positions chart opens it.
+  // The side of the course: that leg's view (framed whole, the fastest picked out, as the positions chart opens it),
+  // over the card's own window and comparison boats.
   const leg = c.facts ? cardLeg(a, { kind: c.kind, facts: c.facts }) : null;
-  const lf = leg != null ? legFocus(a, boat, leg) : null;
-  if (lf) return { kind: 'focus', focus: lf };
+  if (leg != null) {
+    const own = cardFocus(a, boat, c);
+    if (own) return { kind: 'focus', focus: { ...own, leg, fast: LEG_FAST_TOP } };
+  }
   if (replays.some((r) => r.boat === boat) && isStartCard(c, a.meta.gunMs)) return { kind: 'replay', boat };
   const focus = cardFocus(a, boat, c);
   return focus ? { kind: 'focus', focus } : null;
+}
+
+/** The map's track coloring (the Colour controls): what a leg's view sets for as long as it's open. */
+export interface Colouring {
+  colour: TrackColour;
+  rankBy: RankBy;
+  top: SpeedTop;
+}
+
+/**
+ * The coloring once focus `f` is shown (null: none, the focus left): a leg's view (`fast=`) colors by speed rank on
+ * each leg with its fastest picked out and keeps the coloring it replaced (`before`, kept across a second leg's view);
+ * any other focus, or none, puts that one back. Nothing here is saved: the saved preference stays the user's.
+ */
+export function focusColouring(now: Colouring, before: Colouring | null, f: Pick<MapFocus, 'fast'> | null): { now: Colouring; before: Colouring | null } {
+  if (f?.fast != null) return { now: { colour: 'rank', rankBy: 'leg', top: f.fast }, before: before ?? now };
+  return { now: before ?? now, before: null };
 }
 
 // ---- URL --------------------------------------------------------------------------

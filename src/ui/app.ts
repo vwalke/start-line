@@ -139,6 +139,9 @@ import {
   mapFocusLegend,
   trailAfterFocus,
   withMapActions,
+  focusColouring,
+  FAST_PARAM,
+  type Colouring,
   legFocus,
   legMapHref,
   type MapFocus,
@@ -156,6 +159,7 @@ import { attachPanZoom } from './panzoom';
 import { gunReadoutHtml } from './gunReadout';
 import { ATTEMPT_PARAM, attemptNumbered, earlierAttempts, parseAttemptParam, type EarlierAttempt } from '../data/attempts';
 import { attemptButtonsHtml, attemptNote, attemptTitle } from './attemptView';
+import { latestLoader } from './latestOnly';
 import { biasBullets, lineChips } from './startLine';
 import { downloadSvgAsPng, pageCss, startPngName, startPngSvg } from './startPng';
 import { PLACE_TIP_MOUSE_REACH, PLACE_TIP_TOUCH_REACH, nearestPlaceDot, placesChart, placesKey } from './places';
@@ -621,7 +625,17 @@ export function startApp(): void {
     vkx.mount(els.raceHead, a);
   }
 
+  /** True while render() runs (a focus left from inside it needs no second render). */
+  let rendering = false;
   function render(): void {
+    rendering = true;
+    try {
+      renderNow();
+    } finally {
+      rendering = false;
+    }
+  }
+  function renderNow(): void {
     const a = analysis;
     if (!a) return;
     renderSummary();
@@ -1169,9 +1183,8 @@ export function startApp(): void {
   /** The attempt open (1-based), from `attempt=` at first, for the race the URL names (`attemptFor`); null: none. */
   let attemptOpen: number | null = parseAttemptParam(query.get(ATTEMPT_PARAM));
   let attemptFor: string | null = attemptOpen != null ? replayRaceKey(query.get('event'), query.get('div') ?? '', query.get('race') ?? '') : null;
-  /** The attempt analysed last (its race and number) and the one being fetched. */
+  /** The attempt analysed last (its race and number). */
   let attemptGot: { key: string; n: number; a: RaceAnalysis | null; error?: string } | null = null;
-  let attemptLoading: string | null = null;
   const attemptsOf = (a: RaceAnalysis): EarlierAttempt[] => {
     if (!regatta) return [];
     try {
@@ -1180,11 +1193,39 @@ export function startApp(): void {
       return [];
     }
   };
+  /**
+   * The worker's analysis of an attempt, the latest asked for only (ui/latestOnly.ts): opening another, closing it or
+   * leaving the race cancels the one loading (the worker stops fetching it) and a late answer to it is dropped.
+   */
+  const attemptLoader = latestLoader<{ a: RaceAnalysis; at: EarlierAttempt; regatta: RegattaResponse }, RaceAnalysis | Error>(
+    ({ a, at, regatta: reg }) => {
+      const id = --coachReq;
+      const classLabel = events.find((e) => e.eventId === a.meta.eventId)?.classLabel;
+      const req = { id, type: 'attempt' as const, index: at.index, eventId: a.meta.eventId ?? eventId, regatta: reg, division: a.meta.division, raceNumber: a.meta.raceNumber, allCompetitors, classLabel };
+      const done = new Promise<RaceAnalysis | Error>((resolve) => {
+        attemptWaits.set(id, resolve);
+        worker.postMessage(req satisfies WorkerRequest);
+      });
+      const abort = (): void => {
+        attemptWaits.delete(id);
+        worker.postMessage({ id, type: 'cancel' } satisfies WorkerRequest);
+      };
+      return { done, abort };
+    },
+    ({ a, at }, r) => {
+      const key = replayRaceOf(a);
+      attemptGot = { key, n: at.attempt, a: r instanceof Error ? null : r, ...(r instanceof Error ? { error: r.message } : {}) };
+      if (analysis && replayRaceOf(analysis) === key) renderAttempt();
+    },
+  );
   function renderAttempt(): void {
     const a = analysis;
     const list = a ? attemptsOf(a) : [];
     els.attemptCard.hidden = !list.length;
-    if (!a || !list.length) return;
+    if (!a || !list.length) {
+      attemptLoader.cancel();
+      return;
+    }
     const key = replayRaceOf(a);
     // `attempt=` belongs to the race it was written for.
     if (attemptOpen != null && attemptFor !== key) {
@@ -1195,9 +1236,8 @@ export function startApp(): void {
     const at = attemptNumbered(list, attemptOpen);
     const listed = listedOf(a.meta.division, a.meta.raceNumber);
     const raceLabel = listed ? raceName(listed) : `Race ${a.meta.raceNumber}`;
-    const first = at ?? list[0];
-    els.attemptTitle.textContent = list.length === 1 ? attemptTitle(raceLabel, first) : `${raceLabel.replace(/^Race\b/, 'Start')} · earlier attempts`;
-    els.attemptNote.textContent = attemptNote(first, a.meta.tzOffsetMs);
+    els.attemptTitle.textContent = list.length === 1 ? attemptTitle(raceLabel, list[0]) : `${raceLabel.replace(/^Race\b/, 'Start')} · earlier attempts`;
+    els.attemptNote.textContent = attemptNote(at ? [at] : list, a.meta.tzOffsetMs);
     const got = at && attemptGot?.key === key && attemptGot.n === at.attempt ? attemptGot : null;
     els.attemptTools.innerHTML = attemptButtonsHtml(list, at?.attempt ?? null, !!at && !got);
     const att = got?.a ?? null;
@@ -1207,26 +1247,9 @@ export function startApp(): void {
       const hl = highlight && att.boats.some((b) => b.id === highlight) ? highlight : null;
       els.attemptChart.innerHTML = startSnapshot(att, hl, undefined, startColour, { names: startNames, widthPx: els.attemptChart.clientWidth || els.start.clientWidth || undefined });
       renderKeyLine(els.attemptCap, { chips: lineChips(att), bullets: ['The boats at that gun; distances from the bow, as in the Start view above.', ...biasBullets(att)] });
-    } else if (got) els.attemptChart.innerHTML = `<p class="muted">Couldn't load that start (${esc(got.error ?? 'no data')}).</p>`;
-    if (at && !got) loadAttempt(a, at);
-  }
-  /** Ask the worker for attempt `at` of race `a` (once at a time); drawn when it comes, if that race is still on screen. */
-  function loadAttempt(a: RaceAnalysis, at: EarlierAttempt): void {
-    const key = replayRaceOf(a);
-    const want = `${key}|${at.attempt}`;
-    if (!regatta || attemptLoading === want) return;
-    attemptLoading = want;
-    const id = --coachReq;
-    const classLabel = events.find((e) => e.eventId === a.meta.eventId)?.classLabel;
-    const req = { id, type: 'attempt' as const, index: at.index, eventId: a.meta.eventId ?? eventId, regatta, division: a.meta.division, raceNumber: a.meta.raceNumber, allCompetitors, classLabel };
-    void new Promise<RaceAnalysis | Error>((resolve) => {
-      attemptWaits.set(id, resolve);
-      worker.postMessage(req satisfies WorkerRequest);
-    }).then((r) => {
-      if (attemptLoading === want) attemptLoading = null;
-      attemptGot = { key, n: at.attempt, a: r instanceof Error ? null : r, ...(r instanceof Error ? { error: r.message } : {}) };
-      if (analysis && replayRaceOf(analysis) === key) renderAttempt();
-    });
+    } else if (got) els.attemptChart.innerHTML = `<p class="muted">Couldn't load that start${got.error ? ` (${esc(got.error)})` : ''}.</p>`;
+    if (at && !got && regatta) attemptLoader.want(`${key}|${at.attempt}`, { a, at, regatta });
+    else if (!at || got) attemptLoader.cancel();
   }
   els.attemptTools.addEventListener('click', (ev) => {
     const n = Number((ev.target as Element).closest('button[data-attempt]')?.getAttribute('data-attempt'));
@@ -1394,6 +1417,7 @@ export function startApp(): void {
     // `win=` / `vs=` (a Coach card's focus: a deep link, or the focus open), kept per race the same way: show()
     // reopens it once drawn, on every load of its race (a reload keeps it); another race drops it.
     focusOn = null;
+    applyFocusColouring(null);
     focusPend = replayPending(focusPend, { type: 'shown', race: replayRaceOf(a) });
     if (!focusPend) setUrl(NO_FOCUS);
   }
@@ -1486,6 +1510,18 @@ export function startApp(): void {
   // ---- Track map: a Coach card's window (Map D, ui/mapLink.ts): its boat with the boats it was measured against.
   /** The card window showing (its boat selected, the scrubber on over the whole race, the comparison boats ringed); null: none. */
   let focusOn: MapFocus | null = null;
+  /** The coloring a leg's view replaced, put back when it's left (mapLink.ts focusColouring); null: none replaced. */
+  let colourBefore: Colouring | null = null;
+  /** Set the coloring for focus `f` (null: none); true when it changed. */
+  function applyFocusColouring(f: MapFocus | null): boolean {
+    const was: Colouring = { colour: trackColour, rankBy, top: speedTop };
+    const next = focusColouring(was, colourBefore, f);
+    colourBefore = next.before;
+    trackColour = next.now.colour;
+    rankBy = next.now.rankBy;
+    speedTop = next.now.top;
+    return was.colour !== trackColour || was.rankBy !== rankBy || was.top !== speedTop;
+  }
   /** The `win=` focus wanted, keyed on its race (replay.ts replayPending, as `replay=`): the page's deep link, then the focus opened. */
   let focusPend: ReplayPend | null = focusPendFromUrl(location.search);
 
@@ -1506,12 +1542,9 @@ export function startApp(): void {
     scrubTrail = at?.trail ?? focusTrail(f);
     playSpeed = 1;
     focusOn = f;
-    // A leg's view (`fast=`): the tracks by speed rank on each leg, its fastest picked out, as the Colour controls set it (not saved).
-    if (f.fast != null) {
-      trackColour = 'rank';
-      rankBy = 'leg';
-      speedTop = f.fast;
-    }
+    // A leg's view (`fast=`): the tracks by speed rank on each leg, its fastest picked out, as the Colour controls set it
+    // (not saved); any other focus puts back the coloring a leg's view replaced.
+    applyFocusColouring(f);
     focusPend = replayPending(focusPend, { type: 'opened', race: replayRaceOf(a), boat: f.boat });
     scrubT = clampTime(at?.t ?? focusTime(f), scrubWindow(a));
     fitMap(a);
@@ -1535,6 +1568,8 @@ export function startApp(): void {
     }
     const f = focusOn;
     focusOn = null;
+    // The coloring a leg's view replaced comes back (drawn now unless the map is being drawn already).
+    if (applyFocusColouring(null) && !rendering) render();
     if (scrubTrail === WINDOW_TRAIL) {
       scrubTrail = trailAfterFocus(scrubTrail, f);
       if (analysis) syncScrub(analysis);
@@ -2333,6 +2368,8 @@ export function startApp(): void {
     const top = btn.getAttribute('data-top');
     const scale = btn.getAttribute('data-sog-scale');
     let attr = 'data-rank';
+    // A coloring chosen by hand stands: leaving a leg's view no longer puts back the one before it.
+    if (scale == null) colourBefore = null;
     if (scale != null) {
       sogScale = parseSogScale(scale);
       writePref(SOG_SCALE_KEY, sogScale);
@@ -2936,6 +2973,8 @@ export function startApp(): void {
     const on = reportFromUrl(location.search, location.hash);
     if (on !== reportOn) setReport(on);
     if (t && t !== tab) setTab(t, { scroll: false });
+    // Back past a leg's view (its `fast=` gone from the URL): left, and the coloring it replaced put back.
+    if (focusOn?.fast != null && !new URLSearchParams(location.search).has(FAST_PARAM)) leaveFocus(true);
     const a = popAction(location.search, screenNow());
     if (a.kind === 'picker') showPicker();
     else if (a.kind === 'event') {

@@ -10,9 +10,15 @@ import { esc, localTime } from './format';
 /** "Start 5 · attempt 1 of 2 (restarted)". */
 export { attemptTitle };
 
-/** The card's note: when it was, when the race was started again, and that it's only a picture. */
-export function attemptNote(at: EarlierAttempt, tzOffsetMs: number): string {
-  return `Race control stopped this start (gun ${localTime(at.gunMs, tzOffsetMs)}) and started the race again at ${localTime(at.nextGunMs, tzOffsetMs)}. It's here to look at only: results, times, places and the Coach all use the start the race was sailed from.`;
+/**
+ * The card's note: for each attempt in `ats` (the one open, else every one listed), its number, when it was and when
+ * the race was started again; then that it's only a picture.
+ */
+export function attemptNote(ats: readonly EarlierAttempt[], tzOffsetMs: number): string {
+  const said = ats.map(
+    (at) => `Race control stopped attempt ${at.attempt} of ${at.of} (gun ${localTime(at.gunMs, tzOffsetMs)}) and started the race again at ${localTime(at.nextGunMs, tzOffsetMs)}.`,
+  );
+  return [...said, "It's here to look at only: results, times, places and the Coach all use the start the race was sailed from."].join(' ');
 }
 
 /** The buttons, one per earlier attempt: "Show attempt 1" (pressed: "Hide attempt 1"). */
