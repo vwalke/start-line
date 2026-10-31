@@ -17,7 +17,7 @@ import { PROBE_BUDGET, discoverOrphans, isOrphanKey, type OrphanFound } from '..
 import { buildRaceList, findListed, type ListedRace, type RaceList } from '../data/raceList';
 import { currentDoc, defaultRace, findRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchRegatta, fetchUsableRegatta } from '../data/racesense/api';
-import { raceLive, unaccountedBoats } from '../data/live';
+import { liveTag, raceLive, unaccountedBoats } from '../data/live';
 import type { LandingEvent, RegattaDoc, RegattaResponse } from '../data/racesense/types';
 import { eventFinished, linkRequest, linksOf, mergeOrphans, officialFor, officialForLoad, orphanContexts, probeFetcher } from '../data/recovery';
 import { raceWindowsFromListed } from '../data/vkx/match';
@@ -661,10 +661,10 @@ export function startApp(): void {
     const m = a.meta;
     const listed = m.eventId == null || m.eventId === eventId ? listedOf(m.division, m.raceNumber) : undefined;
     liveMarkShown = liveMarkHtml();
-    els.summary.innerHTML = `${raceTitleHtml(m, listed, paywall.free(m.eventId ?? eventId))}
+    els.summary.innerHTML = `${raceTitleHtml(m, listed, paywall.free(m.eventId ?? eventId), titleLive(m, listed), liveMarkShown)}
       <p>${esc(gunTimeLine(m.gunMs, m.tzOffsetMs))} ·
       ${a.boats.length} boats · ${legCount(a.legs.length)} ·
-      <span class="muted">${esc(m.sourceLabel)}</span>${raceEmailsToggle(m.eventId ?? eventId)}${liveMarkShown}</p>`;
+      <span class="muted">${esc(m.sourceLabel)}</span>${raceEmailsToggle(m.eventId ?? eventId)}</p>`;
     renderRaceHead();
     vkx.mount(els.raceHead, a);
   }
@@ -2856,11 +2856,26 @@ export function startApp(): void {
     renderLiveMark();
   }
 
-  /** "Live · updated 11:32" after the gun line while the race on screen is live; nothing otherwise. */
+  /** The title's "Live" tag (data/live.ts liveTag) for the race shown, from the loaded event's list and official results. */
+  function titleLive(m: RaceAnalysis['meta'], listed: ListedRace | undefined): boolean {
+    if (!listed || !regatta || (m.eventId != null && m.eventId !== eventId)) return false;
+    const outcome = outcomeOf();
+    return liveTag(
+      {
+        gunMs: listed.gunMs,
+        eventOver: eventFinished(currentDoc(regatta)),
+        officialIn: officialFor(outcome, listed) != null,
+        officialWanted: linksOf(outcome).has(listed.division),
+      },
+      Date.now(),
+    );
+  }
+
+  /** "updated 11:32" after the title (and its Live tag) while the race on screen is refreshed; nothing otherwise. */
   function liveMarkHtml(): string {
     const a = analysis;
     if (!live || !a || !current || liveKeyOf(current) !== live.key) return '';
-    return ` · <span class="race-live" data-live-updated="${new Date(live.updatedMs).toISOString()}">${esc(liveLabel(live.updatedMs, a.meta.tzOffsetMs))}</span>`;
+    return ` <span class="race-live" data-live-updated="${new Date(live.updatedMs).toISOString()}">${esc(liveLabel(live.updatedMs, a.meta.tzOffsetMs))}</span>`;
   }
   /** The live mark, and on the digest the last update (ISO) and refresh count, for checking a page by hand. */
   function renderLiveMark(): void {

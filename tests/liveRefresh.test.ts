@@ -265,6 +265,6 @@ describe('keeping the view across a refresh (swapLive)', () => {
 
   it('labels the update in the race’s local time', () => {
     // 11:32 EDT.
-    expect(liveLabel(Date.parse('2026-10-31T15:32:40Z'), -4 * 3_600_000)).toBe('Live · updated 11:32');
+    expect(liveLabel(Date.parse('2026-10-31T15:32:40Z'), -4 * 3_600_000)).toBe('updated 11:32');
   });
 });

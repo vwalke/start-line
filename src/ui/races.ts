@@ -48,10 +48,21 @@ export const rsSuffix = (r: Pick<ListedRace, 'practice' | 'number' | 'rsNumber'>
   r.rsNumber != null && (r.practice || r.number !== r.rsNumber) && !(r.number == null && !r.practice) ? `RS ${r.rsNumber}` : null;
 
 /** The race header's title: event · class · race name (as the picker names it), with RaceSense's number as a small tag when it differs. */
-export function raceTitleHtml(m: { eventName: string; boatClass: string; raceNumber: number }, listed: ListedRace | undefined, free = false): string {
+/**
+ * The race title. `live` (data/live.ts liveTag): a small "Live" tag after it, until official results are in; `after`:
+ * markup to follow it in the title (the refresh's quiet "updated 11:32", app.ts).
+ */
+export function raceTitleHtml(
+  m: { eventName: string; boatClass: string; raceNumber: number },
+  listed: ListedRace | undefined,
+  free = false,
+  live = false,
+  after = '',
+): string {
   const rs = listed ? rsSuffix(listed) : null;
   const title = listed ? raceName(listed) : isOrphanKey(m.raceNumber) ? 'Race' : `Race ${m.raceNumber}`;
-  return `<h2>${esc(m.eventName)}${free ? ' <span class="free-tag">Free</span>' : ''} · ${esc(m.boatClass)} · ${esc(title)}${rs ? ` <span class="rs-no">${esc(rs)}</span>` : ''}</h2>`;
+  const tag = live ? ' <span class="live-tag">Live</span>' : '';
+  return `<h2>${esc(m.eventName)}${free ? ' <span class="free-tag">Free</span>' : ''} · ${esc(m.boatClass)} · ${esc(title)}${rs ? ` <span class="rs-no">${esc(rs)}</span>` : ''}${tag}${after}</h2>`;
 }
 
 /** The picker's option: `Race 4 · Wed 11:40 · RS 5`, `Practice · Mon 09:55`, `Race 8 · Fri 09:55 · rebuilt`. */

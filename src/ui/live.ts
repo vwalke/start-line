@@ -93,8 +93,8 @@ export function startLivePoller(d: LivePollerDeps): LivePoller {
   return { stop, stopped: () => done };
 }
 
-/** "Live · updated 11:32", the time in the race's local time as the gun line shows it. */
-export const liveLabel = (updatedMs: number, tzOffsetMs: number): string => `Live · updated ${localTime(updatedMs, tzOffsetMs).slice(0, 5)}`;
+/** "updated 11:32" (next to the title's Live tag), the time in the race's local time as the gun line shows it. */
+export const liveLabel = (updatedMs: number, tzOffsetMs: number): string => `updated ${localTime(updatedMs, tzOffsetMs).slice(0, 5)}`;
 
 /**
  * The scrubber after a refresh: off (the full race) stays off; at the old end (within LIVE_END_SLACK_MS) it follows

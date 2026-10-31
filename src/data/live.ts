@@ -51,6 +51,27 @@ export function raceLive(f: RaceLiveFacts, now: number): boolean {
   return !complete;
 }
 
+/** What decides a race title's "Live" tag (liveTag). */
+export interface LiveTagFacts {
+  gunMs: number;
+  /** The event ended over a day ago (recovery.ts eventFinished). */
+  eventOver: boolean;
+  /** The race's official results are in. */
+  officialIn: boolean;
+  /** The division is linked to official results (they're expected for this race). */
+  officialWanted: boolean;
+}
+
+/**
+ * A race title's "Live" tag: until the race's official results are in, while it's current. Its division linked to
+ * official results: the whole time the event is on (results still to come). Not linked (no Yachtscoring, or linking
+ * still under way): only within LIVE_SPAN_MS of its gun. Never once the event is over, results or not.
+ */
+export function liveTag(f: LiveTagFacts, now: number): boolean {
+  if (f.officialIn || f.eventOver || now < f.gunMs) return false;
+  return f.officialWanted || now - f.gunMs < LIVE_SPAN_MS;
+}
+
 /** Boats racing (not set aside) with neither a finish time nor an official code. */
 export const unaccountedBoats = (boats: readonly { colorSlot: number; finishMs: number | null; finishCode?: string }[]): number =>
   boats.filter((b) => b.colorSlot >= 0 && b.finishMs == null && !b.finishCode).length;
