@@ -8,6 +8,9 @@ import type { RaceFinish } from '../analysis/coach/regatta';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { esc, ordinal } from './format';
 
+/** A boat with no finish (and no code) while the race is still being sailed (RaceAnalysis meta.inProgress): not a DNF. */
+export const RACING = 'racing';
+
 /**
  * A place from the trackers' finish-line crossings, shown `~` and called unofficial: the race's places come from the
  * tracker (`results.places`). Not the time source (`finishSource`): official places can have tracker times.

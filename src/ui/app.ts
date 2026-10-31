@@ -639,7 +639,7 @@ export function startApp(): void {
   function renderRaceHead(): void {
     const m = analysis?.meta;
     const race = m && (m.eventId == null || m.eventId === eventId) ? listedOf(m.division, m.raceNumber) : undefined;
-    const k = raceHead({ race, official, feed, results: m?.results, ys: ysParam ?? null });
+    const k = raceHead({ race, official, feed, results: m?.results, ys: ysParam ?? null, inProgress: !!m?.inProgress });
     renderKeepOpen(els.raceHead, (open) => raceHeadHtml(k, open));
     els.raceHead.hidden = !m;
   }
@@ -682,6 +682,7 @@ export function startApp(): void {
   function renderNow(): void {
     const a = analysis;
     if (!a) return;
+    syncRacing();
     renderSummary();
     renderStart();
     els.startColour.innerHTML = startColourControls(startColour) + startNamesControls(startNames);
@@ -2827,6 +2828,19 @@ export function startApp(): void {
     );
   }
 
+  /**
+   * The race shown reads as still being sailed (meta.inProgress: no DNF for a boat with no finish yet, no "no
+   * finishes" warning) while it is live by the app's rule; true when that changed.
+   */
+  function syncRacing(): boolean {
+    const a = analysis;
+    if (!a) return false;
+    const on = isLiveNow();
+    if (!!a.meta.inProgress === on) return false;
+    a.meta.inProgress = on;
+    return true;
+  }
+
   function stopLive(): void {
     if (!live) return;
     live.poller.stop();
@@ -2853,7 +2867,9 @@ export function startApp(): void {
         }),
       };
     } else if (live && loaded) live.updatedMs = Date.now();
-    renderLiveMark();
+    // Became (or stopped being) a race in progress: its labels follow.
+    if (syncRacing()) render();
+    else renderLiveMark();
   }
 
   /** The title's "Live" tag (data/live.ts liveTag) for the race shown, from the loaded event's list and official results. */

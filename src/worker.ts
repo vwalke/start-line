@@ -170,7 +170,9 @@ async function analyse(req: RaceRequest, attempt: number | null = null, signal?:
   // Pages held for a live race's refresh stay (racePages).
   if (held?.pages !== pages) pages.length = 0;
   if (req.vkx?.length && !at) data = await mergeUploadBytes(data, req.vkx);
-  return { analysis: analyzeRace(data, { allCompetitors: req.allCompetitors }), data };
+  // Still being sailed (not finished, its gun under LIVE_SPAN_MS old): every boat's track drawn to its newest fix.
+  const inProgress = !at && !finished && Date.now() >= gun && Date.now() - gun < LIVE_SPAN_MS;
+  return { analysis: analyzeRace(data, { allCompetitors: req.allCompetitors, inProgress }), data };
 }
 
 async function handle(req: Extract<WorkerRequest, { type: 'live' }>): Promise<RaceAnalysis> {

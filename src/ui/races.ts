@@ -96,7 +96,7 @@ export interface RaceHead {
 const listOf = (xs: readonly string[]): string => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 /** The header's chips and ⓘ for the race on screen. */
-export function raceHead(o: { race: ListedRace | undefined; official: OfficialState; feed: FeedCheck; results?: RaceResults; ys?: number | null }): RaceHead {
+export function raceHead(o: { race: ListedRace | undefined; official: OfficialState; feed: FeedCheck; results?: RaceResults; ys?: number | null; inProgress?: boolean }): RaceHead {
   const { race, official, feed, results } = o;
   const chips: Chip[] = [];
   const bullets: string[] = [];
@@ -163,7 +163,8 @@ export function raceHead(o: { race: ListedRace | undefined; official: OfficialSt
     if (results.times !== 'official') bullets.push(`Official finish times not used (${results.timesNote ?? 'not plausible'}): RaceSense’s finishes, else the tracks’ finish-line crossings (~).`);
     else bullets.push('Official finish times agree with the tracks’ finish-line crossings (median within a minute), so they are used.');
     if (results.officialNoTrack?.length) bullets.push(`In the official results without a track here: ${listOf(results.officialNoTrack)}.`);
-  } else if (results?.places === 'tracker' && !results.trackerFinishes) {
+  } else if (results?.places === 'tracker' && !results.trackerFinishes && !o.inProgress) {
+    // (A race still being sailed has no finishes yet: nothing to warn about.)
     // Tracker finishes themselves are explained where the places are (the ~ note), not here.
     chips.push(warnChip('no finishes'));
     bullets.push('Neither RaceSense nor the tracks give finishes for this race (no finish-line crossing found).');

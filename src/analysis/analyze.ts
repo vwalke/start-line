@@ -165,6 +165,8 @@ export interface AnalyzeOptions {
   allCompetitors?: boolean;
   /** Leave a triangle's reach marks out (insertBentMarks): the analysis falls back to this when those legs don't hold together. */
   noBentMarks?: boolean;
+  /** The race is still being sailed (worker.ts): each boat's track is drawn to its newest fix, its open leg included. */
+  inProgress?: boolean;
 }
 
 const tagOf = (b: Boat): string => (b.name && b.name !== `#${b.sail}` ? `#${b.sail} (${b.name})` : `#${b.sail}`);
@@ -697,9 +699,12 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     const segments: TrackSegment[] = [];
     // With no finish, the last leg runs to the boat's own crossing of the finish line (plus a short tail), else to its last fix.
     const openEnd = (from: number): number => (ranked && b.finishMs == null ? unfinishedDrawEnd(b, from) : tr.t[tr.t.length - 1]);
+    // A race in progress: the leg a boat is on (its next rounding not reached yet) runs to its newest fix.
+    const sailing = !!opts.inProgress && ranked && b.finishMs == null;
     for (let li = 0; li < nLegs; li++) {
       const a = drawTt[li];
-      const e = drawTt[li + 1] ?? (li === nLegs - 1 && a != null ? openEnd(a) : null);
+      let e = drawTt[li + 1] ?? (li === nLegs - 1 && a != null ? openEnd(a) : null);
+      if (e == null && sailing && a != null && drawTt.slice(li + 1).every((x) => x == null) && tr.t.length && tr.t[tr.t.length - 1] > a) e = tr.t[tr.t.length - 1];
       if (a == null || e == null) continue;
       const [i0, i1] = rangeIdx(tr.t, a, e);
       const xs: number[] = [];
@@ -880,6 +885,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       sourceKind: data.source.kind,
       eventId: data.source.eventId,
       ...(data.results ? { results: data.results } : {}),
+      ...(opts.inProgress ? { inProgress: true } : {}),
     },
     line,
     finishLine,

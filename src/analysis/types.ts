@@ -368,6 +368,11 @@ export interface RaceAnalysis {
     eventId?: string;
     /** Where places and finish times came from (official results, tracker crossings), when resolved. */
     results?: RaceResults;
+    /**
+     * The race is still being sailed (analysis: AnalyzeOptions.inProgress; the app sets it again from its live rule,
+     * data/live.ts raceLive): a boat with no finish and no code is racing, not a DNF.
+     */
+    inProgress?: boolean;
   };
   line: LineInfo;
   finishLine: { left: Vec; right: Vec } | null;
