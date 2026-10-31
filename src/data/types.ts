@@ -70,6 +70,13 @@ export interface Boat {
    * the finish line (data/finishes.ts trackerFinish), so its last leg is drawn to there and not on past it.
    */
   lineCrossMs?: number;
+  /**
+   * Display only, for a boat with an accepted finish: where it crossed the finish line at `finishMs` (the feed's
+   * positionAtFinish for its own finish time; else the line where its step across it meets it: data/holeFinish.ts
+   * finishPoint). A finish falling between fixes far apart is drawn through it (analysis/finishThrough.ts); no figure
+   * reads it.
+   */
+  finishAt?: LatLon;
   /** Official place in class (null: coded or not in the official results); set only with official results. */
   officialPlace?: number | null;
   /** Official scoring code (DNF, DNS, DNC, OCS, DSQ, RET, …); null for an official finisher. */

@@ -211,6 +211,23 @@ export function lineFix(fixes: readonly HoleFix[], lineAt: (t: number) => Line |
   return ms > p.ts && speedFits(fix.sogKn, recentKn(fixes, heldFrom(fixes, i))) ? fix : null;
 }
 
+/**
+ * Display only (Boat.finishAt): where a boat with a finish at `ms` (official or estimated: no position of the device's)
+ * crossed the line at `lineAt(ms)`: along its step across that time (the fix before to the fix after) where that meets
+ * the line, else (no fix after, or one at the same place) along its course into it (approach); HOLE_INSET_M inside the
+ * line's ends, its nearest point when the course misses it. Null with no fix before `ms` or no line then.
+ */
+export function finishPoint(fixes: readonly HoleFix[], lineAt: (t: number) => Line | null, ms: number): LatLon | null {
+  let i = -1;
+  while (i + 1 < fixes.length && fixes[i + 1].ts <= ms) i++;
+  const line = lineAt(ms);
+  if (i < 0 || !line) return null;
+  const p = fixes[i];
+  const q = fixes[i + 1];
+  if (q && dist(p, q) >= 1) return lineMeet(p, bearingDeg(p, q), line);
+  return approach(fixes, i, line).at;
+}
+
 /** `track` with `fix` inserted in time order and marked as placed (Track.finishFixMs); `track` itself when it has a fix at that time already. */
 export function withLineFix(track: Track, fix: LineFix): Track {
   const n = track.t.length;

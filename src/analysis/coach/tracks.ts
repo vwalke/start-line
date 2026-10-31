@@ -111,13 +111,16 @@ export function projectCoachTrack(track: Track, proj: Projection): Pick<CoachTra
 export function coachTracks(a: RaceAnalysis): CoachTrack[] {
   const gun = a.meta.gunMs;
   return a.boats.map((b) => {
-    const segs = a.drawings.find((d) => d.id === b.id)?.segments ?? [];
+    const d = a.drawings.find((q) => q.id === b.id);
+    const segs = d?.segments ?? [];
+    // Measured fixes only: not a finish drawn through the line and on (BoatDrawing.finish, display only).
+    const upTo = d?.finish ? d.finish.t : Infinity;
     const t: number[] = [];
     const x: number[] = [];
     const y: number[] = [];
     for (const s of [...segs].sort((p, q) => p.leg - q.leg)) {
       for (let i = 0; i < s.t.length; i++) {
-        if (s.t[i] < gun || (t.length && s.t[i] <= t[t.length - 1])) continue;
+        if (s.t[i] < gun || s.t[i] >= upTo || (t.length && s.t[i] <= t[t.length - 1])) continue;
         t.push(s.t[i]);
         x.push(s.x[i]);
         y.push(s.y[i]);

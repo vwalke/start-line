@@ -25,7 +25,7 @@ import {
   type MarkSeries,
   type Plausibility,
 } from '../finishes';
-import { holeFinish, lineFix, withLineFix } from '../holeFinish';
+import { finishPoint, holeFinish, lineFix, withLineFix } from '../holeFinish';
 import { finishedWithCode } from '../official/codes';
 import type { OfficialResultRow } from '../official/link';
 import type { Boat, CourseMark, EntryResults, LatLon, Line, MarkTrack, RaceData, RaceResults, RcStart, Track, WindSample } from '../types';
@@ -1480,6 +1480,14 @@ export function buildRaceData(
         const w = lastLegFrom(fx, lineAt, gunMs, endMs, feedRn, floor, axisDeg);
         const fix = w && lineFix(fx, lineAt, b.finishMs, w.from);
         if (fix) b.track = withLineFix(b.track, fix);
+        else {
+          // Display only: where it crossed the line then, so a finish between fixes far apart is drawn through it
+          // (analysis/finishThrough.ts): the device's own point for its own finish time, else one on the line along its track.
+          const f = finishes.get(b.sail);
+          const pos = f && Date.parse(f.finishingTime) === b.finishMs ? f.positionAtFinish?.coordinates : null;
+          const at = pos && Number.isFinite(pos[0]) && Number.isFinite(pos[1]) ? { lat: pos[1], lon: pos[0] } : finishPoint(fx, lineAt, b.finishMs);
+          if (at) b.finishAt = at;
+        }
       } else {
         // Display only: a boat with no accepted finish is drawn to its own crossing of the finish line (Boat.lineCrossMs),
         // found as tracker finishes are (the stage onset, else its last visit to the far end), not its first pass of the line.

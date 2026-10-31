@@ -1,4 +1,5 @@
 import type { BoatLog, RaceResults, RcStatus, TimeSource } from '../data/types';
+import type { FinishThrough } from './finishThrough';
 import type { Vec } from './geo';
 
 /** How much track before the start fix the start chart draws behind each boat. */
@@ -297,6 +298,11 @@ export interface BoatDrawing {
   pre?: TrackSegment;
   /** The feed's holes from the pre-gun track on (display only: the maps' gap fill). Absent in older analyses. */
   holes?: RawHoles;
+  /**
+   * Display only: the point on the finish line its last segment was drawn through at its finish time, when that fell
+   * between fixes far apart (finishThrough.ts); the full-rate track gets it too (fullRate.ts).
+   */
+  finish?: FinishThrough;
   /** Every fix from START_SOG_PRE_MS before the gun to START_SOG_POST_MS after: time and smoothed SOG (gaps left as they are). */
   startSog: { t: Float64Array; sog: Float32Array };
 }

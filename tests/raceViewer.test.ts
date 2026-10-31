@@ -378,14 +378,20 @@ describe('a tracker that stops: held hollow for MAP_HOLD_S after its final fix, 
     expect(f.dots).toMatch(new RegExp(`class="dot hull hold lost[^"]*"[^>]*data-id="${LOST}"|data-id="${LOST}"[^>]*class="dot hull hold lost`));
   });
 
-  it('finished: never held past its finish, so never shown as a lost boat after it', () => {
+  it('finished: sails through the line at its finish (finishThrough.ts), never held, so never shown as a lost boat', () => {
     const fin = a.boats.find((b) => b.id === DONE)!.finishMs!;
-    expect(fin).toBeGreaterThanOrEqual(lastFix(DONE));
-    expect(fin - lastFix(DONE)).toBeLessThan(BOAT_STALE_MS);
-    expect(placed(fin, DONE)).toBeNull();
+    const d = a.drawings.find((x) => x.id === DONE)!;
+    // Its finish fell between fixes 10 s apart: drawn on through its point on the line to its next fix.
+    expect(d.finish?.t).toBe(fin);
+    expect(lastFix(DONE)).toBeGreaterThan(fin);
+    const at = placed(fin, DONE)!;
+    expect(at).toMatchObject({ hold: false, stale: false });
+    expect(at.x).toBeCloseTo(d.finish!.x, 3);
+    expect(at.y).toBeCloseTo(d.finish!.y, 3);
+    // Moving, not held, from before its finish to its next fix; then gone (never held past its finish).
+    expect(placed(fin - 500, DONE)).toMatchObject({ hold: false });
+    expect(placed(lastFix(DONE) + 1000, DONE)).toBeNull();
     expect(placed(fin + 30_000, DONE)).toBeNull();
-    // Until its finish, within a second or so of its last fix: held, still filled.
-    expect(placed(lastFix(DONE) + 500, DONE)).toMatchObject({ hold: true, stale: false });
   });
 
   it('played across the stop: its trail paths are reused (not removed and made again), its trail ends at its last fix', () => {
