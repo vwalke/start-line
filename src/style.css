@@ -296,6 +296,9 @@ input[type='search']:disabled, select:disabled { opacity: 0.6; }
 #digest.loading { opacity: 0.45; transition: opacity 0.2s; }
 #summary h2 { font-size: 1.2rem; margin: 10px 0 2px; }
 #summary p { margin: 0 0 10px; color: var(--ink-2); font-size: 0.9rem; }
+/* A race in progress, refreshed each minute (ui/live.ts): quiet, after the gun line. */
+#summary .race-live { color: var(--good); white-space: nowrap; font-variant-numeric: tabular-nums; }
+#summary .race-live::before { content: ''; display: inline-block; width: 0.45em; height: 0.45em; margin-right: 0.35em; border-radius: 50%; background: currentColor; vertical-align: 0.1em; }
 .muted { color: var(--ink-3); }
 
 /* Boat list on the left, the digest beside it; charts stacked full width of the content column. */

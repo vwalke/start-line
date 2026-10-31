@@ -60,22 +60,25 @@ export function feedDivision(name: string): string {
  * Telemetry for [after, before] (ms), paginated by advancing `after`
  * (exclusive). Pages overlap by 1 ms so rows sharing the boundary
  * timestamp aren't lost; the adapter de-duplicates. `division` is the display name (mapped by feedDivision).
+ * `fresh`: past our caches (a live race's refresh), stored as usual; `tail`: a live race's new end, past our caches
+ * and kept out of Cache Storage (a new window each minute).
  */
 export async function fetchTelemetry(
   eventId: string,
   division: string | null,
   after: number,
   before: number,
-  opts: { signal?: AbortSignal; finished?: boolean; onPage?: (n: number, rows: number) => void } = {},
+  opts: { signal?: AbortSignal; finished?: boolean; fresh?: boolean; tail?: boolean; onPage?: (n: number, rows: number) => void } = {},
 ): Promise<TelemetryPage[]> {
   const pages: TelemetryPage[] = [];
   let cursor = Math.floor(after);
-  const ttl = opts.finished ? 30 * DAY : MINUTE;
+  const ttl = opts.tail ? 0 : opts.finished ? 30 * DAY : MINUTE;
+  const fresh = !!(opts.fresh || opts.tail);
   for (let n = 0; n < MAX_PAGES; n++) {
     const p = new URLSearchParams({ after: String(cursor), before: String(Math.floor(before)), limit: String(PAGE) });
     if (division) p.set('division', feedDivision(division));
     const url = `${PROXY_BASE}/telemetry/event/${encodeURIComponent(eventId)}?${p}`;
-    const page = await cachedJson<TelemetryPage>(url, ttl, opts.signal);
+    const page = await cachedJson<TelemetryPage>(url, ttl, opts.signal, { fresh });
     pages.push(page);
     opts.onPage?.(n + 1, page.Rows?.length ?? 0);
     if (!page.Fields || !page.Rows || page.Rows.length < PAGE) break;
