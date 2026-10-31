@@ -29,7 +29,7 @@ import { clampView, type Box, type View } from './view';
 
 export const VS_PARAM = 'vs';
 export const WIN_PARAM = 'win';
-/** A leg's view (`leg=<n>`, 1-based): the view frames the whole fleet's leg, the trail is All. */
+/** A leg's view (`leg=<n>`, 1-based): that leg drawn alone, the view framing the whole fleet's leg, the trail All. */
 export const LEG_PARAM = 'leg';
 /** `fast=<n>`: the tracks colored by speed rank on each leg with the top N picked out (Colour: Rank, Top N). */
 export const FAST_PARAM = 'fast';
@@ -50,7 +50,7 @@ export interface MapFocus {
   boat: string;
   vs: string[];
   spans: [number, number][];
-  /** A leg's view (legFocus): the leg (0-based), framed whole, with the trail All. */
+  /** A leg's view (legFocus): the leg (0-based), drawn alone (focusLeg) and framed whole, with the trail All. */
   leg?: number;
   /** The tracks by speed rank on each leg, the top `fast` picked out (Colour: Rank, Top N). */
   fast?: 10 | 3;
@@ -75,7 +75,7 @@ export const focusTime = (f: Pick<MapFocus, 'spans'>): number => f.spans[f.spans
 /** Where the focus's trail starts ('win': `trailWindow`'s `from`): the window's start (its first span's). */
 export const focusFrom = (f: Pick<MapFocus, 'spans'>): number => f.spans[0][0];
 
-/** The focus's trail: the window's own, from its start (focusFrom) to the time shown; a leg's view, the whole trail. */
+/** The focus's trail: the window's own, from its start (focusFrom) to the time shown; a leg's view, the whole trail (of its leg, the only one drawn). */
 export const focusTrail = (f: Pick<MapFocus, 'spans' | 'leg'>): Trail => (f.leg != null ? 'all' : WINDOW_TRAIL);
 
 /** The shortest of the trails always offered that covers the window from its start to its end (spans and all): the trail once the focus is left. */
@@ -133,8 +133,8 @@ export function cardFocus(a: RaceAnalysis, boat: string, c: Pick<Card, 't0' | 't
 }
 
 /**
- * Leg `leg` (0-based) as boat `boat`'s map focus, a leg's view: the scrubber at the boat's rounding at the leg's end
- * (its time on the leg is the window), the whole trail, the view framing the fleet's leg, the tracks by speed rank on
+ * Leg `leg` (0-based) as boat `boat`'s map focus, a leg's view: that leg alone drawn (focusLeg), the scrubber at the
+ * boat's rounding at the leg's end (its time on the leg is the window), the whole trail, the view framing the fleet's leg, the tracks by speed rank on
  * each leg with the LEG_FAST_TOP fastest picked out. The boat's own leg times, else the fleet's first start and last
  * end of the leg; null when neither is known.
  */
@@ -209,17 +209,17 @@ export interface LegBefore {
 }
 
 /**
- * The leg selection once focus `f` is shown (null: none, the focus left), as focusColouring: any focus (a leg's view
- * or a card's window) draws the whole race (its scrubber's) and keeps the selection it replaced (`before`, kept
- * across a second focus); none puts that one back. The selection the user made is `before`'s while one is kept (what
- * is saved).
+ * The leg selection once focus `f` is shown (null: none, the focus left), as focusColouring: a leg's view draws its
+ * own leg only, a card's window without one the whole race (its scrubber's); either keeps the selection it replaced
+ * (`before`, kept across a second focus); none puts that one back. The selection the user made is `before`'s while one
+ * is kept (what is saved).
  */
 export function focusLeg(now: number | null, before: LegBefore | null, f: Pick<MapFocus, 'leg'> | null): { now: number | null; before: LegBefore | null } {
-  if (f) return { now: null, before: before ?? { leg: now } };
+  if (f) return { now: f.leg ?? null, before: before ?? { leg: now } };
   return { now: before ? before.leg : now, before: null };
 }
 
-/** The leg the leg buttons show pressed (null: All): a leg's view's own leg, else the selection the map draws. */
+/** The leg the leg buttons show pressed (null: All): a leg's view's own leg (the one it draws), else the selection the map draws. */
 export const shownLeg = (sel: number | null, f: Pick<MapFocus, 'leg'> | null): number | null => f?.leg ?? sel;
 
 /** The selection after leg button `pressed` (null: All) with `shown` pressed (shownLeg): the one pressed, or All for the one already shown. */
@@ -237,7 +237,7 @@ export type LegEvent = { kind: 'open'; focus: Pick<MapFocus, 'leg'> } | { kind: 
 /**
  * The leg buttons after event `e` (the Race tab's own transitions, app.ts): the state, whether the focus open is left
  * (`leave`: a leg button pressed in a leg's view) and whether the map fits its box again (`refit`: a leg's view left,
- * framed on its leg, puts back the Fit of the selection it comes back to, All too).
+ * drawn and framed on its leg, puts back the Fit of the selection it comes back to, All too).
  */
 export function legStep(s: LegState, e: LegEvent): { state: LegState; leave: boolean; refit: boolean } {
   if (e.kind === 'open') {
