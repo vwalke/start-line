@@ -15,9 +15,9 @@ import { linkOfficial, type LinkOutcome } from '../data/official/link';
 import { httpYsSource, parseYsEventId } from '../data/official/yachtscoring';
 import { PROBE_BUDGET, discoverOrphans, isOrphanKey, type OrphanFound } from '../data/orphans';
 import { buildRaceList, findListed, type ListedRace, type RaceList } from '../data/raceList';
-import { currentDoc, defaultRace, findRace, listRaces } from '../data/racesense/adapter';
+import { NO_TRACKS, currentDoc, defaultRace, findRace, listRaces, tzOffsetMs } from '../data/racesense/adapter';
 import { fetchLanding, fetchRegatta, fetchUsableRegatta } from '../data/racesense/api';
-import { liveTag, raceLive, unaccountedBoats } from '../data/live';
+import { gunLive, liveTag, raceLive, unaccountedBoats } from '../data/live';
 import type { LandingEvent, RegattaDoc, RegattaResponse } from '../data/racesense/types';
 import { eventFinished, linkRequest, linksOf, mergeOrphans, officialFor, officialForLoad, orphanContexts, probeFetcher } from '../data/recovery';
 import { raceWindowsFromListed } from '../data/vkx/match';
@@ -169,7 +169,7 @@ import { gunReadoutHtml } from './gunReadout';
 import { ATTEMPT_PARAM, attemptNumbered, earlierAttempts, parseAttemptParam, type EarlierAttempt } from '../data/attempts';
 import { attemptButtonsHtml, attemptNote, attemptTitle } from './attemptView';
 import { latestLoader } from './latestOnly';
-import { liveLabel, liveScrubT, liveView, startLivePoller, type LivePoller, type LiveTick } from './live';
+import { liveArmDelay, liveLabel, liveScrubT, liveView, startLivePoller, waitingNotice, type LivePoller, type LiveTick } from './live';
 import { biasBullets, lineChips } from './startLine';
 import { downloadSvgAsPng, pageCss, startPngName, startPngSvg } from './startPng';
 import { PLACE_TIP_MOUSE_REACH, PLACE_TIP_TOUCH_REACH, nearestPlaceDot, placesChart, placesKey } from './places';
@@ -474,6 +474,11 @@ export function startApp(): void {
   // ---- A race in progress (data/live.ts raceLive, ui/live.ts): refreshed about each minute while on screen (refreshLive).
   /** The live race on screen: its poller, when it was last brought up to date (load or refresh) and how many refreshes. */
   let live: { key: string; poller: LivePoller; updatedMs: number; refreshes: number } | null = null;
+  /**
+   * A race opened before any boat's track is in (its gun to come, mostly: waitForTracks): tried again each minute (`poller`)
+   * from its live window on, a timer (`arm`) until then.
+   */
+  let waiting: { key: string; poller: LivePoller | null; arm: ReturnType<typeof setTimeout> | undefined } | null = null;
   /** The live mark the gun line has now (renderSummary). */
   let liveMarkShown = '';
   const liveKeyOf = (c: { eventId: string; division: string; raceNumber: number }): string => `${c.eventId}|${c.division}|${c.raceNumber}`;
@@ -2662,8 +2667,9 @@ export function startApp(): void {
     // Don't replaceState until this race is on screen: a kill mid-switch keeps the last
     // successful race in both the URL and recall.lastView (and not the half-switched one).
     const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: userLeg(), boat: highlight, sort, startSort }, restore);
-    // Another race: the live one's refreshes stop (a reload of the same race keeps them).
-    if (live && live.key !== liveKeyOf({ eventId: id, division, raceNumber })) stopLive();
+    // Another race: the live one's refreshes (or tries) stop (a reload of the same race keeps them).
+    const key = liveKeyOf({ eventId: id, division, raceNumber });
+    if ((live && live.key !== key) || (waiting && waiting.key !== key)) stopLive();
     try {
       await paywall.ready;
       if (baseRegatta && paywall.locked(freeOf(baseRegatta), id, division, raceNumber)) {
@@ -2686,6 +2692,7 @@ export function startApp(): void {
       setUrl({ event: id, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
       save();
       setNotice('');
+      stopWaiting();
       syncLive(true);
       reapplyOfficial();
       return 'ok';
@@ -2698,6 +2705,9 @@ export function startApp(): void {
         void paywall.refresh();
         return 'ok';
       }
+      // Opened before its boats are out (its start sequence, say): tried again each minute, and on live from there.
+      if (id === eventId && (e as Error).message === NO_TRACKS && waitForTracks(division, raceNumber)) return e as Error;
+      if (waiting?.key === key) stopWaiting();
       // Keep the event/race picker so another race can be tried.
       setNotice(`Couldn't load that race (${(e as Error).message}).`);
       return e as Error;
@@ -2806,7 +2816,7 @@ export function startApp(): void {
 
   // ---- The live race's refreshes (`live` above).
 
-  /** Whether the race on screen is in progress (a rebuilt race or a locked one never is). */
+  /** Whether the race on screen is in progress, its start sequence included (a rebuilt race or a locked one never is). */
   function isLiveNow(): boolean {
     const a = analysis;
     const c = current;
@@ -2841,7 +2851,74 @@ export function startApp(): void {
     return true;
   }
 
+  function stopWaiting(): void {
+    if (!waiting) return;
+    waiting.poller?.stop();
+    clearTimeout(waiting.arm);
+    waiting = null;
+  }
+
+  /**
+   * A race of the loaded event with no boat's track yet (loadRace: NO_TRACKS), its gun to come or in its live window
+   * (data/live.ts gunLive): the notice says when its gun is, and from PRE_GUN_MS before it (ui/live.ts liveArmDelay) it's
+   * tried again each minute (the event's document afresh, for a gun moved) until it loads, then refreshed live
+   * (syncLive); false when it isn't such a race.
+   */
+  function waitForTracks(division: string, raceNumber: number): boolean {
+    const listed = regatta ? listedOf(division, raceNumber) : undefined;
+    const now = Date.now();
+    if (!regatta || !listed || isOrphanKey(raceNumber) || eventFinished(currentDoc(regatta)) || !(listed.gunMs > now || gunLive(listed.gunMs, now))) return false;
+    const tz = tzOffsetMs(findRace(currentDoc(regatta), { division, raceNumber }).race.timezoneOffset);
+    setNotice(waitingNotice(raceName(listed), listed.gunMs, tz, now));
+    const key = liveKeyOf({ eventId, division, raceNumber });
+    if (waiting?.key === key) return true;
+    stopWaiting();
+    const w: NonNullable<typeof waiting> = { key, poller: null, arm: undefined };
+    waiting = w;
+    const begin = (): void => {
+      if (waiting !== w) return;
+      const wait = liveArmDelay(listed.gunMs, Date.now());
+      if (wait != null) {
+        w.arm = setTimeout(begin, wait);
+        return;
+      }
+      w.poller = startLivePoller({
+        tick: () => retryWaiting(key, division, raceNumber),
+        hidden: () => document.visibilityState === 'hidden',
+        onVisibility: (cb) => {
+          document.addEventListener('visibilitychange', cb);
+          return () => document.removeEventListener('visibilitychange', cb);
+        },
+      });
+    };
+    begin();
+    return true;
+  }
+
+  /** One try of the race waited for (waitForTracks): the event's document afresh, then the race loaded. */
+  async function retryWaiting(key: string, division: string, raceNumber: number): Promise<LiveTick> {
+    if (waiting?.key !== key || liveKeyOf({ eventId, division, raceNumber }) !== key) return 'done';
+    // A load or the event's linking under way goes first.
+    if (pending.size || official.status === 'pending' || feed.status === 'running') return 'more';
+    const id = eventId;
+    const req = eventReq;
+    const next = await fetchRegatta(id, undefined, { fresh: true });
+    if (id !== eventId || req !== eventReq || waiting?.key !== key) return 'done';
+    baseRegatta = next;
+    regatta = mergeOrphans(next, orphansFound ?? new Map<string, OrphanFound[]>());
+    raceList = buildRaceList(currentDoc(regatta), { links: linksOf(outcomeOf()), ...(orphansFound ? { orphans: orphansFound } : {}) });
+    renderRaceOptions();
+    return (await loadRace(division, raceNumber)) === 'ok' ? 'done' : 'more';
+  }
+
+  /** Everything live stops: the race on screen's refreshes and a race waited for (another race or event opened). */
   function stopLive(): void {
+    stopWaiting();
+    stopPolling();
+  }
+
+  /** The race on screen's refreshes stop. */
+  function stopPolling(): void {
     if (!live) return;
     live.poller.stop();
     live = null;
@@ -2851,7 +2928,7 @@ export function startApp(): void {
   /** Start (or keep, or stop) the poller for the race on screen; `loaded`: it was just loaded in full (up to date now). */
   function syncLive(loaded = false): void {
     const key = current && isLiveNow() ? liveKeyOf(current) : null;
-    if (live && live.key !== key) stopLive();
+    if (live && live.key !== key) stopPolling();
     if (key && !live) {
       live = {
         key,

@@ -18,7 +18,7 @@ import { fetchTelemetry, fetchWind } from './data/racesense/api';
 import type { RegattaResponse, TelemetryPage } from './data/racesense/types';
 import { mergeUploadBytes } from './data/vkx/merge';
 import { canTail, joinTail, pagesLastTs, tailAfter, type Window } from './data/racesense/tail';
-import { LIVE_SPAN_MS } from './data/live';
+import { gunLive } from './data/live';
 import { isPaywallError } from './data/paywall';
 import { attemptRegatta, attemptWindow, earlierAttempts } from './data/attempts';
 
@@ -80,7 +80,7 @@ let latest = 0;
 /** The attempt requests in flight, by id, so a `cancel` can abort their fetches. */
 const attemptAborts = new Map<number, AbortController>();
 /**
- * The race on screen's telemetry while it is in progress (its gun under LIVE_SPAN_MS old, not finished), so a refresh
+ * The race on screen's telemetry while it is in progress (its gun in the live window, data/live.ts gunLive; not finished), so a refresh
  * fetches only its new end (data/racesense/tail.ts); `last` its latest fix, `tails` the refreshes since a whole fetch.
  */
 let held: { key: string; win: Window; pages: TelemetryPage[]; last: number | null; tails: number } | null = null;
@@ -102,7 +102,7 @@ async function racePages(
 ): Promise<TelemetryPage[]> {
   const key = `${req.eventId}|${req.division}|${req.raceNumber}`;
   const h = held?.key === key ? held : null;
-  const live = !finished && gun != null && Date.now() - gun < LIVE_SPAN_MS;
+  const live = !finished && gun != null && gunLive(gun, Date.now());
   if (req.refresh && live && h && canTail(h.win, win) && h.tails + 1 < FULL_EVERY) {
     const from = tailAfter(h.last, win);
     const tail = await fetchTelemetry(req.eventId, req.division, from, win.before, { tail: true, signal });
@@ -170,8 +170,9 @@ async function analyse(req: RaceRequest, attempt: number | null = null, signal?:
   // Pages held for a live race's refresh stay (racePages).
   if (held?.pages !== pages) pages.length = 0;
   if (req.vkx?.length && !at) data = await mergeUploadBytes(data, req.vkx);
-  // Still being sailed (not finished, its gun under LIVE_SPAN_MS old): every boat's track drawn to its newest fix.
-  const inProgress = !at && !finished && Date.now() >= gun && Date.now() - gun < LIVE_SPAN_MS;
+  // Still being sailed, or in its start sequence (not finished, its gun in the live window): every boat's track drawn
+  // to its newest fix, no DNF.
+  const inProgress = !at && !finished && gunLive(gun, Date.now());
   return { analysis: analyzeRace(data, { allCompetitors: req.allCompetitors, inProgress }), data };
 }
 

@@ -200,6 +200,9 @@ export function telemetryWindow(doc: RegattaDoc, ref: RaceRef): { after: number;
   return { after: st.startTime - PRE_START_FETCH_MS, before: Math.max(end, st.startTime + 20 * 60_000) };
 }
 
+/** buildRaceData's error for a race with no boat's track (one opened before its boats are out, say). */
+export const NO_TRACKS = 'No boat tracks in the telemetry for this race';
+
 /** Firestore carries a 10-hex-digit serial; telemetry's `sn` is its low 16 bits as a number. */
 export function snFromHex(hex: string): number {
   return parseInt(hex.slice(-4), 16);
@@ -1414,7 +1417,7 @@ export function buildRaceData(
       ...(entries.has(sail) ? { entry: entries.get(sail)! } : {}),
     });
   }
-  if (!boats.length) throw new Error('No boat tracks in the telemetry for this race');
+  if (!boats.length) throw new Error(NO_TRACKS);
 
   const [lLat, lLon] = st.startLine.leftEnd;
   const [rLat, rLon] = st.startLine.rightEnd;

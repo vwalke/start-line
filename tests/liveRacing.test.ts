@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import { placeChanges } from '../src/analysis/places';
 import type { RaceAnalysis } from '../src/analysis/types';
@@ -95,5 +95,40 @@ describe('a race in progress reads as racing, not DNF', () => {
     // A finished race's labels don't change.
     const list = boatList(done, null);
     expect(list).not.toContain('racing');
+  });
+});
+
+describe('a race opened before its gun (its start sequence)', () => {
+  afterEach(() => vi.useRealTimers());
+  const { a, gun } = inProgress(-1, true);
+  const racing = a.boats.filter((b) => b.colorSlot >= 0);
+
+  it('analyses with nothing after the gun: no start judged, nobody over early, no finishes', () => {
+    expect(racing.length).toBeGreaterThan(0);
+    for (const b of racing) {
+      expect(b.finishPos).toBeNull();
+      expect(b.start?.over ?? false).toBe(false);
+      expect(b.start?.ocs ?? false).toBe(false);
+    }
+    expect(JSON.stringify(a.findings)).not.toMatch(/over early|OCS/i);
+  });
+
+  it('reads "pre-start" (not racing, not DNF) until the gun, then "racing"', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(gun - 90_000);
+    const list = boatList(a, null);
+    expect(list).toContain('<span class="pos">pre-start</span>');
+    expect(list).not.toMatch(/DNF|did not finish|racing/);
+    const table = legsTable(a, null, null);
+    expect(table).toContain('pre-start = no finish yet');
+    expect(table).not.toMatch(/>DNF</);
+    expect(placeChanges(a).boats.some((b) => b.dnf)).toBe(false);
+    vi.setSystemTime(gun + 1);
+    expect(boatList(a, null)).toContain('<span class="pos">racing</span>');
+  });
+
+  it('no "no finishes" warning in the header', () => {
+    const head = raceHead({ race: undefined, official: { status: 'off' }, feed: { status: 'idle', used: 0, max: 0, found: 0, exhausted: false }, results: a.meta.results, inProgress: true });
+    expect(head.chips.map((c) => c.text)).not.toContain('no finishes');
   });
 });

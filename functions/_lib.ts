@@ -267,7 +267,7 @@ export function ttlFor(path: string, qs: URLSearchParams, body: string): number 
   try {
     const doc = (JSON.parse(body) as { revisions?: { doc?: GunDoc & { endDate?: number } }[] }).revisions?.at(-1)?.doc;
     if (doc?.endDate && Date.now() - doc.endDate > DAY * 1000) return 7 * DAY;
-    // A race in progress: its finishes and end come in on this document.
+    // A race in progress, or in its start sequence (data/live.ts gunLive): its gun, finishes and end come in on this document.
     if (hasLiveGun(doc, Date.now())) return LIVE_TTL;
   } catch {
     /* not JSON: short */

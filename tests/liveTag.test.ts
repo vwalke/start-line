@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LIVE_SPAN_MS, liveTag, type LiveTagFacts } from '../src/data/live';
+import { LIVE_SPAN_MS, PRE_GUN_MS, liveTag, type LiveTagFacts } from '../src/data/live';
 import { raceTitleHtml } from '../src/ui/races';
 
 const GUN = Date.parse('2026-10-31T15:25:01Z');
@@ -28,10 +28,16 @@ describe('the race title’s Live tag', () => {
     expect(title({}, GUN + LIVE_SPAN_MS)).toContain('live-tag');
   });
 
-  it('keeps the refresh note quiet, after the tag, and no tag before the gun', () => {
+  it('keeps the refresh note quiet, after the tag', () => {
     const html = raceTitleHtml(m, undefined, false, true, ' <span class="race-live">updated 11:32</span>');
     expect(html).toMatch(/Live<\/span> <span class="race-live">updated 11:32<\/span><\/h2>$/);
     expect(html.match(/Live/g)).toHaveLength(1);
-    expect(liveTag(facts(), GUN - 1)).toBe(false);
+  });
+
+  it('shows from the race’s live window before its gun (the page following it then), not earlier', () => {
+    expect(liveTag(facts(), GUN - 1)).toBe(true);
+    expect(liveTag(facts({ officialWanted: false }), GUN - 5 * 60_000)).toBe(true);
+    expect(liveTag(facts(), GUN - PRE_GUN_MS - 1)).toBe(false);
+    expect(liveTag(facts({ officialWanted: false }), GUN - PRE_GUN_MS - 1)).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LIVE_TELEMETRY_TTL, LIVE_TTL, buildYsQuery, telemetryTtl, ttlFor, ysTtl, ysUpstreamQuery } from '../functions/_lib';
 import { DAY } from '../src/data/cache';
-import { LIVE_REGATTA_TTL_MS, LIVE_SPAN_MS, hasLiveGun } from '../src/data/live';
+import { LIVE_REGATTA_TTL_MS, LIVE_SPAN_MS, PRE_GUN_MS, hasLiveGun } from '../src/data/live';
 import { httpYsSource } from '../src/data/official/yachtscoring';
 import { fetchRegatta } from '../src/data/racesense/api';
 import type { RegattaResponse } from '../src/data/racesense/types';
@@ -15,10 +15,13 @@ const docWith = (gun: number, endDate: number | null = Date.parse('2026-11-01T00
 const body = (doc: unknown): string => JSON.stringify({ revisions: [{ doc }] });
 
 describe('live race detection for caching', () => {
-  it('sees a gun within the live span, not one older or still to come', () => {
+  it('sees a gun within the live window (its start sequence included), not one older or still hours off', () => {
     expect(hasLiveGun(docWith(GUN), NOW)).toBe(true);
     expect(hasLiveGun(docWith(GUN), GUN + LIVE_SPAN_MS + 1)).toBe(false);
-    expect(hasLiveGun(docWith(NOW + 60_000), NOW - 3 * 3_600_000)).toBe(false);
+    // Race 8's sequence under way (race 7 long over): the gun to come is picked up.
+    expect(hasLiveGun(docWith(GUN), GUN - 5 * 60_000)).toBe(true);
+    // Both guns still over PRE_GUN_MS off.
+    expect(hasLiveGun(docWith(GUN), GUN - 2 * 3_600_000 - PRE_GUN_MS - 1)).toBe(false);
     expect(hasLiveGun(null, NOW)).toBe(false);
     expect(hasLiveGun({ divisions: [{ races: [{ starts: [{ startTime: null }] }] }] }, NOW)).toBe(false);
   });
@@ -35,6 +38,8 @@ describe('edge TTLs (functions/_lib.ts)', () => {
     const qs = new URLSearchParams('event=Qn47enc7fKR7Th1Qj1ZI');
     expect(ttlFor('regatta', qs, body(docWith(GUN)))).toBe(LIVE_TTL);
     expect(ttlFor('regatta', qs, body(docWith(GUN - 7 * 3_600_000)))).toBe(120);
+    // The next race's sequence under way: short too, so its gun is seen within the minute.
+    expect(ttlFor('regatta', qs, body(docWith(NOW + 10 * 60_000)))).toBe(LIVE_TTL);
     expect(ttlFor('regatta', qs, body(docWith(GUN, NOW - 2 * DAY)))).toBe(7 * 86_400);
   });
 

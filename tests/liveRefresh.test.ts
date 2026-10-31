@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LIVE_SPAN_MS, raceLive, unaccountedBoats, type RaceLiveFacts } from '../src/data/live';
+import { LIVE_SPAN_MS, PRE_GUN_MS, gunLive, raceLive, unaccountedBoats, type RaceLiveFacts } from '../src/data/live';
 import { buildRaceData, parseTelemetry, telemetryWindow, currentDoc } from '../src/data/racesense/adapter';
 import { fetchTelemetry } from '../src/data/racesense/api';
 import { TAIL_BUCKET_MS, TAIL_OVERLAP_MS, canTail, joinTail, pagesLastTs, tailAfter } from '../src/data/racesense/tail';
@@ -9,11 +9,13 @@ import {
   LIVE_EVERY_MS,
   LIVE_MAX_BACKOFF_MS,
   LIVE_VISIBLE_GAP_MS,
+  liveArmDelay,
   liveDelay,
   liveLabel,
   liveScrubT,
   liveView,
   startLivePoller,
+  waitingNotice,
   type LiveTick,
 } from '../src/ui/live';
 import { fitView, viewBox } from '../src/ui/view';
@@ -32,9 +34,13 @@ const facts = (f: Partial<RaceLiveFacts> = {}): RaceLiveFacts => ({
 
 describe('a race in progress (raceLive)', () => {
   const now = GUN + 20 * 60_000;
-  it('is live from its gun while incomplete, within the span', () => {
+  it('is live from PRE_GUN_MS before its gun while incomplete, within the span', () => {
     expect(raceLive(facts(), now)).toBe(true);
-    expect(raceLive(facts(), GUN - 1)).toBe(false);
+    // Opened in its start sequence (or a couple of hours before): followed, so the gun is picked up.
+    expect(raceLive(facts(), GUN - 1)).toBe(true);
+    expect(raceLive(facts(), GUN - 4 * 60_000)).toBe(true);
+    expect(raceLive(facts(), GUN - PRE_GUN_MS)).toBe(true);
+    expect(raceLive(facts(), GUN - PRE_GUN_MS - 1)).toBe(false);
     expect(raceLive(facts(), GUN + LIVE_SPAN_MS)).toBe(false);
     expect(raceLive(facts({ eventOver: true }), now)).toBe(false);
   });
@@ -51,6 +57,12 @@ describe('a race in progress (raceLive)', () => {
     expect(raceLive(facts({ feedFinished: true, unaccounted: 0, officialWanted: false }), now)).toBe(false);
   });
 
+  it('is one window for the page, the worker and the caches (gunLive)', () => {
+    for (const t of [GUN - PRE_GUN_MS - 1, GUN - PRE_GUN_MS, GUN - 1, GUN, now, GUN + LIVE_SPAN_MS - 1, GUN + LIVE_SPAN_MS]) {
+      expect(raceLive(facts(), t)).toBe(gunLive(GUN, t));
+    }
+  });
+
   it('counts boats racing with neither a finish nor a code', () => {
     const boats = [
       { colorSlot: 0, finishMs: 1 },
@@ -59,6 +71,25 @@ describe('a race in progress (raceLive)', () => {
       { colorSlot: -1, finishMs: null },
     ];
     expect(unaccountedBoats(boats)).toBe(1);
+  });
+});
+
+describe('a race opened before its live window (liveArmDelay)', () => {
+  it('waits until PRE_GUN_MS before the gun, then the page looks again (and starts refreshing)', () => {
+    expect(liveArmDelay(GUN, GUN - PRE_GUN_MS - 30 * 60_000)).toBe(30 * 60_000 + 1);
+    // At the window or inside it: no wait (the poller runs, through the gun and on).
+    expect(liveArmDelay(GUN, GUN - PRE_GUN_MS)).toBeNull();
+    expect(liveArmDelay(GUN, GUN - 60_000)).toBeNull();
+    expect(liveArmDelay(GUN, GUN + 60_000)).toBeNull();
+    // Weeks off: a timer's longest wait, then it waits again.
+    expect(liveArmDelay(GUN, GUN - 60 * 86_400_000)).toBe(2 ** 31 - 1);
+  });
+
+  it('says when the gun is while it waits, in the race’s local time, with nothing about starts or missing tracks', () => {
+    const edt = -4 * 3_600_000;
+    expect(waitingNotice('Race 8', GUN, edt, GUN - 4 * 60_000)).toBe("Race 8's gun is at 11:25. It opens here by itself once its boats are out on the course.");
+    expect(waitingNotice('Race 8', GUN, edt, GUN + 30_000)).toBe("Race 8 started at 11:25. It opens here by itself once its boats' tracks come in.");
+    for (const t of [GUN - 60_000, GUN + 60_000]) expect(waitingNotice('Race 8', GUN, edt, t)).not.toMatch(/gap|no data|early|OCS/i);
   });
 });
 

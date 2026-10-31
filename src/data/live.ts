@@ -1,11 +1,16 @@
 /**
- * A race in progress. Its gun within the last LIVE_SPAN_MS: the regatta document carrying it (its finishes,
- * stop reason and end time) is cached short here and at the edge (functions/_lib.ts), so a refresh each minute
- * sees what has changed.
+ * A race in progress. Its gun within the live window (gunLive: from PRE_GUN_MS before it to LIVE_SPAN_MS after it): the
+ * regatta document carrying it (its gun, finishes, stop reason and end time) is cached short here and at the edge
+ * (functions/_lib.ts), so a refresh each minute sees what has changed.
  */
 
 /** A race is followed live at most this long after its gun. */
 export const LIVE_SPAN_MS = 6 * 3_600_000;
+/** …and from this long before it (its start sequence, a postponement): opened then, it picks up the gun and goes on live. */
+export const PRE_GUN_MS = 3 * 3_600_000;
+
+/** The one live window, used by the page, the worker and both caches: from PRE_GUN_MS before the gun to LIVE_SPAN_MS after it. */
+export const gunLive = (gunMs: number, now: number): boolean => gunMs - now <= PRE_GUN_MS && now - gunMs < LIVE_SPAN_MS;
 /** A live regatta document's freshness, ms (client); the edge's is functions/_lib.ts LIVE_TTL. */
 export const LIVE_REGATTA_TTL_MS = 30_000;
 
@@ -13,13 +18,13 @@ export interface GunDoc {
   divisions?: readonly { races?: readonly { starts?: readonly { startTime?: number | null }[] | null }[] | null }[] | null;
 }
 
-/** Whether any race of the document had its gun within the last LIVE_SPAN_MS of `now`. */
+/** Whether any race of the document has its gun in the live window (gunLive) at `now`. */
 export function hasLiveGun(doc: GunDoc | null | undefined, now: number): boolean {
   for (const d of doc?.divisions ?? []) {
     for (const r of d.races ?? []) {
       for (const s of r.starts ?? []) {
         const t = s?.startTime;
-        if (typeof t === 'number' && now >= t && now - t < LIVE_SPAN_MS) return true;
+        if (typeof t === 'number' && gunLive(t, now)) return true;
       }
     }
   }
@@ -42,11 +47,12 @@ export interface RaceLiveFacts {
 }
 
 /**
- * In progress: its gun within the last LIVE_SPAN_MS of an event not over, and not yet complete (over in the feed,
- * every boat racing with a finish or a code, and its official results in when its division has them).
+ * In progress: its gun in the live window (gunLive: before it, the start sequence) of an event not over, and not yet
+ * complete (over in the feed, every boat racing with a finish or a code, and its official results in when its division
+ * has them).
  */
 export function raceLive(f: RaceLiveFacts, now: number): boolean {
-  if (f.eventOver || !(now >= f.gunMs && now - f.gunMs < LIVE_SPAN_MS)) return false;
+  if (f.eventOver || !gunLive(f.gunMs, now)) return false;
   const complete = f.feedFinished && f.unaccounted === 0 && (!f.officialWanted || f.officialIn);
   return !complete;
 }
@@ -64,12 +70,13 @@ export interface LiveTagFacts {
 
 /**
  * A race title's "Live" tag: until the race's official results are in, while it's current. Its division linked to
- * official results: the whole time the event is on (results still to come). Not linked (no Yachtscoring, or linking
- * still under way): only within LIVE_SPAN_MS of its gun. Never once the event is over, results or not.
+ * official results: from PRE_GUN_MS before its gun the whole time the event is on (results still to come). Not linked
+ * (no Yachtscoring, or linking still under way): only in its live window (gunLive). Never once the event is over,
+ * results or not.
  */
 export function liveTag(f: LiveTagFacts, now: number): boolean {
-  if (f.officialIn || f.eventOver || now < f.gunMs) return false;
-  return f.officialWanted || now - f.gunMs < LIVE_SPAN_MS;
+  if (f.officialIn || f.eventOver || f.gunMs - now > PRE_GUN_MS) return false;
+  return f.officialWanted || gunLive(f.gunMs, now);
 }
 
 /** Boats racing (not set aside) with neither a finish time nor an official code. */

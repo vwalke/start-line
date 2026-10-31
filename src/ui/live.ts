@@ -3,6 +3,7 @@
  * official results and telemetry's new end, applied keeping the view (app.ts refreshLive). The poller pauses while the
  * page is hidden and refreshes at once when it shows again; failures back off quietly (the race on screen stays).
  */
+import { PRE_GUN_MS } from '../data/live';
 import { localTime } from './format';
 import { clampView, fitView, presetActive, type Box, type View } from './view';
 
@@ -14,6 +15,19 @@ export const LIVE_MAX_BACKOFF_MS = 5 * 60_000;
 export const LIVE_VISIBLE_GAP_MS = 10_000;
 /** The scrubber this close to a live race's end (or past it) follows the new end, ms. */
 export const LIVE_END_SLACK_MS = 15_000;
+
+/** setTimeout's longest wait, ms. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/**
+ * A race opened before its live window (its gun over PRE_GUN_MS away): the wait until that window opens, when the page
+ * starts trying it each minute (app.ts waitForTracks: picking up the gun, then on live); null when the gun is that close
+ * or past. A wait longer than a timer allows is waited again.
+ */
+export function liveArmDelay(gunMs: number, now: number): number | null {
+  const wait = gunMs - PRE_GUN_MS - now;
+  return wait > 0 ? Math.min(wait + 1, MAX_TIMER_MS) : null;
+}
 
 /** The wait before the next refresh after `failures` failures in a row: 1, 2, 4, then 5 minutes. */
 export function liveDelay(failures: number, every = LIVE_EVERY_MS, max = LIVE_MAX_BACKOFF_MS): number {
@@ -91,6 +105,17 @@ export function startLivePoller(d: LivePollerDeps): LivePoller {
   }
   schedule(every);
   return { stop, stopped: () => done };
+}
+
+/**
+ * A race opened before any boat's track is in (before its gun, mostly): what the notice says while the page waits to try
+ * it again (app.ts waitForTracks).
+ */
+export function waitingNotice(name: string, gunMs: number, tzOffsetMs: number, now: number): string {
+  const at = localTime(gunMs, tzOffsetMs).slice(0, 5);
+  return now < gunMs
+    ? `${name}'s gun is at ${at}. It opens here by itself once its boats are out on the course.`
+    : `${name} started at ${at}. It opens here by itself once its boats' tracks come in.`;
 }
 
 /** "updated 11:32" (next to the title's Live tag), the time in the race's local time as the gun line shows it. */
