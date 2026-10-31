@@ -225,13 +225,13 @@ describe('IC37 R5 with the official link: USA 016, DPI in every race of the rega
     expect(SYSTEM_PROMPT).toMatch(/never re-rank them/);
   });
 
-  it('a boat with no code has no penalty card; USA 017 and USA 019 (over early, scored AOK) keep "Over early — cleared"', () => {
+  it('a boat with no code has no penalty card; USA 017 and USA 019 (negative DTL, no OCS flag, scored AOK) get no over-early card', () => {
     expect(debrief('GBR 015').penalty).toBeNull();
     for (const s of ['USA 017', 'USA 019']) {
       const d = debrief(s);
       expect(d.penalty).toBeNull();
-      expect(d.cards.find((c) => c.kind === 'D1')?.variant).toBe('ocs');
-      expect(cardText(d.cards.find((c) => c.kind === 'D1')!).title).toMatch(/^Over early — cleared at \+\d+ s$/);
+      expect(d.cards.some((c) => c.variant === 'ocs')).toBe(false);
+      expect(d.cards.map((c) => cardText(c).title).join(' ')).not.toMatch(/Over early/);
     }
   });
 });

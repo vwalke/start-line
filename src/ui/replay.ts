@@ -50,13 +50,13 @@ const plusS = (ms: number, gun: number): string => {
 
 /**
  * "over 12.1 m · back +13 s · recrossed +35 s · ≈ 35 s lost vs front row"; never back: "over 4.2 m at the gun ·
- * never back"; flagged with its track on the pre-start side at the gun: "flagged over · track not over at the
- * gun" (or the bow's "bow over 0.8 m at the gun"), then its crossing. What isn't known is left out, or said.
+ * never back"; with no over stretch on its track: "called OCS", then its crossing. What isn't known is left out, or said.
+ * Only boats race control called over have a replay (analysis/startReplay.ts).
  */
 export function replayLabel(r: StartReplay): string {
   const parts: string[] = [];
   const m = r.maxOverM != null ? f1(Math.max(0, r.maxOverM)) : null;
-  if (!r.over) parts.push(m != null ? `bow over ${m} m at the gun` : 'flagged over · track not over at the gun');
+  if (!r.over) parts.push('called OCS');
   else if (r.wentBackMs == null) parts.push(m != null ? `over ${m} m at the gun` : 'over at the gun');
   else parts.push(m != null ? `over ${m} m` : 'over at the gun');
   if (r.wentBackMs != null) {
@@ -71,7 +71,7 @@ export function replayLabel(r: StartReplay): string {
 /** The button's title: what the replay shows, as the facts have it. */
 export function replayTitle(r: StartReplay, sail: string): string {
   const what = !r.over
-    ? 'flagged over, its track not over at the gun'
+    ? 'called OCS by race control'
     : r.wentBackMs == null
       ? 'over early, never went back'
       : r.clearedMs == null

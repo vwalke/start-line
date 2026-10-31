@@ -1,22 +1,15 @@
 /**
- * Validity of the start figures: gaps in the telemetry behind our check,
- * Vakaros-vs-ours disagreement, boats race control's OCS check couldn't see,
- * and the one ranking value per boat. Pure functions so they're unit-testable.
+ * Validity of the start figures: gaps in the telemetry behind our check, and
+ * the one ranking value per boat. A boat is over early only when race control
+ * called it (assessStart). Pure functions so they're unit-testable.
  */
-import type { RcStatus } from '../data/types';
+import { codeInfo } from '../data/official/codes';
 import type { BoatResult, StartResult } from './types';
 
 /** Our check is "gap-interpolated" when the nearest track point is further than this from the sample. */
 export const GAP_MS = 2000;
 /** Also interpolated when the bracketing hole is longer than this, even if a neighbour is within GAP_MS. */
 export const SPAN_MS = 5000;
-/** Vakaros and ours "disagree" beyond this, m. */
-export const DISAGREE_M = 3;
-/** Our figure is "near the line" below this, m. */
-export const NEAR_LINE_M = 1;
-export const OCS_BLIND_NOTE = 'Vakaros had no OCS check for this boat';
-
-const r1 = (x: number): string => x.toFixed(1);
 
 /**
  * Null when the sample sits on a real point, or a neighbour is within GAP_MS
@@ -50,15 +43,6 @@ export function sampleGap(t: ArrayLike<number>, ts: number): { gapS: number; not
   const gapS = span / 1000;
   return { gapS, note: `interpolated across a ${Math.round(gapS)} s data gap` };
 }
-
-/**
- * Our figure is across a hole in the boat's own fixes around the start sample longer than this, s, with no Vakaros
- * distance to use instead (gapAtGun): the findings then hedge an over-the-line call (nothing on screen says why).
- */
-export const GUN_GAP_FLAG_S = 10;
-
-/** Our start figure rests on a hole over GUN_GAP_FLAG_S, and there is no device figure to use instead. */
-export const gapAtGun = (s: Pick<StartResult, 'dtlGapS' | 'rcDtlM'>): boolean => s.dtlGapS != null && s.dtlGapS > GUN_GAP_FLAG_S && s.rcDtlM == null;
 
 /**
  * The seconds late the start figures show: the ranked figure, else (our DTL interpolated across a hole) our
@@ -98,18 +82,6 @@ export function estimateDtl(t: ArrayLike<number>, ts: number, dtlM: number, dtlA
   return before <= START_EST_SIDE_MS && after <= START_EST_SIDE_MS ? dtlM : null;
 }
 
-/** Explanation when both figures are valid and more than DISAGREE_M apart. */
-export function disagreement(rcM: number | null, oursM: number | null): string | null {
-  if (rcM == null || oursM == null) return null;
-  const d = Math.abs(rcM - oursM);
-  if (d <= DISAGREE_M) return null;
-  return `Vakaros ${r1(rcM)} m vs ours ${r1(oursM)} m (${r1(d)} m apart) — one of them is off (feed, GPS or bow offset).`;
-}
-
-/** Vakaros had no usable fix, and our figure (valid or gap-interpolated) is near or over the line. */
-export const isOcsBlind = (rcStatus: RcStatus, oursM: number | null): boolean =>
-  (rcStatus === 'stale' || rcStatus === 'missing') && oursM != null && oursM < NEAR_LINE_M;
-
 /** Vakaros when valid, else ours when not gap-interpolated, else unranked. */
 export function rankingValue(rcM: number | null, oursM: number | null, oursGap: boolean): StartResult['rank'] {
   if (rcM != null) return { m: rcM, source: 'vakaros' };
@@ -117,22 +89,25 @@ export function rankingValue(rcM: number | null, oursM: number | null, oursGap: 
   return null;
 }
 
-type Assessed = Pick<StartResult, 'lateS' | 'rank' | 'over' | 'warn' | 'ocsBlind'>;
+type Assessed = Pick<StartResult, 'lateS' | 'rank' | 'over'>;
 
-/** The derived validity fields of one start (call after `secsLate` is final). */
-export function assessStart(s: Pick<StartResult, 'rcDtlM' | 'rcStatus' | 'dtlM' | 'dtlGapS' | 'secsLate' | 'ocs'>): Assessed {
+/** Race control called the start: the RaceSense OCS flag, or an official scored start code (OCS / UFD / BFD). */
+export const calledOver = (ocs: boolean, code: string | null | undefined): boolean => ocs || (!!code && !!codeInfo(code).start);
+
+/**
+ * The derived validity fields of one start (call after `secsLate` is final). `over` is race control's call only
+ * (calledOver; `code` is the boat's official scoring code): no distance figure makes a boat over early.
+ */
+export function assessStart(s: Pick<StartResult, 'rcDtlM' | 'dtlM' | 'dtlGapS' | 'secsLate' | 'ocs'>, code?: string | null): Assessed {
   const gap = s.dtlGapS != null;
-  const rank = rankingValue(s.rcDtlM, s.dtlM, gap);
   return {
     lateS: gap ? null : s.secsLate,
-    rank,
-    over: s.ocs || (rank != null && rank.m < 0),
-    warn: gap ? null : disagreement(s.rcDtlM, s.dtlM),
-    ocsBlind: isOcsBlind(s.rcStatus, s.dtlM),
+    rank: rankingValue(s.rcDtlM, s.dtlM, gap),
+    over: calledOver(s.ocs, code),
   };
 }
 
-/** Number clean starters 1..n by ranking value (closest to the line first). Boats away from the line are unplaced. */
+/** Number clean starters 1..n by ranking value (closest to the line first). Boats called over or away from the line are unplaced. */
 export function rankStarts(boats: BoatResult[]): void {
   const clean = boats.filter((b) => b.start && !b.start.over && !b.start.awayFromLine && b.start.rank).sort((x, y) => x.start!.rank!.m - y.start!.rank!.m);
   for (const b of boats) if (b.start) b.start.startPlace = null;
@@ -148,7 +123,5 @@ export function rankStarts(boats: BoatResult[]): void {
 export function startNotes(s: StartResult): string[] {
   const out: string[] = [];
   if (s.rcNote) out.push(s.rcNote);
-  if (s.warn) out.push(s.warn);
-  if (s.ocsBlind) out.push(OCS_BLIND_NOTE);
   return out;
 }

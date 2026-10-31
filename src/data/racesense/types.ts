@@ -57,8 +57,9 @@ export interface StartingStat {
   mask?: { value: number } | null;
   /** The race this row was recorded for; may be an earlier race's row carried over. */
   raceNumber?: number | null;
-  /** Always null in the feeds seen so far. */
-  startTime?: number | null;
+  /** Null in most feeds; the J/70 NAs carry the race's wall-clock time as a string, no zone (adapter.ts rowStartMs). */
+  startTime?: number | string | null;
+  /** Radians, despite the name (adapter.ts impliedBowM). */
   headingAtStartDeg?: number;
   positionAtStart?: FeedPoint;
   lineLeftLocation?: FeedPoint;

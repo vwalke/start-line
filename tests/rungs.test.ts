@@ -838,12 +838,15 @@ describe('the bow at any heading and zoom', () => {
   // Css px per meter: an IC37 at Fit (2.5 px long), then 2×, 4× and 8×.
   const ppms = [2.5 / 11.3, 5 / 11.3, 10 / 11.3, 20 / 11.3];
 
-  it('takes the feed’s offset where it fits the hull, else half the LOA; none with no class', () => {
+  it('takes the feed’s offset where it fits the hull, else the class’s, else half the LOA; with no class the feed’s, else none', () => {
     expect(bowM).toBe(4.9);
     expect(bowAheadM(0, dims)).toBe(5.65);
     expect(bowAheadM(undefined, dims)).toBe(5.65);
     expect(bowAheadM(14, dims)).toBe(5.65);
-    expect(bowAheadM(4.9, null)).toBe(0);
+    expect(bowAheadM(14, { ...dims, bowCm: 490 })).toBe(4.9);
+    expect(bowAheadM(-0.01, { ...dims, bowCm: 490 })).toBe(4.9);
+    expect(bowAheadM(4.9, null)).toBe(4.9);
+    expect(bowAheadM(null, null)).toBe(0);
   });
 
   it('draws the hull’s tip on the real bow at 0°, 90°, 180°, 270° and either tack, at every zoom, symbol or to scale; a rung through the bow meets it', () => {

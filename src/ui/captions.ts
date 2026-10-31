@@ -64,8 +64,6 @@ function noteKey(n: RaceNote): KeyLine {
       };
     case 'marks-moved':
       return { chips: [{ text: `${listOf(n.names)} moved`, title: t }], bullets: [`${listOf(n.names)} moved; legs use the mark where it was then.`] };
-    case 'dtl-off':
-      return { chips: [warnChip('Vakaros DTL off vs GPS', t)], bullets: [`Vakaros DTL is a median ${n.medianM} m off the GPS tracks: use with care.`] };
     case 'not-racing':
       return { chips: [{ text: `${n.n} not racing`, title: t }], bullets: ['Not racing: coach or spare trackers, listed under the boat list.'] };
     case 'finish-est':

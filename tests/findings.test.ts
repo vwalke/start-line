@@ -87,20 +87,19 @@ describe('best vs worst start', () => {
   });
 });
 
-describe('over early, not flagged OCS', () => {
-  const over = (rank: StartResult['rank'], name: string): RaceAnalysis =>
-    withBoats({ '3': { sail: 'USA 019', name, start: { over: true, ocs: false, startPlace: null, rank } } });
-
-  it('by Vakaros DTL, with the boat name', () => {
-    expect(startTexts(over({ m: -2.34, source: 'vakaros' }, 'Balthasar'))).toContain('#USA 019 (Balthasar) was over 2.3 m by Vakaros DTL (not flagged OCS)');
+describe('over early only as race control called it', () => {
+  it('a negative distance with no call says nothing of being over, by Vakaros or our track', () => {
+    for (const source of ['vakaros', 'ours'] as const) {
+      const a = withBoats({ '3': { sail: 'USA 019', name: 'Balthasar', start: { over: false, ocs: false, startPlace: 1, rank: { m: -2.34, source } } } });
+      const t = startTexts(a).join(' ');
+      expect(t).not.toMatch(/over 2\.3|not flagged|OCS|over early|may have been over|track estimate/);
+    }
   });
 
-  it('by our track estimate, and no parentheses without a boat name', () => {
-    expect(startTexts(over({ m: -0.96, source: 'ours' }, '#USA 019'))).toContain('#USA 019 was over 1.0 m by our track estimate (not flagged OCS)');
-  });
-
-  it('a flagged boat still reads as OCS', () => {
+  it('a flagged boat reads as OCS; a scored start code as scored', () => {
     const a = withBoats({ '3': { start: { over: true, ocs: true, startPlace: null, rank: { m: -1, source: 'vakaros' } } } });
     expect(startTexts(a)).toContain('#3 was flagged OCS by race control.');
+    const ufd = withBoats({ '3': { finishCode: 'UFD', start: { over: true, ocs: false, startPlace: null, rank: { m: 2, source: 'vakaros' } } } });
+    expect(startTexts(ufd)).toContain('#3 was scored UFD by race control.');
   });
 });

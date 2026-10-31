@@ -44,7 +44,11 @@ export interface Boat {
   sail: string;
   /** Display name; may equal the sail number when the feed has none. */
   name: string;
-  /** Distance from the GPS antenna forward to the bow, metres. */
+  /**
+   * Distance from the GPS antenna forward to the bow, metres, as resolved by the source with data/classes.ts bowAheadM
+   * (the feed's offset where it fits the hull, else the class's usual one, else half the LOA). Everything that measures
+   * from the bow (the start, the ladder, the hull on the map) reads this one value.
+   */
   bowOffsetM: number;
   track: Track;
   /** Official finish time, if the boat finished. */
@@ -159,10 +163,11 @@ export interface EntryResults {
 
 /**
  * Validity of a boat's Vakaros start fix: 'ok' (usable), 'stale' (the row
- * belongs to another start), 'missing' (the device reported no distance) or
- * 'none' (no row for this boat).
+ * belongs to another start), 'missing' (the device reported no distance),
+ * 'untrusted' (its distance comes from a bow offset longer than the boat:
+ * racesense/adapter.ts impliedBowM) or 'none' (no row for this boat).
  */
-export type RcStatus = 'ok' | 'stale' | 'missing' | 'none';
+export type RcStatus = 'ok' | 'stale' | 'missing' | 'untrusted' | 'none';
 
 export interface RcStart {
   status: RcStatus;

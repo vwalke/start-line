@@ -11,7 +11,7 @@ const analysis = analyzeRace(fixtureRace());
 
 describe('class dimensions', () => {
   it('normalizes class names', () => {
-    for (const n of ['J/70', 'J70', 'j-70', ' j 70 ']) expect(classDims(n)).toEqual({ loaM: 6.934, beamM: 2.249 });
+    for (const n of ['J/70', 'J70', 'j-70', ' j 70 ']) expect(classDims(n)).toEqual({ loaM: 6.934, beamM: 2.249, bowCm: 265 });
     expect(classDims('Laser')).toEqual(classDims('ILCA'));
     expect(classDims('Melges 24')?.loaM).toBe(7.31);
   });
@@ -22,11 +22,11 @@ describe('class dimensions', () => {
   });
 
   it('knows the Cape 31 by every name the feeds use', () => {
-    for (const n of ['Cape 31', 'Cape31', 'C31', 'C 31', 'cape-31']) expect(classDims(n)).toEqual({ loaM: 9.55, beamM: 3.05 });
+    for (const n of ['Cape 31', 'Cape31', 'C31', 'C 31', 'cape-31']) expect(classDims(n)).toEqual({ loaM: 9.55, beamM: 3.05, bowCm: 444 });
   });
 
   it('matches the first known name, in order, and says which', () => {
-    expect(matchClass(['Mystery', 'C31', 'J/70'])).toEqual({ name: 'C31', dims: { loaM: 9.55, beamM: 3.05 } });
+    expect(matchClass(['Mystery', 'C31', 'J/70'])).toEqual({ name: 'C31', dims: { loaM: 9.55, beamM: 3.05, bowCm: 444 } });
     expect(matchClass([undefined, '', 'Mystery'])).toBeNull();
   });
 });

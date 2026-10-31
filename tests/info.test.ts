@@ -136,7 +136,6 @@ describe('race notes key line (Race findings card)', () => {
     { kind: 'leg-order', text: 'o' },
     { kind: 'shortened', text: 's', dropped: ['M2'] },
     { kind: 'wind-assumed', text: 'a', modelDeg: 120 },
-    { kind: 'dtl-off', text: 'd', medianM: 6 },
     { kind: 'finish-unranked', text: 'f', boat: '#9', why: 'too short' },
   ];
   it('⚠ for what changes how the numbers read, first; plain chips for the rest; the full sentence as title', () => {
@@ -145,13 +144,12 @@ describe('race notes key line (Race findings card)', () => {
       '⚠ leg order from tracks',
       '⚠ course shortened',
       '⚠ wind assumed',
-      '⚠ Vakaros DTL off vs GPS',
       '⚠ #9 finish not ranked',
       '5 not racing',
       'Gate moved',
       'model wind',
     ]);
-    expect(k.chips.map((c) => c.title)).toEqual(['o', 's', 'a', 'd', 'f', 'n', 'm', 'w']);
+    expect(k.chips.map((c) => c.title)).toEqual(['o', 's', 'a', 'f', 'n', 'm', 'w']);
     expect(k.bullets).toContain('Too little steady upwind sailing (model 120° far off): first leg assumed upwind.');
     expect(k.bullets).toContain('Course treated as shortened (skipping M2).');
     for (const b of k.bullets) expect(b.split(/\s+/).length, b).toBeLessThanOrEqual(15);

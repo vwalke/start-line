@@ -537,10 +537,13 @@ Switching races keeps the tab.
   side), or, while it is held past its final fix, slower than 1 kn or has no
   course, along the last heading it had. Start Playback centers it on the
   boat's position. The Race Viewer draws it from its bow: the feed's
-  tracker-to-bow distance ahead of the tracker (RaceSense `bowOffsetCm`,
-  4.9 m on an IC37) where it gives one that fits the hull, else half the
-  LOA (`data/classes.ts` `bowAheadM`), so the ladder rungs, measured bow to
-  bow, meet the bow on screen. It
+  tracker-to-bow distance ahead of the tracker (RaceSense `bowOffsetCm`, or
+  the division's `offsetOverrideCm`; 4.9 m on an IC37) where it gives one
+  that fits the hull, else the class's usual offset (what RaceSense
+  divisions of the class set, 2.65 m on a J/70), else half the LOA
+  (`data/classes.ts` `bowAheadM`). The source resolves each boat's offset
+  once (`Boat.bowOffsetM`), so the start's DTL, its line crossing and the
+  ladder rungs are measured from the same bow that is drawn on screen. It
   is to scale from the class's length and beam once that is at least
   `BOAT_SHAPE_PX` css px long on screen (one constant for all three maps,
   10: any shorter and the hull reads as an ellipse, its bow unclear on a 1×
@@ -607,7 +610,8 @@ Switching races keeps the tab.
   wind, or along the line's perpendicular when the wind is assumed), or its
   one note (`no position at this time.` / `not tracked.`); a second with
   no positions and no trails says `No tracks at this time.`
-- **Start Playback: over early.** A boat over early (the over-early facts
+- **Start Playback: over early.** A boat race control called over early (the
+  RaceSense OCS flag, or an official OCS, UFD or BFD; the over-early facts
   from the worker, as the track map's "Replay start") is drawn as that
   replay draws it, from the same helper (`ui/ocsStyle.ts`): its track over
   the line in red on a light casing, its dip back dashed red until it
@@ -633,8 +637,7 @@ Switching races keeps the tab.
   `Line 143 m · RC fav. 2° · 4 m · wind est. · Boats drawn about 3× actual size`,
   plus legend swatches (`○ estimated mark`, `- - not racing`,
   `● crossed the line`). Caveats stay in sight as
-  red ⚠ chips: low wind confidence (`⚠ wind est. low`, `⚠ wind assumed`),
-  Vakaros vs our check, unchecked OCS, a start
+  red ⚠ chips: low wind confidence (`⚠ wind est. low`, `⚠ wind assumed`), a start
   window cut short, legs split from the fleet's turns (on the Race Analysis
   card). Nothing on screen flags a hole in a track (see Data gaps on the
   maps). At the gun, where a boat's own fixes have a hole across the start
@@ -919,23 +922,23 @@ Switching races keeps the tab.
   remembered in this browser.
 - **Findings:** plain-English notes, split in two. **Start findings** sit
   under the start chart: the favored end (in degrees and meters), the best
-  start beside the worst, and boats over the line or that race control
-  couldn't check. Best and worst are the first and last clean starters by
-  start place (one boat each, no ties); boats over early or away from the line
-  are left out of both (they have their own lines, and a small note says so).
+  start beside the worst, and boats race control called over early. Best and
+  worst are the first and last clean starters by start place (one boat each,
+  no ties); boats called over early or away from the line are left out of both
+  (they have their own lines, and a small note says so).
   The two sit in a small table with the same rows for each: `Behind the line
   at the gun`, `Late`, `Speed at the gun` and `Line position` (% from the
   pin); with one clean starter only the best shows. The finding's text keeps
-  a plain-text form of the same. A boat over the line but not flagged reads
-  `#USA 019 (Balthasar) was over 2.3 m by Vakaros DTL (not flagged OCS)`
-  (`by our track estimate` when the figure is ours; the boat name, never a
-  person's).
+  a plain-text form of the same. A boat called over early reads
+  `#USA 019 (Balthasar) was flagged OCS by race control.` (or `was scored UFD
+  by race control.`; the boat name, never a person's). A distance figure
+  never makes a boat over early: only race control's call does.
   **Race Analysis** (Race tab) follows Rounding & Finish Positions: the biggest single-leg gain and
   loss, the quickest boats upwind and downwind, places gained or lost, and a
   wind cross-check. Below them, the race's data caveats (`RaceAnalysis.notes`,
   typed; `warnings` keeps the full sentences) are a key line: ⚠ chips for
   what changes how the numbers read (`⚠ legs split from turns`, leg order
-  from tracks, course shortened, wind assumed, Vakaros DTL off vs GPS, a
+  from tracks, course shortened, wind assumed, a
   finish not ranked), plain chips for the rest (`windward mark est.`,
   `5 not racing`, `Gate moved`, `model wind`), and the why as short bullets
   in the card's ⓘ; each chip's tooltip has the full sentence. An empty list
@@ -1077,9 +1080,9 @@ CAP = high ∞, medium ∞, low 60 s                        (IMPACT_CAP_S; LOW_I
   of the finish line plus 15 s (found as tracker finishes are), or to its
   last fix if it never crosses.
 - **DTL** comes from each boat's Vakaros device when its start row is valid.
-  Our own figure, from the GPS antenna plus the class bow offset, is shown
-  alongside as a check. The app flags it when the two disagree widely, which
-  does happen. See "Vakaros start data quality" below.
+  Our own figure, from the GPS antenna plus the bow offset (the feed's, else
+  the class's), is shown
+  alongside. See "Vakaros start data quality" below.
 - **"Pin" and "RC"** are the left and right ends of the start line as the feed
   defines them.
 - **Politeness:** responses are cached at the edge (Pages Function) and in the
@@ -1274,24 +1277,44 @@ so each is checked before it's used (`src/data/racesense/adapter.ts`,
   `[0, 0]`.
 - **Stale rows.** Rows are sometimes carried over unchanged from an earlier
   start. In one event, 23 rows in races 4–10 had the wrong `raceNumber`.
-  A row counts as stale if its `raceNumber` isn't this race, its `startTime`
-  is more than 1 s off, or any present line end is more than 10 m from this
-  start's line. A stale row is not used, and the note names the race it came
-  from when that race can be identified. For a stale row with a positive
-  distance, race control's OCS check was blind for that boat.
+  A row counts as stale if its `startTime` is more than 1 s off, or any
+  present line end is more than 10 m from this start's line. Its
+  `raceNumber` alone doesn't make it stale: devices count starts
+  themselves (at the J/70 NAs every row was 2 races ahead, and ~25 other
+  events are off the same way). A row numbered for another race is used
+  when no line end it reports disagrees and its `positionAtStart` is within
+  5 m of the boat's own track 0.9 s before the gun, where the device takes
+  its fix. A row with no position is used when its `startTime` matches.
+  Line ends alone aren't enough, since a carried-over row shares them when
+  the line wasn't moved, and neither is a matching `startTime` when the
+  position is somewhere else.
+  `startTime`, when set, can be the race's local time as a string with no
+  zone. A stale row is not used, and the note names the race it came from
+  when that race can be identified.
+- **Bow offset set wrong.** From a row's distance, position, heading
+  (`headingAtStartDeg` is in radians) and line ends we work out the bow
+  offset the device used. When the boat was pointing at the line enough to
+  tell (|cos| of its heading against the line's normal at least 0.3) and
+  that offset is more than 0.2 m longer than the class's LOA, the device's
+  distance isn't used: "Vakaros bow offset is set longer than the boat".
+  At the J/70 NAs, 1513's row in race 6 implied a 7.2 m offset on a
+  6.93 m boat.
 - **Holes in our check.** The public track is about 2 Hz but loses points near
   the gun. Our figure is interpolated across the hole if the nearest real point
   is more than 2 s from our sample, or if the hole bracketing the sample is
   longer than 5 s (even when a neighbor is within 2 s). It is never ranked
   (the Vakaros figure ranks the boat when there is one), but it is shown like
   any other figure, with its Late (s): no `~`, no gray, no note.
-- **Disagreement.** If both figures are valid and differ by more than 3 m,
-  the Vakaros value gets a ⚠. If Vakaros has no usable fix and our figure is
-  under 1 m (near or over the line), the boat is flagged as one race
-  control's OCS check didn't cover ("Vakaros had no OCS check for this boat").
+- **Over early** is race control's call only: the RaceSense OCS flag (less
+  any boat it cleared, and any the linked official results score AOK) or an
+  official OCS, UFD or BFD (`analysis/validity.ts` `calledOver`). A negative
+  distance, the device's or ours, is shown as a number and never makes a boat
+  over early. A crossing of the line before the gun by a boat race control
+  didn't call counts at the gun.
 - **Ranking** uses one value per boat: Vakaros when it's valid, otherwise ours
   when it's valid, otherwise the boat is unranked. The table's Start column
-  shows the place among clean starters and the source (`V` or `ours`).
+  shows the place among clean starters and the source (`V` or `ours`), or
+  `over` for a boat race control called.
   Every caveat is listed under the table so it can be read on a phone.
 
 ## Architecture

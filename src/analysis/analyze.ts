@@ -527,7 +527,8 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     if (tr.t.length > 1 && tr.t[0] <= gun && tr.t[tr.t.length - 1] >= gun) {
       // DTL, line position and the bow are sampled where the source takes its
       // start fix (RaceSense: ~0.9 s before the gun), so ours checks against the
-      // device's dtlMm. Bow offset is applied along heading, as the device does.
+      // device's dtlMm. Bow offset (Boat.bowOffsetM: the feed's, else the class's,
+      // data/classes.ts bowAheadM) is applied along heading, as the device does.
       const off = data.dtlSampleOffsetMs ?? 0;
       const ts = tr.t[0] <= gun - off ? gun - off : gun;
       const p: Vec = [interp(tr.t, tr.x, ts), interp(tr.t, tr.y, ts)];
@@ -574,8 +575,6 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
         rank: null,
         over: false,
         startPlace: null,
-        warn: null,
-        ocsBlind: false,
         awayFromLine: false,
       };
       // START_TRAIL_MS of the tracker up to the DTL sample, translated by that
@@ -794,14 +793,14 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
   for (const r of results) {
     if (!r.start) continue;
     r.start.secsLate = r.start.dtlM / Math.max(r.start.vToLineMs, vFloor);
-    Object.assign(r.start, assessStart(r.start));
+    Object.assign(r.start, assessStart(r.start, r.finishCode));
   }
   rankStarts(results);
   // Set-aside boats keep their figures for the chart label, but no place and no flags (a spare on the committee boat is "OCS").
   for (const { result: r } of excluded) {
     if (!r.start) continue;
     r.start.secsLate = r.start.dtlM / Math.max(r.start.vToLineMs, vFloor);
-    Object.assign(r.start, assessStart(r.start), { ocs: false, over: false, ocsBlind: false, warn: null, startPlace: null, estPlace: null });
+    Object.assign(r.start, assessStart(r.start), { ocs: false, over: false, startPlace: null, estPlace: null });
   }
 
   // Rank at each mark: among every boat with a known time there (its leg may be unknown when only its start was lost).
@@ -859,14 +858,6 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     notes.push({ kind: 'marks-moved', text: `${names.join(', ')} moved during the race; legs use the mark's position at the time.`, names });
   }
 
-  // The Vakaros DTL is the primary figure; ours is a check. Flag it when they clearly disagree.
-  const rcDiff = results
-    .filter((r) => r.start?.rcDtlM != null && r.start.dtlGapS == null)
-    .map((r) => Math.abs(r.start!.rcDtlM! - r.start!.dtlM));
-  if (rcDiff.length >= 3 && median(rcDiff) > 3) {
-    const medianM = Math.round(median(rcDiff));
-    notes.push({ kind: 'dtl-off', text: `Vakaros DTL differs from the GPS tracks by a median ${medianM} m for this start; treat the DTL columns with caution.`, medianM });
-  }
   if (excluded.length) {
     const n = excluded.length;
     notes.push({

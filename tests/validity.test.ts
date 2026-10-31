@@ -1,17 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  DISAGREE_M,
-  GAP_MS,
-  NEAR_LINE_M,
-  OCS_BLIND_NOTE,
-  SPAN_MS,
-  assessStart,
-  disagreement,
-  isOcsBlind,
-  rankingValue,
-  sampleGap,
-  startNotes,
-} from '../src/analysis/validity';
+import { GAP_MS, SPAN_MS, assessStart, calledOver, rankingValue, sampleGap, startNotes } from '../src/analysis/validity';
 import type { StartResult } from '../src/analysis/types';
 import { LINE_MATCH_M, RC_NO_DISTANCE, currentDoc, findRace, lineEndsMatch, rcDistanceM, rcStartFix } from '../src/data/racesense/adapter';
 import type { StartingStat } from '../src/data/racesense/types';
@@ -159,26 +147,7 @@ describe('gaps in our check (sampleGap)', () => {
   });
 });
 
-describe('disagreement, OCS-blind and ranking rules', () => {
-  it(`warns only beyond ${DISAGREE_M} m`, () => {
-    expect(disagreement(7.604, 14.9)).toBe('Vakaros 7.6 m vs ours 14.9 m (7.3 m apart) — one of them is off (feed, GPS or bow offset).');
-    expect(disagreement(10, 13)).toBeNull();
-    expect(disagreement(10, 13.2)).not.toBeNull();
-    expect(disagreement(1, -2.5)).not.toBeNull();
-    expect(disagreement(null, 20)).toBeNull();
-    expect(disagreement(20, null)).toBeNull();
-  });
-
-  it(`OCS-blind: stale or missing Vakaros and ours under ${NEAR_LINE_M} m`, () => {
-    expect(isOcsBlind('stale', -3.1)).toBe(true);
-    expect(isOcsBlind('missing', 0.9)).toBe(true);
-    expect(isOcsBlind('missing', 1.0)).toBe(false);
-    expect(isOcsBlind('missing', 2.1)).toBe(false);
-    expect(isOcsBlind('ok', -3)).toBe(false);
-    expect(isOcsBlind('none', -3)).toBe(false);
-    expect(isOcsBlind('stale', null)).toBe(false);
-  });
-
+describe('over early and ranking rules', () => {
   it('ranks by Vakaros, else ours without a gap, else not at all', () => {
     expect(rankingValue(0.434, -6, true)).toEqual({ m: 0.434, source: 'vakaros' });
     expect(rankingValue(0, 5, false)).toEqual({ m: 0, source: 'vakaros' });
@@ -186,24 +155,27 @@ describe('disagreement, OCS-blind and ranking rules', () => {
     expect(rankingValue(null, -3.1, true)).toBeNull();
   });
 
-  it('assesses a synthetic disagreement and a gap', () => {
-    const base = { rcDtlM: 7.604, rcStatus: 'ok' as const, dtlM: 14.9, dtlGapS: null, secsLate: 9, ocs: false };
-    expect(assessStart(base)).toMatchObject({ lateS: 9, rank: { m: 7.604, source: 'vakaros' }, over: false, ocsBlind: false });
-    expect(assessStart(base).warn).toMatch(/^Vakaros 7\.6 m vs ours 14\.9 m \(7\.3 m apart\)/);
-    // A gap-interpolated check never warns, never ranks and has no Late.
-    const gap = assessStart({ ...base, rcDtlM: null, rcStatus: 'stale', dtlM: -3.1, dtlGapS: 17.1 });
-    expect(gap).toEqual({ lateS: null, rank: null, over: false, warn: null, ocsBlind: true });
-    expect(assessStart({ ...base, rcDtlM: -0.5 }).over).toBe(true);
-    expect(assessStart({ ...base, ocs: true }).over).toBe(true);
+  it('calls a boat over early only when race control did: its OCS flag, or a scored OCS / UFD / BFD', () => {
+    expect(calledOver(true, null)).toBe(true);
+    for (const code of ['OCS', 'UFD', 'BFD', 'ocs']) expect(calledOver(false, code)).toBe(true);
+    for (const code of ['DNF', 'DSQ', 'DPI', null, undefined]) expect(calledOver(false, code)).toBe(false);
   });
 
-  it('lists notes in order; our check across a hole is no caveat (shown plainly)', () => {
-    const s = {
-      rcNote: 'Vakaros reported no start fix (stale race 9 data)',
-      dtlNote: 'interpolated across a 17 s data gap',
-      warn: null,
-      ocsBlind: true,
-    } as StartResult;
-    expect(startNotes(s)).toEqual(['Vakaros reported no start fix (stale race 9 data)', OCS_BLIND_NOTE]);
+  it('assesses a start: never over from a distance figure, Vakaros or ours', () => {
+    const base = { rcDtlM: 7.604, dtlM: 14.9, dtlGapS: null, secsLate: 9, ocs: false };
+    expect(assessStart(base)).toEqual({ lateS: 9, rank: { m: 7.604, source: 'vakaros' }, over: false });
+    // A gap-interpolated check never ranks and has no Late.
+    expect(assessStart({ ...base, rcDtlM: null, dtlM: -3.1, dtlGapS: 17.1 })).toEqual({ lateS: null, rank: null, over: false });
+    // Negative distances are numbers, not calls.
+    expect(assessStart({ ...base, rcDtlM: -0.5 })).toMatchObject({ rank: { m: -0.5, source: 'vakaros' }, over: false });
+    expect(assessStart({ ...base, rcDtlM: null, dtlM: -2.2 })).toMatchObject({ rank: { m: -2.2, source: 'ours' }, over: false });
+    expect(assessStart({ ...base, ocs: true }).over).toBe(true);
+    expect(assessStart(base, 'UFD').over).toBe(true);
+    expect(assessStart(base, 'DNF').over).toBe(false);
+  });
+
+  it('lists the Vakaros note; our check across a hole is no caveat (shown plainly)', () => {
+    const s = { rcNote: 'Vakaros reported no start fix (stale race 9 data)', dtlNote: 'interpolated across a 17 s data gap' } as StartResult;
+    expect(startNotes(s)).toEqual(['Vakaros reported no start fix (stale race 9 data)']);
   });
 });

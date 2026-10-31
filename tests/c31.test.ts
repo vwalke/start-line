@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRace } from '../src/analysis/analyze';
 import { primaryDtlM } from '../src/analysis/findings';
-import { OCS_BLIND_NOTE } from '../src/analysis/validity';
 import { currentDoc } from '../src/data/racesense/adapter';
 import { BOAT_SHAPE_PX } from '../src/ui/boatShape';
 import { startClass, startScale, startSnapshot } from '../src/ui/charts';
@@ -29,7 +28,7 @@ const OURS = 4;
 const LATE = 5;
 
 describe('C31 Gold Cup race 10: start validity', () => {
-  it('Black Pearl: stale race-9 row, gap-interpolated check, unranked, OCS-blind', () => {
+  it('Black Pearl: stale race-9 row, gap-interpolated check, unranked, not over (race control called nothing)', () => {
     const s = start('GER42');
     expect(s.rcStatus).toBe('stale');
     expect(s.rcDtlM).toBeNull();
@@ -41,8 +40,6 @@ describe('C31 Gold Cup race 10: start validity', () => {
     expect(s.startPlace).toBeNull();
     expect(s.over).toBe(false);
     expect(s.lateS).toBeNull();
-    expect(s.ocsBlind).toBe(true);
-    expect(s.warn).toBeNull();
   });
 
   it('Milkwave: valid Vakaros 0.434 (mask 5) ranks it despite a 32 s gap in ours', () => {
@@ -53,8 +50,7 @@ describe('C31 Gold Cup race 10: start validity', () => {
     expect(s.rank).toEqual({ m: 0.434, source: 'vakaros' });
     expect(s.startPlace).toBe(1);
     expect(s.lateS).toBeNull();
-    expect(s.warn).toBeNull(); // ours is gap-interpolated, so no ⚠ even though it reads −6.0
-    expect(s.ocsBlind).toBe(false);
+    expect(s.over).toBe(false);
   });
 
   it('Stella Maris: no Vakaros distance (mask 8), ranked by our valid check', () => {
@@ -67,7 +63,6 @@ describe('C31 Gold Cup race 10: start validity', () => {
     expect(Math.abs(s.rank!.m - 2.1)).toBeLessThan(0.3);
     expect(s.startPlace).toBe(2);
     expect(s.lateS).not.toBeNull();
-    expect(s.ocsBlind).toBe(false);
   });
 
   it('Outrage: Vakaros 12.593 and ours agree', () => {
@@ -75,7 +70,6 @@ describe('C31 Gold Cup race 10: start validity', () => {
     expect(s.rank).toEqual({ m: 12.593, source: 'vakaros' });
     expect(Math.abs(s.dtlM - 12.9)).toBeLessThan(0.5);
     expect(s.dtlGapS).toBeNull();
-    expect(s.warn).toBeNull();
     expect(s.startPlace).toBe(3);
   });
 
@@ -85,8 +79,9 @@ describe('C31 Gold Cup race 10: start validity', () => {
     expect(primaryDtlM(start('GER42'))).toBeNull();
   });
 
-  it('does not add the fleet-wide disagreement warning', () => {
+  it('never sets the Vakaros figures against ours', () => {
     expect(analysis.warnings.join(' ')).not.toMatch(/Vakaros DTL differs/);
+    expect(analysis.notes.map((n) => n.text).join(' ')).not.toMatch(/Vakaros/);
   });
 });
 
@@ -139,7 +134,7 @@ describe('C31 race 10: start table', () => {
   it('lists every boat note in the ⓘ under the table (readable without hover)', () => {
     expect(html).toContain('(V = Vakaros, ours = our check)');
     expect(html).toContain('<p class="info-sub">Per boat</p>');
-    expect(html).toContain(`<li>#GER42 Black Pearl — Vakaros reported no start fix (stale race 9 data); ${OCS_BLIND_NOTE}.</li>`);
+    expect(html).toContain('<li>#GER42 Black Pearl — Vakaros reported no start fix (stale race 9 data).</li>');
     // Our check across a hole is no caveat: ITA 78 has none.
     expect(html).not.toContain('<li>#ITA 78');
     expect(html).not.toMatch(/interpolated|data gap/);
@@ -147,16 +142,14 @@ describe('C31 race 10: start table', () => {
     expect(html).not.toContain('<li>#FRA 901');
   });
 
-  it('keeps the start caveats visible as chips: ⚠ unchecked OCS, — no Vakaros fix; nothing about holes', () => {
-    expect(startTableKey(analysis).chips).toEqual([
-      { text: '1 OCS unchecked', warn: true, title: OCS_BLIND_NOTE },
-      { text: '— 2 no Vakaros fix' },
-    ]);
+  it('keeps the start caveats visible as chips: — no Vakaros fix; nothing about OCS or holes', () => {
+    expect(startTableKey(analysis).chips).toEqual([{ text: '— 2 no Vakaros fix' }]);
+    expect(html).not.toMatch(/OCS unchecked|no OCS check/);
     // The start chart flags no boat for a hole at the gun (GER42's 17 s, ITA 78's 32 s).
     expect(startKey(analysis, { scale: startScale(analysis) }).chips.some((c) => /gap|hole/.test(`${c.text} ${c.title ?? ''}`))).toBe(false);
   });
 
-  it('shows ⚠ when Vakaros and ours disagree by more than 3 m, and a genuine 0.0', () => {
+  it('shows the Vakaros figure plainly however far ours is from it, and a genuine 0.0', () => {
     const f = c31Fixture();
     const st = currentDoc(f.regatta).divisions[0].races.find((r) => r.raceNumber === 10)!.starts.at(-1)!;
     const fra = st.startingStats!.find((s) => s.sailNumber === 'FRA 901')!;
@@ -166,11 +159,10 @@ describe('C31 race 10: start table', () => {
     Object.assign(ger, { raceNumber: 10, dtlMm: 0, mask: { value: 1 }, lineLeftLocation: fra.lineLeftLocation, lineRightLocation: fra.lineRightLocation });
     const a = analyzeRace(c31Race(f));
     const t = startTable(a, null) + startNotesHtml(a);
-    const warn = 'Vakaros 7.6 m vs ours 12.9 m (5.3 m apart) — one of them is off (feed, GPS or bow offset).';
-    expect(cells(t, 'FRA 901')[VAK]).toBe(`<span class="warn" title="${warn}" aria-label="disagrees with our check">⚠</span>7.6`);
-    // The boat's caveat in the table's ⓘ, and the disagreement promoted to a visible ⚠ chip.
-    expect(t).toContain(`<li>#FRA 901 Outrage — ${warn}</li>`);
-    expect(startTableKey(a).chips).toContainEqual(expect.objectContaining({ text: '1 Vakaros ≠ ours', warn: true }));
+    // 7.6 m against our 12.9 m: no ⚠, no caveat, no chip.
+    expect(cells(t, 'FRA 901')[VAK]).toBe('7.6');
+    expect(t).not.toContain('<li>#FRA 901');
+    expect(t).not.toMatch(/Vakaros ≠ ours|apart|disagree/);
     // Black Pearl with a genuine 0 (bit 1 set): valid, shown as 0.0 and ranked first.
     expect(cells(t, 'GER42')[VAK]).toBe('0.0');
     expect(cells(t, 'GER42')[START]).toContain('1 <small class="rk-src" title="Vakaros device">V</small>');
@@ -192,12 +184,9 @@ describe('C31 race 10: findings and chart', () => {
     expect(text.filter((t) => /Furthest back|Best start/.test(t))).toHaveLength(1);
   });
 
-  it('adds a hedged note for Black Pearl and no over-the-line claim', () => {
-    expect(text).toContain(
-      '#GER42 (Black Pearl): Vakaros had no start fix for this race; it may have been over (our track: ≈3.1 m over), but neither figure is reliable.',
-    );
-    expect(text.filter((t) => t.includes('#GER42') && t.includes('over the line'))).toEqual([]);
-    expect(text.filter((t) => t.includes(OCS_BLIND_NOTE) || t.includes('Vakaros had no start fix'))).toHaveLength(1);
+  it('says nothing of Black Pearl being over: its track reads -3.1 m, but race control called nothing', () => {
+    expect(text.filter((t) => t.includes('#GER42') && /over|OCS|start fix/.test(t) && !/lost|gained/.test(t))).toEqual([]);
+    expect(text.join(' ')).not.toMatch(/over early|OCS|may have been over|neither figure/);
   });
 
   it('labels the chart with the ranking value, else ours plainly, never a bogus 0.0', () => {
@@ -223,7 +212,7 @@ describe('C31 race 10: Cape 31 hulls to scale', () => {
   });
 
   it('draws every boat as a Cape 31 hull at Fit, captioned with the class', () => {
-    expect(startClass(analysis)).toEqual({ name: 'Cape 31', dims: { loaM: 9.55, beamM: 3.05 } });
+    expect(startClass(analysis)).toEqual({ name: 'Cape 31', dims: { loaM: 9.55, beamM: 3.05, bowCm: 444 } });
     const svg = startSnapshot(analysis, null);
     expect((svg.match(/<path class="hull" d="M/g) ?? []).length).toBe(analysis.drawings.length);
     expect(svg).not.toContain('<polygon');

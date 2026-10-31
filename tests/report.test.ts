@@ -122,9 +122,10 @@ describe('IC37 R5, USA 016 (DPI): the report', () => {
     const st = ic37.a.boats.find((b) => b.sail === 'USA 016')!.start!;
     expect(fieldOf(m.start, 'Distance to line at gun').value).toBe(`${Math.round(st.rank!.m)} m`);
     expect(fieldOf(m.start, 'Seconds late').value).toBe(`${st.lateS!.toFixed(1)} s`);
-    expect(fieldOf(m.start, 'Start place').value).toBe('8th');
+    expect(fieldOf(m.start, 'Start place').value).toBe('10th');
     expect(fieldOf(m.start, 'Line position').value).toBe(`${Math.round(st.linePosPct)}% · middle`);
-    expect(fieldOf(m.start, 'Over the line').value).toBe('7th of 15');
+    // USA 017 and USA 019 are officially AOK, so not over: their crossings (at the gun) come first.
+    expect(fieldOf(m.start, 'Over the line').value).toBe('9th of 15');
     expect(fieldOf(m.start, 'Over the line').note).toMatch(/^crossed [+−]\d+ s$/);
     expect(fieldOf(m.start, 'Over early (OCS)').value).toBe('no');
     expect(m.start.every((f) => f.value !== MISSING)).toBe(true);
@@ -137,8 +138,8 @@ describe('IC37 R5, USA 016 (DPI): the report', () => {
   it('the legs: one row per leg with its type; places in → out of the fixed fleet; — only where there is no data', () => {
     expect(m.legs.map((l) => [l.name, l.type])).toEqual(ic37.a.legs.map((l) => [l.name, l.kind === 'upwind' ? 'Upwind' : l.kind === 'downwind' ? 'Downwind' : 'Reach']));
     const b1 = m.legs[0];
-    expect(b1.places).toBe('8th → 14th');
-    expect(b1.change).toBe('lost 6 · of 15');
+    expect(b1.places).toBe('10th → 14th');
+    expect(b1.change).toBe('lost 4 · of 15');
     expect(b1.time).toMatch(/^\d+:\d\d$/);
     expect(b1.vsGroup).toMatch(/^[+−]\d+ s$/);
     expect(b1.sog).toMatch(/^\d+\.\d \/ \d+\.\d$/);
@@ -192,32 +193,27 @@ describe('IC37 R5, USA 016 (DPI): the report', () => {
   });
 });
 
-describe('IC37 R5, USA 019 (over early, scored AOK)', () => {
+describe('IC37 R5, USA 019 (negative Vakaros DTL, no OCS flag, scored AOK)', () => {
   const m = buildReport(input('USA 019'));
   const deb = coachDebrief(ic37.a, ic37.m!, 'USA 019')!;
+  const st = ic37.a.boats.find((b) => b.sail === 'USA 019')!.start!;
 
-  it('the start: over at the gun, cleared at the Coach’s crossing; the over-early card is the start card', () => {
-    const over = fieldOf(m.start, 'Over early (OCS)');
-    expect(over.value).toMatch(/^cleared \+\d+ s$/);
-    expect(over.warn).toBe(true);
-    expect(over.note).toMatch(/went back \+\d+ s/);
-    const cross = Math.round((ic37.m!.crossMs!['USA 019']! - ic37.a.meta.gunMs) / 1000);
-    expect(over.value).toBe(`cleared +${cross} s`);
-    expect(fieldOf(m.start, 'Distance to line at gun').value).toMatch(/^over \d+ m$/);
-    // Over at the gun: no seconds late or start place (the start table's own —), and it says why.
-    expect(fieldOf(m.start, 'Seconds late')).toMatchObject({ value: MISSING, note: 'over at the gun' });
-    expect(fieldOf(m.start, 'Start place')).toMatchObject({ value: MISSING, note: 'over at the gun' });
-    expect(m.startVerdict).toMatchObject({ kind: 'card', n: 1 });
-    expect(m.startVerdict.text).toBe(`Over early — cleared at +${cross} s`);
-    expect(m.coach.findings[0]).toMatchObject({ kind: 'D1', title: `Over early — cleared at +${cross} s` });
+  it('the start: its distance as a plain number, a start place, and not over early (race control called nothing)', () => {
+    expect(st.rank!.m).toBeLessThan(0);
+    expect(st.over).toBe(false);
+    expect(fieldOf(m.start, 'Over early (OCS)').value).toBe('no');
+    expect(fieldOf(m.start, 'Distance to line at gun').value).toBe(`${Math.round(st.rank!.m)} m`);
+    expect(fieldOf(m.start, 'Start place').value).toBe(`${st.startPlace === 1 ? '1st' : st.startPlace === 2 ? '2nd' : `${st.startPlace}th`}`);
+    expect(m.start.some((f) => /over at the gun|Recall/.test(`${f.value} ${f.note ?? ''}`))).toBe(false);
+    expect(m.coach.findings.map((f) => f.title).join(' ')).not.toMatch(/Over early/);
     expect(m.coach.findings.map((f) => f.title)).toEqual(deb.cards.map((c) => cardText(c, ic37.a.meta.tzOffsetMs).title));
   });
 
-  it('no penalty card (scored AOK): "No official penalty"; the over-early tip is a thing to work on', () => {
+  it('no penalty card (scored AOK): "No official penalty"; no over-early tip', () => {
     expect(m.coach.penalty).toBeNull();
     expect(fieldOf(m.header, 'Scored').value).toBe('11th of 15');
     expect(m.penalties[0]).toMatchObject({ text: 'No official penalty', kind: 'ok' });
-    expect(m.coach.workOn[0]).toMatch(/Hold a safe gap to the line/);
+    expect(m.coach.workOn.join(' ')).not.toMatch(/Hold a safe gap to the line/);
   });
 });
 
