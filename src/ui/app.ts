@@ -169,6 +169,7 @@ import { gunReadoutHtml } from './gunReadout';
 import { ATTEMPT_PARAM, attemptNumbered, earlierAttempts, parseAttemptParam, type EarlierAttempt } from '../data/attempts';
 import { attemptButtonsHtml, attemptNote, attemptTitle } from './attemptView';
 import { latestLoader } from './latestOnly';
+import { keepScroll } from './keepScroll';
 import { liveArmDelay, liveLabel, liveScrubT, liveView, startLivePoller, waitingNotice, type LivePoller, type LiveTick } from './live';
 import { biasBullets, lineChips } from './startLine';
 import { downloadSvgAsPng, pageCss, startPngName, startPngSvg } from './startPng';
@@ -3058,7 +3059,8 @@ export function startApp(): void {
   /**
    * Put a live race's refreshed analysis `a` on screen in place of `was` (the same race), keeping the view: the boat,
    * tab, leg selection and any leg's view or card window, sorts, both charts' zoom (the map's Fit grows with the new
-   * fixes), the scrubber (following the new end when it was at the end) and playback; no loading state, no URL change.
+   * fixes), the scrubber (following the new end when it was at the end), playback and every scrolled list or table; no
+   * loading state, no URL change.
    */
   function swapLive(was: RaceAnalysis, a: RaceAnalysis, model: CoachModel | null | undefined, full: FullRateSet | undefined): void {
     const oldEnd = scrubWindow(was).t1;
@@ -3080,7 +3082,8 @@ export function startApp(): void {
       syncMapView(liveView(prev, mapView, mapFit));
     }
     scrubT = liveScrubT(scrubT, oldEnd, scrubWindow(a));
-    render();
+    // The boat list, tables and other boxes rebuilt stay scrolled where they were.
+    keepScroll(els.digest, render);
   }
 
   let orphansFound: Map<string, OrphanFound[]> | null = null;
