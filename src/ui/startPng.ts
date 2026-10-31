@@ -51,11 +51,116 @@ export function markSelectedHull(svg: string, id: string): string {
   return h < 0 || (end >= 0 && h > end) ? svg : `${svg.slice(0, h)}<path data-sel=""${svg.slice(h + 5)}`;
 }
 
+/** The ring round the selected boat on the whole-line panel: stroke, px; opacity; radius past the hull's half-length, px, and at least. */
+export const SEL_RING_STROKE_PX = 1.75;
+export const SEL_RING_OPACITY = 0.55;
+const SEL_RING_PAD_PX = 10;
+const SEL_RING_MIN_PX = 20;
+
+/** The numbers in `s`, in order (a regex of its own each call: no lastIndex shared between calls). */
+const numbers = (s: string): number[] => [...s.matchAll(/-?\d+(?:\.\d+)?(?:e[-+]?\d+)?/gi)].map((m) => Number(m[0]));
+
+/**
+ * Where boat `id`'s group starts in a startSnapshot (`<g class="boat…" data-id="id">`), and its markup up to its own
+ * `</g>` (groups nested in it, as an arrow's, counted); null when it isn't drawn.
+ */
+function boatGroup(svg: string, id: string): { at: number; body: string } | null {
+  const m = new RegExp(`<g class="boat[^"]*" data-id="${esc(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}">`).exec(svg);
+  if (!m) return null;
+  const tag = /<g[\s>]|<\/g>/g;
+  tag.lastIndex = m.index + m[0].length;
+  let depth = 1;
+  for (let t = tag.exec(svg); t; t = tag.exec(svg)) {
+    depth += t[0] === '</g>' ? -1 : 1;
+    if (!depth) return { at: m.index, body: svg.slice(m.index, t.index) };
+  }
+  return { at: m.index, body: svg.slice(m.index) };
+}
+
+type Pt = [number, number];
+
+/** The point at `t` on the cubic from `p0` through controls `c1`, `c2` to `p1`. */
+function cubicAt(p0: Pt, c1: Pt, c2: Pt, p1: Pt, t: number): Pt {
+  const u = 1 - t;
+  const w = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
+  return [w[0] * p0[0] + w[1] * c1[0] + w[2] * c2[0] + w[3] * p1[0], w[0] * p0[1] + w[1] * c1[1] + w[2] * c2[1] + w[3] * p1[1]];
+}
+
+/**
+ * A hull's path data (boatShape.ts hullPathD: `M` at the bow tip, cubics down one side, `L` across the transom, cubics
+ * back): its bow tip, its transom's two ends, and points on the outline itself (each cubic's ends and points along
+ * it, never its control points). Null when it isn't one.
+ */
+function hullPathPoints(d: string): { bow: Pt; transom: [Pt, Pt]; outline: Pt[] } | null {
+  const ops = [...d.matchAll(/([MCLZ])([^MCLZ]*)/gi)].map((m) => ({ op: m[1].toUpperCase(), n: numbers(m[2]) }));
+  if (ops[0]?.op !== 'M' || ops[0].n.length < 2) return null;
+  const bow: Pt = [ops[0].n[0], ops[0].n[1]];
+  let cur = bow;
+  const outline: Pt[] = [bow];
+  let transom: [Pt, Pt] | null = null;
+  for (const { op, n } of ops.slice(1)) {
+    if (op === 'L' && n.length >= 2) {
+      const to: Pt = [n[0], n[1]];
+      transom ??= [cur, to];
+      outline.push(to);
+      cur = to;
+    } else if (op === 'C') {
+      for (let i = 0; i + 5 < n.length; i += 6) {
+        const to: Pt = [n[i + 4], n[i + 5]];
+        for (let s = 1; s <= 8; s++) outline.push(cubicAt(cur, [n[i], n[i + 1]], [n[i + 2], n[i + 3]], to, s / 8));
+        cur = to;
+      }
+    }
+  }
+  return transom ? { bow, transom, outline } : null;
+}
+
+/**
+ * Boat `id`'s hull as drawn in a startSnapshot, chart units: its middle (halfway from the bow tip to the middle of
+ * the transom: the hull runs aft from the bow, stretched to the panel's smallest size) and the farthest its outline
+ * gets from there; an arrow (no class dimensions), its point and half its size. Null when the boat has no hull at the gun.
+ */
+export function drawnHull(svg: string, id: string): { cx: number; cy: number; half: number } | null {
+  const g = boatGroup(svg, id);
+  if (!g) return null;
+  // markSelectedHull puts `data-sel` before the class.
+  const d = /<path[^>]* class="hull[^"]*" d="([^"]+)"/.exec(g.body);
+  if (d) {
+    const h = hullPathPoints(d[1]);
+    if (!h) return null;
+    const [[ax, ay], [bx, by]] = h.transom;
+    const cx = (h.bow[0] + (ax + bx) / 2) / 2;
+    const cy = (h.bow[1] + (ay + by) / 2) / 2;
+    return { cx, cy, half: Math.max(...h.outline.map(([x, y]) => Math.hypot(x - cx, y - cy))) };
+  }
+  const t = /<g transform="translate\(([-\d.e]+),([-\d.e]+)\)"><g transform="rotate\([^)]*\)"><polygon[^>]*\spoints="([^"]+)"/.exec(g.body);
+  if (!t) return null;
+  const p = numbers(t[3]).map(Math.abs);
+  return { cx: Number(t[1]), cy: Number(t[2]), half: p.length ? Math.max(...p) : 0 };
+}
+
+/**
+ * A startSnapshot with a light ring round boat `id`'s hull as drawn (drawnHull), under it and its name; `pxPerUnit`:
+ * the panel's px per chart unit, so the ring's stroke and size are in px. Unchanged when the boat has no hull at the gun.
+ */
+export function withSelectedRing(svg: string, id: string, pxPerUnit: number): string {
+  const h = drawnHull(svg, id);
+  const g = boatGroup(svg, id);
+  if (!h || !g || !(pxPerUnit > 0)) return svg;
+  const r = Math.max(SEL_RING_MIN_PX, h.half * pxPerUnit + SEL_RING_PAD_PX) / pxPerUnit;
+  const ring = `<circle class="png-sel-ring" cx="${h.cx.toFixed(2)}" cy="${h.cy.toFixed(2)}" r="${r.toFixed(2)}" fill="var(--accent)" fill-opacity="0.08" stroke="var(--accent)" stroke-width="${(SEL_RING_STROKE_PX / pxPerUnit).toFixed(3)}" opacity="${SEL_RING_OPACITY}" pointer-events="none"/>`;
+  return `${svg.slice(0, g.at)}${ring}${svg.slice(g.at)}`;
+}
+
+/** An SVG from startSnapshot's viewBox size, chart units. */
+function viewSize(svg: string): { vw: number; vh: number } {
+  const m = /viewBox="([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+)"/.exec(svg);
+  return { vw: m ? Number(m[3]) : 1, vh: m ? Number(m[4]) : 1 };
+}
+
 /** The size an SVG from startSnapshot asks for at `w` px wide (its viewBox's aspect). */
 function heightAt(svg: string, w: number): number {
-  const m = /viewBox="([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+)"/.exec(svg);
-  const vw = m ? Number(m[3]) : 1;
-  const vh = m ? Number(m[4]) : 1;
+  const { vw, vh } = viewSize(svg);
   return Math.round((w * vh) / vw);
 }
 
@@ -80,8 +185,11 @@ export function startPngSvg(a: RaceAnalysis, id: string, colour: StartColour, ca
   const b = a.boats.find((x) => x.id === id);
   const mainW = PNG_W - 2 * PAD;
   // Every boat's hull at the gun, big enough to see across the whole line (the inset draws them as the Start view does).
-  const main = markSelectedHull(startSnapshot(a, id, undefined, colour, { names: 'auto', widthPx: mainW, minHullPx: MAIN_HULL_PX }), id);
-  const mainH = Math.min(heightAt(main, mainW), 640);
+  const snap = markSelectedHull(startSnapshot(a, id, undefined, colour, { names: 'auto', widthPx: mainW, minHullPx: MAIN_HULL_PX }), id);
+  const mainH = Math.min(heightAt(snap, mainW), 640);
+  // The selected boat ringed, on this panel only (the hulls are small across the whole line): the panel's px per unit as placed (meet).
+  const { vw, vh } = viewSize(snap);
+  const main = withSelectedRing(snap, id, Math.min(mainW / vw, mainH / vh));
   const iv = insetView(a, id);
   const inset = iv ? markSelectedHull(startSnapshot(a, id, iv, colour, { names: 'auto', widthPx: INSET_W }), id) : '';
   const insetH = inset ? Math.min(heightAt(inset, INSET_W), 420) : 0;

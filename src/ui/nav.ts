@@ -13,7 +13,8 @@
  * landing/route.ts sends any path but `/` to the app.
  *
  * A user's move to another event, race, tab or the report pushes one entry, once the new view is on screen
- * (`begin`, then the `write` that changes the page); everything else (the scrubber's time, the selected boat,
+ * (`begin`, then the `write` that changes the page), and so does one to or from a map focus when the app counts its
+ * parameters in (`keyParams`: a leg's view, a card's window); everything else (the scrubber's time, the selected boat,
  * the Coach's group, a load that settles, a link tidied at boot) replaces the entry it is on.
  *
  * Back and forward land on popstate (a hash typed or linked in the page does too, so there is no separate
@@ -44,11 +45,11 @@ export function viewHref(href: string): string {
   return `${u.pathname}${u.search}${u.hash}`;
 }
 
-/** What makes a page of its own: the view, and the event and race it shows. */
-export function pageKey(href: string): string {
+/** What makes a page of its own: the view, and the event and race it shows; with `keyParams`, those parameters too. */
+export function pageKey(href: string, keyParams: readonly string[] = []): string {
   const u = new URL(href, 'https://x.invalid');
   const p = u.searchParams;
-  return [pageView(u.search, u.hash), p.get('event') ?? '', p.get('div') ?? '', p.get('race') ?? ''].join('|');
+  return [pageView(u.search, u.hash), p.get('event') ?? '', p.get('div') ?? '', p.get('race') ?? '', ...keyParams.map((k) => p.get(k) ?? '')].join('|');
 }
 
 export interface NavHistory {
@@ -58,21 +59,27 @@ export interface NavHistory {
 }
 
 export interface Nav {
-  /** A user's move starts: the next write that shows another page pushes it (the entry left keeps its own URL). */
-  begin(): void;
+  /**
+   * A user's move starts: the next write that shows another page pushes it (the entry left keeps its own URL). False
+   * when one was pending already (it still is: a move made at once can `cancel` only what it began).
+   */
+  begin(): boolean;
   /** The move went nowhere (a failed load), or back/forward is being followed: the next write replaces. */
   cancel(): void;
   /** Put `href` in the URL: pushed when a move is pending and it is another page (and `push` isn't false), else replaced. */
   write(href: string, opts?: { push?: boolean }): void;
 }
 
-export function createNav(o: { history: NavHistory; href: () => string }): Nav {
+/** `keyParams`: query parameters whose change makes another page too (the map's focus: a leg's view, a card's window). */
+export function createNav(o: { history: NavHistory; href: () => string; keyParams?: readonly string[] }): Nav {
   /** The entry's URL when the pending move began (what it goes back to before the push). */
   let from: string | null = null;
   const replace = (url: string): void => o.history.replaceState(o.history.state, '', url);
   return {
     begin() {
-      from ??= viewHref(o.href());
+      if (from != null) return false;
+      from = viewHref(o.href());
+      return true;
     },
     cancel() {
       from = null;
@@ -80,7 +87,7 @@ export function createNav(o: { history: NavHistory; href: () => string }): Nav {
     write(href, opts = {}) {
       const to = viewHref(href);
       const start = from;
-      if (start != null && opts.push !== false && pageKey(to) !== pageKey(start)) {
+      if (start != null && opts.push !== false && pageKey(to, o.keyParams) !== pageKey(start, o.keyParams)) {
         from = null;
         try {
           // A load writes the new race's time or boat before its race: the entry being left gets its own URL back.

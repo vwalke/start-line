@@ -24,7 +24,7 @@ import { esc } from './format';
 import { boatAt, filledRanges, rotTrack, rotator, timeRange } from './mapPieces';
 import { REPLAY_PARAM, replayLink, replayPendFromUrl, type ReplayPend } from './replay';
 import { DEFAULT_TRAIL, T_PARAM, TRAIL_PARAM, WINDOW_TRAIL, mapTimeSearch, parseTParam, parseTrail, playFrom, type ScrubWindow, type Trail } from './scrub';
-import type { RankBy, SpeedTop, TrackColour } from './speed';
+import type { RankBy, SogScale, SpeedTop, TrackColour } from './speed';
 import { clampView, type Box, type View } from './view';
 
 export const VS_PARAM = 'vs';
@@ -33,6 +33,8 @@ export const WIN_PARAM = 'win';
 export const LEG_PARAM = 'leg';
 /** `fast=<n>`: the tracks colored by speed rank on each leg with the top N picked out (Colour: Rank, Top N). */
 export const FAST_PARAM = 'fast';
+/** A focus's own parameters: one opened or left by the user is a history entry of its own (nav.ts keyParams). */
+export const FOCUS_KEYS: readonly string[] = [WIN_PARAM, VS_PARAM, LEG_PARAM, FAST_PARAM];
 /** A leg's view picks out this many of the fastest boats on it. */
 export const LEG_FAST_TOP = 10;
 /** At most this many comparison boats are drawn ringed (more: the nearest to the boat at the window's end). */
@@ -201,6 +203,74 @@ export function focusColouring(now: Colouring, before: Colouring | null, f: Pick
   return { now: before ?? now, before: null };
 }
 
+/** The map's leg selection (the leg buttons; null: All) a leg's view replaced, put back when it's left. */
+export interface LegBefore {
+  leg: number | null;
+}
+
+/**
+ * The leg selection once focus `f` is shown (null: none, the focus left), as focusColouring: any focus (a leg's view
+ * or a card's window) draws the whole race (its scrubber's) and keeps the selection it replaced (`before`, kept
+ * across a second focus); none puts that one back. The selection the user made is `before`'s while one is kept (what
+ * is saved).
+ */
+export function focusLeg(now: number | null, before: LegBefore | null, f: Pick<MapFocus, 'leg'> | null): { now: number | null; before: LegBefore | null } {
+  if (f) return { now: null, before: before ?? { leg: now } };
+  return { now: before ? before.leg : now, before: null };
+}
+
+/** The leg the leg buttons show pressed (null: All): a leg's view's own leg, else the selection the map draws. */
+export const shownLeg = (sel: number | null, f: Pick<MapFocus, 'leg'> | null): number | null => f?.leg ?? sel;
+
+/** The selection after leg button `pressed` (null: All) with `shown` pressed (shownLeg): the one pressed, or All for the one already shown. */
+export const legAfterPress = (shown: number | null, pressed: number | null): number | null => (pressed == null || pressed === shown ? null : pressed);
+
+/** The leg buttons' state: the selection the map draws (`sel`; null: All) and the user's own one a focus replaced (`before`). */
+export interface LegState {
+  sel: number | null;
+  before: LegBefore | null;
+}
+
+/** What happens to the leg buttons: a focus opened (`open`), the focus open left (`leave`), a leg button pressed (`press`; null: All). */
+export type LegEvent = { kind: 'open'; focus: Pick<MapFocus, 'leg'> } | { kind: 'leave'; focus: Pick<MapFocus, 'leg'> | null } | { kind: 'press'; leg: number | null; focus: Pick<MapFocus, 'leg'> | null };
+
+/**
+ * The leg buttons after event `e` (the Race tab's own transitions, app.ts): the state, whether the focus open is left
+ * (`leave`: a leg button pressed in a leg's view) and whether the map fits its box again (`refit`: a leg's view left,
+ * framed on its leg, puts back the Fit of the selection it comes back to, All too).
+ */
+export function legStep(s: LegState, e: LegEvent): { state: LegState; leave: boolean; refit: boolean } {
+  if (e.kind === 'open') {
+    const n = focusLeg(s.sel, s.before, e.focus);
+    return { state: { sel: n.now, before: n.before }, leave: false, refit: false };
+  }
+  if (e.kind === 'leave') {
+    const n = focusLeg(s.sel, s.before, null);
+    return { state: { sel: n.now, before: n.before }, leave: false, refit: e.focus?.leg != null };
+  }
+  // As shown: in a leg's view its leg's button is the pressed one. A leg chosen by hand stands, and leaves the leg's view.
+  return { state: { sel: legAfterPress(shownLeg(s.sel, e.focus), e.leg), before: null }, leave: e.focus?.leg != null, refit: false };
+}
+
+/** The history state's key for the user's leg selection on its entry (app.ts stampLegs: it isn't in the URL). */
+export const LEG_STATE_KEY = 'recallLeg';
+
+/** The leg selection history state `state` keeps (null: All) when it keeps one of a race of `legs` legs; else undefined. */
+export function stampedLeg(state: unknown, legs: number): number | null | undefined {
+  const v = state && typeof state === 'object' ? (state as Record<string, unknown>)[LEG_STATE_KEY] : undefined;
+  if (v === null) return null;
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < legs ? v : undefined;
+}
+
+/**
+ * The leg the map's keys and caption describe (`leg`; null: the whole race) and the settings it draws with: in a leg's
+ * view its leg, ranked on that leg and its speeds on that leg's own range, as with that leg picked; else the
+ * selection drawn, with the settings chosen.
+ */
+export function keyLeg(sel: number | null, f: Pick<MapFocus, 'leg'> | null, rankBy: RankBy, sogScale: SogScale): { leg: number | null; rankBy: RankBy; sogScale: SogScale } {
+  return f?.leg != null ? { leg: f.leg, rankBy: 'leg', sogScale: 'leg' } : { leg: sel, rankBy, sogScale };
+}
+
 // ---- URL --------------------------------------------------------------------------
 
 /** The URL parameters of a focus (besides `t=` / `trail=`): `boat=`, `vs=` (none: removed), `win=`. */
@@ -309,6 +379,25 @@ export function focusArrive(
   if (!state || state.race !== race) return { open: null, state };
   const f = parseMapFocus(search, gunMs);
   return f && f.boat === state.boat && drawn.includes(f.boat) ? { open: f, at: focusResume(f, search, gunMs), state } : { open: null, state: null };
+}
+
+/**
+ * Back / forward to an entry with `search` while its race (`a`, boats `drawn`) is on screen with focus `open` (null:
+ * none): the entry's focus to open, with where its scrubber opens (focusResume); the one open to leave (the entry
+ * has none); or nothing to do (the entry's focus is the one open, or neither has one).
+ */
+export function focusOnPop(
+  search: string,
+  a: Pick<RaceAnalysis, 'meta'>,
+  drawn: readonly string[],
+  open: MapFocus | null,
+): { kind: 'open'; focus: MapFocus; at: FocusAt } | { kind: 'leave' } | { kind: 'none' } {
+  const gun = a.meta.gunMs;
+  const f = parseMapFocus(search, gun);
+  if (!f || !drawn.includes(f.boat)) return open ? { kind: 'leave' } : { kind: 'none' };
+  const key = (x: MapFocus): string => JSON.stringify(focusParams(a, x));
+  if (open && key(open) === key(f)) return { kind: 'none' };
+  return { kind: 'open', focus: f, at: focusResume(f, search, gun) };
 }
 
 /** Card `c`'s map link (with `#race`): the replay's for a start card of a boat with one, else its focus; null with no window. */
