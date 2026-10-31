@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DAY, MINUTE } from '../src/data/cache';
+import { DAY, MINUTE, cachedJson } from '../src/data/cache';
 import { fetchRegatta, fetchUsableRegatta } from '../src/data/racesense/api';
 import type { RegattaResponse } from '../src/data/racesense/types';
 
@@ -106,5 +106,24 @@ describe('fetchUsableRegatta', () => {
     await fetchRegatta(id);
     await fetchUsableRegatta(id, isFinished);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a ttl-0 body (a live race’s tail page) is kept nowhere', () => {
+  it('skips the in-memory map and Cache Storage; a body with a ttl is kept in both', async () => {
+    const put = vi.fn(async () => undefined);
+    vi.stubGlobal('caches', { open: async () => ({ match: async () => undefined, put }), delete: async () => true });
+    served = regatta(false);
+    const tail = `/api/telemetry/event/ttl0-${++n}?after=1&before=2`;
+    await cachedJson(tail, 0);
+    // Read again as if it could live a day: nothing held, so it's fetched again.
+    await cachedJson(tail, DAY);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(put).toHaveBeenCalledTimes(1);
+    const kept = `/api/telemetry/event/ttl1-${++n}?after=1&before=2`;
+    await cachedJson(kept, MINUTE);
+    await cachedJson(kept, MINUTE);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(put).toHaveBeenCalledTimes(2);
   });
 });
