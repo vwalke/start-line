@@ -48,6 +48,24 @@ export function officialFor(outcome: LinkOutcome | null | undefined, race: Liste
   return rows?.length ? { number: race.officialNumber, tzOffsetMs: outcome.tzOffsetMs, rows } : null;
 }
 
+/** How long a race load waits for official results still being linked, ms; past it the race opens without them (and is analysed again once they come). */
+export const OFFICIAL_WAIT_MS = 6000;
+
+/**
+ * The official results for a race about to be analysed (`read`: officialFor, as known then), once a link still being
+ * made (`linking`) settles, or after `ms` if it is slower: the race is analysed with them the first time, not once
+ * without and again with them (its start places and finishes changing on screen once they come in: an official
+ * finish clears RaceSense's OCS flag, an official place stands over the tracker's).
+ */
+export async function officialForLoad<T>(linking: Promise<unknown> | null, read: () => T, ms = OFFICIAL_WAIT_MS): Promise<T> {
+  if (linking) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([linking.then(() => undefined, () => undefined), new Promise<void>((r) => (timer = setTimeout(r, ms)))]);
+    clearTimeout(timer);
+  }
+  return read();
+}
+
 /** Where each division may have unlisted races (see orphans.ts for the rule). */
 export function orphanContexts(doc: RegattaDoc, list: RaceList, outcome: LinkOutcome | null | undefined): OrphanContext[] {
   const links = linksOf(outcome);

@@ -18,7 +18,7 @@ import { buildRaceList, findListed, type ListedRace, type RaceList } from '../da
 import { currentDoc, defaultRace, findRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchUsableRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaDoc, RegattaResponse } from '../data/racesense/types';
-import { eventFinished, linkRequest, linksOf, mergeOrphans, officialFor, orphanContexts, probeFetcher } from '../data/recovery';
+import { eventFinished, linkRequest, linksOf, mergeOrphans, officialFor, officialForLoad, orphanContexts, probeFetcher } from '../data/recovery';
 import { raceWindowsFromListed } from '../data/vkx/match';
 import type { WorkerRequest, WorkerResponse } from '../worker';
 import { boatList, findingsClick, findingsList } from './boats';
@@ -140,12 +140,16 @@ import {
   trailAfterFocus,
   withMapActions,
   focusColouring,
-  focusLeg,
+  focusOnPop,
+  keyLeg,
+  legStep,
   shownLeg,
-  legAfterPress,
-  FAST_PARAM,
+  FOCUS_KEYS,
+  LEG_STATE_KEY,
+  stampedLeg,
   type Colouring,
   type LegBefore,
+  type LegEvent,
   legFocus,
   legMapHref,
   type MapFocus,
@@ -337,8 +341,8 @@ export function startApp(): void {
   /** Start | Race | Coach: the URL hash, else the saved tab when restoring the saved view, else Start. */
   let tab: Tab = startTab(location.hash, plan, saved, tabs);
   const params = plan.params;
-  /** The URL's history entries (nav.ts): a user's move to another event, race, tab or the report pushes one. */
-  const nav = createNav({ history, href: () => location.href });
+  /** The URL's history entries (nav.ts): a user's move to another event, race, tab, the report or a map focus (a leg's view, a card's window) pushes one. */
+  const nav = createNav({ history, href: () => location.href, keyParams: FOCUS_KEYS });
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   /** Paywall (only when /api/auth/me says it is on): a lock card instead of the digest for a race the viewer can't open. */
   /** The signed-in user's race emails (notify.ts): the toggles and the account sheet's list. */
@@ -531,9 +535,26 @@ export function startApp(): void {
   let ysParam: number | undefined = params.ys;
   let yscParam: string | undefined = params.ysc;
   let official: OfficialState = { status: 'pending' };
+  /** Settles once enrich() has linked and listed the official results (or given up), while `official` is pending. */
+  let officialLinking: Promise<void> | null = null;
   let feed: FeedCheck = { status: 'idle', used: 0, max: 0, found: 0, exhausted: false };
   const outcomeOf = (): LinkOutcome | null => (official.status === 'done' ? official.outcome : null);
   const listedOf = (division: string, raceNumber: number): ListedRace | undefined => (raceList ? findListed(raceList, division, raceNumber) : undefined);
+
+  /**
+   * The history entry on screen keeps the user's leg selection (it isn't in the URL), for Back / forward to put back
+   * (popFocus); written only when it changes.
+   */
+  function stampLegs(): void {
+    const leg = userLeg();
+    if (stampedLeg(history.state, Infinity) === leg) return;
+    const s: unknown = history.state;
+    try {
+      history.replaceState({ ...(s && typeof s === 'object' ? s : {}), [LEG_STATE_KEY]: leg }, '', location.href);
+    } catch {
+      // no history (a sandbox)
+    }
+  }
 
   /** Record the race on screen and how it's viewed, so a relaunch can come back to it. */
   function save(): void {
@@ -541,6 +562,7 @@ export function startApp(): void {
     // A load that has swapped `analysis` but not yet `current` (or the reverse) must not mix them.
     if (analysis.meta.division !== current.division || analysis.meta.raceNumber !== current.raceNumber) return;
     if (analysis.meta.eventId != null && analysis.meta.eventId !== current.eventId) return;
+    stampLegs();
     // Names for the landing page's "Continue" link (the event's id is all a record needs).
     const title = titleOf(current.eventId);
     const listed = current.eventId === eventId ? listedOf(current.division, current.raceNumber) : undefined;
@@ -663,17 +685,19 @@ export function startApp(): void {
     els.legend.innerHTML = legLegend(a, shownLeg(legSel, focusOn));
     // In Rank or Boat speed the leg swatches would read as a colour key for the tracks; the buttons stay, the swatches go.
     els.legend.classList.toggle('speed', trackColour !== 'leg');
-    els.colour.innerHTML = colourControls(trackColour, rankBy, legSel, speedTop, sogScale);
+    // The controls, keys and caption as the leg buttons: in a leg's view, its leg (mapLink.ts keyLeg).
+    const k = keyed();
+    els.colour.innerHTML = colourControls(trackColour, k.rankBy, k.leg, speedTop, k.sogScale);
     els.speedKey.innerHTML =
       trackColour === 'rank'
-        ? speedKey(a, legSel, rankBy, speedTop, highlight)
+        ? speedKey(a, k.leg, k.rankBy, speedTop, highlight)
         : trackColour === 'sog'
-          ? legSel == null && sogScale === 'leg'
+          ? k.leg == null && k.sogScale === 'leg'
             ? sogLegKey(a)
-            : sogKey(trackSogRange(a, legSel), legSel == null ? 'Whole race' : `${a.legs[legSel]?.name ?? 'This leg'}`)
+            : sogKey(trackSogRange(a, k.leg), k.leg == null ? 'Whole race' : `${a.legs[k.leg]?.name ?? 'This leg'}`)
           : '';
     els.speedKey.hidden = trackColour === 'leg';
-    renderKeyLine(els.mapCap, mapKey(a, { highlight, colour: trackColour, rankBy, sogScale, leg: legSel }));
+    renderKeyLine(els.mapCap, mapKey(a, { highlight, colour: trackColour, rankBy: k.rankBy, sogScale: k.sogScale, leg: k.leg }));
     renderKeyLine(els.placesCap, placesKey(a));
     els.startTable.innerHTML = startTable(a, highlight, startSort);
     renderKeepOpen(els.startNotes, (open) => startNotesHtml(a, open));
@@ -1085,10 +1109,11 @@ export function startApp(): void {
     const r = route?.kind === 'replay' ? replaysOf(a).find((x) => x.boat === route.boat) : undefined;
     if (!route || (route.kind === 'replay' && !r)) return;
     ev.preventDefault();
-    nav.begin();
+    const began = nav.begin();
     setTab('race');
     if (r) openReplay(r);
     else if (route.kind === 'focus') openFocus(route.focus);
+    if (began) nav.cancel();
   });
   els.coachGroup.addEventListener('click', (ev) => {
     const el = ev.target as HTMLElement;
@@ -1374,7 +1399,12 @@ export function startApp(): void {
     syncScrub(a);
   }
 
-  const mapOpts = (): TrackMapOptions => ({ colour: trackColour, rankBy, top: speedTop, sogScale, view: mapView, replay: replayOn, vs: focusOn?.vs });
+  /** The leg the map's keys describe and the ranking and speed scale it draws with (mapLink.ts keyLeg). */
+  const keyed = (): ReturnType<typeof keyLeg> => keyLeg(legSel, focusOn, rankBy, sogScale);
+  const mapOpts = (): TrackMapOptions => {
+    const k = keyed();
+    return { colour: trackColour, rankBy: k.rankBy, top: speedTop, sogScale: k.sogScale, view: mapView, replay: replayOn, vs: focusOn?.vs };
+  };
 
   /** Full-rate tracks for the map (once per race, asked of the worker the first time the view is tight enough); null until then. */
   let fullRate: { a: RaceAnalysis; set: FullRateSet | null } | null = null;
@@ -1534,13 +1564,17 @@ export function startApp(): void {
     speedTop = next.now.top;
     return was.colour !== trackColour || was.rankBy !== rankBy || was.top !== speedTop;
   }
-  /** Set the leg selection for focus `f` (null: none); true when it changed. */
-  function applyFocusLeg(f: MapFocus | null): boolean {
+  /**
+   * The leg buttons after `e` (mapLink.ts legStep): `changed`, the selection the map draws; `leave`, the focus open is
+   * to be left. A leg's view left fits the map again (on the next fitMap) for the selection it comes back to.
+   */
+  function stepLegs(e: LegEvent): { changed: boolean; leave: boolean } {
     const was = legSel;
-    const next = focusLeg(was, legBefore, f);
-    legBefore = next.before;
-    legSel = next.now;
-    return was !== legSel;
+    const next = legStep({ sel: legSel, before: legBefore }, e);
+    legSel = next.state.sel;
+    legBefore = next.state.before;
+    if (next.refit) mapFitFor = null;
+    return { changed: was !== legSel, leave: next.leave };
   }
   /** The `win=` focus wanted, keyed on its race (replay.ts replayPending, as `replay=`): the page's deep link, then the focus opened. */
   let focusPend: ReplayPend | null = focusPendFromUrl(location.search);
@@ -1558,10 +1592,9 @@ export function startApp(): void {
     leaveReplay(false);
     highlight = f.boat;
     syncCoachBoat(f.boat);
-    // The whole race (the scrubber's); a leg's view keeps the leg selection it replaced (not saved) and its leg's
-    // button shows pressed (shownLeg).
-    applyFocusLeg(f);
-    legSel = null;
+    // The whole race (the scrubber's); any focus keeps the leg selection it replaced (the user's, saved), and a leg's
+    // view shows its leg's button pressed (shownLeg).
+    stepLegs({ kind: 'open', focus: f });
     scrubTrail = at?.trail ?? focusTrail(f);
     playSpeed = 1;
     focusOn = f;
@@ -1591,9 +1624,10 @@ export function startApp(): void {
     }
     const f = focusOn;
     focusOn = null;
-    // The coloring and the leg selection a leg's view replaced come back (drawn now unless the map is being drawn already).
+    // The coloring a leg's view replaced and the leg selection any focus did come back, a leg's view's Fit with them
+    // (drawn now unless the map is being drawn already).
     const recoloured = applyFocusColouring(null);
-    if ((applyFocusLeg(null) || recoloured || f?.leg != null) && !rendering) render();
+    if ((stepLegs({ kind: 'leave', focus: f }).changed || recoloured || f?.leg != null) && !rendering) render();
     if (scrubTrail === WINDOW_TRAIL) {
       scrubTrail = trailAfterFocus(scrubTrail, f);
       if (analysis) syncScrub(analysis);
@@ -1998,7 +2032,7 @@ export function startApp(): void {
     dot.setAttribute('cy', String(cy));
     dot.setAttribute('r', String(4 * px));
     dot.setAttribute('stroke-width', String(1.5 * px));
-    const legLine = trackColour === 'sog' ? (l: number) => sogHoverLeg(a, l, legSel, sogScale) : undefined;
+    const legLine = trackColour === 'sog' ? (l: number) => sogHoverLeg(a, l, legSel, keyed().sogScale) : undefined;
     els.mapTip.innerHTML = mapTipHtml(mapTipLines(a, p, pick, { legLine, placeAt: placeReader(a) }));
     els.mapTip.hidden = false;
     // Beside the pointer, above it; flipped left near the right edge and below near the top, and kept inside the map;
@@ -2263,10 +2297,14 @@ export function startApp(): void {
       const f = analysis && highlight ? legFocus(analysis, highlight, leg) : null;
       if (me.button !== 0 || me.ctrlKey || me.metaKey || me.shiftKey || me.altKey || !f) return;
       ev.preventDefault();
-      if (fullscreen.isOpen) fullscreen.close('button');
-      nav.begin();
+      // A history entry of its own (Back comes back to the view before it), but not from full screen, whose close
+      // goes back past its own entry (that back is still to land).
+      const wasFull = fullscreen.isOpen;
+      if (wasFull) fullscreen.close('button');
+      const began = !wasFull && nav.begin();
       setTab('race');
       openFocus(f);
+      if (began) nav.cancel();
       return;
     }
     const g = (ev.target as Element).closest('g.pc-boat[data-id]');
@@ -2383,13 +2421,14 @@ export function startApp(): void {
     const leg = key === 'all' ? null : Number(key);
     // As shown: in a leg's view its leg's button is the pressed one. A leg chosen by hand stands, and leaves the leg's view.
     const sel = focusSel(btn, 'data-leg');
-    const leaving = focusOn?.leg != null;
-    legSel = legAfterPress(shownLeg(legSel, focusOn), leg);
-    legBefore = null;
-    save();
+    const step = stepLegs({ kind: 'press', leg, focus: focusOn });
+    // A focus left (a leg's view, or a card's window by a leg picked) is a history entry: Back comes back to it.
+    const began = nav.begin();
     // Leaving the leg's view draws the map itself.
-    if (leaving) leaveFocus(false);
+    if (step.leave) leaveFocus(false);
     else render();
+    if (began) nav.cancel();
+    save();
     if (sel) els.legend.querySelector<HTMLElement>(sel)?.focus();
   });
   els.colour.addEventListener('click', (ev) => {
@@ -2614,7 +2653,10 @@ export function startApp(): void {
       }
       paywall.hideLock();
       const classLabel = events.find((e) => e.eventId === id)?.classLabel;
-      const off = officialFor(outcomeOf(), listedOf(division, raceNumber));
+      // Official results still being linked (the event just opened): waited for a little, so the race is analysed
+      // with them the first time (its start places and finishes don't change on screen once they come in).
+      const off = await officialForLoad(official.status === 'pending' ? officialLinking : null, () => officialFor(outcomeOf(), listedOf(division, raceNumber)));
+      if (id !== eventId) return 'superseded';
       const reg = regatta;
       const logs = vkx.buffersFor(id, division, raceNumber);
       const req = { type: 'live' as const, eventId: id, regatta: reg, division, raceNumber, allCompetitors, classLabel, ...(off ? { official: off } : {}), ...(logs.length ? { vkx: logs } : {}) };
@@ -2739,8 +2781,9 @@ export function startApp(): void {
   let enrichGen = 0;
   /**
    * After the race list first renders: link official results (or follow `ys=`), relabel, then look
-   * for unlisted races in the feed (bounded: data/orphans.ts) and list them. Never blocks the first
-   * race; every failure ends as a chip with RaceSense numbering kept.
+   * for unlisted races in the feed (bounded: data/orphans.ts) and list them. The first race waits for the
+   * official link at most OFFICIAL_WAIT_MS (loadRace), never for the feed probe; every failure ends as a chip with
+   * RaceSense numbering kept.
    */
   async function enrich(id: string, req: number): Promise<void> {
     const gen = ++enrichGen;
@@ -2748,18 +2791,25 @@ export function startApp(): void {
     const base = baseRegatta;
     if (!base) return;
     const doc = currentDoc(base);
-    if (ysParam === 0) official = { status: 'off' };
-    else {
-      official = { status: 'pending' };
-      renderRaceHead();
-      const landing = events.find((e) => e.eventId === id);
-      const outcome = await linkOfficial(httpYsSource(), linkRequest(doc, landing, ysParam ? { eventId: ysParam, cls: yscParam ?? null } : null));
-      if (stale()) return;
-      official = { status: 'done', outcome };
+    // A race load waits a little for the official results (loadRace): settled once they are linked and listed.
+    let linked = (): void => undefined;
+    officialLinking = new Promise<void>((r) => (linked = r));
+    try {
+      if (ysParam === 0) official = { status: 'off' };
+      else {
+        official = { status: 'pending' };
+        renderRaceHead();
+        const landing = events.find((e) => e.eventId === id);
+        const outcome = await linkOfficial(httpYsSource(), linkRequest(doc, landing, ysParam ? { eventId: ysParam, cls: yscParam ?? null } : null));
+        if (stale()) return;
+        official = { status: 'done', outcome };
+      }
+      orphansFound = null;
+      regatta = base;
+      refreshList();
+    } finally {
+      linked();
     }
-    orphansFound = null;
-    regatta = base;
-    refreshList();
     const contexts = orphanContexts(doc, raceList!, outcomeOf());
     const fetchRows = probeFetcher(id, eventFinished(doc));
     const found = new Map<string, OrphanFound[]>();
@@ -2989,6 +3039,35 @@ export function startApp(): void {
     renderEventOptions();
   }
 
+  /**
+   * Back / forward within the race on screen: the entry's map focus (a leg's view, a card's window) opened, or the
+   * one open left (the coloring and leg selection it replaced put back), then the entry's own leg selection
+   * (stampLegs). Full screen's back (its close's, or one that closed it) changes nothing: the focus stays, its URL
+   * written again.
+   */
+  function popFocus(): void {
+    const a = analysis;
+    if (!a) return;
+    if (fullscreen.ownPop) {
+      if (focusOn) setUrl({ ...scrubParams(scrubT, a.meta.gunMs, scrubTrail), ...focusParams(a, focusOn) });
+      return;
+    }
+    // Read before a focus opened saves (and stamps) the selection it replaced.
+    const leg = stampedLeg(history.state, a.legs.length);
+    const act = focusOnPop(location.search, a, a.drawings.map((d) => d.id), focusOn);
+    if (act.kind === 'open') openFocus(act.focus, act.at);
+    else if (act.kind === 'leave') leaveFocus(true);
+    if (leg === undefined) return;
+    if (focusOn) {
+      // Kept to come back when the focus is left.
+      if (legBefore) legBefore = { leg };
+    } else if (leg !== legSel) {
+      legSel = leg;
+      render();
+    }
+    save();
+  }
+
   /** What is on screen, for popAction (nav.ts). */
   const screenNow = (): Screen =>
     pickerShown
@@ -3004,9 +3083,9 @@ export function startApp(): void {
     const on = reportFromUrl(location.search, location.hash);
     if (on !== reportOn) setReport(on);
     if (t && t !== tab) setTab(t, { scroll: false });
-    // Back past a leg's view (its `fast=` gone from the URL): left, and the coloring it replaced put back.
-    if (focusOn?.fast != null && !new URLSearchParams(location.search).has(FAST_PARAM)) leaveFocus(true);
     const a = popAction(location.search, screenNow());
+    if (a.kind === 'none') popFocus();
+    else if (focusOn) leaveFocus(true);
     if (a.kind === 'picker') showPicker();
     else if (a.kind === 'event') {
       els.event.value = a.eventId;

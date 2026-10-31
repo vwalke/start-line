@@ -4,6 +4,7 @@ import { routeOf } from '../src/landing/route';
 import { TRACK_PATHS } from '../functions/_trackSchema';
 import { withTabHash } from '../src/ui/tabs';
 import { reportHref } from '../src/ui/report';
+import { FOCUS_KEYS } from '../src/ui/mapLink';
 
 const ORIGIN = 'https://recall.walkeforward.com';
 
@@ -171,6 +172,38 @@ describe('history entries (createNav)', () => {
     nav.begin();
     expect(() => nav.write(withTabHash(h.href, 'coach'))).not.toThrow();
     expect(h.entries[0].url).toBe('/regattas/coach?event=e1&div=A&race=1#coach');
+  });
+
+  it('a leg tapped (its view: leg= / win= / fast=) pushes an entry; Back has the view before it; scrubbing does not', () => {
+    const h = new FakeHistory('/regattas/race?event=e1&div=A&race=6&boat=b1#race');
+    const nav = createNav({ history: h, href: () => h.href, keyParams: FOCUS_KEYS });
+    // Scrubbing and selecting: replaced, however often.
+    nav.write(withParams(h.href, { t: '30' }));
+    nav.write(withParams(h.href, { t: '31', trail: '60' }));
+    expect(h.entries).toHaveLength(1);
+    // The positions chart's Run 1 (as app.ts: begin, the focus written, then cancel what is left pending).
+    expect(nav.begin()).toBe(true);
+    // A second begin while one is pending isn't its own: it mustn't cancel the first.
+    expect(nav.begin()).toBe(false);
+    nav.write(withParams(h.href, { t: '1200', trail: 'all', win: '0,1300', leg: '2', fast: '10' }));
+    nav.cancel();
+    // Scrubbing in the leg's view: replaced.
+    nav.write(withParams(h.href, { t: '1100' }));
+    nav.write(withParams(h.href, { t: '1000' }));
+    expect(h.pushes).toEqual(['/regattas/race?event=e1&div=A&race=6&boat=b1&t=1200&trail=all&win=0%2C1300&leg=2&fast=10#race']);
+    // Its leg button pressed again (All): the view left, another entry.
+    nav.begin();
+    nav.write(withParams(h.href, { win: null, leg: null, fast: null }));
+    nav.cancel();
+    expect(h.pushes).toHaveLength(2);
+    const focus = (url: string) => new URL(url, ORIGIN).searchParams.get('leg');
+    expect(focus(h.back())).toBe('2');
+    expect(focus(h.back())).toBeNull();
+    expect(h.i).toBe(0);
+    // Without keyParams (as before), the same writes replace: Back would leave the app.
+    expect(pageKey('/regattas/race?event=e1&div=A&race=6&leg=2', FOCUS_KEYS)).not.toBe(pageKey('/regattas/race?event=e1&div=A&race=6', FOCUS_KEYS));
+    expect(pageKey('/regattas/race?event=e1&div=A&race=6&leg=2')).toBe(pageKey('/regattas/race?event=e1&div=A&race=6'));
+    expect(pageKey('/regattas/race?event=e1&div=A&race=6&t=5&boat=b2', FOCUS_KEYS)).toBe(pageKey('/regattas/race?event=e1&div=A&race=6', FOCUS_KEYS));
   });
 });
 

@@ -57,20 +57,68 @@ export const SEL_RING_OPACITY = 0.55;
 const SEL_RING_PAD_PX = 10;
 const SEL_RING_MIN_PX = 20;
 
-const NUM = /-?\d+(?:\.\d+)?(?:e[-+]?\d+)?/gi;
+/** The numbers in `s`, in order (a regex of its own each call: no lastIndex shared between calls). */
+const numbers = (s: string): number[] => [...s.matchAll(/-?\d+(?:\.\d+)?(?:e[-+]?\d+)?/gi)].map((m) => Number(m[0]));
 
-/** Where boat `id`'s group starts in a startSnapshot (`<g class="boat…" data-id="id">`), and where it ends; null when it isn't drawn. */
+/**
+ * Where boat `id`'s group starts in a startSnapshot (`<g class="boat…" data-id="id">`), and its markup up to its own
+ * `</g>` (groups nested in it, as an arrow's, counted); null when it isn't drawn.
+ */
 function boatGroup(svg: string, id: string): { at: number; body: string } | null {
   const m = new RegExp(`<g class="boat[^"]*" data-id="${esc(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}">`).exec(svg);
   if (!m) return null;
-  const end = svg.indexOf('</g>', m.index);
-  return { at: m.index, body: svg.slice(m.index, end < 0 ? undefined : end) };
+  const tag = /<g[\s>]|<\/g>/g;
+  tag.lastIndex = m.index + m[0].length;
+  let depth = 1;
+  for (let t = tag.exec(svg); t; t = tag.exec(svg)) {
+    depth += t[0] === '</g>' ? -1 : 1;
+    if (!depth) return { at: m.index, body: svg.slice(m.index, t.index) };
+  }
+  return { at: m.index, body: svg.slice(m.index) };
+}
+
+type Pt = [number, number];
+
+/** The point at `t` on the cubic from `p0` through controls `c1`, `c2` to `p1`. */
+function cubicAt(p0: Pt, c1: Pt, c2: Pt, p1: Pt, t: number): Pt {
+  const u = 1 - t;
+  const w = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
+  return [w[0] * p0[0] + w[1] * c1[0] + w[2] * c2[0] + w[3] * p1[0], w[0] * p0[1] + w[1] * c1[1] + w[2] * c2[1] + w[3] * p1[1]];
 }
 
 /**
- * Boat `id`'s hull as drawn in a startSnapshot, chart units: the middle of its outline as drawn (the hull runs aft from
- * the bow, stretched to the panel's smallest size) and half its length; an arrow (no class dimensions), its point and
- * half its size. Null when the boat has no hull at the gun.
+ * A hull's path data (boatShape.ts hullPathD: `M` at the bow tip, cubics down one side, `L` across the transom, cubics
+ * back): its bow tip, its transom's two ends, and points on the outline itself (each cubic's ends and points along
+ * it, never its control points). Null when it isn't one.
+ */
+function hullPathPoints(d: string): { bow: Pt; transom: [Pt, Pt]; outline: Pt[] } | null {
+  const ops = [...d.matchAll(/([MCLZ])([^MCLZ]*)/gi)].map((m) => ({ op: m[1].toUpperCase(), n: numbers(m[2]) }));
+  if (ops[0]?.op !== 'M' || ops[0].n.length < 2) return null;
+  const bow: Pt = [ops[0].n[0], ops[0].n[1]];
+  let cur = bow;
+  const outline: Pt[] = [bow];
+  let transom: [Pt, Pt] | null = null;
+  for (const { op, n } of ops.slice(1)) {
+    if (op === 'L' && n.length >= 2) {
+      const to: Pt = [n[0], n[1]];
+      transom ??= [cur, to];
+      outline.push(to);
+      cur = to;
+    } else if (op === 'C') {
+      for (let i = 0; i + 5 < n.length; i += 6) {
+        const to: Pt = [n[i + 4], n[i + 5]];
+        for (let s = 1; s <= 8; s++) outline.push(cubicAt(cur, [n[i], n[i + 1]], [n[i + 2], n[i + 3]], to, s / 8));
+        cur = to;
+      }
+    }
+  }
+  return transom ? { bow, transom, outline } : null;
+}
+
+/**
+ * Boat `id`'s hull as drawn in a startSnapshot, chart units: its middle (halfway from the bow tip to the middle of
+ * the transom: the hull runs aft from the bow, stretched to the panel's smallest size) and the farthest its outline
+ * gets from there; an arrow (no class dimensions), its point and half its size. Null when the boat has no hull at the gun.
  */
 export function drawnHull(svg: string, id: string): { cx: number; cy: number; half: number } | null {
   const g = boatGroup(svg, id);
@@ -78,19 +126,16 @@ export function drawnHull(svg: string, id: string): { cx: number; cy: number; ha
   // markSelectedHull puts `data-sel` before the class.
   const d = /<path[^>]* class="hull[^"]*" d="([^"]+)"/.exec(g.body);
   if (d) {
-    const n = (d[1].match(NUM) ?? []).map(Number);
-    let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
-    for (let i = 0; i + 1 < n.length; i += 2) {
-      x0 = Math.min(x0, n[i]);
-      x1 = Math.max(x1, n[i]);
-      y0 = Math.min(y0, n[i + 1]);
-      y1 = Math.max(y1, n[i + 1]);
-    }
-    return Number.isFinite(x0) ? { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, half: Math.hypot(x1 - x0, y1 - y0) / 2 } : null;
+    const h = hullPathPoints(d[1]);
+    if (!h) return null;
+    const [[ax, ay], [bx, by]] = h.transom;
+    const cx = (h.bow[0] + (ax + bx) / 2) / 2;
+    const cy = (h.bow[1] + (ay + by) / 2) / 2;
+    return { cx, cy, half: Math.max(...h.outline.map(([x, y]) => Math.hypot(x - cx, y - cy))) };
   }
   const t = /<g transform="translate\(([-\d.e]+),([-\d.e]+)\)"><g transform="rotate\([^)]*\)"><polygon[^>]*\spoints="([^"]+)"/.exec(g.body);
   if (!t) return null;
-  const p = (t[3].match(NUM) ?? []).map((v) => Math.abs(Number(v)));
+  const p = numbers(t[3]).map(Math.abs);
   return { cx: Number(t[1]), cy: Number(t[2]), half: p.length ? Math.max(...p) : 0 };
 }
 

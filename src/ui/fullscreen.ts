@@ -65,6 +65,8 @@ export interface FullscreenController {
   open(): void;
   close(reason?: FsCloseReason): void;
   readonly isOpen: boolean;
+  /** The popstate being handled (by a listener added after this controller's) was full screen's: its close's own back, or a back that closed it. */
+  readonly ownPop: boolean;
   readonly mode: FsMode | null;
   dispose(): void;
 }
@@ -103,6 +105,8 @@ export function createFullscreen(o: FullscreenOptions): FullscreenController {
   let pushed = false;
   /** We called history.back(); its popstate is ours, not a user's back. */
   let ownPop = false;
+  /** The last popstate seen was full screen's: its close's back, or a back that closed it (for listeners after ours). */
+  let lastPopOwn = false;
   /** Closed, waiting for the browser to leave native fullscreen before `onSettled`. */
   let settling: FsCloseReason | null = null;
   let lastClose: FsCloseReason = 'api';
@@ -149,6 +153,7 @@ export function createFullscreen(o: FullscreenOptions): FullscreenController {
   }
 
   function onPop(): void {
+    lastPopOwn = ownPop || open;
     if (ownPop) {
       ownPop = false;
       // Reopened before this close's back() landed: the entry just went; put it back.
@@ -215,6 +220,9 @@ export function createFullscreen(o: FullscreenOptions): FullscreenController {
     close,
     get isOpen() {
       return open;
+    },
+    get ownPop() {
+      return lastPopOwn;
     },
     get mode() {
       return mode;
