@@ -19,6 +19,7 @@ import type { RaceRequest, WorkerRequest, WorkerResponse } from '../worker';
 import { wentWellHtml } from './coachCards';
 import { esc, ordinal } from './format';
 import { raceName, shortRaceName } from './races';
+import { startStripHtml } from './startStrip';
 import { UNOFFICIAL_PLACE, isTrackerFinish, unofficialNoteHtml } from './resultText';
 
 /** What the runner needs of a worker (a Worker, or a test double). */
@@ -305,10 +306,12 @@ export function regattaWentText(w: WentWell): string {
   return `${w.title}: gained on the top 3 in ${w.races} of ${w.of} ${w.of === 1 ? 'race' : 'races'} (${best})`;
 }
 
-export function regattaHtml(s: RegattaSummary, p: RegattaProgress): string {
+/** The Regatta view; `search` (the page's query) for the start strip's links to each race's Start view. */
+export function regattaHtml(s: RegattaSummary, p: RegattaProgress, search = ''): string {
   const status = regattaStatusHtml(s, p);
   if (!s.total) return status;
   const places = regattaPlacesHtml(s);
+  const starts = startStripHtml(s.rows, search);
   const top = s.top.length
     ? `<div class="regatta-patterns">${s.top.map(patternCardHtml).join('')}</div>`
     : `<p class="muted">${s.withData ? 'Nothing that recurs yet.' : 'Waiting for the races to be analyzed.'}</p>`;
@@ -332,7 +335,7 @@ export function regattaHtml(s: RegattaSummary, p: RegattaProgress): string {
     ? `<div class="regatta-scroll"><table class="regatta-table regatta-legs"><thead><tr><th scope="col">Legs</th><th scope="col">Sailed</th><th scope="col" title="Leg time vs the fleet's median for the leg (+ = slower)">vs fleet median</th><th scope="col">Best</th><th scope="col">Worst</th></tr></thead><tbody>${legRows}</tbody></table></div>`
     : '';
   const gatedNote = s.findings.some((f) => f.gated) ? '<p class="muted regatta-note">* of the races where it could be measured.</p>' : '';
-  return `${status}${places}${penaltiesHtml(s)}
+  return `${status}${places}${starts}${penaltiesHtml(s)}
     <h4>Top 3 to work on</h4>${top}
     ${went}
     <h4>Recurring findings</h4>${findings}${gatedNote}
@@ -340,4 +343,4 @@ export function regattaHtml(s: RegattaSummary, p: RegattaProgress): string {
 }
 
 /** Sum up and render in one go (the app's call). */
-export const regattaViewHtml = (runner: RegattaRunner): string => regattaHtml(summarizeRegatta(runner.races()), runner.progress());
+export const regattaViewHtml = (runner: RegattaRunner, search = ''): string => regattaHtml(summarizeRegatta(runner.races()), runner.progress(), search);

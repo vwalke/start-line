@@ -22,6 +22,14 @@ export function easternDayTime(ms: number): string {
   return `${p.weekday} ${p.hour}:${p.minute}`;
 }
 
+const stamp = new Intl.DateTimeFormat('en-US', { timeZone: ET, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+
+/** "Oct 30, 2026 · 2:15:01 PM ET": a moment on the Eastern clock, to the second (the start picture's caption). */
+export function easternStamp(ms: number): string {
+  const p = Object.fromEntries(stamp.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  return `${p.month} ${p.day}, ${p.year} · ${p.hour}:${p.minute}:${p.second} ${p.dayPeriod} ET`;
+}
+
 /** "EDT" or "EST" at that moment. */
 export const easternZone = (ms: number): string => zone.formatToParts(new Date(ms)).find((x) => x.type === 'timeZoneName')?.value ?? 'ET';
 

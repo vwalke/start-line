@@ -11,7 +11,7 @@ import { shownLateS } from '../analysis/validity';
 import { PRE_LEG, type BoatDrawing, type BoatResult, type ExcludedBoat, type RaceAnalysis } from '../analysis/types';
 import { bowAheadM, raceClass, type ClassDims } from '../data/classes';
 import { BOAT_SHAPE_PX, boatMark, headingDir, HULL_LABEL_GAP_PX, hullCenterFromBow, hullLabelBox, hullOutline, hullPathAt, hullPathD, scaleNoteText } from './boatShape';
-import { esc, f1, f2 } from './format';
+import { esc, f1, f2, ordinal } from './format';
 import { placeLabels, textWidth, type LabelReq, type Rect, type StartNames } from './labels';
 import { mapPoints, mapPointsOf, type MapPoints } from './mapPoints';
 import { drawingPieces, rotTrack, rotator, filledRanges, boatAt, endHoldBefore, timeRange, type BoatAt, type FullRateSet, type MapPiece, type PieceOptions, type SrcTrack } from './mapPieces';
@@ -403,6 +403,8 @@ export interface StartOptions {
   widthPx?: number;
   /** Full screen: draw in this frame (`startFullFrame`) instead of the inline Fit. */
   frame?: StartFrame;
+  /** The hulls' smallest length, css px (default BOAT_SHAPE_PX): larger for a picture of the whole line to share. */
+  minHullPx?: number;
 }
 
 /**
@@ -479,7 +481,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     // Along heading (else the course): the hull as the other maps draw it (boatMark), or the arrow with no class.
     const hdg = d.headingAtSample ?? d.courseAtGun;
     const dir = headingDir(hdg, a.wind.twdAtGunDeg);
-    const mark = boatMark({ dir, lastDir: dir, hold: false, sog: st.speedKn, dims: classDims, pxPerM });
+    const mark = boatMark({ dir, lastDir: dir, hold: false, sog: st.speedKn, dims: classDims, pxPerM, ...(opts.minHullPx ? { minPx: opts.minHullPx } : {}) });
     const dims = 'shape' in mark ? mark.dims : null;
     // Screen angle of the way the shape points (0 = up the page), for placing its name.
     const fwdAng = ((dims ? hdg : d.courseAtGun) - a.wind.twdAtGunDeg) * (Math.PI / 180);
@@ -531,11 +533,7 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
   }
 
   const endFs = 11 * k;
-  const lineSvg = `<line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>
-    <circle class="pin" cx="${L[0]}" cy="${L[1]}" r="${6 * unit}"/>
-    <rect class="rc" x="${R[0] - 6 * unit}" y="${R[1] - 6 * unit}" width="${12 * unit}" height="${12 * unit}"/>
-    <text x="${L[0]}" y="${L[1] - 11 * unit}" font-size="${endFs}" text-anchor="middle" class="endlbl">PIN</text>
-    <text x="${R[0]}" y="${R[1] - 11 * unit}" font-size="${endFs}" text-anchor="middle" class="endlbl">RC</text>`;
+  const lineSvg = startLineSvg(L, R, unit, k);
   const endBox = (p: Vec, s: string): Rect => {
     const half = textWidth(s, endFs) / 2;
     return { x0: p[0] - half, y0: p[1] - 11 * unit - endFs, x1: p[0] + half, y1: p[1] + 6 * unit };
@@ -591,6 +589,22 @@ export function startSnapshot(a: RaceAnalysis, highlight: string | null, v?: Vie
     aria-label="${esc(label)}">
     ${bias.ext}${trails.join('')}${lineSvg}${bias.label}${boatSvg.join('')}
     ${windArrow(view, unit, k, a.wind.twdAtGunDeg, WIND_LABEL_GAP_FIXED)}${scaleBar(view, unit, k)}</svg>`;
+}
+
+/**
+ * The start line as the Start view draws it, in chart units: the line, the pin's circle and the RC's square with
+ * their names above (`labels` false: no names, for a thumbnail too small to read them). `unit` ≈ 1 css px.
+ */
+export function startLineSvg(L: Vec, R: Vec, unit: number, k: number, labels = true): string {
+  const endFs = 11 * k;
+  const names = labels
+    ? `<text x="${L[0]}" y="${L[1] - 11 * unit}" font-size="${endFs}" text-anchor="middle" class="endlbl">PIN</text>
+    <text x="${R[0]}" y="${R[1] - 11 * unit}" font-size="${endFs}" text-anchor="middle" class="endlbl">RC</text>`
+    : '';
+  return `<line class="startline" x1="${L[0]}" y1="${L[1]}" x2="${R[0]}" y2="${R[1]}" stroke-width="${2.5 * k}"/>
+    <circle class="pin" cx="${L[0]}" cy="${L[1]}" r="${6 * unit}"/>
+    <rect class="rc" x="${R[0] - 6 * unit}" y="${R[1] - 6 * unit}" width="${12 * unit}" height="${12 * unit}"/>
+    ${names}`;
 }
 
 /** Full screen, Colour: Boat: a compact key of each boat's colour (up to eight boats; a bigger fleet is one ink, named on the chart). */
@@ -965,14 +979,67 @@ function trackLayer(a: RaceAnalysis, highlight: string | null, leg: number | nul
     paths.push(...ordered.map(([, s]) => s));
   }
 
-  // Beside the end point, on the side with more room.
+  // Beside the end point (the leg's mark), clear of the marks' labels and of each other: "12th fastest on leg".
+  const taken = [...markBoxesAt(a, unit, k)];
   const labels = pickLabels
-    .map(({ at: [x, y], rank }) => {
-      const right = x < (box.x0 + box.x1) / 2;
-      return `<text class="spd-pick-lbl" x="${(x + (right ? 7 : -7) * unit).toFixed(1)}" y="${(y + 4 * unit).toFixed(1)}" font-size="${12 * k}" stroke-width="${(3 * k).toFixed(2)}" text-anchor="${right ? 'start' : 'end'}">#${rank}</text>`;
+    .map(({ at, rank }) => {
+      const texts = speedPickTexts(rank, !speed?.overall);
+      const l = speedPickPlace(at, texts, 12 * k, unit, box, taken);
+      taken.push(l.box);
+      return `<text class="spd-pick-lbl" x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" font-size="${12 * k}" stroke-width="${(3 * k).toFixed(2)}" text-anchor="${l.anchor}">${esc(l.text)}</text>`;
     })
     .join('');
   return { paths: paths.join(''), hi: hi.join(''), labels, pieces: drawn };
+}
+
+/** The selected boat's speed rank where it is outside the top N, longest wording first: "12th fastest on leg", "12th fastest". */
+export function speedPickTexts(rank: number, perLeg: boolean): string[] {
+  const short = `${ordinal(rank)} fastest`;
+  return perLeg ? [`${short} on leg`, short] : [short];
+}
+
+/** A label placed by speedPickPlace: its anchor point, text-anchor, the wording that fit, and its box. */
+export interface PickPlace {
+  x: number;
+  y: number;
+  anchor: 'start' | 'end';
+  text: string;
+  box: Rect;
+}
+
+/**
+ * Where the speed-rank label for a segment ending at `at` goes (map units; font `fs`): right of the end, else left,
+ * else above or below on either side; the longest of `texts` that has a spot clear of `taken` (the marks' labels and
+ * points, labels placed before) inside `view`; with none clear, the shortest wording on the side with more room.
+ */
+export function speedPickPlace(at: Vec, texts: readonly string[], fs: number, unit: number, view: Box, taken: readonly Rect[]): PickPlace {
+  const [x, y] = at;
+  const dx = 7 * unit;
+  const dy = fs + 2 * unit;
+  const spots: { x: number; y: number; anchor: 'start' | 'end' }[] = [
+    { x: x + dx, y: y + 4 * unit, anchor: 'start' },
+    { x: x - dx, y: y + 4 * unit, anchor: 'end' },
+    { x: x + dx, y: y + 4 * unit - dy, anchor: 'start' },
+    { x: x + dx, y: y + 4 * unit + dy, anchor: 'start' },
+    { x: x - dx, y: y + 4 * unit - dy, anchor: 'end' },
+    { x: x - dx, y: y + 4 * unit + dy, anchor: 'end' },
+  ];
+  const boxOf = (s: (typeof spots)[number], text: string): Rect => {
+    const w = textWidth(text, fs);
+    const x0 = s.anchor === 'start' ? s.x : s.x - w;
+    return { x0: x0 - unit, y0: s.y - fs, x1: x0 + w + unit, y1: s.y + 0.3 * fs };
+  };
+  const clear = (r: Rect): boolean =>
+    r.x0 >= view.x0 && r.x1 <= view.x1 && r.y0 >= view.y0 && r.y1 <= view.y1 && !taken.some((q) => r.x0 < q.x1 && q.x0 < r.x1 && r.y0 < q.y1 && q.y0 < r.y1);
+  for (const text of texts) {
+    for (const s of spots) {
+      const b = boxOf(s, text);
+      if (clear(b)) return { ...s, text, box: b };
+    }
+  }
+  const text = texts[texts.length - 1];
+  const s = x < (view.x0 + view.x1) / 2 ? spots[0] : spots[1];
+  return { ...s, text, box: boxOf(s, text) };
 }
 
 interface MarkLabel {

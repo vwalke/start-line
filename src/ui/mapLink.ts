@@ -21,13 +21,19 @@ import type { RaceAnalysis } from '../analysis/types';
 import { ACT } from './act';
 import { BOAT_PARAM } from './coach';
 import { esc } from './format';
-import { boatAt, filledRanges, rotator, timeRange } from './mapPieces';
+import { boatAt, filledRanges, rotTrack, rotator, timeRange } from './mapPieces';
 import { REPLAY_PARAM, replayLink, replayPendFromUrl, type ReplayPend } from './replay';
 import { DEFAULT_TRAIL, T_PARAM, TRAIL_PARAM, WINDOW_TRAIL, mapTimeSearch, parseTParam, parseTrail, playFrom, type ScrubWindow, type Trail } from './scrub';
 import { clampView, type Box, type View } from './view';
 
 export const VS_PARAM = 'vs';
 export const WIN_PARAM = 'win';
+/** A leg's view (`leg=<n>`, 1-based): the view frames the whole fleet's leg, the trail is All. */
+export const LEG_PARAM = 'leg';
+/** `fast=<n>`: the tracks colored by speed rank on each leg with the top N picked out (Colour: Rank, Top N). */
+export const FAST_PARAM = 'fast';
+/** A leg's view picks out this many of the fastest boats on it. */
+export const LEG_FAST_TOP = 10;
 /** At most this many comparison boats are drawn ringed (more: the nearest to the boat at the window's end). */
 export const MAP_VS_MAX = 5;
 /** A card whose window starts no later than this after the gun (and ends after it) is a start card, s. */
@@ -41,6 +47,10 @@ export interface MapFocus {
   boat: string;
   vs: string[];
   spans: [number, number][];
+  /** A leg's view (legFocus): the leg (0-based), framed whole, with the trail All. */
+  leg?: number;
+  /** The tracks by speed rank on each leg, the top `fast` picked out (Colour: Rank, Top N). */
+  fast?: 10 | 3;
 }
 
 type Windowed = Pick<Card, 'kind' | 't0' | 't1' | 'spans'>;
@@ -62,8 +72,8 @@ export const focusTime = (f: Pick<MapFocus, 'spans'>): number => f.spans[f.spans
 /** Where the focus's trail starts ('win': `trailWindow`'s `from`): the window's start (its first span's). */
 export const focusFrom = (f: Pick<MapFocus, 'spans'>): number => f.spans[0][0];
 
-/** The focus's trail: the window's own, from its start (focusFrom) to the time shown. */
-export const focusTrail = (_f: Pick<MapFocus, 'spans'>): Trail => WINDOW_TRAIL;
+/** The focus's trail: the window's own, from its start (focusFrom) to the time shown; a leg's view, the whole trail. */
+export const focusTrail = (f: Pick<MapFocus, 'spans' | 'leg'>): Trail => (f.leg != null ? 'all' : WINDOW_TRAIL);
 
 /** The shortest of the trails always offered that covers the window from its start to its end (spans and all): the trail once the focus is left. */
 export function coverTrail(f: Pick<MapFocus, 'spans'>): Trail {
@@ -119,6 +129,36 @@ export function cardFocus(a: RaceAnalysis, boat: string, c: Pick<Card, 't0' | 't
   return { boat, vs: comparisonBoats(a, boat, c.refBoats, spans[spans.length - 1][1]), spans };
 }
 
+/**
+ * Leg `leg` (0-based) as boat `boat`'s map focus, a leg's view: the scrubber at the boat's rounding at the leg's end
+ * (its time on the leg is the window), the whole trail, the view framing the fleet's leg, the tracks by speed rank on
+ * each leg with the LEG_FAST_TOP fastest picked out. The boat's own leg times, else the fleet's first start and last
+ * end of the leg; null when neither is known.
+ */
+export function legFocus(a: Pick<RaceAnalysis, 'boats' | 'legs'>, boat: string, leg: number): MapFocus | null {
+  if (!(leg >= 0 && leg < a.legs.length)) return null;
+  const mine = a.boats.find((b) => b.id === boat)?.legs[leg];
+  let span: [number, number] | null = mine && mine.endMs > mine.startMs ? [mine.startMs, mine.endMs] : null;
+  if (!span) {
+    const all = a.boats.map((b) => b.legs[leg]).filter((l): l is NonNullable<typeof l> => !!l && l.endMs > l.startMs);
+    if (all.length) span = [Math.min(...all.map((l) => l.startMs)), Math.max(...all.map((l) => l.endMs))];
+  }
+  return span ? { boat, vs: [], spans: [span], leg, fast: LEG_FAST_TOP } : null;
+}
+
+/** The link (with `#race`) to leg `leg`'s view for boat `boat` (legFocus); null when the leg has no times. */
+export function legMapHref(search: string, a: Pick<RaceAnalysis, 'boats' | 'legs' | 'meta'>, boat: string, leg: number): string | null {
+  const f = legFocus(a, boat, leg);
+  return f ? `${mapFocusLink(search, a, f)}#race` : null;
+}
+
+/** The leg a side-of-the-course card (D14) is about, by its name; null for any other card. */
+export function cardLeg(a: Pick<RaceAnalysis, 'legs'>, c: Pick<Card, 'kind' | 'facts'>): number | null {
+  if (c.kind !== 'D14') return null;
+  const k = a.legs.findIndex((l) => l.name === c.facts.leg);
+  return k >= 0 ? k : null;
+}
+
 /** A start card: D1, or a window from the gun (starting no later than START_NEAR_S after it, ending after it). */
 export function isStartCard(c: Windowed, gunMs: number): boolean {
   if (c.kind === 'D1') return true;
@@ -129,8 +169,12 @@ export function isStartCard(c: Windowed, gunMs: number): boolean {
 /** Where card `c` (boat `boat`'s) shows on the map: Map C's replay (a start card of a boat with one), its focus, or nowhere. */
 export type MapRoute = { kind: 'replay'; boat: string } | { kind: 'focus'; focus: MapFocus } | null;
 
-export function cardRoute(a: RaceAnalysis, boat: string, c: Windowed & Pick<Card, 'refBoats'>, replays: readonly Pick<StartReplay, 'boat'>[]): MapRoute {
+export function cardRoute(a: RaceAnalysis, boat: string, c: Windowed & Pick<Card, 'refBoats'> & Partial<Pick<Card, 'facts'>>, replays: readonly Pick<StartReplay, 'boat'>[]): MapRoute {
   if (!windowSpans(c).length) return null;
+  // The side of the course: that leg's view, as the positions chart opens it.
+  const leg = c.facts ? cardLeg(a, { kind: c.kind, facts: c.facts }) : null;
+  const lf = leg != null ? legFocus(a, boat, leg) : null;
+  if (lf) return { kind: 'focus', focus: lf };
   if (replays.some((r) => r.boat === boat) && isStartCard(c, a.meta.gunMs)) return { kind: 'replay', boat };
   const focus = cardFocus(a, boat, c);
   return focus ? { kind: 'focus', focus } : null;
@@ -142,11 +186,17 @@ export function cardRoute(a: RaceAnalysis, boat: string, c: Windowed & Pick<Card
 export function focusParams(a: Pick<RaceAnalysis, 'meta'>, f: MapFocus): Record<string, string | null> {
   const gun = a.meta.gunMs;
   const win = f.spans.flatMap(([p, q]) => [Math.floor((p - gun) / 1000), Math.ceil((q - gun) / 1000)]);
-  return { [BOAT_PARAM]: f.boat, [VS_PARAM]: f.vs.length ? f.vs.join(',') : null, [WIN_PARAM]: win.join(',') };
+  return {
+    [BOAT_PARAM]: f.boat,
+    [VS_PARAM]: f.vs.length ? f.vs.join(',') : null,
+    [WIN_PARAM]: win.join(','),
+    [LEG_PARAM]: f.leg != null ? String(f.leg + 1) : null,
+    [FAST_PARAM]: f.fast != null ? String(f.fast) : null,
+  };
 }
 
 /** The focus parameters cleared (leaving it). */
-export const NO_FOCUS: Readonly<Record<string, null>> = { [VS_PARAM]: null, [WIN_PARAM]: null };
+export const NO_FOCUS: Readonly<Record<string, null>> = { [VS_PARAM]: null, [WIN_PARAM]: null, [LEG_PARAM]: null, [FAST_PARAM]: null };
 
 const withParams = (search: string, next: Record<string, string | null>): URLSearchParams => {
   const p = new URLSearchParams(search);
@@ -186,7 +236,11 @@ export function parseMapFocus(search: string, gunMs: number): MapFocus | null {
         .filter((x) => x && x !== boat),
     ),
   ].slice(0, MAP_VS_MAX);
-  return { boat, vs, spans };
+  const legRaw = p.get(LEG_PARAM);
+  const leg = legRaw && /^\d{1,2}$/.test(legRaw) && Number(legRaw) >= 1 ? Number(legRaw) - 1 : null;
+  const fastRaw = p.get(FAST_PARAM);
+  const fast = fastRaw === '10' ? 10 : fastRaw === '3' ? 3 : null;
+  return { boat, vs, spans, ...(leg != null ? { leg } : {}), ...(fast != null ? { fast } : {}) };
 }
 
 /**
@@ -237,7 +291,7 @@ export function focusArrive(
 }
 
 /** Card `c`'s map link (with `#race`): the replay's for a start card of a boat with one, else its focus; null with no window. */
-export function cardMapHref(search: string, a: RaceAnalysis, boat: string, c: Windowed & Pick<Card, 'refBoats'>, replays: readonly Pick<StartReplay, 'boat'>[]): string | null {
+export function cardMapHref(search: string, a: RaceAnalysis, boat: string, c: Windowed & Pick<Card, 'refBoats'> & Partial<Pick<Card, 'facts'>>, replays: readonly Pick<StartReplay, 'boat'>[]): string | null {
   const route = cardRoute(a, boat, c, replays);
   return route ? routeHref(search, a, route) : null;
 }
@@ -253,12 +307,16 @@ function routeHref(search: string, a: RaceAnalysis, route: NonNullable<MapRoute>
 const sailOf = (a: Pick<RaceAnalysis, 'boats'>, id: string): string => a.boats.find((b) => b.id === id)?.sail ?? id;
 
 /** One card's "Show on map" link (a real link: it opens in a new tab as a deep link); '' with no window. */
-export function cardMapAction(i: number, a: RaceAnalysis, boat: string, c: Windowed & Pick<Card, 'refBoats'>, replays: readonly Pick<StartReplay, 'boat'>[], search: string): string {
+export function cardMapAction(i: number, a: RaceAnalysis, boat: string, c: Windowed & Pick<Card, 'refBoats'> & Partial<Pick<Card, 'facts'>>, replays: readonly Pick<StartReplay, 'boat'>[], search: string): string {
   const route = cardRoute(a, boat, c, replays);
   if (!route) return '';
   const href = routeHref(search, a, route);
   const title =
-    route.kind === 'replay' ? 'Replay the start on the track map' : `On the track map${route.focus.vs.length ? `, vs ${route.focus.vs.map((id) => sailOf(a, id)).join(' · ')}` : ''}`;
+    route.kind === 'replay'
+      ? 'Replay the start on the track map'
+      : route.focus.leg != null
+        ? `${a.legs[route.focus.leg]?.name ?? 'The leg'} on the track map, the ${route.focus.fast ?? LEG_FAST_TOP} fastest on it picked out`
+        : `On the track map${route.focus.vs.length ? `, vs ${route.focus.vs.map((id) => sailOf(a, id)).join(' · ')}` : ''}`;
   return `<p class="opp-map"><a class="opp-map-link ${ACT}" href="${esc(href)}" data-map-opp="${i}" title="${esc(title)}">Show on map <span aria-hidden="true">→</span></a></p>`;
 }
 
@@ -300,6 +358,16 @@ export function focusExtent(a: RaceAnalysis, f: MapFocus): Box {
   if (f.spans.some(([p, q]) => p <= gun && gun <= q)) {
     grow(rot(a.line.left));
     grow(rot(a.line.right));
+  }
+  // A leg's view: the whole fleet's leg (its drawn segments), the boat's own span below adding nothing new.
+  if (f.leg != null) {
+    for (const d of a.drawings) {
+      for (const seg of d.segments) {
+        if (seg.leg !== f.leg) continue;
+        const { x, y } = rotTrack(a.wind.twdAtGunDeg, seg);
+        for (let i = 0; i < x.length; i++) grow([x[i], y[i]]);
+      }
+    }
   }
   for (const id of [f.boat, ...f.vs]) {
     const d = a.drawings.find((x) => x.id === id);

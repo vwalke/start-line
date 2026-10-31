@@ -15,7 +15,7 @@ import { linkOfficial, type LinkOutcome } from '../data/official/link';
 import { httpYsSource, parseYsEventId } from '../data/official/yachtscoring';
 import { PROBE_BUDGET, discoverOrphans, isOrphanKey, type OrphanFound } from '../data/orphans';
 import { buildRaceList, findListed, type ListedRace, type RaceList } from '../data/raceList';
-import { currentDoc, defaultRace, listRaces } from '../data/racesense/adapter';
+import { currentDoc, defaultRace, findRace, listRaces } from '../data/racesense/adapter';
 import { fetchLanding, fetchUsableRegatta } from '../data/racesense/api';
 import type { LandingEvent, RegattaDoc, RegattaResponse } from '../data/racesense/types';
 import { eventFinished, linkRequest, linksOf, mergeOrphans, officialFor, orphanContexts, probeFetcher } from '../data/recovery';
@@ -139,6 +139,8 @@ import {
   mapFocusLegend,
   trailAfterFocus,
   withMapActions,
+  legFocus,
+  legMapHref,
   type MapFocus,
 } from './mapLink';
 import { mapKey, raceNotesKey, startKey } from './captions';
@@ -151,6 +153,11 @@ import { START_NAMES_KEY, parseStartNames, startNamesControls } from './labels';
 import { laneCueSecond, mountLaneSnapshots } from './laneSnapshotsView';
 import { attachTopScroll } from './hscroll';
 import { attachPanZoom } from './panzoom';
+import { gunReadoutHtml } from './gunReadout';
+import { ATTEMPT_PARAM, attemptNumbered, earlierAttempts, parseAttemptParam, type EarlierAttempt } from '../data/attempts';
+import { attemptButtonsHtml, attemptNote, attemptTitle } from './attemptView';
+import { biasBullets, lineChips } from './startLine';
+import { downloadSvgAsPng, pageCss, startPngName, startPngSvg } from './startPng';
 import { PLACE_TIP_MOUSE_REACH, PLACE_TIP_TOUCH_REACH, nearestPlaceDot, placesChart, placesKey } from './places';
 import { DEFAULT_TAB, TABS, parseTab, tabForKey, tabFromHash, withTabHash, type Tab } from './tabs';
 import { startSogSeries, type StartSogSeries } from '../analysis/startSog';
@@ -274,6 +281,15 @@ export function startApp(): void {
     legsNotes: $('legs-notes'),
     startFindings: $('start-findings'),
     startFindingsBox: $('start-findings-box'),
+    startGun: $('start-gun'),
+    startExport: $('start-export'),
+    startPng: $('start-png') as HTMLButtonElement,
+    attemptCard: $('attempt-card'),
+    attemptTitle: $('attempt-title'),
+    attemptNote: $('attempt-note'),
+    attemptTools: $('attempt-tools'),
+    attemptChart: $('attempt-chart'),
+    attemptCap: $('attempt-cap'),
     findings: $('findings'),
     raceFindings: $('race-findings-card'),
     boats: $('boat-list'),
@@ -364,6 +380,14 @@ export function startApp(): void {
       replayWait(msg.type === 'start-replay' ? msg.replays : null);
       return;
     }
+    // An earlier start attempt's analysis (its progress messages are left out).
+    const attemptWait = attemptWaits.get(msg.id);
+    if (attemptWait) {
+      if (msg.type === 'progress') return;
+      attemptWaits.delete(msg.id);
+      attemptWait(msg.type === 'attempt' ? msg.analysis : new Error(msg.type === 'error' ? msg.message : 'unexpected reply'));
+      return;
+    }
     // Coach requests count down from -1, apart from the race loads.
     const coachWait = coachPending.get(msg.id);
     if (coachWait) {
@@ -371,7 +395,7 @@ export function startApp(): void {
       coachWait(msg.type === 'coach-raw' ? msg.raw : null);
       return;
     }
-    if (msg.id !== reqId || msg.type === 'coach-raw' || msg.type === 'regatta-race' || msg.type === 'full-rate' || msg.type === 'start-replay') return; // a newer request superseded this one
+    if (msg.id !== reqId || msg.type === 'coach-raw' || msg.type === 'regatta-race' || msg.type === 'full-rate' || msg.type === 'start-replay' || msg.type === 'attempt') return; // a newer request superseded this one
     const p = pending.get(msg.id);
     if (msg.type === 'progress') setStatus(msg.message);
     else if (msg.type === 'done') p?.resolve(msg.analysis);
@@ -410,6 +434,7 @@ export function startApp(): void {
       fullPending.set(id, resolve);
       worker.postMessage({ id, type: 'full-rate', key: raceKeyOf(a), wants: fullRateWants(a) } satisfies WorkerRequest);
     });
+  const attemptWaits = new Map<number, (r: RaceAnalysis | Error) => void>();
   const replayWaits = new Map<number, (r: StartReplay[] | null) => void>();
   /** The over-early boats' start facts of a race, from the worker's raw fixes (null: it no longer holds that race, or failed: no replay). */
   const startReplaysOf = (a: RaceAnalysis): Promise<StartReplay[] | null> =>
@@ -635,7 +660,13 @@ export function startApp(): void {
     els.boats.innerHTML = boatList(a, highlight, ncOpen);
     const found = splitFindings(a.findings);
     els.startFindings.innerHTML = findingsList(found.start, highlight);
-    els.startFindingsBox.hidden = !found.start.length;
+    const gun = gunReadoutHtml(a, highlight);
+    els.startGun.innerHTML = gun;
+    els.startGun.hidden = !gun;
+    // The picture needs a boat with a bow at the gun (its close-up).
+    els.startExport.hidden = !(highlight && a.drawings.some((d) => d.id === highlight && d.bow));
+    renderAttempt();
+    els.startFindingsBox.hidden = !found.start.length && !gun;
     els.findings.innerHTML = findingsList(found.race, highlight);
     els.findings.hidden = !found.race.length;
     renderKeyLine(els.raceNotes, raceNotesKey(a));
@@ -967,8 +998,21 @@ export function startApp(): void {
       return;
     }
     regattaRunner.want(jobsFor(a, sail));
-    els.coachRegatta.innerHTML = regattaViewHtml(regattaRunner);
+    els.coachRegatta.innerHTML = regattaViewHtml(regattaRunner, location.search);
   }
+  // The start strip: a real link to each race's Start view (a new tab opens it as a deep link); here, that race on the Start tab, the boat kept.
+  els.coachRegatta.addEventListener('click', (ev) => {
+    const me = ev as MouseEvent;
+    if (me.button !== 0 || me.ctrlKey || me.metaKey || me.shiftKey || me.altKey) return;
+    const n = Number((ev.target as Element).closest('a[data-start-race]')?.getAttribute('data-start-race'));
+    const division = current?.division;
+    if (!Number.isFinite(n) || !division) return;
+    ev.preventDefault();
+    nav.begin();
+    setTab('start');
+    window.scrollTo({ top: 0 });
+    chooseRace(division, n);
+  });
 
   function setCoachGroup(g: Group): void {
     coachGroup = g;
@@ -1105,7 +1149,8 @@ export function startApp(): void {
     if (!a) return;
     // Full screen: fitted to the overlay's height when the rows stay readable (#fs-body scrolls otherwise; 8 px of padding).
     const heightPx = full === 'places' ? Math.max(0, els.fsBody.clientHeight - 8) || undefined : undefined;
-    els.places.innerHTML = placesChart(a, highlight, { widthPx: els.places.clientWidth || undefined, heightPx });
+    const legHref = (leg: number): string | null => (highlight ? legMapHref(location.search, a, highlight, leg) : null);
+    els.places.innerHTML = placesChart(a, highlight, { widthPx: els.places.clientWidth || undefined, heightPx, legHref });
     els.placesTip.hidden = true;
   }
 
@@ -1119,6 +1164,80 @@ export function startApp(): void {
     // Names are placed for this zoom (zooming in spreads the boats and reveals more) and sized for this width.
     els.start.innerHTML = startSnapshot(a, highlight, view, startColour, { names: startNames, widthPx, frame });
   }
+
+  // ---- Start tab: an earlier start attempt of the race (data/attempts.ts), drawn on request apart from everything else.
+  /** The attempt open (1-based), from `attempt=` at first, for the race the URL names (`attemptFor`); null: none. */
+  let attemptOpen: number | null = parseAttemptParam(query.get(ATTEMPT_PARAM));
+  let attemptFor: string | null = attemptOpen != null ? replayRaceKey(query.get('event'), query.get('div') ?? '', query.get('race') ?? '') : null;
+  /** The attempt analysed last (its race and number) and the one being fetched. */
+  let attemptGot: { key: string; n: number; a: RaceAnalysis | null; error?: string } | null = null;
+  let attemptLoading: string | null = null;
+  const attemptsOf = (a: RaceAnalysis): EarlierAttempt[] => {
+    if (!regatta) return [];
+    try {
+      return earlierAttempts(findRace(currentDoc(regatta), { division: a.meta.division, raceNumber: a.meta.raceNumber }).race);
+    } catch {
+      return [];
+    }
+  };
+  function renderAttempt(): void {
+    const a = analysis;
+    const list = a ? attemptsOf(a) : [];
+    els.attemptCard.hidden = !list.length;
+    if (!a || !list.length) return;
+    const key = replayRaceOf(a);
+    // `attempt=` belongs to the race it was written for.
+    if (attemptOpen != null && attemptFor !== key) {
+      attemptOpen = null;
+      attemptFor = null;
+      setUrl({ [ATTEMPT_PARAM]: null });
+    }
+    const at = attemptNumbered(list, attemptOpen);
+    const listed = listedOf(a.meta.division, a.meta.raceNumber);
+    const raceLabel = listed ? raceName(listed) : `Race ${a.meta.raceNumber}`;
+    const first = at ?? list[0];
+    els.attemptTitle.textContent = list.length === 1 ? attemptTitle(raceLabel, first) : `${raceLabel.replace(/^Race\b/, 'Start')} · earlier attempts`;
+    els.attemptNote.textContent = attemptNote(first, a.meta.tzOffsetMs);
+    const got = at && attemptGot?.key === key && attemptGot.n === at.attempt ? attemptGot : null;
+    els.attemptTools.innerHTML = attemptButtonsHtml(list, at?.attempt ?? null, !!at && !got);
+    const att = got?.a ?? null;
+    els.attemptChart.hidden = !got;
+    els.attemptCap.hidden = !att;
+    if (att) {
+      const hl = highlight && att.boats.some((b) => b.id === highlight) ? highlight : null;
+      els.attemptChart.innerHTML = startSnapshot(att, hl, undefined, startColour, { names: startNames, widthPx: els.attemptChart.clientWidth || els.start.clientWidth || undefined });
+      renderKeyLine(els.attemptCap, { chips: lineChips(att), bullets: ['The boats at that gun; distances from the bow, as in the Start view above.', ...biasBullets(att)] });
+    } else if (got) els.attemptChart.innerHTML = `<p class="muted">Couldn't load that start (${esc(got.error ?? 'no data')}).</p>`;
+    if (at && !got) loadAttempt(a, at);
+  }
+  /** Ask the worker for attempt `at` of race `a` (once at a time); drawn when it comes, if that race is still on screen. */
+  function loadAttempt(a: RaceAnalysis, at: EarlierAttempt): void {
+    const key = replayRaceOf(a);
+    const want = `${key}|${at.attempt}`;
+    if (!regatta || attemptLoading === want) return;
+    attemptLoading = want;
+    const id = --coachReq;
+    const classLabel = events.find((e) => e.eventId === a.meta.eventId)?.classLabel;
+    const req = { id, type: 'attempt' as const, index: at.index, eventId: a.meta.eventId ?? eventId, regatta, division: a.meta.division, raceNumber: a.meta.raceNumber, allCompetitors, classLabel };
+    void new Promise<RaceAnalysis | Error>((resolve) => {
+      attemptWaits.set(id, resolve);
+      worker.postMessage(req satisfies WorkerRequest);
+    }).then((r) => {
+      if (attemptLoading === want) attemptLoading = null;
+      attemptGot = { key, n: at.attempt, a: r instanceof Error ? null : r, ...(r instanceof Error ? { error: r.message } : {}) };
+      if (analysis && replayRaceOf(analysis) === key) renderAttempt();
+    });
+  }
+  els.attemptTools.addEventListener('click', (ev) => {
+    const n = Number((ev.target as Element).closest('button[data-attempt]')?.getAttribute('data-attempt'));
+    const a = analysis;
+    if (!a || !Number.isInteger(n)) return;
+    attemptOpen = attemptOpen === n ? null : n;
+    attemptFor = attemptOpen != null ? replayRaceOf(a) : null;
+    setUrl({ [ATTEMPT_PARAM]: attemptOpen != null ? String(attemptOpen) : null });
+    renderAttempt();
+    els.attemptTools.querySelector<HTMLElement>(`button[data-attempt="${n}"]`)?.focus();
+  });
 
   /** The Fit frame for the start chart's width class (narrow charts leave more room for the favoured-end label). */
   let fitNarrow = false;
@@ -1387,6 +1506,12 @@ export function startApp(): void {
     scrubTrail = at?.trail ?? focusTrail(f);
     playSpeed = 1;
     focusOn = f;
+    // A leg's view (`fast=`): the tracks by speed rank on each leg, its fastest picked out, as the Colour controls set it (not saved).
+    if (f.fast != null) {
+      trackColour = 'rank';
+      rankBy = 'leg';
+      speedTop = f.fast;
+    }
     focusPend = replayPending(focusPend, { type: 'opened', race: replayRaceOf(a), boat: f.boat });
     scrubT = clampTime(at?.t ?? focusTime(f), scrubWindow(a));
     fitMap(a);
@@ -2048,6 +2173,20 @@ export function startApp(): void {
     els.placesTip.style.left = `${Math.max(0, flip ? left - 12 - els.placesTip.offsetWidth : left + 12)}px`;
     els.placesTip.style.top = `${Math.max(0, r.top - wrap.top - els.placesTip.offsetHeight - 6)}px`;
   }
+  // Save start picture: the line at the gun and a close-up of the selected boat, captioned, as a PNG (ui/startPng.ts).
+  els.startPng.addEventListener('click', () => {
+    const a = analysis;
+    const b = a && highlight ? a.boats.find((x) => x.id === highlight) : undefined;
+    if (!a || !b) return;
+    const listed = listedOf(a.meta.division, a.meta.raceNumber);
+    const race = listed ? raceName(listed) : `Race ${a.meta.raceNumber}`;
+    const { svg, width, height } = startPngSvg(a, b.id, startColour, { event: a.meta.eventName, division: a.meta.division, race }, pageCss(document));
+    const n = listed?.officialNumber ?? a.meta.raceNumber;
+    els.startPng.disabled = true;
+    void downloadSvgAsPng(svg, width, height, startPngName(a.meta.eventName, n, b.sail))
+      .catch((e: unknown) => setNotice(`Couldn't save the picture (${e instanceof Error ? e.message : String(e)}).`))
+      .finally(() => (els.startPng.disabled = false));
+  });
   els.places.addEventListener('pointermove', showPlaceTip);
   els.places.addEventListener('pointerdown', showPlaceTip);
   els.places.addEventListener('pointerleave', (ev) => {
@@ -2057,6 +2196,20 @@ export function startApp(): void {
     }
   });
   els.places.addEventListener('click', (ev) => {
+    // A leg of the selected boat's line: a real link to that leg's view on the map (a new tab opens it as a deep link); here, the Race tab on it.
+    const legLink = (ev.target as Element).closest('a[data-leg-map]');
+    if (legLink) {
+      const me = ev as MouseEvent;
+      const leg = Number(legLink.getAttribute('data-leg-map'));
+      const f = analysis && highlight ? legFocus(analysis, highlight, leg) : null;
+      if (me.button !== 0 || me.ctrlKey || me.metaKey || me.shiftKey || me.altKey || !f) return;
+      ev.preventDefault();
+      if (fullscreen.isOpen) fullscreen.close('button');
+      nav.begin();
+      setTab('race');
+      openFocus(f);
+      return;
+    }
     const g = (ev.target as Element).closest('g.pc-boat[data-id]');
     const tip = !els.placesTip.hidden ? els.placesTip.textContent : null;
     // A tap near a dot (missed circle, hit the line or the chart) still selects that boat.

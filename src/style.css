@@ -697,6 +697,14 @@ svg .pc-boat.dim .pc-line, svg .pc-boat.dim .pc-dot { opacity: 0.2; }
 svg .pc-boat.dim .pc-lbl { opacity: 0.55; }
 svg .pc-boat.on .pc-line { opacity: 1; }
 svg .pc-boat.on .pc-lbl { font-weight: 700; }
+/* The selected boat's legs: a link each (a wide invisible stroke along it) with its gain beside it, haloed. */
+svg .pc-leg { cursor: pointer; }
+svg .pc-leg-hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; }
+svg .pc-leg:hover .pc-leg-hit, svg .pc-leg:focus-visible .pc-leg-hit { stroke: var(--accent); stroke-opacity: 0.18; }
+svg .pc-leg:focus-visible { outline: none; }
+svg .pc-gain { font-weight: 700; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--surface); stroke-width: 3.5px; stroke-linejoin: round; pointer-events: all; }
+svg .pc-gain.up { fill: var(--good); }
+svg .pc-gain.down { fill: var(--bad); }
 
 .tablewrap {
   overflow-x: auto;
@@ -816,6 +824,21 @@ ul.findings { margin: 0; padding-left: 18px; }
 /* Start findings: under the start chart, set off from its caption by a rule. */
 .findings-box { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rule); }
 .findings-box h4 { font-size: 0.9rem; margin: 0 0 4px; }
+/* An earlier start attempt (Start tab). */
+.attempt-note { margin: 0 0 8px; color: var(--ink-2); font-size: 0.88rem; max-width: 62ch; }
+.attempt-tools { margin: 0 0 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.attempt-chart[hidden], .attempt-chart + .capline[hidden] { display: none; }
+/* Save start picture (PNG). */
+.start-export { margin: 8px 0 0; }
+.start-export[hidden] { display: none; }
+/* The selected boat at the gun, in Vakaros terms. */
+.gun-box[hidden] { display: none; }
+.gun-box { margin: 2px 0 8px; }
+.gun-box .gr-head { margin: 0 0 3px; font-size: 0.78rem; color: var(--ink-2); }
+.gun-readout { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 0; }
+.gun-readout .gr-cell { min-width: 4.6em; padding: 3px 8px 4px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+.gun-readout dt { font-size: 0.66rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-3); }
+.gun-readout dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
 ul.findings li { margin: 4px 0; transition: opacity 0.15s; }
 ul.findings li.dim { opacity: 0.45; }
 ul.findings li.hl { font-weight: 600; }
@@ -1105,6 +1128,18 @@ html.fs-on { overflow: hidden; }
 .regatta-places .rp { padding: 3px 8px; border: 1px solid transparent; border-radius: 6px; background: var(--grid); color: var(--ink); }
 .regatta-places .rp small { margin-left: 3px; color: var(--ink-2); }
 .regatta-places .rp.pending, .regatta-places .rp.running { color: var(--ink-3); background: none; border-color: var(--rule-strong); border-style: dashed; }
+/* The start strip: one picture of the line at the gun per race; wraps on a phone. */
+.start-strip { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.start-strip .ss-item { display: flex; flex-direction: column; gap: 1px; padding: 4px 4px 6px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); color: var(--ink); text-decoration: none; font-size: 0.78rem; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.start-strip .ss-item:hover { border-color: var(--act-line); background: var(--act-bg); }
+.start-strip .ss-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.start-strip svg.chart.start-thumb { width: 100%; height: auto; aspect-ratio: 1.6; max-height: none; margin-bottom: 3px; border-radius: 5px; background: var(--page); }
+.start-strip .ss-race { font-size: 0.85rem; }
+.start-strip .ss-ocs { margin-left: 6px; padding: 0 4px; border-radius: 4px; background: var(--bad-bg); color: var(--bad); font-size: 0.7rem; font-weight: 600; }
+.start-strip .ss-fact { color: var(--ink-2); }
+svg .hull.thumb-boat { fill: var(--ink-3); fill-opacity: 0.32; stroke: none; }
+svg .hull.thumb-on { fill: var(--accent); stroke: var(--ink); stroke-linejoin: round; paint-order: stroke; }
+svg text.thumb-lbl { fill: var(--ink); font-weight: 700; stroke: var(--surface); stroke-linejoin: round; paint-order: stroke; }
 .regatta-note { margin: 4px 0 0; font-size: 0.78rem; }
 .regatta-scroll { overflow-x: auto; }
 .regatta-table { border-collapse: collapse; font-size: 0.82rem; width: 100%; color: var(--ink); }

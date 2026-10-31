@@ -231,12 +231,21 @@
               <!-- Touch only, until dismissed (ui/hints.ts). -->
               <p class="hint touch-hint" id="start-hint" hidden><span>Pinch to zoom · drag to pan · double-tap to zoom in</span><button type="button" id="start-hint-dismiss" class="hint-x" aria-label="Dismiss zoom hint" title="Dismiss">×</button></p>
               <div class="capline" id="start-cap"></div>
+              <p id="start-export" class="start-export" hidden><button type="button" id="start-png" class="act act-chip" title="The whole line at the gun with a close-up of the selected boat, as a PNG">Save start picture (PNG)</button></p>
               <p id="start-replay" class="replay-links" hidden></p>
               <details id="lane-snapshots" class="lane-snapshots" open><summary class="act-more">Start Playback</summary><div class="lane-body"></div></details>
               <div id="start-findings-box" class="findings-box" hidden>
                 <h4 id="start-findings-title">Start findings</h4>
+                <div id="start-gun" class="gun-box" hidden></div>
                 <ul id="start-findings" class="findings" aria-labelledby="start-findings-title"></ul>
               </div>
+            </section>
+            <section id="attempt-card" class="card attempt-card" aria-labelledby="attempt-title" hidden>
+              <h3 id="attempt-title">Earlier start</h3>
+              <p id="attempt-note" class="attempt-note"></p>
+              <p id="attempt-tools" class="attempt-tools"></p>
+              <div id="attempt-chart" class="attempt-chart" hidden></div>
+              <div class="capline" id="attempt-cap" hidden></div>
             </section>
             <section id="start-sog-card" class="card">
               <h3 id="start-sog-title">Start Speed Control</h3>
