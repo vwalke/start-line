@@ -349,10 +349,14 @@ describe('leader and behind', () => {
         // Behind: its rung less the leader's (ladder.ts rung on the Coach's leg wind), never negative.
         expect(mine.behindM).toBeCloseTo(sel.rung - lr.rung, 9);
         expect(mine.behindM!).toBeGreaterThanOrEqual(-1e-9);
-        // The lines are that far apart along the wind, the leader's the further up a beat (down a run).
+        // The lines are that far apart along the wind, the leader's the further up a beat (down a run); on the last leg
+        // each is laid off from where the finish line extended meets its own boat, so they are also as far apart as those two.
         const up = lead.axis.up;
-        const apart = dot([lead.at[0] - mine.at[0], lead.at[1] - mine.at[1]], up) * (lead.axis.kind === 'upwind' ? 1 : -1);
-        expect(apart).toBeCloseTo(mine.behindM!, 6);
+        const sign = lead.axis.kind === 'upwind' ? 1 : -1;
+        const apart = dot([lead.at[0] - mine.at[0], lead.at[1] - mine.at[1]], up) * sign;
+        const ends = dot(rotator(mapTwd)([lr.ex - sel.ex, lr.ey - sel.ey]), up) * sign;
+        if (lead.leg < course.kinds.length - 1) expect(Math.abs(ends)).toBe(0);
+        expect(apart).toBeCloseTo(mine.behindM! + ends, 6);
         same++;
       }
     }
@@ -386,6 +390,107 @@ describe('leader and behind', () => {
     expect(ladderText(-0.4, null)).toBe('level');
     expect(ladderText(6.9, { loaM: 6.9 })).toBe('1 length behind');
     expect(ladderText(-20, { loaM: 6.9 })).toBe('2.9 lengths ahead');
+  });
+});
+
+describe('on the last leg, a finish line skewed to the wind', () => {
+  // The finish line's middle at the origin, the line 20° off square to the wind (10°), 100 m long; the map drawn with 3° at the top.
+  const twd = 10;
+  const mapTwdDeg = 3;
+  const w = bearingVec(twd);
+  const d = bearingVec(twd + 90 + 20);
+  // Square to the line, up the wind.
+  const n: Vec = dot([d[1], -d[0]], w) > 0 ? [d[1], -d[0]] : [-d[1], d[0]];
+  const finish = { left: [-50 * d[0], -50 * d[1]] as Vec, right: [50 * d[0], 50 * d[1]] as Vec };
+  const at = (k: number): Vec => [k * w[0], k * w[1]];
+  const half = { upwind: (42 * Math.PI) / 180, downwind: (30 * Math.PI) / 180 };
+  /** Boat `id` on leg `leg` with its bow at `bow`, its leg ending for it at `end` (ladderNow.ts endInto), its rung measured to there. */
+  const boat = (id: string, course: LadderNow['course'], leg: number, bow: Vec, end: Vec): LadderRead => {
+    const up = course.kinds[leg] === 'upwind';
+    const a = up ? half.upwind : half.downwind;
+    return {
+      id,
+      finishMs: null,
+      done: false,
+      est: false,
+      leg,
+      x: bow[0],
+      y: bow[1],
+      hx: 0,
+      hy: 0,
+      bowM: 0,
+      bx: bow[0],
+      by: bow[1],
+      ex: end[0],
+      ey: end[1],
+      rung: rungXY(bow[0], bow[1], end[0], end[1], w[0], w[1], up, Math.tan(a), Math.cos(a)),
+      prog: 0,
+    };
+  };
+  /** A bow `h` m square off the finish line extended (up the wind for `side` 1, down it for −1), `s` m along it from the middle: its leg's end there. */
+  const onLine = (s: number, h: number, side: number): { bow: Vec; end: Vec } => {
+    const end: Vec = [s * d[0], s * d[1]];
+    return { end, bow: [end[0] + side * h * n[0], end[1] + side * h * n[1]] };
+  };
+  const ladderOf = (course: LadderNow['course'], reads: LadderRead[]): LadderNow => ({ t: 0, reads, leader: 0, course, total: 0, twdDeg: twd, taDeg: 84 });
+  const toMap = rotator(mapTwdDeg);
+  /** How far `p` is off rung `r`'s line, m. */
+  const offLine = (r: Rung, p: Vec): number => Math.abs(dot([p[0] - r.at[0], p[1] - r.at[1]], r.axis.up));
+  /** And off the line drawn across a big view, m. */
+  const offDrawn = (r: Rung, p: Vec): number => {
+    const [dr] = rungDraws([r], { box: { x0: -5000, y0: -5000, x1: 5000, y1: 5000 }, unit: 1, k: 1 }, { sail: (id) => id, dims: null }, new Rects());
+    return pxOff(dr, p, 1);
+  };
+
+  for (const [name, kinds, pts, side] of [
+    // A beat then a run to the finish: the boats up the wind of the line.
+    ['a run', ['upwind', 'downwind'], [at(-100), at(900), [0, 0]], 1],
+    // A run then a beat to the finish: the boats down the wind of it.
+    ['a beat', ['downwind', 'upwind'], [at(100), at(-900), [0, 0]], -1],
+  ] as const) {
+    it(`puts the leader’s and the selected boat’s rungs through their bows, well past either end of the line, on ${name}`, () => {
+      const course = { pts: pts.map((p) => [...p] as Vec), kinds: [...kinds], finish };
+      const l = onLine(300, 120, side);
+      const s = onLine(-250, 180, side);
+      const now = ladderOf(course, [boat('A', course, 1, l.bow, l.end), boat('B', course, 1, s.bow, s.end)]);
+      const rungs = rungsAt({ now, selected: 'B', mapTwdDeg }).map((r) => ({ ...r, at: [...r.at] as [number, number], bow: [...r.bow] as [number, number] }));
+      const [lead, sel] = rungs;
+      expect([lead.role, sel.role]).toEqual(['leader', 'sel']);
+      // The ends the boats' rungs are measured to lie well along the wind from the line's middle.
+      expect(Math.abs(dot(l.end, w))).toBeGreaterThan(90);
+      expect(Math.abs(dot(s.end, w))).toBeGreaterThan(70);
+      for (const [r, x] of [
+        [lead, l],
+        [sel, s],
+      ] as const) {
+        const bow = toMap(x.bow);
+        expect(r.bow[0]).toBeCloseTo(bow[0], 9);
+        expect(r.bow[1]).toBeCloseTo(bow[1], 9);
+        expect(offLine(r, bow)).toBeLessThan(0.5);
+        expect(offDrawn(r, bow)).toBeLessThan(0.5);
+      }
+      // Behind: the rung difference, each to where the line extended meets its own boat (so not the lines' spacing here).
+      expect(sel.behindM).toBeCloseTo(now.reads[1].rung - now.reads[0].rung, 9);
+      expect(sel.behindM!).toBeCloseTo((180 - 120) * dot(n, w), 6);
+      // Moved onto the bows the map drew (here the same): still through them.
+      toDrawnBows(rungs, (id) => (id === 'A' ? lead.bow : sel.bow));
+      expect(offLine(lead, toMap(l.bow))).toBeLessThan(0.5);
+      expect(offLine(sel, toMap(s.bow))).toBeLessThan(0.5);
+    });
+  }
+
+  it('lays a leg ending at a mark off from the mark, as before', () => {
+    const course = { pts: [at(-100), at(900), [0, 0] as Vec], kinds: ['upwind', 'downwind'] as LadderNow['course']['kinds'], finish };
+    const mark = course.pts[1];
+    const bow: Vec = [mark[0] - 400 * w[0] + 60, mark[1] - 400 * w[1] - 20];
+    const now = ladderOf(course, [boat('A', course, 0, bow, mark)]);
+    const [r] = rungsAt({ now, selected: null, mapTwdDeg });
+    const x = now.reads[0];
+    expect(x.rung).toBeCloseTo(dot([mark[0] - bow[0], mark[1] - bow[1]], w), 9);
+    const p = toMap([mark[0] - x.rung * w[0], mark[1] - x.rung * w[1]]);
+    expect(r.at[0]).toBeCloseTo(p[0], 9);
+    expect(r.at[1]).toBeCloseTo(p[1], 9);
+    expect(offLine(r, toMap(bow))).toBeLessThan(1e-6);
   });
 });
 
