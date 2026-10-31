@@ -15,13 +15,14 @@ import { ATTEMPT_MIN_POST_MS, attemptNumbered, attemptRegatta, attemptTitle, att
 import { buildRaceData, currentDoc } from '../src/data/racesense/adapter';
 import type { Race, RegattaResponse, Start, TelemetryPage } from '../src/data/racesense/types';
 import { attemptNote } from '../src/ui/attemptView';
-import { speedPickPlace, speedPickTexts, startSnapshot } from '../src/ui/charts';
+import { legLegend, speedPickPlace, speedPickTexts, startSnapshot } from '../src/ui/charts';
 import { gunReadoutCells, gunReadoutHtml } from '../src/ui/gunReadout';
-import { FAST_PARAM, LEG_PARAM, NO_FOCUS, cardMapHref, cardRoute, focusColouring, focusResume, legFocus, legMapHref, parseMapFocus } from '../src/ui/mapLink';
+import { FAST_PARAM, LEG_PARAM, NO_FOCUS, cardMapHref, cardRoute, focusColouring, focusLeg, focusResume, legAfterPress, legFocus, legMapHref, parseMapFocus, shownLeg } from '../src/ui/mapLink';
 import { gainLabels, placesChart, segHitsRect } from '../src/ui/places';
 import { favoredShort, linePosText, startStripHtml, startThumbSvg, startViewHref } from '../src/ui/startStrip';
 import { startPngName, startPngSvg } from '../src/ui/startPng';
 import { easternStamp } from '../src/ui/races';
+import { rotator } from '../src/ui/mapPieces';
 import type { Fixture } from './helpers';
 import { m24Race } from './helpers';
 
@@ -212,6 +213,64 @@ describe('a leg’s view on the map', () => {
     // Nothing replaced: nothing changes.
     expect(focusColouring(mine, null, null)).toEqual({ now: mine, before: null });
   });
+
+  /** The leg buttons pressed in the map's legend. */
+  const pressed = (html: string): string[] => [...html.matchAll(/data-leg="([^"]+)" aria-pressed="true"/g)].map((m) => m[1]);
+  /** The legend with focus `f` opened over the user's own selection `mine`, as the Race tab draws it, and the state after. */
+  const open = (mine: number | null, f: Parameters<typeof focusLeg>[2]) => {
+    const s = focusLeg(mine, null, f);
+    return { ...s, html: legLegend(a, shownLeg(s.now, f)) };
+  };
+
+  it('shows the leg’s button pressed while its view is open, the user’s own selection back once left', () => {
+    const f = legFocus(a, boat.id, 1)!;
+    for (const mine of [null, 0, 2]) {
+      const o = open(mine, f);
+      expect(pressed(o.html)).toEqual(['1']);
+      // The map draws the whole race meanwhile; the selection kept is the user's (what is saved).
+      expect(o).toMatchObject({ now: null, before: { leg: mine } });
+      // Left (closed, back past it, another boat): the user's selection, pressed again.
+      const left = focusLeg(o.now, o.before, null);
+      expect(left).toEqual({ now: mine, before: null });
+      expect(pressed(legLegend(a, shownLeg(left.now, null)))).toEqual([mine == null ? 'all' : String(mine)]);
+    }
+    // Another leg's view on top keeps the selection from before the first.
+    const first = open(2, f);
+    const second = focusLeg(first.now, first.before, legFocus(a, boat.id, 0));
+    expect(pressed(legLegend(a, shownLeg(second.now, legFocus(a, boat.id, 0))))).toEqual(['0']);
+    expect(focusLeg(second.now, second.before, null).now).toBe(2);
+  });
+
+  it('a leg button pressed in a leg’s view picks as it shows: another leg or All, or All again for the leg shown', () => {
+    const f = legFocus(a, boat.id, 1)!;
+    const shown = shownLeg(open(2, f).now, f);
+    expect(legAfterPress(shown, 3)).toBe(3);
+    expect(legAfterPress(shown, null)).toBeNull();
+    expect(legAfterPress(shown, 1)).toBeNull();
+    // Outside one, as ever: a toggle.
+    expect(legAfterPress(2, 2)).toBeNull();
+    expect(legAfterPress(null, 2)).toBe(2);
+  });
+
+  it('a Coach card’s "Show on map" gives the same buttons: its leg for a side-of-the-course card, else the selection drawn', () => {
+    const l = boat.legs[1]!;
+    const card = { kind: 'D14' as const, t0: l.startMs + 60_000, t1: l.endMs - 30_000, refBoats: [], facts: { leg: a.legs[1].name } };
+    const viaCard = (c: typeof card, mine: number | null) => {
+      const route = cardRoute(a, boat.id, c, []);
+      if (route?.kind !== 'focus') throw new Error('no focus');
+      // The link opened in a new tab reads the same focus back from its URL.
+      const back = parseMapFocus(cardMapHref('?event=E&div=D&race=4', a, boat.id, c, [])!.replace(/#race$/, ''), a.meta.gunMs)!;
+      expect(back.leg).toBe(route.focus.leg);
+      return open(mine, route.focus);
+    };
+    const side = viaCard(card, 3);
+    expect(pressed(side.html)).toEqual(pressed(open(3, legFocus(a, boat.id, 1)!).html));
+    expect(pressed(side.html)).toEqual(['1']);
+    expect(focusLeg(side.now, side.before, null).now).toBe(3);
+    // A card's window without a leg's view: the whole race the map draws, All.
+    const plain = viaCard({ ...card, facts: { leg: 'Nowhere' } }, null);
+    expect(pressed(plain.html)).toEqual(['all']);
+  });
 });
 
 describe('"12th fastest" on the map', () => {
@@ -356,5 +415,40 @@ describe('start picture (PNG)', () => {
     expect(svg).toContain('<![CDATA[svg { --ink: #131922; }');
     expect(svg).toContain('DIST. TO LINE');
     for (const b of r6.boats) if (b.name !== `#${b.sail}`) expect(svg).not.toContain(b.name);
+  });
+
+  it('rings the selected boat on the whole line, centered on its hull as drawn; not in the close-up', () => {
+    const me = r6.boats.find((b) => b.sail === '1513')!;
+    const d = r6.drawings.find((x) => x.id === me.id)!;
+    for (const colour of ['boat', 'speed'] as const) {
+      const { svg } = startPngSvg(r6, me.id, colour, { event: 'E', division: 'J70', race: 'Race 6' }, '');
+      const at = [...svg.matchAll(/<svg x="/g)].map((m) => m.index!);
+      expect(at).toHaveLength(2);
+      const [main, inset] = [svg.slice(at[0], at[1]), svg.slice(at[1])];
+      expect(main.match(/class="png-sel-ring"/g)).toHaveLength(1);
+      expect(inset).not.toContain('png-sel-ring');
+      const ring = /<circle class="png-sel-ring" cx="([-\d.]+)" cy="([-\d.]+)" r="([-\d.]+)"[^>]*stroke-width="([-\d.]+)" opacity="([\d.]+)"/.exec(main)!;
+      const [cx, cy, r] = [Number(ring[1]), Number(ring[2]), Number(ring[3])];
+      expect(Number(ring[5])).toBeGreaterThanOrEqual(0.5);
+      expect(Number(ring[5])).toBeLessThanOrEqual(0.6);
+      // The hull drawn in the boat's group on this panel: the ring's center is the middle of its outline.
+      const group = main.slice(main.indexOf(`data-id="${me.id}">`));
+      const hull = /<path[^>]* class="hull[^"]*" d="([^"]+)"/.exec(group.slice(0, group.indexOf('</g>')))!;
+      const n = hull[1].match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+      const xs = n.filter((_, i) => i % 2 === 0);
+      const ys = n.filter((_, i) => i % 2 === 1);
+      expect(cx).toBeCloseTo((Math.min(...xs) + Math.max(...xs)) / 2, 1);
+      expect(cy).toBeCloseTo((Math.min(...ys) + Math.max(...ys)) / 2, 1);
+      // On the hull, not beside it: the bow (where the hull starts) lies inside the ring, the whole hull too.
+      const [bx, by] = rotator(r6.wind.twdAtGunDeg)(d.bow!);
+      expect(Math.hypot(bx - cx, by - cy)).toBeLessThan(r);
+      for (let i = 0; i < xs.length; i++) expect(Math.hypot(xs[i] - cx, ys[i] - cy)).toBeLessThan(r);
+      // Drawn under the boat's own hull.
+      expect(main.indexOf('png-sel-ring')).toBeLessThan(main.indexOf(`data-id="${me.id}">`));
+    }
+    // No boat with a hull at the gun selected: no ring.
+    expect(startPngSvg(r6, 'nobody', 'boat', { event: 'E', division: 'J70', race: 'Race 6' }, '').svg).not.toContain('png-sel-ring');
+    const noBow: RaceAnalysis = { ...r6, drawings: r6.drawings.map((x) => (x.id === me.id ? { ...x, bow: null } : x)) };
+    expect(startPngSvg(noBow, me.id, 'boat', { event: 'E', division: 'J70', race: 'Race 6' }, '').svg).not.toContain('png-sel-ring');
   });
 });

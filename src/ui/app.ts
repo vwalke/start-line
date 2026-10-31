@@ -140,8 +140,12 @@ import {
   trailAfterFocus,
   withMapActions,
   focusColouring,
+  focusLeg,
+  shownLeg,
+  legAfterPress,
   FAST_PARAM,
   type Colouring,
+  type LegBefore,
   legFocus,
   legMapHref,
   type MapFocus,
@@ -467,6 +471,10 @@ export function startApp(): void {
     attachTopScroll(els.tableTop, els.tableTop.firstElementChild as HTMLElement, els.table),
   ];
   let legSel: number | null = null;
+  /** The leg selection a leg's view replaced, put back when it's left (mapLink.ts focusLeg); null: none replaced. */
+  let legBefore: LegBefore | null = null;
+  /** The user's own leg selection (saved): the one a leg's view replaced while one is open. */
+  const userLeg = (): number | null => (legBefore ? legBefore.leg : legSel);
   /** `nc=all`: keep coach/spare boats as competitors (re-analyses when toggled). */
   let allCompetitors = !!params.allCompetitors;
   /** The sidebar's "Not racing" group, kept open across re-renders once opened. */
@@ -540,7 +548,7 @@ export function startApp(): void {
       v: 1,
       ...current,
       ...(allCompetitors ? { allCompetitors: true } : {}),
-      leg: legSel,
+      leg: userLeg(),
       boat: highlight,
       sort,
       startSort,
@@ -652,7 +660,7 @@ export function startApp(): void {
     askReplays(a);
     renderReplayControls();
     renderFocusLegend();
-    els.legend.innerHTML = legLegend(a, legSel);
+    els.legend.innerHTML = legLegend(a, shownLeg(legSel, focusOn));
     // In Rank or Boat speed the leg swatches would read as a colour key for the tracks; the buttons stay, the swatches go.
     els.legend.classList.toggle('speed', trackColour !== 'leg');
     els.colour.innerHTML = colourControls(trackColour, rankBy, legSel, speedTop, sogScale);
@@ -1352,6 +1360,8 @@ export function startApp(): void {
     if (replayOn && (scrubT == null || legSel != null || highlight !== replayOn.boat)) leaveReplay(false);
     // So does a card's window (Map D).
     if (focusOn && (scrubT == null || legSel != null || highlight !== focusOn.boat)) leaveFocus(false);
+    // A leg's view left puts back the leg selection it replaced: its frame.
+    fitMap(a);
     const t0 = performance.now();
     // Scrubbing: the static map, then this moment's trails and boats into its two layers (drawScrub, every frame).
     // Its size on screen (the SVG fills #map-chart) sets the hulls' smallest size in css px and the scale note.
@@ -1418,6 +1428,8 @@ export function startApp(): void {
     // reopens it once drawn, on every load of its race (a reload keeps it); another race drops it.
     focusOn = null;
     applyFocusColouring(null);
+    // The leg selection is the race's own (show sets it).
+    legBefore = null;
     focusPend = replayPending(focusPend, { type: 'shown', race: replayRaceOf(a) });
     if (!focusPend) setUrl(NO_FOCUS);
   }
@@ -1522,6 +1534,14 @@ export function startApp(): void {
     speedTop = next.now.top;
     return was.colour !== trackColour || was.rankBy !== rankBy || was.top !== speedTop;
   }
+  /** Set the leg selection for focus `f` (null: none); true when it changed. */
+  function applyFocusLeg(f: MapFocus | null): boolean {
+    const was = legSel;
+    const next = focusLeg(was, legBefore, f);
+    legBefore = next.before;
+    legSel = next.now;
+    return was !== legSel;
+  }
   /** The `win=` focus wanted, keyed on its race (replay.ts replayPending, as `replay=`): the page's deep link, then the focus opened. */
   let focusPend: ReplayPend | null = focusPendFromUrl(location.search);
 
@@ -1538,6 +1558,9 @@ export function startApp(): void {
     leaveReplay(false);
     highlight = f.boat;
     syncCoachBoat(f.boat);
+    // The whole race (the scrubber's); a leg's view keeps the leg selection it replaced (not saved) and its leg's
+    // button shows pressed (shownLeg).
+    applyFocusLeg(f);
     legSel = null;
     scrubTrail = at?.trail ?? focusTrail(f);
     playSpeed = 1;
@@ -1568,8 +1591,9 @@ export function startApp(): void {
     }
     const f = focusOn;
     focusOn = null;
-    // The coloring a leg's view replaced comes back (drawn now unless the map is being drawn already).
-    if (applyFocusColouring(null) && !rendering) render();
+    // The coloring and the leg selection a leg's view replaced come back (drawn now unless the map is being drawn already).
+    const recoloured = applyFocusColouring(null);
+    if ((applyFocusLeg(null) || recoloured || f?.leg != null) && !rendering) render();
     if (scrubTrail === WINDOW_TRAIL) {
       scrubTrail = trailAfterFocus(scrubTrail, f);
       if (analysis) syncScrub(analysis);
@@ -2357,9 +2381,16 @@ export function startApp(): void {
     if (!btn) return;
     const key = btn.getAttribute('data-leg');
     const leg = key === 'all' ? null : Number(key);
-    legSel = leg == null || leg === legSel ? null : leg;
+    // As shown: in a leg's view its leg's button is the pressed one. A leg chosen by hand stands, and leaves the leg's view.
+    const sel = focusSel(btn, 'data-leg');
+    const leaving = focusOn?.leg != null;
+    legSel = legAfterPress(shownLeg(legSel, focusOn), leg);
+    legBefore = null;
     save();
-    renderKeepingFocus(els.legend, focusSel(btn, 'data-leg'));
+    // Leaving the leg's view draws the map itself.
+    if (leaving) leaveFocus(false);
+    else render();
+    if (sel) els.legend.querySelector<HTMLElement>(sel)?.focus();
   });
   els.colour.addEventListener('click', (ev) => {
     const btn = (ev.target as HTMLElement).closest('button[data-colour], button[data-rank], button[data-top], button[data-sog-scale]');
@@ -2574,7 +2605,7 @@ export function startApp(): void {
     const id = eventId;
     // Don't replaceState until this race is on screen: a kill mid-switch keeps the last
     // successful race in both the URL and recall.lastView (and not the half-switched one).
-    const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: legSel, boat: highlight, sort, startSort }, restore);
+    const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: userLeg(), boat: highlight, sort, startSort }, restore);
     try {
       await paywall.ready;
       if (baseRegatta && paywall.locked(freeOf(baseRegatta), id, division, raceNumber)) {
@@ -3157,7 +3188,7 @@ export function startApp(): void {
       race: current?.raceNumber,
       tab,
       boats: [...new Set([sailOf(highlight), sailOf(coachBoat)].filter((s): s is string => !!s))],
-      leg: legSel,
+      leg: shownLeg(legSel, focusOn),
       coachView,
       coachGroup: coachGroup.kind,
       trail: scrubTrail,

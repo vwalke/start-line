@@ -201,6 +201,27 @@ export function focusColouring(now: Colouring, before: Colouring | null, f: Pick
   return { now: before ?? now, before: null };
 }
 
+/** The map's leg selection (the leg buttons; null: All) a leg's view replaced, put back when it's left. */
+export interface LegBefore {
+  leg: number | null;
+}
+
+/**
+ * The leg selection once focus `f` is shown (null: none, the focus left), as focusColouring: a leg's view draws the
+ * whole race (its scrubber's) and keeps the selection it replaced (`before`, kept across a second leg's view); any
+ * other focus, or none, puts that one back. The selection the user made is `before`'s while one is kept (what is saved).
+ */
+export function focusLeg(now: number | null, before: LegBefore | null, f: Pick<MapFocus, 'leg'> | null): { now: number | null; before: LegBefore | null } {
+  if (f?.leg != null) return { now: null, before: before ?? { leg: now } };
+  return { now: before ? before.leg : now, before: null };
+}
+
+/** The leg the leg buttons show pressed (null: All): a leg's view's own leg, else the selection the map draws. */
+export const shownLeg = (sel: number | null, f: Pick<MapFocus, 'leg'> | null): number | null => f?.leg ?? sel;
+
+/** The selection after leg button `pressed` (null: All) with `shown` pressed (shownLeg): the one pressed, or All for the one already shown. */
+export const legAfterPress = (shown: number | null, pressed: number | null): number | null => (pressed == null || pressed === shown ? null : pressed);
+
 // ---- URL --------------------------------------------------------------------------
 
 /** The URL parameters of a focus (besides `t=` / `trail=`): `boat=`, `vs=` (none: removed), `win=`. */
