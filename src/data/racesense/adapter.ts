@@ -4,6 +4,7 @@
  * normalized `RaceData`. Pure functions only; fetching lives in api.ts so
  * the same code runs against the offline fixtures in tests.
  */
+import { bowAheadM, raceClass } from '../classes';
 import { bowFixes, committeeAt, EST_MIN_SHARE, estimateFinish, farEndBoats } from '../finishEstimate';
 import {
   awayFromStart,
@@ -235,8 +236,23 @@ export function tzOffsetMs(raw: number | undefined): number {
  *
  * Rows are also carried over from earlier starts unchanged (23 rows in races
  * 4–10 of one event had another race's `raceNumber` and line ends), so a row
- * is stale when its raceNumber, startTime (always null so far) or any present
- * line end disagrees with this start.
+ * is stale when its startTime or any present line end disagrees with this start.
+ *
+ * Its `raceNumber` alone doesn't decide it: devices count starts themselves, and
+ * at the J/70 NAs every row was 2 ahead (race 6's say 8), as in ~25 other events
+ * whose line ends match. A row whose raceNumber is another race's is kept when no
+ * line end it reports disagrees with this start and its positionAtStart lies
+ * within POSITION_MATCH_M of the boat's own track where the device takes its fix
+ * (RACESENSE_DTL_SAMPLE_OFFSET_MS before the gun): at the J/70 NAs, within 0.04 m
+ * (median; 222 of 225 rows within 2 m). Only a row with no position is kept on
+ * its startTime matching. Line ends alone aren't enough: a row carried over from
+ * an earlier start shares them when the line wasn't moved. Nor is a matching
+ * startTime when the position isn't the boat's: race 5's row for 16 matched the
+ * gun but lay 97 m from its track (its distance implied a 229 m bow offset).
+ *
+ * `startTime` is null in most feeds; where set it can be the race's wall-clock
+ * time as a string ("2026-10-30T14:15:01.000", no zone). `headingAtStartDeg` is in
+ * radians despite its name (1513's 4.334 at the J/70 NAs: 248°, its track's heading).
  */
 export const MASK_DTL = 1;
 export const MASK_POSITION = 2;
@@ -245,7 +261,25 @@ export const MASK_LINE_RIGHT = 8;
 /** A row's line end further than this from the start's line end means the row is from another start. */
 export const LINE_MATCH_M = 10;
 export const START_TIME_MATCH_MS = 1000;
+/**
+ * A renumbered row's positionAtStart within this of the boat's track (RACESENSE_DTL_SAMPLE_OFFSET_MS before the gun)
+ * means the row is this start's, m: the J/70 NAs' genuine rows are within 0.04 m (median), and a boat moves ~3 m a
+ * second, so a row from another start is tens of meters off.
+ */
+export const POSITION_MATCH_M = 5;
 export const RC_NO_DISTANCE = 'Vakaros reported no distance for this boat';
+/**
+ * The device's own bow offset, as its row implies it (impliedBowM), counts only when the boat was pointing at least
+ * this much toward the line (|cos| of its heading against the line's normal): side-on, the bow moves the distance
+ * little and the figure is noise.
+ */
+export const BOW_COS_MIN = 0.3;
+/**
+ * An implied offset longer than the class's LOA by more than this, m, can't be the boat's: the device was set wrong.
+ * Devices that apply no offset imply 0.0-0.23 m (J/70 NAs race 6), so that is the noise in the figure.
+ */
+export const BOW_LOA_SLACK_M = 0.2;
+export const RC_BOW_TOO_LONG = 'Vakaros bow offset is set longer than the boat';
 
 /** The device's own DTL in metres, or null when it reported none (a genuine 0 is kept). */
 export function rcDistanceM(s: StartingStat): number | null {
@@ -283,8 +317,62 @@ export function lineEndsMatch(s: StartingStat, line: NonNullable<Start['startLin
   return present.every(([p, [lat, lon]]) => metresBetween(p, { lat, lon }) <= LINE_MATCH_M);
 }
 
+/** The row's startTime in ms UTC, or null: a number as is; a string with no zone is the race's wall-clock time. */
+export function rowStartMs(s: StartingStat, race: Race): number | null {
+  const t = s.startTime;
+  if (typeof t === 'number') return Number.isFinite(t) ? t : null;
+  if (typeof t !== 'string' || !t.trim()) return null;
+  const zoned = /(?:Z|[+-]\d\d:?\d\d)$/i.test(t.trim());
+  const ms = Date.parse(zoned ? t : `${t.trim()}Z`);
+  if (!Number.isFinite(ms)) return null;
+  return zoned ? ms : ms - tzOffsetMs(race.timezoneOffset);
+}
+
+/** Is the field behind `bit` reported? Without a mask, whenever the value is there. */
+const reported = (s: StartingStat, bit: number): boolean => {
+  const mask = s.mask?.value;
+  return mask == null || !Number.isFinite(mask) || (mask & bit) !== 0;
+};
+
+/**
+ * The bow offset the device must have used, m: its antenna's distance to its own line (positionAtStart against its
+ * line ends, positive behind) less its `dtlMm`, over the cos of its heading against the line's normal. Null when the
+ * row lacks any of those, or the boat was nearly side-on (|cos| under BOW_COS_MIN).
+ *
+ * J/70 NAs race 6, 1513: dtlMm -465 with its antenna 3.7 m behind the line, heading 248° (cos 0.57): 7.2 m on a
+ * 6.93 m boat (its device on races 1-3 used 2.65 m).
+ */
+export function impliedBowM(s: StartingStat): number | null {
+  const dtl = rcDistanceM(s);
+  const p = reported(s, MASK_POSITION) ? feedPoint(s.positionAtStart) : null;
+  const l = reported(s, MASK_LINE_LEFT) ? feedPoint(s.lineLeftLocation) : null;
+  const r = reported(s, MASK_LINE_RIGHT) ? feedPoint(s.lineRightLocation) : null;
+  let h = s.headingAtStartDeg;
+  if (dtl == null || !p || !l || !r || h == null || !Number.isFinite(h)) return null;
+  // Radians in every feed seen; a figure past a full turn can only be degrees.
+  if (Math.abs(h) > 2 * Math.PI + 0.01) h = (h * Math.PI) / 180;
+  const rad = Math.PI / 180;
+  const kx = 6_371_000 * rad * Math.cos(l.lat * rad);
+  const ky = 6_371_000 * rad;
+  const [rx, ry] = [(r.lon - l.lon) * kx, (r.lat - l.lat) * ky];
+  const len = Math.hypot(rx, ry);
+  if (!(len > 0)) return null;
+  // The course side: the line left to right, turned 90° to the left.
+  const [nx, ny] = [-ry / len, rx / len];
+  const antenna = -((p.lon - l.lon) * kx * nx + (p.lat - l.lat) * ky * ny);
+  const cos = Math.sin(h) * nx + Math.cos(h) * ny;
+  if (Math.abs(cos) < BOW_COS_MIN) return null;
+  return (antenna - dtl) / cos;
+}
+
+/** What the boat's own track says, for rcStartFix: its position at a time (null off the track), and the class's LOA. */
+export interface RcCheck {
+  positionAt?: (t: number) => LatLon | null;
+  loaM?: number | null;
+}
+
 /** Classify a boat's Vakaros start row for this start (see the mask notes above). */
-export function rcStartFix(s: StartingStat | undefined, div: Division, race: Race, st: Start): RcStart {
+export function rcStartFix(s: StartingStat | undefined, div: Division, race: Race, st: Start, check: RcCheck = {}): RcStart {
   if (!s) return { status: 'none', dtlM: null };
   const stale = (n: number | null): RcStart => ({
     status: 'stale',
@@ -292,9 +380,17 @@ export function rcStartFix(s: StartingStat | undefined, div: Division, race: Rac
     staleRace: n,
     note: n != null ? `Vakaros reported no start fix (stale race ${n} data)` : 'Vakaros reported no start fix (stale data from another start)',
   });
-  if (s.raceNumber != null && s.raceNumber !== race.raceNumber) return stale(s.raceNumber);
-  const timeOff = s.startTime != null && st.startTime != null && Math.abs(s.startTime - st.startTime) > START_TIME_MATCH_MS;
-  if (timeOff || (st.startLine && lineEndsMatch(s, st.startLine) === false)) {
+  const rowMs = rowStartMs(s, race);
+  const timeMatch = rowMs != null && st.startTime != null ? Math.abs(rowMs - st.startTime) <= START_TIME_MATCH_MS : null;
+  if (s.raceNumber != null && s.raceNumber !== race.raceNumber) {
+    // Renumbered by the device, or carried over from another start: this start's only if its line, and its time or position, say so.
+    const lineOk = !st.startLine || lineEndsMatch(s, st.startLine) !== false;
+    const at = st.startTime != null && reported(s, MASK_POSITION) ? feedPoint(s.positionAtStart) : null;
+    const ours = at && check.positionAt ? check.positionAt(st.startTime! - RACESENSE_DTL_SAMPLE_OFFSET_MS) : null;
+    const near = !!at && !!ours && metresBetween(at, ours) <= POSITION_MATCH_M;
+    // A reported position must be the boat's own; the start time alone does only for a row without one.
+    if (!lineOk || !(at ? near : timeMatch === true)) return stale(s.raceNumber);
+  } else if (timeMatch === false || (st.startLine && lineEndsMatch(s, st.startLine) === false)) {
     // Name the start it came from: the nearest-in-time other race whose line (or start time) matches the row.
     const gun = st.startTime ?? 0;
     const from = (div.races ?? [])
@@ -302,14 +398,34 @@ export function rcStartFix(s: StartingStat | undefined, div: Division, race: Rac
       .map((r) => ({ r, rs: raceStart(r) }))
       .filter(({ rs }) => {
         if (!rs) return false;
-        if (s.startTime != null && rs.startTime != null && Math.abs(s.startTime - rs.startTime) <= START_TIME_MATCH_MS) return true;
+        if (rowMs != null && rs.startTime != null && Math.abs(rowMs - rs.startTime) <= START_TIME_MATCH_MS) return true;
         return !!rs.startLine && lineEndsMatch(s, rs.startLine) === true;
       })
       .sort((a, b) => Math.abs((a.rs!.startTime ?? 0) - gun) - Math.abs((b.rs!.startTime ?? 0) - gun))[0];
     return stale(from ? from.r.raceNumber : null);
   }
   const dtlM = rcDistanceM(s);
-  return dtlM == null ? { status: 'missing', dtlM: null, note: RC_NO_DISTANCE } : { status: 'ok', dtlM };
+  if (dtlM == null) return { status: 'missing', dtlM: null, note: RC_NO_DISTANCE };
+  const bow = impliedBowM(s);
+  if (bow != null && check.loaM != null && bow > check.loaM + BOW_LOA_SLACK_M) return { status: 'untrusted', dtlM: null, note: RC_BOW_TOO_LONG };
+  return { status: 'ok', dtlM };
+}
+
+/** The track's position at `t`, linear between the fixes either side; null outside them. */
+export function rowsPositionAt(rows: readonly { ts: number; lat: number; lon: number }[], t: number): LatLon | null {
+  const n = rows.length;
+  if (!n || t < rows[0].ts || t > rows[n - 1].ts) return null;
+  let lo = 0;
+  let hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (rows[mid].ts <= t) lo = mid;
+    else hi = mid;
+  }
+  const a = rows[lo];
+  const b = rows[hi];
+  const f = b.ts > a.ts ? (t - a.ts) / (b.ts - a.ts) : 0;
+  return { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f };
 }
 
 function median(xs: number[]): number {
@@ -938,6 +1054,11 @@ function resolveResults(
     rsFinishes: number;
     official: OfficialRaceInput | null;
     nextGunMs: number | null;
+    /**
+     * Per boat id, the feed's own antenna-to-bow distance, m (0 when it sets none): the estimated finish line is fitted
+     * to these bows, not to Boat.bowOffsetM's class default, so the finishes stay as they were judged.
+     */
+    feedBowM: ReadonlyMap<string, number>;
   },
 ): { results?: RaceResults; estimated?: Line } {
   const { gunMs, official } = ctx;
@@ -986,7 +1107,7 @@ function resolveResults(
     const crossedOf = (m: ReadonlyMap<string, number>): number => [...finishers].filter((id) => m.has(id)).length;
     const startDoes = crossedOf(tracker) >= EST_MIN_SHARE * finishers.size;
     if (finishers.size && !(startDoes && plaus?.ok)) {
-      const bow = new Map(boats.map((b) => [b.id, bowFixes(fixes.get(b.id)!, b.bowOffsetM)]));
+      const bow = new Map(boats.map((b) => [b.id, bowFixes(fixes.get(b.id)!, ctx.feedBowM.get(b.id) ?? 0)]));
       const cbHex = committeeDevice(ctx.course);
       const cb = cbHex ? series(cbHex) : null;
       const boatAt = committeeAt(cb?.t.length ? cb : null, ctx.startLine.right);
@@ -1223,7 +1344,14 @@ export function buildRaceData(
   const stats = new Map((st.startingStats ?? []).map((s) => [s.sailNumber, s]));
   const finishes = new Map(raceFinishes(race, div.races ?? []).map((f) => [f.sailNumber, f]));
   const ocs = new Set((st.ocsParticipants ?? []).filter((s) => !(st.clearedOcs ?? []).includes(s)));
-  const defaultBowCm = div.offsetOverrideCm ?? 0;
+  // RaceSense uses -1 (any negative) for "not set", on the division and on each boat. The bow is the feed's offset
+  // where it fits the hull, else the class's usual one (classes.ts bowAheadM): the J/70 NAs set none.
+  const setCm = (cm: number | null | undefined): number | null => (cm != null && Number.isFinite(cm) && cm >= 0 ? cm : null);
+  const feedBow = (p: { bowOffsetCm?: number }): number | null => {
+    const cm = setCm(p.bowOffsetCm) ?? setCm(div.offsetOverrideCm);
+    return cm != null ? cm / 100 : null;
+  };
+  const dims = raceClass({ boatClass: div.boatClass, division: div.name, classLabel: opts.classLabel })?.dims ?? null;
   const live = new Map<string, Row[] | undefined>();
   const rowsOf = (sail: string): Row[] | undefined => {
     const devs = bySail.get(sail);
@@ -1263,19 +1391,20 @@ export function buildRaceData(
   });
 
   const boats: Boat[] = [];
+  const feedBowM = new Map<string, number>();
   for (const p of div.participants ?? []) {
     const sail = p.sailNumber;
     const trackRows = rowsOf(sail);
     if (!trackRows || trackRows.length < 10) continue;
     const fin = finishes.get(sail);
     const fms = fin ? Date.parse(fin.finishingTime) : NaN;
-    const rc = rcStartFix(stats.get(sail), div, race, st);
+    const rc = rcStartFix(stats.get(sail), div, race, st, { positionAt: (t) => rowsPositionAt(trackRows, t), loaM: dims?.loaM ?? null });
+    feedBowM.set(sail, feedBow(p) ?? 0);
     boats.push({
       id: sail,
       sail,
       name: p.boatName?.trim() || `#${sail}`,
-      // RaceSense uses -1 (any negative) for "not set".
-      bowOffsetM: (p.bowOffsetCm != null && p.bowOffsetCm >= 0 ? p.bowOffsetCm : defaultBowCm) / 100,
+      bowOffsetM: bowAheadM(feedBow(p), dims),
       track: toTrack(trackRows, imu),
       finishMs: Number.isFinite(fms) ? fms : null,
       ocs: ocs.has(sail),
@@ -1326,6 +1455,7 @@ export function buildRaceData(
     rsFinishes: fins.length,
     official: opts.official ?? null,
     nextGunMs: opts.nextGunMs ?? null,
+    feedBowM,
   });
   if (results) data.results = results;
   if (estimated) {

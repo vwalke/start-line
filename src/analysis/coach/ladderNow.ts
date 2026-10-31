@@ -6,7 +6,7 @@
  * minutes), a boat's rung (ladder.ts rung: to its leg's end along that wind, or past the layline `hypot(u, c)·cos(a)`),
  * and its course progress (the legs before plus the share of this leg's ladder climbed, scaled to its rhumb length).
  * Both are measured from the boat's bow, where the map draws it (ui/charts.ts dotsSvg): the tracker plus the bow's
- * distance ahead of it (data/classes.ts bowAheadM: the feed's antenna-to-bow distance, else half the LOA) along the
+ * distance ahead of it (Boat.bowOffsetM, data/classes.ts bowAheadM: the feed's offset, else the class's) along the
  * way the map points the hull, so the leader is the boat whose bow is furthest up the ladder.
  *
  * - The wind is the moment's, not one per leg: a leg's ladder turns with a shift as the fleet sails it. (The Coach's

@@ -432,7 +432,7 @@ describe('Around the gun: the same trail and the same filled / hollow boat', () 
     boats: ['A', 'OCS', 'H'].map((id, i) => ({ id, sail: id, colorSlot: i, finishPos: i + 1, legs: [] })),
     drawings: [drawing('A', 0), drawing('OCS', 30, [[50, 999]]), drawing('H', 60, [[50, 90]])],
   } as unknown as Parameters<typeof laneScrub>[0];
-  const rep = { boat: 'OCS', gunMs: GUN, flagged: true, early: true, firstCrossMs: sec(-2), over: [sec(-2), sec(10)], wentBackMs: sec(10), clearedMs: null, maxOverM: 5, maxOverAtMs: GUN, lostS: null } as never;
+  const rep = { boat: 'OCS', gunMs: GUN, early: true, firstCrossMs: sec(-2), over: [sec(-2), sec(10)], wentBackMs: sec(10), clearedMs: null, maxOverM: 5, maxOverAtMs: GUN, lostS: null } as never;
   const L = laneScrub(a, { me: 'A', replays: [rep] });
 
   it('its trail: the last 2 min, fading in the same four slices, straight on across a hole', () => {

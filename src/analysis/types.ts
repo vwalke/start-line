@@ -131,7 +131,7 @@ export interface StartResult {
   lateS: number | null;
   /** The one value starts are ranked by: Vakaros when valid, else ours when valid; null = unranked. */
   rank: { m: number; source: 'vakaros' | 'ours' } | null;
-  /** Flagged OCS, or the ranking value is negative. */
+  /** Race control called it over early: the RaceSense OCS flag (`ocs`) or an official OCS / UFD / BFD (validity.ts calledOver). */
   over: boolean;
   /** Place among clean starters (1 = closest to the line); null when over, unranked or away from the line. */
   startPlace: number | null;
@@ -144,10 +144,6 @@ export interface StartResult {
   estPlace?: number | null;
   /** Bow is far from the line at the gun: listed as away, left out of Fit and start places. */
   awayFromLine: boolean;
-  /** Vakaros and ours are both valid but clearly disagree. */
-  warn: string | null;
-  /** Vakaros had no usable fix, and our figure puts the boat near or over the line. */
-  ocsBlind: boolean;
 }
 
 export interface BoatResult {
@@ -190,7 +186,7 @@ export interface BoatResult {
   /** The upwind and downwind legs added up; null when the race has none of that kind or the boat completed none. */
   upwind: KindSummary | null;
   downwind: KindSummary | null;
-  /** The feed's distance from the tracker forward to the bow, m; absent when it gives none (classes.ts bowAheadM). */
+  /** How far the bow is ahead of the tracker, m (Boat.bowOffsetM, resolved by classes.ts bowAheadM); absent when 0. */
   bowOffsetM?: number;
   /** Where heading-based figures (TWA, start heading, bow) come from: the device, or the GPS course when the compass is far off it (manoeuvres.ts headingCheck). */
   headingSource: 'device' | 'cog';
@@ -352,7 +348,6 @@ export type RaceNote =
   | { kind: 'wind-model'; text: string }
   | { kind: 'wind-assumed'; text: string; modelDeg: number | null }
   | { kind: 'marks-moved'; text: string; names: string[] }
-  | { kind: 'dtl-off'; text: string; medianM: number }
   | { kind: 'not-racing'; text: string; n: number }
   | { kind: 'finish-est'; text: string }
   | { kind: 'marks-est'; text: string; est: string[] }

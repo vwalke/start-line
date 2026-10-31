@@ -184,9 +184,10 @@ export function coachWind(a: RaceAnalysis, data: RaceData): TwdSeriesData | null
 
 /**
  * When each racing boat's bow first crossed the start line onto the course side, from CROSS_FROM_MS
- * before the gun to CROSS_TO_MS after it (the raw fixes; the bow offset as the feed gives it). Before the
- * gun is an early start; none in that time is null. A boat flagged over at the gun (StartResult.over: the
- * feed's OCS or Recall's own) starts when it cleared: its final crossing after the gun from the pre-start
+ * before the gun to CROSS_TO_MS after it (the raw fixes; Boat.bowOffsetM). None in that time is null. Only race
+ * control says a boat was over early: a crossing before the gun by a boat it didn't call counts at the gun. A boat
+ * race control called over (StartResult.over: the RaceSense OCS flag or an official OCS / UFD / BFD) starts
+ * when it cleared: its final crossing after the gun from the pre-start
  * side (startCross); null if it never came back in that time.
  */
 export function startCrossings(a: RaceAnalysis, data: RaceData): Record<string, number | null> {
@@ -210,9 +211,12 @@ export function startCrossings(a: RaceAnalysis, data: RaceData): Record<string, 
     }
     const tr = projectCoachTrack(b.track, proj);
     const gun = a.meta.gunMs;
+    const first = r.start?.over ? null : lineCrossing(tr, left, right, side, gun - CROSS_FROM_MS, { bowM: b.bowOffsetM });
     const t = r.start?.over
       ? startCross(tr, left, right, side, gun, { bowM: b.bowOffsetM, fromMs: gun - CROSS_FROM_MS, toMs: gun + CROSS_TO_MS }).clearedMs
-      : lineCrossing(tr, left, right, side, gun - CROSS_FROM_MS, { bowM: b.bowOffsetM });
+      : first != null
+        ? Math.max(first, gun)
+        : null;
     out[r.id] = t != null && t <= a.meta.gunMs + CROSS_TO_MS ? t : null;
   }
   return out;

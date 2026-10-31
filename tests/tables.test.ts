@@ -146,10 +146,10 @@ describe('Benelux J70 r8: legs table', () => {
     }
   });
 
-  it('promotes the race-wide Vakaros DTL warning to a ⚠ chip by the start table', () => {
-    expect(startTableKey(a).chips.some((c) => c.text === 'Vakaros DTL off vs GPS')).toBe(false);
-    const w = 'Vakaros DTL differs from the GPS tracks by a median 5 m for this start; treat the DTL columns with caution.';
-    expect(startTableKey({ ...a, notes: [{ kind: 'dtl-off', text: w, medianM: 5 }] }).chips[0]).toEqual({ text: 'Vakaros DTL off vs GPS', warn: true, title: w });
+  it('never sets the Vakaros DTL against our check: no ⚠ chip, no race note', () => {
+    expect(startTableKey(a).chips.some((c) => c.warn && /Vakaros/.test(c.text))).toBe(false);
+    expect(a.notes.some((n) => /Vakaros/.test(n.text))).toBe(false);
+    expect(startTableKey(a).bullets.join(' ')).not.toContain('⚠');
   });
 
   it('the ⓘ says nothing about data coverage or gaps', () => {

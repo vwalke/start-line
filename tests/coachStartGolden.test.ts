@@ -34,7 +34,7 @@ const gun = a.meta.gunMs;
 
 describe('IC37: class dimensions', () => {
   it('IC37 is 11.30 m × 3.65 m under its RaceSense names', () => {
-    for (const name of ['IC37', 'IC 37', 'ic-37', 'Melges IC37']) expect(classDims(name)).toEqual({ loaM: 11.3, beamM: 3.65 });
+    for (const name of ['IC37', 'IC 37', 'ic-37', 'Melges IC37']) expect(classDims(name)).toEqual({ loaM: 11.3, beamM: 3.65, bowCm: 490 });
     expect(a.meta.division).toBe('IC37');
     expect(matchClass([a.meta.classLabel, a.meta.boatClass, a.meta.division])!.dims.loaM).toBe(11.3);
     expect(coachCtx(a, m, idOf('USA 027'))!.loaM).toBe(11.3);
@@ -48,8 +48,9 @@ describe('IC37 R5: the front row', () => {
   it('the first 5 clean crossings, early ones within 3 s included; USA 019 and USA 017 (over at the gun) left out', () => {
     expect(a.boats.filter((b) => b.start?.over).map((b) => b.sail).sort()).toEqual(['USA 017', 'USA 019']);
     expect(sails(so.front)).toEqual(['GBR 015', 'USA 12', 'USA 005', 'USA 008', 'USA 11']);
-    // GBR 015 and USA 12 crossed just before the gun: the median (USA 005) is at the gun.
-    expect((so.front[0].tMs - gun) / 1000).toBeLessThan(0);
+    // GBR 015 and USA 12 crossed just before the gun: race control didn't call them, so they count at the gun; the median (USA 005) is at the gun.
+    expect(so.front[0].tMs).toBe(gun);
+    expect(so.front[1].tMs).toBe(gun);
     expect(so.frontMedMs).toBeGreaterThanOrEqual(gun);
     expect((so.frontMedMs - gun) / 1000).toBeLessThan(0.5);
     expect(so.order).toHaveLength(15);

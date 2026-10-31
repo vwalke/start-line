@@ -282,7 +282,7 @@ function startFields(a: RaceAnalysis, m: CoachModel | null | undefined, b: BoatR
   const out: ReportField[] = [];
   const over = st.over;
   out.push(
-    field('Distance to line at gun', over ? `over ${f0(Math.max(1, Math.abs(st.rank?.m ?? st.dtlM)))} m` : `${f0(st.rank?.m ?? st.dtlM)} m`, {
+    field('Distance to line at gun', `${f0(st.rank?.m ?? st.dtlM)} m`, {
       note: st.rank?.source === 'vakaros' ? 'Vakaros DTL' : 'bow-corrected, from the track',
     }),
   );
@@ -317,7 +317,7 @@ function startFields(a: RaceAnalysis, m: CoachModel | null | undefined, b: BoatR
     out.push(
       field('Over early (OCS)', cleared != null ? `cleared +${f0((cleared - gun) / 1000)} s` : 'not seen to clear', {
         warn: true,
-        note: `${st.ocs ? 'flagged OCS by the feed' : 'over by Recall’s check'}${back?.wentBackMs != null ? `; went back +${f0((back.wentBackMs - gun) / 1000)} s` : ''}`,
+        note: `${st.ocs ? 'flagged OCS by race control' : `scored ${b.finishCode}`}${back?.wentBackMs != null ? `; went back +${f0((back.wentBackMs - gun) / 1000)} s` : ''}`,
       }),
     );
   } else out.push(field('Over early (OCS)', 'no'));

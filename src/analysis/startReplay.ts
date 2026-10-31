@@ -1,9 +1,9 @@
 /**
  * The facts of an over-early start for the track map's "Replay start" (Map C): when the boat first
  * crossed, how far over it got, when it went back, when it cleared, and what that cost against the
- * front row. Keyed on the boat's track and its flag, never on a Coach card: a boat qualifies when it is
- * flagged over at the gun (StartResult.over, what D1's 'ocs' variant reads) or its own track has it over
- * at the gun (startCross `early`, crossed before D1's clean-start tolerance, and went back: overByTrack).
+ * front row. Keyed on race control's call, never on a Coach card or a distance figure: a boat qualifies only
+ * when race control called it over (StartResult.over: the RaceSense OCS flag or an official OCS / UFD / BFD,
+ * what D1's 'ocs' variant reads).
  *
  * Worked out in the worker from the raw fixes, exactly as the Coach's start crossings are
  * (coach/index.ts startCrossings: the same projection, course side, bow offset and window, the same
@@ -15,28 +15,26 @@
  * course-side distance plus the bow offset along the heading, as StartResult.dtlM places the bow), the
  * most it reached while over (to going back, else to the gun), interpolated between fixes.
  *
- * A flagged boat always gets its facts: already over when the window opens (no first crossing in it, or no
- * fixes before the gun), its over stretch starts there; its track on the pre-start side at the gun (the
- * flag and the track disagree), no over stretch, and the label says so. Never back: the stretch stops
+ * A called boat always gets its facts: already over when the window opens (no first crossing in it, or no
+ * fixes before the gun), its over stretch starts there; its track on the pre-start side at the gun, no over
+ * stretch. Never back: the stretch stops
  * OVER_HORIZON_MS after the gun, so the replay never paints the rest of the race.
  */
 import type { RaceData } from '../data/types';
 import { CROSS_FROM_MS, CROSS_TO_MS, startCrossings } from './coach';
 import type { CoachCtx } from './coach/detectors/context';
-import { FRONT_EARLY_MS, startOrder } from './coach/detectors/start';
+import { startOrder } from './coach/detectors/start';
 import { projectCoachTrack } from './coach/tracks';
 import { COVERAGE_GAP_S } from './coverage';
 import { bearingVec, bisectRight, dot, interpAngle, len, sub, type Vec } from './geo';
 import { raceProjection } from './prepare';
-import { startCross, type StartCross } from './startCross';
+import { startCross } from './startCross';
 import type { RaceAnalysis } from './types';
 import { startDtlM } from './validity';
 
 export interface StartReplay {
   boat: string;
   gunMs: number;
-  /** Flagged over at the gun (StartResult.over: the feed's OCS or Recall's own). */
-  flagged: boolean;
   /** Over at the gun by its own track (startCross `early`). */
   early: boolean;
   /** The first crossing onto the course side in the window (the bow; startCross's), ms; null with none. */
@@ -45,7 +43,7 @@ export interface StartReplay {
    * The stretch it was over the line by its own track (the antenna on the course side), ms: from its first
    * crossing (early), or when it last came onto the course side before the gun (else the window's opening:
    * it was already over then), to going back, else at most OVER_HORIZON_MS after the gun (or its clearing,
-   * if sooner); null: its track has it on the pre-start side at the gun (flagged, the track disagrees).
+   * if sooner); null: its track has it on the pre-start side at the gun.
    */
   over: [number, number] | null;
   /** Back on the pre-start side after the gun, ms; null: never in the window. */
@@ -78,14 +76,6 @@ function courseSide(a: RaceAnalysis): Vec | null {
   return dot(sub(first, left), n) < 0 ? [-n[0], -n[1]] : n;
 }
 
-/**
- * Over at the gun by its own track, not flagged: startCross `early`, with its crossing earlier than D1 counts a
- * clean start (FRONT_EARLY_MS: a bow a second over at the gun is front row, inside the GPS's error), and back
- * after the gun to clear it (a boat that never went back was not recovering; the start chart shows it).
- */
-const overByTrack = (sc: StartCross, gun: number): boolean =>
-  sc.early && sc.firstCrossMs != null && sc.firstCrossMs < gun - FRONT_EARLY_MS && sc.wentBackMs != null;
-
 /** D1's front-row median crossing for these crossings (startOrder reads only the crossings, the boats' flags and the gun); null with too few. */
 function frontMedian(a: RaceAnalysis, crossMs: Record<string, number | null>): number | null {
   const ctx = { a, gun: a.meta.gunMs, m: { crossMs } } as unknown as CoachCtx;
@@ -93,21 +83,19 @@ function frontMedian(a: RaceAnalysis, crossMs: Record<string, number | null>): n
 }
 
 /**
- * Boat `boatId`'s replay facts from the race's raw fixes, or null when it doesn't qualify (not flagged
- * nor over at the gun by its track, or fewer than two fixes). `crossMs`: the Coach's start crossings (startCrossings),
+ * Boat `boatId`'s replay facts from the race's raw fixes, or null when it doesn't qualify (race control didn't
+ * call it over, or fewer than two fixes). `crossMs`: the Coach's start crossings (startCrossings),
  * worked out here when not given.
  */
 export function startReplay(a: RaceAnalysis, data: RaceData, boatId: string, crossMs?: Record<string, number | null>): StartReplay | null {
   const r = a.boats.find((b) => b.id === boatId);
   const b = data.boats.find((x) => x.id === boatId);
   const side = courseSide(a);
-  if (!r || !b || !side) return null;
+  if (!r?.start?.over || !b || !side) return null;
   const gun = a.meta.gunMs;
   const { left, right } = a.line;
   const tr = projectCoachTrack(b.track, raceProjection(data));
   const sc = startCross(tr, left, right, side, gun, { bowM: b.bowOffsetM, fromMs: gun - CROSS_FROM_MS, toMs: gun + CROSS_TO_MS });
-  const flagged = !!r.start?.over;
-  if (!(flagged || overByTrack(sc, gun))) return null;
   const n = tr.t.length;
   if (n < 2) return null;
   const from = gun - CROSS_FROM_MS;
@@ -190,7 +178,6 @@ export function startReplay(a: RaceAnalysis, data: RaceData, boatId: string, cro
   return {
     boat: boatId,
     gunMs: gun,
-    flagged,
     early: sc.early,
     firstCrossMs: sc.firstCrossMs,
     over,

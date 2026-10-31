@@ -120,7 +120,6 @@ const near = (p: Vec | null, q: Vec, d = 1e-6): void => {
 const rep = (boat: string, clearedS: number | null): StartReplay => ({
   boat,
   gunMs: GUN,
-  flagged: true,
   early: true,
   firstCrossMs: sec(-2),
   over: [sec(-2), sec(10)],
@@ -1245,7 +1244,7 @@ describe('around the gun: boats as hulls where they can be', () => {
   const ppu = lanePxPerUnit(L.view);
 
   it('the class sizes the hull; each boat’s course on the 1 s grid is the scrubber’s (north: straight up the map)', () => {
-    expect(L.dims).toEqual({ loaM: 6.934, beamM: 2.249 });
+    expect(L.dims).toEqual({ loaM: 6.934, beamM: 2.249, bowCm: 265 });
     const b = boatIn(L.frame(60), 'B');
     near(b.dir, [0, -1]);
     expect(b.sog).toBe(4);

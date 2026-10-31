@@ -10,7 +10,7 @@ import { finishRank } from '../analysis/result';
 import { ACT_KEY, ACT_ROW } from './act';
 import { UNOFFICIAL_PLACE_TIP, codeShort, codeWords, isTracker } from './resultText';
 import type { BoatResult, KindSummary, LegKind, LegResult, RaceAnalysis, StartResult } from '../analysis/types';
-import { OCS_BLIND_NOTE, shownLateS, startNotes } from '../analysis/validity';
+import { shownLateS, startNotes } from '../analysis/validity';
 import { boatColor, pickedExcluded } from './charts';
 import { duration, esc, f0, f1, f2, fM, localTime, ordinal, pct, twaLabel } from './format';
 import { capHtml, infoHtml, warnChip, type Chip, type KeyLine } from './info';
@@ -133,7 +133,7 @@ export function toggleSort(a: RaceAnalysis, cur: SortState | null, key: string):
 }
 
 const START_TITLE =
-  'Place among clean starters by distance to the line: V = ranked by the Vakaros device figure, ours = by our GPS track check (no usable Vakaros fix). over = OCS or bow over the line; — = no reliable figure.';
+  'Place among clean starters by distance to the line: V = ranked by the Vakaros device figure, ours = by our GPS track check (no usable Vakaros fix). over = called OCS by race control (RaceSense flag, or an official OCS, UFD or BFD); — = no reliable figure.';
 
 // Caveat markers carry a title for hover; the same text is listed under the table for touch screens.
 function startCell(b: BoatResult): string {
@@ -149,7 +149,7 @@ function rcCell(b: BoatResult): string {
   const s = b.start;
   if (!s) return '—';
   if (s.rcDtlM == null) return s.rcNote ? `<span class="na" title="${esc(s.rcNote)}" aria-label="${esc(s.rcNote)}">—</span>` : '—';
-  return `${s.warn ? `<span class="warn" title="${esc(s.warn)}" aria-label="disagrees with our check">⚠</span>` : ''}${f1(s.rcDtlM)}`;
+  return f1(s.rcDtlM);
 }
 
 function oursCell(b: BoatResult): string {
@@ -199,19 +199,12 @@ export function headingChip(a: RaceAnalysis): Chip | null {
   );
 }
 
-/** The start table's key line: ⚠ disagreements and unchecked OCS, — when present; column definitions and each boat's caveats in the ⓘ. */
+/** The start table's key line: boats with no Vakaros fix and GPS-course headings, when present; column definitions and each boat's caveats in the ⓘ. */
 export function startTableKey(a: RaceAnalysis): KeyLine & { notes: string[] } {
   const starts = a.boats.flatMap((b) => (b.start ? [b.start] : []));
   const count = (f: (s: StartResult) => unknown): number => starts.filter(f).length;
   const chips: Chip[] = [];
-  const warn = count((s) => s.warn);
-  const blind = count((s) => s.ocsBlind);
   const noFix = count((s) => s.rcDtlM == null && s.rcNote);
-  // The race-wide warning (with Race Analysis, on the Race tab) belongs by the DTL columns too.
-  const fleetOff = a.notes.find((n) => n.kind === 'dtl-off');
-  if (fleetOff) chips.push(warnChip('Vakaros DTL off vs GPS', fleetOff.text));
-  if (warn) chips.push(warnChip(`${warn} Vakaros ≠ ours`, 'Vakaros and our check disagree by more than 3 m'));
-  if (blind) chips.push(warnChip(`${blind} OCS unchecked`, OCS_BLIND_NOTE));
   if (noFix) chips.push({ text: `— ${noFix} no Vakaros fix` });
   const hdg = headingChip(a);
   if (hdg) chips.push(hdg);
@@ -227,7 +220,7 @@ export function startTableKey(a: RaceAnalysis): KeyLine & { notes: string[] } {
     bullets: [
       'Start: place among clean starters (V = Vakaros, ours = our check).',
       'DTL (Vakaros): the device figure, bow-corrected; the primary number.',
-      'Check: our GPS estimate; ⚠ = disagrees.',
+      'Check: our GPS estimate.',
       'Late: our DTL ÷ speed to the line. Line pos: 0% pin, 100% RC.',
       heelNote(a, 'start'),
       SORT_NOTE,
@@ -326,7 +319,7 @@ function startColumns(a: RaceAnalysis): Col[] {
           key: 'rc',
           head: 'DTL<br><small>Vakaros m</small>',
           title:
-            "Distance to line from the boat's Vakaros device (feed dtlMm, bow-corrected; device start-fix timing). Primary figure. — = no usable fix; ⚠ = differs from our check by more than 3 m.",
+            "Distance to line from the boat's Vakaros device (feed dtlMm, bow-corrected; device start-fix timing). Primary figure. — = no usable fix.",
           sort: (b) => b.start?.rcDtlM,
           first: 'asc',
           prec: 1 as const,
@@ -348,7 +341,7 @@ function startColumns(a: RaceAnalysis): Col[] {
         {
           key: 'ours',
           head: 'DTL<br><small>@gun m</small>',
-          title: 'Bow distance behind the line at the gun (bow-corrected). Negative = over.',
+          title: 'Bow distance behind the line at the gun (bow-corrected).',
           sort: (b) => b.start?.dtlM,
           first: 'asc',
           prec: 1 as const,

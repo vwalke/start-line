@@ -183,34 +183,35 @@ describe('#4 the drawn over stretch never runs on up the course', () => {
   });
 });
 
-describe('#5 flagged, its track not over at the gun', () => {
+describe('#5 called OCS, its track not over at the gun', () => {
   // 8 m behind at the gun, closing at 2 m/s: the antenna crosses at +4 s, the bow (4.9 m ahead) at ≈ +1.6 s: not early.
   const d = (t: number): number => 2 * t - 8;
-  it('a replay, no over stretch, and the label says so', () => {
+  it('a replay, no over stretch; the label gives the call, never the track against it', () => {
     const r = replayWith(synth(range(-40, 120, 1), d), { dtlM: 3 })!;
     expect(r).not.toBeNull();
     expect(r.early).toBe(false);
     expect(r.over).toBeNull();
     expect(r.maxOverM).toBeNull();
     expect(replaySpans(r)).toEqual({ over: null, dip: null });
-    expect(replayLabel(r)).toMatch(/^flagged over · track not over at the gun · crossed \+2 s/);
+    expect(replayLabel(r)).toMatch(/^called OCS · crossed \+2 s/);
+    expect(replayLabel(r)).not.toMatch(/track|flagged/);
     expect(replayWindow(r)).toEqual([gun - 30_000, r.clearedMs! + 15_000]);
   });
-  it('the DTL over at the gun, when it has the bow over', () => {
+  it('the same label whatever the distance at the gun', () => {
     const r = replayWith(synth(range(-40, 120, 1), d), { dtlM: -1.5 })!;
     expect(r.over).toBeNull();
     expect(r.maxOverM).toBe(1.5);
-    expect(replayLabel(r)).toMatch(/^bow over 1\.5 m at the gun · crossed \+2 s/);
+    expect(replayLabel(r)).toMatch(/^called OCS · crossed \+2 s/);
   });
 });
 
 describe('#8 the button title follows the facts', () => {
   const r = replays.find((x) => x.boat === U019)!;
-  it('went back and recrossed / not recrossed / never back / track not over', () => {
+  it('went back and recrossed / not recrossed / never back / no over stretch', () => {
     expect(replayTitle(r, 'USA 019')).toBe("Replay USA 019's start: over early, went back and recrossed");
     expect(replayTitle({ ...r, clearedMs: null }, 'USA 019')).toBe("Replay USA 019's start: over early, went back, not recrossed");
     expect(replayTitle({ ...r, wentBackMs: null, clearedMs: null }, 'USA 019')).toBe("Replay USA 019's start: over early, never went back");
-    expect(replayTitle({ ...r, over: null }, 'USA 019')).toBe("Replay USA 019's start: flagged over, its track not over at the gun");
+    expect(replayTitle({ ...r, over: null }, 'USA 019')).toBe("Replay USA 019's start: called OCS by race control");
   });
   it('in the control (and, pressed, how to leave it: #7)', () => {
     const never = { ...r, wentBackMs: null, clearedMs: null };

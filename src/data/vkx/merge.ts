@@ -14,6 +14,7 @@
  * The upload itself stays at full rate (see compact.ts).
  */
 import { START_SOG_POST_MS, START_SOG_PRE_MS } from '../../analysis/types';
+import { bowAheadM, raceClass } from '../classes';
 import type { Boat, BoatLog, LatLon, Line, RaceData, Track } from '../types';
 import { decodePayload, type PayloadTrack } from './compact';
 import { sameSail } from './match';
@@ -204,7 +205,9 @@ export function mergeUploads(data: RaceData, uploads: UploadInput[]): RaceData {
     const fullRate = fullRateIn(log, gun);
     if (prev) boats[idx] = { ...prev, track, log: info, fullRate };
     else {
-      boats.push({ id: h.sail, sail: h.sail, name: h.name?.trim() || `#${h.sail}`, bowOffsetM: 0, track, finishMs: null, log: info, fullRate });
+      // A boat the feed doesn't carry has no offset of its own: its bow is the class's (classes.ts bowAheadM).
+      const bowOffsetM = bowAheadM(null, raceClass(data)?.dims ?? null);
+      boats.push({ id: h.sail, sail: h.sail, name: h.name?.trim() || `#${h.sail}`, bowOffsetM, track, finishMs: null, log: info, fullRate });
     }
   }
   return { ...data, boats };

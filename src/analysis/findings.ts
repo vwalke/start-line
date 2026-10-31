@@ -2,7 +2,7 @@
 import { compassRound, median, wrap180 } from './geo';
 import { biasAngle, lineBias } from './line';
 import type { BoatResult, Finding, RaceAnalysis, StartCompare, StartCompareSide, StartResult } from './types';
-import { gapAtGun, startDtlM } from './validity';
+import { startDtlM } from './validity';
 import { START_WIND_SPAN } from './wind';
 
 /** Findings about the start (the line and the starts), shown under the start chart, and the rest (legs, results, wind), shown with the race. */
@@ -85,10 +85,9 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
 
   // Starts.
   // Ranked by one value per boat (Vakaros when valid, else our track check); boats with neither are skipped.
-  const dtl = (b: BoatResult): number => b.start!.rank!.m;
   const over = started.filter((b) => b.start!.over);
   const away = started.filter((b) => b.start!.awayFromLine);
-  // Clean starters only (start place set): over-early and away boats have their own findings below.
+  // Clean starters only (start place set): boats called over early and away boats have their own findings below.
   const clean = started.filter((b) => b.start!.startPlace != null).sort((x, y) => x.start!.startPlace! - y.start!.startPlace!);
   if (clean.length) {
     const compare = startCompare(clean[0], clean.length >= 2 ? clean[clean.length - 1] : null, over.length > 0, away.length > 0);
@@ -105,27 +104,12 @@ export function buildFindings(a: RaceAnalysis): Finding[] {
           : `${joinTags(away)} were away from the line at the gun (${away.map(km).join(', ')}).`,
     });
   }
+  // Over early only as race control called it: the RaceSense OCS flag, or an official OCS / UFD / BFD.
   for (const b of over) {
-    const s = b.start!;
     out.push({
       kind: 'start',
       boatIds: [b.id],
-      text: s.ocs
-        ? `${tag(b)} was flagged OCS by race control.`
-        : `${tag(b)} was over ${r1(-dtl(b))} m by ${s.rank!.source === 'ours' ? 'our track estimate' : 'Vakaros DTL'} (not flagged OCS)`,
-    });
-  }
-  // Boats race control's OCS check couldn't see: no usable Vakaros fix, and our figure is near or over the line.
-  for (const b of started.filter((x) => x.start!.ocsBlind)) {
-    const s = b.start!;
-    const rc = s.rcStatus === 'stale' ? 'Vakaros had no start fix for this race' : 'Vakaros reported no distance for this boat';
-    const pos = s.dtlM < 0 ? `≈${r1(-s.dtlM)} m over` : `≈${r1(s.dtlM)} m behind`;
-    out.push({
-      kind: 'start',
-      boatIds: [b.id],
-      text: gapAtGun(s)
-        ? `${tag(b)}: ${rc}; it may have been over (our track: ${pos}), but neither figure is reliable.`
-        : `${tag(b)}: ${rc}, and our track puts the bow ${pos} the line at the start; it may have been over without race control's OCS check seeing it (GPS and bow offset are approximate).`,
+      text: b.start!.ocs ? `${tag(b)} was flagged OCS by race control.` : `${tag(b)} was scored ${b.finishCode} by race control.`,
     });
   }
 

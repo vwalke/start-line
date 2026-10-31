@@ -46,7 +46,7 @@ describe('IC37 R5: who gets a replay', () => {
   it('USA 017 and USA 019 (over at the gun, back, recrossed); not the front row, not USA 027', () => {
     expect(replays.map((r) => a.boats.find((b) => b.id === r.boat)!.sail).sort()).toEqual(['USA 017', 'USA 019']);
     for (const sail of ['GBR 015', 'USA 005', 'USA 12', 'USA 027']) expect(startReplay(a, data, idOf(sail))).toBeNull();
-    for (const sail of ['USA 017', 'USA 019']) expect(rep(sail)).toMatchObject({ flagged: true, early: true });
+    for (const sail of ['USA 017', 'USA 019']) expect(rep(sail)).toMatchObject({ early: true });
   });
 });
 
