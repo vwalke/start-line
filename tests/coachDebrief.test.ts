@@ -16,19 +16,24 @@ import { ATTEMPT_MIN_POST_MS, attemptNumbered, attemptRegatta, attemptTitle, att
 import { buildRaceData, currentDoc } from '../src/data/racesense/adapter';
 import type { Race, RegattaResponse, Start, TelemetryPage } from '../src/data/racesense/types';
 import { attemptNote } from '../src/ui/attemptView';
-import { legLegend, speedPickPlace, speedPickTexts, startSnapshot } from '../src/ui/charts';
+import { legLegend, mapBox, scrubFrame, speedPickPlace, speedPickTexts, startSnapshot, trackMap } from '../src/ui/charts';
 import { gunReadoutCells, gunReadoutHtml } from '../src/ui/gunReadout';
 import {
   FAST_PARAM,
+  LEG_FAST_TOP,
   LEG_PARAM,
   LEG_STATE_KEY,
   NO_FOCUS,
   cardMapHref,
   cardRoute,
   focusColouring,
+  focusFrom,
   focusLeg,
   focusOnPop,
   focusResume,
+  focusTime,
+  focusTrail,
+  focusView,
   keyLeg,
   legAfterPress,
   legFocus,
@@ -39,15 +44,17 @@ import {
   stampedLeg,
   type LegEvent,
   type LegState,
+  type MapFocus,
 } from '../src/ui/mapLink';
 import { mapKey } from '../src/ui/captions';
-import { speedKey } from '../src/ui/speed';
+import { speedKey, type SpeedTop } from '../src/ui/speed';
 import { gainLabels, placesChart, segHitsRect } from '../src/ui/places';
 import { favoredShort, linePosText, startStripHtml, startThumbSvg, startViewHref } from '../src/ui/startStrip';
 import { drawnHull, startPngName, startPngSvg, withSelectedRing } from '../src/ui/startPng';
 import { headingDir, hullOutline, hullPathD } from '../src/ui/boatShape';
 import { easternStamp } from '../src/ui/races';
 import { rotator } from '../src/ui/mapPieces';
+import { scrubWindow, trailWindow } from '../src/ui/scrub';
 import type { Fixture } from './helpers';
 import { m24Race } from './helpers';
 
@@ -249,11 +256,11 @@ describe('a leg’s view on the map', () => {
 
   it('shows the leg’s button pressed while its view is open, the user’s own selection back once left', () => {
     const f = legFocus(a, boat.id, 1)!;
-    for (const mine of [null, 0, 2]) {
+    for (const mine of [null, 0, 1, 2]) {
       const o = open(mine, f);
       expect(pressed(o.html)).toEqual(['1']);
-      // The map draws the whole race meanwhile; the selection kept is the user's (what is saved).
-      expect(o).toMatchObject({ now: null, before: { leg: mine } });
+      // The map draws that leg only meanwhile; the selection kept is the user's (what is saved).
+      expect(o).toMatchObject({ now: 1, before: { leg: mine } });
       // Left (closed, back past it, another boat): the user's selection, pressed again.
       const left = focusLeg(o.now, o.before, null);
       expect(left).toEqual({ now: mine, before: null });
@@ -262,6 +269,7 @@ describe('a leg’s view on the map', () => {
     // Another leg's view on top keeps the selection from before the first.
     const first = open(2, f);
     const second = focusLeg(first.now, first.before, legFocus(a, boat.id, 0));
+    expect(second).toEqual({ now: 0, before: { leg: 2 } });
     expect(pressed(legLegend(a, shownLeg(second.now, legFocus(a, boat.id, 0))))).toEqual(['0']);
     expect(focusLeg(second.now, second.before, null).now).toBe(2);
   });
@@ -329,16 +337,18 @@ describe('a leg’s view on the map', () => {
     // From a leg's view to a card's window and out: the selection from before the leg's view.
     const f = legFocus(a, boat.id, 1)!;
     const through = run(2, [{ kind: 'open', focus: f }, { kind: 'open', focus: win }, { kind: 'leave', focus: win }]);
+    expect(through.out[0].state).toEqual({ sel: 1, before: { leg: 2 } });
     expect(through.out[1].state).toEqual({ sel: null, before: { leg: 2 } });
     expect(through.s).toEqual({ sel: 2, before: null });
   });
 
   it('leaving a leg’s view fits the map again for the selection it comes back to, All too', () => {
     const f = legFocus(a, boat.id, 1)!;
-    for (const mine of [null, 3]) {
+    for (const mine of [null, 1, 3]) {
       const { s, out } = run(mine, [{ kind: 'open', focus: f }, { kind: 'leave', focus: f }]);
       expect(out[0].refit).toBe(false);
-      // All → leg's view → left: the selection the same as before (no leg change to refit on), refit all the same.
+      expect(out[0].state.sel).toBe(1);
+      // Leg 1 picked → leg 1's view → left: no leg change to refit on (its frame was the view's), refit all the same.
       expect(out[1].refit).toBe(true);
       expect(s.sel).toBe(mine);
     }
@@ -351,6 +361,45 @@ describe('a leg’s view on the map', () => {
     expect(allAgain.out[2].refit).toBe(true);
     // Outside a leg's view a press is the usual toggle and leaves nothing.
     expect(run(2, [{ kind: 'press', leg: 2, focus: null }]).out[0]).toEqual({ state: { sel: null, before: null }, leave: false, refit: false });
+  });
+
+  /** The legs (data-leg) of the tracks drawn in `svg`. */
+  const legsDrawn = (svg: string): string[] => [...new Set([...svg.matchAll(/<polyline class="trk[^"]*" data-leg="(-?\d+)"/g)].map((m) => m[1]))].sort();
+  const pickLabels = (svg: string): number => (svg.match(/class="spd-pick-lbl"/g) ?? []).length;
+  /** The map as the Race tab draws it with leg selection `sel` and focus `f` (renderMap's trackMap, drawScrub's scrubFrame). */
+  const drawnAs = (sel: number | null, f: MapFocus | null, id: string) => {
+    const k = keyLeg(sel, f, 'leg', 'leg');
+    const opts = { colour: 'rank' as const, rankBy: k.rankBy, top: LEG_FAST_TOP as SpeedTop, sogScale: k.sogScale, view: f ? focusView(a, f, mapBox(a, sel)) : undefined };
+    const t = f ? focusTime(f) : scrubWindow(a).t1;
+    const win = trailWindow(t, f ? focusTrail(f) : 'all', scrubWindow(a), f ? focusFrom(f) : null);
+    return { map: trackMap(a, id, sel, opts), frame: scrubFrame(a, id, sel, opts, { t, win }) };
+  };
+
+  it('draws only the leg of the view open: leg 2’s view then leg 3’s draws leg 3 alone, the user’s selection back once left', () => {
+    const b = a.boats.find((x) => x.legs[2])!;
+    const f2 = legFocus(a, b.id, 1)!;
+    const f3 = legFocus(a, b.id, 2)!;
+    for (const mine of [null, 0]) {
+      const { s, out } = run(mine, [{ kind: 'open', focus: f2 }, { kind: 'open', focus: f3 }]);
+      expect(out[0].state.sel).toBe(1);
+      expect(s).toEqual({ sel: 2, before: { leg: mine } });
+      // renderMap keeps a focus whose leg is the one drawn.
+      expect(s.sel).toBe(f3.leg ?? null);
+      const d = drawnAs(s.sel, f3, b.id);
+      expect(legsDrawn(d.frame.tracks)).toEqual(['2']);
+      expect(legsDrawn(d.map)).toEqual(['2']);
+      expect(d.frame.pieces.every((p) => p.leg === 2)).toBe(true);
+      // "Nth fastest on leg": at most the one leg's, never at earlier legs' marks (as the whole race drawn had them).
+      for (const x of a.boats) expect(pickLabels(drawnAs(s.sel, legFocus(a, x.id, 2), x.id).frame.dots)).toBeLessThanOrEqual(1);
+      expect(Math.max(...a.boats.map((x) => pickLabels(drawnAs(null, legFocus(a, x.id, 2), x.id).frame.dots)))).toBeGreaterThan(1);
+      // Left (Back, ✕ Full race, another boat): the user's own selection, drawn as before.
+      const left = legStep(s, { kind: 'leave', focus: f3 });
+      expect(left).toMatchObject({ state: { sel: mine, before: null }, refit: true });
+      const after = drawnAs(left.state.sel, null, b.id);
+      expect(legsDrawn(after.frame.tracks)).toEqual(mine == null ? expect.arrayContaining(['-1', '0', '1']) : ['0']);
+    }
+    // Before the fix every leg up to the view's was drawn (and the pre-start): the whole race's selection.
+    expect(legsDrawn(drawnAs(null, f3, b.id).frame.tracks)).toEqual(expect.arrayContaining(['-1', '0', '1', '2']));
   });
 
   it('the keys and caption describe the leg shown: in a leg’s view its leg, ranked and scaled on it as the map draws it', () => {

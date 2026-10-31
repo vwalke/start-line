@@ -475,7 +475,7 @@ export function startApp(): void {
     attachTopScroll(els.tableTop, els.tableTop.firstElementChild as HTMLElement, els.table),
   ];
   let legSel: number | null = null;
-  /** The leg selection a leg's view replaced, put back when it's left (mapLink.ts focusLeg); null: none replaced. */
+  /** The leg selection a focus (a leg's view drawing its own leg) replaced, put back when it's left (mapLink.ts focusLeg); null: none replaced. */
   let legBefore: LegBefore | null = null;
   /** The user's own leg selection (saved): the one a leg's view replaced while one is open. */
   const userLeg = (): number | null => (legBefore ? legBefore.leg : legSel);
@@ -1383,9 +1383,9 @@ export function startApp(): void {
     if (!a) return;
     // A replay ends with the full race (✕ Full race), one leg picked, or another boat selected.
     if (replayOn && (scrubT == null || legSel != null || highlight !== replayOn.boat)) leaveReplay(false);
-    // So does a card's window (Map D).
-    if (focusOn && (scrubT == null || legSel != null || highlight !== focusOn.boat)) leaveFocus(false);
-    // A leg's view left puts back the leg selection it replaced: its frame.
+    // So does a card's window (Map D), or a leg's view, by another leg picked (a leg's view draws its own).
+    if (focusOn && (scrubT == null || legSel !== (focusOn.leg ?? null) || highlight !== focusOn.boat)) leaveFocus(false);
+    // A leg's view frames its own leg; left, it puts back the leg selection it replaced: its frame.
     fitMap(a);
     const t0 = performance.now();
     // Scrubbing: the static map, then this moment's trails and boats into its two layers (drawScrub, every frame).
@@ -1580,7 +1580,7 @@ export function startApp(): void {
   let focusPend: ReplayPend | null = focusPendFromUrl(location.search);
 
   /**
-   * Show focus `f`: select its boat, the whole race, the scrubber paused at the window's end with the window's own
+   * Show focus `f`: select its boat, the whole race (a leg's view: its leg only), the scrubber paused at the window's end with the window's own
    * trail (from its start: the whole window drawn), or `at` (a link's own `t=` / `trail=`, mapLink.ts focusResume),
    * the view framing the boat's and the comparison boats' tracks over the window; `boat=`, `vs=`, `win=`, `t=` and
    * `trail=` in the URL. Play from there plays the window from its start (focusPlayFrom).
@@ -1592,8 +1592,8 @@ export function startApp(): void {
     leaveReplay(false);
     highlight = f.boat;
     syncCoachBoat(f.boat);
-    // The whole race (the scrubber's); any focus keeps the leg selection it replaced (the user's, saved), and a leg's
-    // view shows its leg's button pressed (shownLeg).
+    // A leg's view draws its own leg only (its button pressed), a card's window the whole race (the scrubber's); either
+    // keeps the leg selection it replaced (the user's, saved). fitMap then fits the leg drawn, which the view frames.
     stepLegs({ kind: 'open', focus: f });
     scrubTrail = at?.trail ?? focusTrail(f);
     playSpeed = 1;
