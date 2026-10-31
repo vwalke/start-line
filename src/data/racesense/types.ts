@@ -89,6 +89,8 @@ export interface Finish {
   raceNumber?: number | null;
   lineLeftLocation?: { coordinates: [number, number] };
   lineRightLocation?: { coordinates: [number, number] };
+  /** Where the device put the boat on the line at `finishingTime`, [lon, lat]. */
+  positionAtFinish?: { coordinates: [number, number] } | null;
 }
 
 export interface Race {

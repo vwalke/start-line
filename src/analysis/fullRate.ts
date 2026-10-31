@@ -13,6 +13,7 @@ import type { RaceData } from '../data/types';
 import { interp } from './geo';
 import { projectTrack, raceProjection, rangeIdx } from './prepare';
 import { smoothSog } from './smooth';
+import { withFinishThrough, type FinishThrough } from './finishThrough';
 import { MAP_PRE_MS, type BoatDrawing, type FullRateTrack, type RaceAnalysis } from './types';
 
 /** A feed copy must add at least this share of fixes over what is drawn to be worth sending. */
@@ -25,6 +26,8 @@ export interface FullRateWant {
   endMs: number;
   /** Fixes drawn (segments and pre-gun track). */
   drawn: number;
+  /** The drawing's point on the finish line (BoatDrawing.finish), put in the full-rate track too. */
+  finish?: FinishThrough;
 }
 
 /** A drawing's FullRateWant (shared leg-boundary fixes counted once); null with no track. */
@@ -34,7 +37,7 @@ export function fullRateWant(d: BoatDrawing): FullRateWant | null {
   if (endMs == null) return null;
   let n = d.pre ? Math.max(0, d.pre.t.length - 1) : 0;
   for (const g of d.segments) n += g.t.length;
-  return { id: d.id, endMs, drawn: Math.max(0, n - Math.max(0, d.segments.length - 1)) };
+  return { id: d.id, endMs, drawn: Math.max(0, n - Math.max(0, d.segments.length - 1)), ...(d.finish ? { finish: d.finish } : {}) };
 }
 
 /** Every drawn boat's (racing and set aside) FullRateWant. */
@@ -52,6 +55,8 @@ export function fullRateTracks(data: RaceData, wants: readonly FullRateWant[]): 
     const end = w.endMs;
     const tr = projectTrack(b.track, proj);
     const sogSm = smoothSog(tr.t, tr.sog);
+    // The drawing's finish point (finishThrough.ts), so zoomed in the boat still sails through the line at its finish.
+    const through = (tk: FullRateTrack): FullRateTrack => (w.finish ? withFinishThrough(tk, w.finish, interp(tr.t, sogSm, w.finish.t)) : tk);
     const log = b.fullRate;
     if (log && log.t.length > 1) {
       const [i0, i1] = rangeIdx(log.t, t0, end);
@@ -68,21 +73,23 @@ export function fullRateTracks(data: RaceData, wants: readonly FullRateWant[]): 
           // The log has no SOG of its own here: the merged track's (smoothed, as the drawings').
           sog[k] = interp(tr.t, sogSm, log.t[i0 + k]);
         }
-        out.push({ id: w.id, source: 'log', x, y, t: log.t.slice(i0, i1), sog, ...(log.roll ? { roll: log.roll.slice(i0, i1) } : {}) });
+        out.push(through({ id: w.id, source: 'log', x, y, t: log.t.slice(i0, i1), sog, ...(log.roll ? { roll: log.roll.slice(i0, i1) } : {}) }));
         continue;
       }
     }
     const [i0, i1] = rangeIdx(tr.t, t0, end);
     if (i1 - i0 < MIN_GAIN * w.drawn) continue;
-    out.push({
-      id: w.id,
-      source: 'feed',
-      x: Float32Array.from(tr.x.subarray(i0, i1)),
-      y: Float32Array.from(tr.y.subarray(i0, i1)),
-      t: tr.t.slice(i0, i1),
-      sog: sogSm.slice(i0, i1),
-      ...(tr.roll ? { roll: Float32Array.from(tr.roll.subarray(i0, i1)) } : {}),
-    });
+    out.push(
+      through({
+        id: w.id,
+        source: 'feed',
+        x: Float32Array.from(tr.x.subarray(i0, i1)),
+        y: Float32Array.from(tr.y.subarray(i0, i1)),
+        t: tr.t.slice(i0, i1),
+        sog: sogSm.slice(i0, i1),
+        ...(tr.roll ? { roll: Float32Array.from(tr.roll.subarray(i0, i1)) } : {}),
+      }),
+    );
   }
   return out;
 }

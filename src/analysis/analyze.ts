@@ -60,6 +60,7 @@ import {
 } from './types';
 import { finishRank } from './result';
 import { rawHoles } from './rawHoles';
+import { finishStep, type FinishThrough } from './finishThrough';
 import { assessStart, estimateDtl, rankStarts, sampleGap, startDtlM } from './validity';
 import { classifyLeg, closeHauledTackAngle, estimateTwd, makeTwdAt, readStartTwd, startWindHeadings, steadyIndices, straddles, windPoints } from './wind';
 
@@ -165,6 +166,8 @@ export interface AnalyzeOptions {
   allCompetitors?: boolean;
   /** Leave a triangle's reach marks out (insertBentMarks): the analysis falls back to this when those legs don't hold together. */
   noBentMarks?: boolean;
+  /** The race is still being sailed (worker.ts): each boat's track is drawn to its newest fix, its open leg included. */
+  inProgress?: boolean;
 }
 
 const tagOf = (b: Boat): string => (b.name && b.name !== `#${b.sail}` ? `#${b.sail} (${b.name})` : `#${b.sail}`);
@@ -697,9 +700,16 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     const segments: TrackSegment[] = [];
     // With no finish, the last leg runs to the boat's own crossing of the finish line (plus a short tail), else to its last fix.
     const openEnd = (from: number): number => (ranked && b.finishMs == null ? unfinishedDrawEnd(b, from) : tr.t[tr.t.length - 1]);
+    // A race in progress: the leg a boat is on (its next rounding not reached yet) runs to its newest fix.
+    const sailing = !!opts.inProgress && ranked && b.finishMs == null;
+    // A finish between fixes far apart: the last leg runs on through the boat's point on the line then to its next fix
+    // (display only: finishThrough.ts).
+    const step = ranked && b.finishMs != null && b.finishAt ? finishStep(tr.t, b.finishMs) : null;
+    let finish: FinishThrough | undefined;
     for (let li = 0; li < nLegs; li++) {
       const a = drawTt[li];
-      const e = drawTt[li + 1] ?? (li === nLegs - 1 && a != null ? openEnd(a) : null);
+      let e = drawTt[li + 1] ?? (li === nLegs - 1 && a != null ? openEnd(a) : null);
+      if (e == null && sailing && a != null && drawTt.slice(li + 1).every((x) => x == null) && tr.t.length && tr.t[tr.t.length - 1] > a) e = tr.t[tr.t.length - 1];
       if (a == null || e == null) continue;
       const [i0, i1] = rangeIdx(tr.t, a, e);
       const xs: number[] = [];
@@ -716,6 +726,23 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
         ts.push(tr.t[k]);
         ss.push(sogSm[k]);
         if (tr.roll) rs.push(tr.roll[k]);
+      }
+      if (step && li === nLegs - 1 && e === b.finishMs && i1 - 1 === step.before && b.finishAt) {
+        const [fx, fy] = proj.toXY(b.finishAt.lat, b.finishAt.lon);
+        finish = { t: e, x: fx, y: fy };
+        xs.push(fx);
+        ys.push(fy);
+        ts.push(e);
+        ss.push(interp(tr.t, sogSm, e));
+        if (tr.roll) rs.push(NaN);
+        const q = step.after;
+        if (q != null) {
+          xs.push(tr.x[q]);
+          ys.push(tr.y[q]);
+          ts.push(tr.t[q]);
+          ss.push(sogSm[q]);
+          if (tr.roll) rs.push(tr.roll[q]);
+        }
       }
       segments.push({
         leg: li,
@@ -750,6 +777,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       pre,
       // Display only: the feed's own holes, so the maps judge gaps on its fixes, not the thinned segments.
       holes: rawHoles(tr.t, tr.x, tr.y, sogSm, gun - MAP_PRE_MS),
+      ...(finish ? { finish } : {}),
     };
     return { result, drawing };
   };
@@ -880,6 +908,7 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
       sourceKind: data.source.kind,
       eventId: data.source.eventId,
       ...(data.results ? { results: data.results } : {}),
+      ...(opts.inProgress ? { inProgress: true } : {}),
     },
     line,
     finishLine,

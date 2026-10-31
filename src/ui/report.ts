@@ -37,7 +37,7 @@ import { cardText, cardWarnings, goodTexts, penaltyText, rankedHead, scoredWord,
 import { gateChip, groupSecondsChip, placesWord } from './coachLegs';
 import { LEG_TYPE, anyUnofficial, finishShort, penaltyRowText, regattaWentText, secs } from './coachRegatta';
 import { degLabel, duration, f0, f1, localTime, ordinal, tzLabel } from './format';
-import { UNOFFICIAL_ORDER, UNOFFICIAL_ORDER_TIP, UNOFFICIAL_PLACE, codeShort, codeWords, isTracker } from './resultText';
+import { UNOFFICIAL_ORDER, UNOFFICIAL_ORDER_TIP, UNOFFICIAL_PLACE, codeShort, codeWords, isTracker, noFinishYet } from './resultText';
 
 /** What the report shows for a figure the data doesn't have. */
 export const MISSING = '—';
@@ -257,14 +257,14 @@ function headerFields(a: RaceAnalysis, b: BoatResult, official: OfficialRaceInpu
   const tracker = isTracker(a, b);
   out.push(
     field('On the water', water != null ? `${tracker ? '~' : ''}${ordinal(water)} of ${of}` : MISSING, {
-      note: water == null ? (b.finishCode ? codeWords(b) : 'no finish found') : tracker ? UNOFFICIAL_PLACE : undefined,
+      note: water == null ? (b.finishCode ? codeWords(b) : a.meta.inProgress ? noFinishYet(a.meta) : 'no finish found') : tracker ? UNOFFICIAL_PLACE : undefined,
     }),
   );
   if (isOfficial) {
     out.push(field('Scored', scoredText(b, of), b.finishCode ? { note: codeInfo(b.finishCode).meaning, warn: true } : {}));
   } else out.push(field('Scored', MISSING, { note: 'no official results linked' }));
   const ot = officialTimes(official, b);
-  out.push(field('Race time', longDuration(b.raceTimeS), { note: b.raceTimeS != null ? 'gun → finish' : 'no finish' }));
+  out.push(field('Race time', longDuration(b.raceTimeS), { note: b.raceTimeS != null ? 'gun → finish' : a.meta.inProgress ? noFinishYet(a.meta) : 'no finish' }));
   out.push(field('Elapsed (official)', longDuration(ot?.elapsedS), ot?.elapsedS == null ? { note: ot ? 'not in the official results' : 'no official results' } : {}));
   out.push(field('Corrected (official)', longDuration(ot?.correctedS), ot?.correctedS == null ? { note: ot ? 'not in the official results' : 'no official results' } : {}));
   out.push(field('Gun', `${localTime(a.meta.gunMs, tz)} ${tzLabel(tz)}`));

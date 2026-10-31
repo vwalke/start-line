@@ -244,15 +244,26 @@ const quietTtl = (body: unknown, fetchedAt: number): number => {
   return Number.isFinite(t) && fetchedAt - t > 2 * DAY ? 7 * DAY : 5 * MINUTE;
 };
 
-/** The live source, through /api/ys (cached like the regatta document). */
-export function httpYsSource(signal?: AbortSignal): YsSource {
-  const get = <T>(path: string, ttl: number | typeof quietTtl): Promise<T> => cachedJson<T>(`${YS_BASE}/${path}`, ttl, signal);
+/** A race in progress being refreshed: its Yachtscoring event's race list and that race's results asked for afresh. */
+export interface YsLive {
+  eventId: number;
+  /** The official race number (null: not known yet, the race list only). */
+  raceNumber: number | null;
+}
+
+/**
+ * The live source, through /api/ys (cached like the regatta document). With `live`, that event's race list and
+ * race results skip our caches and are asked for as `live=1` (the edge keeps those briefly: functions/_lib.ts ysTtl).
+ */
+export function httpYsSource(signal?: AbortSignal, live?: YsLive | null): YsSource {
+  const get = <T>(path: string, ttl: number | typeof quietTtl, fresh = false): Promise<T> =>
+    cachedJson<T>(`${YS_BASE}/${path}${fresh ? '&live=1' : ''}`, ttl, signal, { fresh });
   return {
     searchDates: async (gte, lte) =>
       (await get<YsPage<YsEventRow>>(`event?startDate_gte=${gte}&startDate_lte=${lte}&sort=startDate.desc&size=100`, HOUR)).rows ?? [],
     searchName: async (q) => (await get<YsPage<YsEventRow>>(`event?name_contains=${encodeURIComponent(q)}&sort=startDate.desc&size=40`, HOUR)).rows ?? [],
     event: (id) => get<YsEvent>(`event/${id}`, quietTtl),
-    races: async (id) => (await get<YsPage<YsRaceRow>>(`event/${id}/races?size=200`, quietTtl)).rows ?? [],
-    results: (id, n) => get<YsResultReport>(`event/${id}/result-detail-report?raceNumber=${n}`, quietTtl),
+    races: async (id) => (await get<YsPage<YsRaceRow>>(`event/${id}/races?size=200`, quietTtl, live?.eventId === id)).rows ?? [],
+    results: (id, n) => get<YsResultReport>(`event/${id}/result-detail-report?raceNumber=${n}`, quietTtl, live?.eventId === id && live.raceNumber === n),
   };
 }

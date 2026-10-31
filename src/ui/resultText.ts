@@ -8,6 +8,13 @@ import type { RaceFinish } from '../analysis/coach/regatta';
 import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { esc, ordinal } from './format';
 
+/** A boat with no finish (and no code) while the race is still being sailed (RaceAnalysis meta.inProgress): not a DNF. */
+export const RACING = 'racing';
+/** …and before its gun (a race opened during its start sequence): not racing yet. */
+export const PRE_START = 'pre-start';
+/** The word for a boat with no finish and no code in a race in progress: PRE_START before its gun, else RACING. */
+export const noFinishYet = (m: Pick<RaceAnalysis['meta'], 'gunMs'>, now = Date.now()): string => (now < m.gunMs ? PRE_START : RACING);
+
 /**
  * A place from the trackers' finish-line crossings, shown `~` and called unofficial: the race's places come from the
  * tracker (`results.places`). Not the time source (`finishSource`): official places can have tracker times.

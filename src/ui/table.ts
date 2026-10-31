@@ -8,7 +8,7 @@
  */
 import { finishRank } from '../analysis/result';
 import { ACT_KEY, ACT_ROW } from './act';
-import { UNOFFICIAL_PLACE_TIP, codeShort, codeWords, isTracker } from './resultText';
+import { UNOFFICIAL_PLACE_TIP, codeShort, codeWords, isTracker, noFinishYet } from './resultText';
 import type { BoatResult, KindSummary, LegKind, LegResult, RaceAnalysis, StartResult } from '../analysis/types';
 import { shownLateS, startNotes } from '../analysis/validity';
 import { boatColor, pickedExcluded } from './charts';
@@ -272,10 +272,11 @@ function finCol(a: RaceAnalysis, key: string, sticky = 'sticky0'): Col {
   return {
     key,
     head: 'Fin',
-    title: `Finish position (DNF = no finish; ${a.boats.some((b) => isTracker(a, b)) ? '~ = unofficial; ' : ''}an official code with its points, sorted at its place on the water)`,
+    title: `Finish position (${a.meta.inProgress ? `${noFinishYet(a.meta)} = no finish yet` : 'DNF = no finish'}; ${a.boats.some((b) => isTracker(a, b)) ? '~ = unofficial; ' : ''}an official code with its points, sorted at its place on the water)`,
     sort: (b) => finishRank(b),
     first: 'asc',
-    cell: (b) => (b.finishPos != null ? place(b) : b.finishCode ? `<span title="${esc(codeWords(b))}">${esc(codeShort(b)!)}</span>` : 'DNF'),
+    cell: (b) =>
+      b.finishPos != null ? place(b) : b.finishCode ? `<span title="${esc(codeWords(b))}">${esc(codeShort(b)!)}</span>` : a.meta.inProgress ? noFinishYet(a.meta) : 'DNF',
     cls: `num ${sticky}`,
     role: 'fin',
   };

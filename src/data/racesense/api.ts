@@ -4,6 +4,7 @@
  * so the browser Web Worker never has to CORS-fetch a third party.
  */
 import { DAY, HOUR, MINUTE, cachedJson, cachedJsonFrom, type CacheOpts } from '../cache';
+import { hasLiveGun, LIVE_REGATTA_TTL_MS, telemetrySettled } from '../live';
 import type { LandingResponse, RegattaResponse, TelemetryPage, WindResponse } from './types';
 
 export const PROXY_BASE = '/api';
@@ -17,11 +18,13 @@ export function fetchLanding(signal?: AbortSignal): Promise<LandingResponse> {
 }
 
 function loadRegatta(eventId: string, opts: CacheOpts = {}): Promise<{ body: RegattaResponse; cached: boolean }> {
-  // A finished event's document no longer changes; a live one does. Judge by when this copy was
-  // fetched: one saved mid-event stays short-lived even after the event ends.
+  // A finished event's document no longer changes; a live one does, most while a race is in progress. Judge by
+  // when this copy was fetched: one saved mid-event stays short-lived even after the event ends.
   const ttl = (body: unknown, fetchedAt: number): number => {
-    const end = (body as RegattaResponse).revisions?.at(-1)?.doc?.endDate;
-    return end && fetchedAt - end > DAY ? 7 * DAY : 2 * MINUTE;
+    const doc = (body as RegattaResponse).revisions?.at(-1)?.doc;
+    const end = doc?.endDate;
+    if (end && fetchedAt - end > DAY) return 7 * DAY;
+    return hasLiveGun(doc, fetchedAt) ? LIVE_REGATTA_TTL_MS : 2 * MINUTE;
   };
   return cachedJsonFrom<RegattaResponse>(`${PROXY_BASE}/regatta?event=${encodeURIComponent(eventId)}`, ttl, opts);
 }
@@ -57,22 +60,28 @@ export function feedDivision(name: string): string {
  * Telemetry for [after, before] (ms), paginated by advancing `after`
  * (exclusive). Pages overlap by 1 ms so rows sharing the boundary
  * timestamp aren't lost; the adapter de-duplicates. `division` is the display name (mapped by feedDivision).
+ * `fresh`: past our caches (a live race's refresh), stored as usual; `tail`: a live race's new end, past our caches
+ * and kept out of Cache Storage (a new window each minute). `finished` (the race over in the feed, or its event): its
+ * pages are kept 30 days, but only a copy fetched once settled (data/live.ts telemetrySettled: the window ended a day
+ * before, or the event, `eventEndMs`); any other copy a minute, so one fetched during a feed stall can't stick.
  */
 export async function fetchTelemetry(
   eventId: string,
   division: string | null,
   after: number,
   before: number,
-  opts: { signal?: AbortSignal; finished?: boolean; onPage?: (n: number, rows: number) => void } = {},
+  opts: { signal?: AbortSignal; finished?: boolean; eventEndMs?: number | null; fresh?: boolean; tail?: boolean; onPage?: (n: number, rows: number) => void } = {},
 ): Promise<TelemetryPage[]> {
   const pages: TelemetryPage[] = [];
   let cursor = Math.floor(after);
-  const ttl = opts.finished ? 30 * DAY : MINUTE;
+  const settled = (_body: unknown, fetchedAt: number): number => (telemetrySettled(before, fetchedAt, opts.eventEndMs ?? null) ? 30 * DAY : MINUTE);
+  const ttl = opts.tail ? 0 : opts.finished ? settled : MINUTE;
+  const fresh = !!(opts.fresh || opts.tail);
   for (let n = 0; n < MAX_PAGES; n++) {
     const p = new URLSearchParams({ after: String(cursor), before: String(Math.floor(before)), limit: String(PAGE) });
     if (division) p.set('division', feedDivision(division));
     const url = `${PROXY_BASE}/telemetry/event/${encodeURIComponent(eventId)}?${p}`;
-    const page = await cachedJson<TelemetryPage>(url, ttl, opts.signal);
+    const page = await cachedJson<TelemetryPage>(url, ttl, opts.signal, { fresh });
     pages.push(page);
     opts.onPage?.(n + 1, page.Rows?.length ?? 0);
     if (!page.Fields || !page.Rows || page.Rows.length < PAGE) break;

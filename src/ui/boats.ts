@@ -6,7 +6,7 @@ import type { Finding, RaceAnalysis, StartCompare } from '../analysis/types';
 import { boatColor, NC_COLOR } from './charts';
 import { ACT, ACT_KEY, ACT_MORE, ACT_ROW } from './act';
 import { esc } from './format';
-import { UNOFFICIAL_PLACE, codeShort, codeWords, isTracker, unofficialNoteHtml } from './resultText';
+import { UNOFFICIAL_PLACE, codeShort, codeWords, isTracker, noFinishYet, unofficialNoteHtml } from './resultText';
 
 /**
  * Boats set aside as not racing: a collapsed group under the competitors
@@ -43,8 +43,10 @@ export function boatList(a: RaceAnalysis, highlight: string | null, ncOpen = fal
       const name = b.name !== `#${b.sail}` ? `<span class="bname">${esc(b.name)}</span>` : '';
       // An official code (DSQ, DNF…) when linked; "~" marks a place from the tracks' finish-line crossings.
       const tracker = isTracker(a, b);
-      const pos = b.finishPos == null ? (codeShort(b) ?? 'DNF') : `${tracker ? '~' : ''}${b.finishPos}`;
-      const how = b.finishCode ? codeWords(b) : b.finishPos == null ? 'did not finish' : `finished ${b.finishPos}${tracker ? `, ${UNOFFICIAL_PLACE}` : ''}`;
+      // A race in progress: a boat with no finish (and no code) is still racing (in its pre-start before the gun).
+      const none = a.meta.inProgress ? noFinishYet(a.meta) : 'DNF';
+      const pos = b.finishPos == null ? (codeShort(b) ?? none) : `${tracker ? '~' : ''}${b.finishPos}`;
+      const how = b.finishCode ? codeWords(b) : b.finishPos == null ? (a.meta.inProgress ? noFinishYet(a.meta) : 'did not finish') : `finished ${b.finishPos}${tracker ? `, ${UNOFFICIAL_PLACE}` : ''}`;
       // An uploaded boat log (data/vkx): a small tag, the full words in the label.
       const log = b.log ? `from boat log · ${b.log.rateHz} Hz` : '';
       const label = `#${b.sail}${b.name !== `#${b.sail}` ? ` ${b.name}` : ''}, ${how}${log ? `, ${log}` : ''}`;

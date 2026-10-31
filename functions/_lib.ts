@@ -4,11 +4,19 @@
  * route. The handler in functions/api/[[path]].ts is the only entry.
  */
 
+import { hasLiveGun, telemetrySettled, type GunDoc } from '../src/data/live';
+
 export const UPSTREAM = 'https://racesense.vakaros.com/api/';
 export const TELE_UPSTREAM = 'https://teleapi.regatta.app/telemetry/event/';
 export const MIN = 60;
 export const DAY = 86_400;
 export const MAX_UPSTREAM_BYTES = 2_000_000;
+/** A race in progress (the open race's page refreshes each minute): its regatta document and official results, s. */
+export const LIVE_TTL = 30;
+/** …and its telemetry: a window still open, or the recent tail a refresh asks for, s. */
+export const LIVE_TELEMETRY_TTL = 20;
+/** A telemetry window starting this recently is a live race's tail, s. */
+export const LIVE_TAIL_S = 15 * 60;
 export const UA = 'StartLine/1 (+https://walkeforward.com)';
 
 export const ALLOWED: Record<string, readonly string[]> = {
@@ -118,8 +126,9 @@ const YS_RULES: Record<YsResource, Record<string, (v: string) => boolean>> = {
   },
   event: {},
   splits: { getAllRows: (v) => v === 'true' },
-  races: { size: YS_SIZE(200) },
-  results: { raceNumber: (v) => /^[1-9]\d{0,2}$/.test(v) },
+  // `live=1`: asked by the page refreshing a race in progress (src/ui/live.ts); never sent upstream, kept in the cache key (ysTtl).
+  races: { size: YS_SIZE(200), live: (v) => v === '1' },
+  results: { raceNumber: (v) => /^[1-9]\d{0,2}$/.test(v), live: (v) => v === '1' },
   cumulative: {},
   boats: { size: YS_SIZE(200) },
 };
@@ -180,12 +189,21 @@ export function latestDate(x: unknown, depth = 0): number {
 
 /**
  * Searches: 1 h. Everything else: 7 days once the event has been quiet for 2 days (its end date,
- * last start, last finish and last edit all older than that); 5 min while it is current.
+ * last start, last finish and last edit all older than that); 5 min while it is current, LIVE_TTL for
+ * a `live` ask (a race in progress being refreshed).
  */
-export function ysTtl(resource: YsResource, body: unknown, now = Date.now()): number {
+export function ysTtl(resource: YsResource, body: unknown, now = Date.now(), live = false): number {
   if (resource === 'search') return HOUR;
   const last = latestDate(body);
-  return Number.isFinite(last) && now - last > 2 * DAY * 1000 ? 7 * DAY : 5 * MIN;
+  if (Number.isFinite(last) && now - last > 2 * DAY * 1000) return 7 * DAY;
+  return live ? LIVE_TTL : 5 * MIN;
+}
+
+/** The query Yachtscoring sees: `live` is ours (the cache key keeps it). */
+export function ysUpstreamQuery(qs: URLSearchParams): URLSearchParams {
+  const out = new URLSearchParams(qs);
+  out.delete('live');
+  return out;
 }
 
 /** Drop unknown params, validate the rest, require the ones each endpoint needs. */
@@ -247,18 +265,24 @@ export function ttlFor(path: string, qs: URLSearchParams, body: string): number 
     return Number.isFinite(end) && Date.now() - end > 2 * DAY * 1000 ? 30 * DAY : 6 * 3600;
   }
   try {
-    const doc = (JSON.parse(body) as { revisions?: { doc?: { endDate?: number } }[] }).revisions?.at(-1)?.doc;
+    const doc = (JSON.parse(body) as { revisions?: { doc?: GunDoc & { endDate?: number } }[] }).revisions?.at(-1)?.doc;
     if (doc?.endDate && Date.now() - doc.endDate > DAY * 1000) return 7 * DAY;
+    // A race in progress, or in its start sequence (data/live.ts gunLive): its gun, finishes and end come in on this document.
+    if (hasLiveGun(doc, Date.now())) return LIVE_TTL;
   } catch {
     /* not JSON: short */
   }
   return 2 * MIN;
 }
 
-/** Past race windows can sit in the edge cache; a live window stays short. */
-export function telemetryTtl(qs: URLSearchParams): number {
+/** Past race windows can sit in the edge cache; a live window (still open, or a live race's recent tail) stays shortest. */
+export function telemetryTtl(qs: URLSearchParams, now = Date.now()): number {
   const before = Number(qs.get('before') ?? '');
-  return Number.isFinite(before) && Date.now() - before > DAY * 1000 ? 7 * DAY : MIN;
+  const after = Number(qs.get('after') ?? '');
+  // Settled (the window ended a day ago, data/live.ts telemetrySettled, as the browser judges it): long.
+  if (Number.isFinite(before) && telemetrySettled(before, now)) return 7 * DAY;
+  if (before > now || after > now - LIVE_TAIL_S * 1000) return LIVE_TELEMETRY_TTL;
+  return MIN;
 }
 
 export function looksLikeJson(body: string): boolean {

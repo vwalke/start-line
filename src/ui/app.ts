@@ -15,8 +15,9 @@ import { linkOfficial, type LinkOutcome } from '../data/official/link';
 import { httpYsSource, parseYsEventId } from '../data/official/yachtscoring';
 import { PROBE_BUDGET, discoverOrphans, isOrphanKey, type OrphanFound } from '../data/orphans';
 import { buildRaceList, findListed, type ListedRace, type RaceList } from '../data/raceList';
-import { currentDoc, defaultRace, findRace, listRaces } from '../data/racesense/adapter';
-import { fetchLanding, fetchUsableRegatta } from '../data/racesense/api';
+import { NO_TRACKS, currentDoc, defaultRace, findRace, listRaces, tzOffsetMs } from '../data/racesense/adapter';
+import { fetchLanding, fetchRegatta, fetchUsableRegatta } from '../data/racesense/api';
+import { gunLive, liveTag, raceLive, unaccountedBoats } from '../data/live';
 import type { LandingEvent, RegattaDoc, RegattaResponse } from '../data/racesense/types';
 import { eventFinished, linkRequest, linksOf, mergeOrphans, officialFor, officialForLoad, orphanContexts, probeFetcher } from '../data/recovery';
 import { raceWindowsFromListed } from '../data/vkx/match';
@@ -168,6 +169,8 @@ import { gunReadoutHtml } from './gunReadout';
 import { ATTEMPT_PARAM, attemptNumbered, earlierAttempts, parseAttemptParam, type EarlierAttempt } from '../data/attempts';
 import { attemptButtonsHtml, attemptNote, attemptTitle } from './attemptView';
 import { latestLoader } from './latestOnly';
+import { keepScroll } from './keepScroll';
+import { liveArmDelay, liveLabel, liveScrubT, liveView, startLivePoller, waitingNotice, type LivePoller, type LiveTick } from './live';
 import { biasBullets, lineChips } from './startLine';
 import { downloadSvgAsPng, pageCss, startPngName, startPngSvg } from './startPng';
 import { PLACE_TIP_MOUSE_REACH, PLACE_TIP_TOUCH_REACH, nearestPlaceDot, placesChart, placesKey } from './places';
@@ -409,14 +412,19 @@ export function startApp(): void {
     }
     if (msg.id !== reqId || msg.type === 'coach-raw' || msg.type === 'regatta-race' || msg.type === 'full-rate' || msg.type === 'start-replay' || msg.type === 'attempt') return; // a newer request superseded this one
     const p = pending.get(msg.id);
-    if (msg.type === 'progress') setStatus(msg.message);
-    else if (msg.type === 'done') p?.resolve(msg.analysis);
+    // A live race's refresh runs in the background: no status line.
+    if (msg.type === 'progress') {
+      if (msg.id !== quietReq) setStatus(msg.message);
+    } else if (msg.type === 'done') p?.resolve(msg.analysis);
     else if (msg.type === 'error') p?.reject(new Error(msg.message));
     if (msg.type !== 'progress') pending.delete(msg.id);
   };
-  const run = (req: DistributiveOmit<WorkerRequest, 'id'>): Promise<RaceAnalysis> =>
+  /** The worker request of a live race's refresh in flight (its progress isn't shown). */
+  let quietReq = 0;
+  const run = (req: DistributiveOmit<WorkerRequest, 'id'>, quiet = false): Promise<RaceAnalysis> =>
     new Promise((resolve, reject) => {
       const id = ++reqId;
+      if (quiet) quietReq = id;
       for (const p of pending.values()) p.reject(new Error(SUPERSEDED));
       pending.clear();
       pending.set(id, { resolve, reject });
@@ -464,6 +472,17 @@ export function startApp(): void {
   );
 
   let analysis: RaceAnalysis | null = null;
+  // ---- A race in progress (data/live.ts raceLive, ui/live.ts): refreshed about each minute while on screen (refreshLive).
+  /** The live race on screen: its poller, when it was last brought up to date (load or refresh) and how many refreshes. */
+  let live: { key: string; poller: LivePoller; updatedMs: number; refreshes: number } | null = null;
+  /**
+   * A race opened before any boat's track is in (its gun to come, mostly: waitForTracks): tried again each minute (`poller`)
+   * from its live window on, a timer (`arm`) until then.
+   */
+  let waiting: { key: string; poller: LivePoller | null; arm: ReturnType<typeof setTimeout> | undefined } | null = null;
+  /** The live mark the gun line has now (renderSummary). */
+  let liveMarkShown = '';
+  const liveKeyOf = (c: { eventId: string; division: string; raceNumber: number }): string => `${c.eventId}|${c.division}|${c.raceNumber}`;
   /** The one selected boat, shared by the boat list, both charts, the table and the findings. */
   let highlight: string | null = null;
   /** The legs and start tables' sorts (null = finish order) and the map's leg filter; all reset per race. */
@@ -626,7 +645,7 @@ export function startApp(): void {
   function renderRaceHead(): void {
     const m = analysis?.meta;
     const race = m && (m.eventId == null || m.eventId === eventId) ? listedOf(m.division, m.raceNumber) : undefined;
-    const k = raceHead({ race, official, feed, results: m?.results, ys: ysParam ?? null });
+    const k = raceHead({ race, official, feed, results: m?.results, ys: ysParam ?? null, inProgress: !!m?.inProgress });
     renderKeepOpen(els.raceHead, (open) => raceHeadHtml(k, open));
     els.raceHead.hidden = !m;
   }
@@ -647,7 +666,8 @@ export function startApp(): void {
     if (!a) return;
     const m = a.meta;
     const listed = m.eventId == null || m.eventId === eventId ? listedOf(m.division, m.raceNumber) : undefined;
-    els.summary.innerHTML = `${raceTitleHtml(m, listed, paywall.free(m.eventId ?? eventId))}
+    liveMarkShown = liveMarkHtml();
+    els.summary.innerHTML = `${raceTitleHtml(m, listed, paywall.free(m.eventId ?? eventId), titleLive(m, listed), liveMarkShown)}
       <p>${esc(gunTimeLine(m.gunMs, m.tzOffsetMs))} ·
       ${a.boats.length} boats · ${legCount(a.legs.length)} ·
       <span class="muted">${esc(m.sourceLabel)}</span>${raceEmailsToggle(m.eventId ?? eventId)}</p>`;
@@ -668,6 +688,7 @@ export function startApp(): void {
   function renderNow(): void {
     const a = analysis;
     if (!a) return;
+    syncRacing();
     renderSummary();
     renderStart();
     els.startColour.innerHTML = startColourControls(startColour) + startNamesControls(startNames);
@@ -758,6 +779,8 @@ export function startApp(): void {
     },
   );
 
+  const coachModelOf = (a: RaceAnalysis, raw: CoachRaw | null): CoachModel | null =>
+    buildCoach(a, raw?.wind, raw?.crossMs ?? null, raw?.zones ?? null, raw?.heel ?? null, raw?.turns ?? null, raw?.overStart ?? null);
   /** True when the coach model of `a` is ready; else starts building it (the wind from the worker) and re-renders when done. */
   function ensureCoach(a: RaceAnalysis): boolean {
     if (coach?.a === a) return true;
@@ -766,7 +789,7 @@ export function startApp(): void {
     void coachRawOf(raceKeyOf(a)).then((raw) => {
       if (coachBuilding !== a) return;
       coachBuilding = null;
-      coach = { a, model: buildCoach(a, raw?.wind, raw?.crossMs ?? null, raw?.zones ?? null, raw?.heel ?? null, raw?.turns ?? null, raw?.overStart ?? null) };
+      coach = { a, model: coachModelOf(a, raw) };
       if (analysis === a) {
         renderCoach();
         renderReport();
@@ -2645,6 +2668,9 @@ export function startApp(): void {
     // Don't replaceState until this race is on screen: a kill mid-switch keeps the last
     // successful race in both the URL and recall.lastView (and not the half-switched one).
     const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: userLeg(), boat: highlight, sort, startSort }, restore);
+    // Another race: the live one's refreshes (or tries) stop (a reload of the same race keeps them).
+    const key = liveKeyOf({ eventId: id, division, raceNumber });
+    if ((live && live.key !== key) || (waiting && waiting.key !== key)) stopLive();
     try {
       await paywall.ready;
       if (baseRegatta && paywall.locked(freeOf(baseRegatta), id, division, raceNumber)) {
@@ -2667,6 +2693,8 @@ export function startApp(): void {
       setUrl({ event: id, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
       save();
       setNotice('');
+      stopWaiting();
+      syncLive(true);
       reapplyOfficial();
       return 'ok';
     } catch (e) {
@@ -2678,6 +2706,9 @@ export function startApp(): void {
         void paywall.refresh();
         return 'ok';
       }
+      // Opened before its boats are out (its start sequence, say): tried again each minute, and on live from there.
+      if (id === eventId && (e as Error).message === NO_TRACKS && waitForTracks(division, raceNumber)) return e as Error;
+      if (waiting?.key === key) stopWaiting();
       // Keep the event/race picker so another race can be tried.
       setNotice(`Couldn't load that race (${(e as Error).message}).`);
       return e as Error;
@@ -2698,6 +2729,7 @@ export function startApp(): void {
   /** The lock card for a race of the loaded event (the URL names it, so a reload or a shared link comes back to it). */
   function showLocked(division: string, raceNumber: number): void {
     if (!regatta || !baseRegatta) return;
+    stopLive();
     current = { eventId, division, raceNumber };
     setUrl({ event: eventId, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
     racePage(true);
@@ -2741,14 +2773,19 @@ export function startApp(): void {
     els.count.classList.toggle('none', q.trim() !== '' && matchCount === 0);
   }
 
+  /** The Race select's options as last written. */
+  let raceOptionsHtml = '';
   /** The Race select from the race list (official numbers, practice, rebuilt races), keeping the selection. */
   function renderRaceOptions(): void {
     if (!raceList) return;
     const keep = els.race.value;
     const multi = new Set(raceList.races.map((r) => r.division)).size > 1;
-    els.race.innerHTML = raceList.races
-      .map((r) => `<option value="${esc(r.division)}|${r.raceNumber}">${esc(raceOptionText(r, multi))}</option>`)
-      .join('');
+    const html = raceList.races.map((r) => `<option value="${esc(r.division)}|${r.raceNumber}">${esc(raceOptionText(r, multi))}</option>`).join('');
+    // Unchanged (a live race's refresh, mostly): left alone, so a menu open stays open.
+    if (html !== raceOptionsHtml) {
+      raceOptionsHtml = html;
+      els.race.innerHTML = html;
+    }
     const values = new Set(raceList.races.map((r) => `${r.division}|${r.raceNumber}`));
     if (values.has(keep)) els.race.value = keep;
     else if (current && values.has(`${current.division}|${current.raceNumber}`)) els.race.value = `${current.division}|${current.raceNumber}`;
@@ -2767,6 +2804,7 @@ export function startApp(): void {
     renderCoach();
     renderReport();
     reapplyOfficial();
+    syncLive();
   }
 
   /** The race on screen was analysed without (or with) official results it should (not) have: load it again, keeping the view. */
@@ -2775,6 +2813,277 @@ export function startApp(): void {
     if (!a || !current || a.meta.division !== current.division || a.meta.raceNumber !== current.raceNumber || current.eventId !== eventId) return;
     const want = officialFor(outcomeOf(), listedOf(current.division, current.raceNumber)) != null;
     if (want !== (a.meta.results?.places === 'official')) void loadRace(current.division, current.raceNumber);
+  }
+
+  // ---- The live race's refreshes (`live` above).
+
+  /** Whether the race on screen is in progress, its start sequence included (a rebuilt race or a locked one never is). */
+  function isLiveNow(): boolean {
+    const a = analysis;
+    const c = current;
+    if (!a || !c || !regatta || c.eventId !== eventId || paywall.lockShown() || isOrphanKey(c.raceNumber)) return false;
+    if (a.meta.division !== c.division || a.meta.raceNumber !== c.raceNumber) return false;
+    const listed = listedOf(c.division, c.raceNumber);
+    if (!listed) return false;
+    const outcome = outcomeOf();
+    return raceLive(
+      {
+        gunMs: listed.gunMs,
+        feedFinished: listed.finished,
+        eventOver: eventFinished(currentDoc(regatta)),
+        unaccounted: unaccountedBoats(a.boats),
+        officialWanted: official.status === 'pending' || linksOf(outcome).has(c.division),
+        officialIn: officialFor(outcome, listed) != null,
+      },
+      Date.now(),
+    );
+  }
+
+  /**
+   * The race shown reads as still being sailed (meta.inProgress: no DNF for a boat with no finish yet, no "no
+   * finishes" warning) while it is live by the app's rule; true when that changed.
+   */
+  function syncRacing(): boolean {
+    const a = analysis;
+    if (!a) return false;
+    const on = isLiveNow();
+    if (!!a.meta.inProgress === on) return false;
+    a.meta.inProgress = on;
+    return true;
+  }
+
+  function stopWaiting(): void {
+    if (!waiting) return;
+    waiting.poller?.stop();
+    clearTimeout(waiting.arm);
+    waiting = null;
+  }
+
+  /**
+   * A race of the loaded event with no boat's track yet (loadRace: NO_TRACKS), its gun to come or in its live window
+   * (data/live.ts gunLive): the notice says when its gun is, and from PRE_GUN_MS before it (ui/live.ts liveArmDelay) it's
+   * tried again each minute (the event's document afresh, for a gun moved) until it loads, then refreshed live
+   * (syncLive); false when it isn't such a race.
+   */
+  function waitForTracks(division: string, raceNumber: number): boolean {
+    const listed = regatta ? listedOf(division, raceNumber) : undefined;
+    const now = Date.now();
+    if (!regatta || !listed || isOrphanKey(raceNumber) || eventFinished(currentDoc(regatta)) || !(listed.gunMs > now || gunLive(listed.gunMs, now))) return false;
+    const tz = tzOffsetMs(findRace(currentDoc(regatta), { division, raceNumber }).race.timezoneOffset);
+    setNotice(waitingNotice(raceName(listed), listed.gunMs, tz, now));
+    const key = liveKeyOf({ eventId, division, raceNumber });
+    if (waiting?.key === key) return true;
+    stopWaiting();
+    const w: NonNullable<typeof waiting> = { key, poller: null, arm: undefined };
+    waiting = w;
+    const begin = (): void => {
+      if (waiting !== w) return;
+      const wait = liveArmDelay(listed.gunMs, Date.now());
+      if (wait != null) {
+        w.arm = setTimeout(begin, wait);
+        return;
+      }
+      w.poller = startLivePoller({
+        tick: () => retryWaiting(key, division, raceNumber),
+        hidden: () => document.visibilityState === 'hidden',
+        onVisibility: (cb) => {
+          document.addEventListener('visibilitychange', cb);
+          return () => document.removeEventListener('visibilitychange', cb);
+        },
+      });
+    };
+    begin();
+    return true;
+  }
+
+  /** One try of the race waited for (waitForTracks): the event's document afresh, then the race loaded. */
+  async function retryWaiting(key: string, division: string, raceNumber: number): Promise<LiveTick> {
+    if (waiting?.key !== key || liveKeyOf({ eventId, division, raceNumber }) !== key) return 'done';
+    // A load or the event's linking under way goes first.
+    if (pending.size || official.status === 'pending' || feed.status === 'running') return 'more';
+    const id = eventId;
+    const req = eventReq;
+    const next = await fetchRegatta(id, undefined, { fresh: true });
+    if (id !== eventId || req !== eventReq || waiting?.key !== key) return 'done';
+    baseRegatta = next;
+    regatta = mergeOrphans(next, orphansFound ?? new Map<string, OrphanFound[]>());
+    raceList = buildRaceList(currentDoc(regatta), { links: linksOf(outcomeOf()), ...(orphansFound ? { orphans: orphansFound } : {}) });
+    renderRaceOptions();
+    return (await loadRace(division, raceNumber)) === 'ok' ? 'done' : 'more';
+  }
+
+  /** Everything live stops: the race on screen's refreshes and a race waited for (another race or event opened). */
+  function stopLive(): void {
+    stopWaiting();
+    stopPolling();
+  }
+
+  /** The race on screen's refreshes stop. */
+  function stopPolling(): void {
+    if (!live) return;
+    live.poller.stop();
+    live = null;
+    renderLiveMark();
+  }
+
+  /** Start (or keep, or stop) the poller for the race on screen; `loaded`: it was just loaded in full (up to date now). */
+  function syncLive(loaded = false): void {
+    const key = current && isLiveNow() ? liveKeyOf(current) : null;
+    if (live && live.key !== key) stopPolling();
+    if (key && !live) {
+      live = {
+        key,
+        updatedMs: Date.now(),
+        refreshes: 0,
+        poller: startLivePoller({
+          tick: () => refreshLive(key),
+          hidden: () => document.visibilityState === 'hidden',
+          onVisibility: (cb) => {
+            document.addEventListener('visibilitychange', cb);
+            return () => document.removeEventListener('visibilitychange', cb);
+          },
+        }),
+      };
+    } else if (live && loaded) live.updatedMs = Date.now();
+    // Became (or stopped being) a race in progress: its labels follow.
+    if (syncRacing()) render();
+    else renderLiveMark();
+  }
+
+  /** The title's "Live" tag (data/live.ts liveTag) for the race shown, from the loaded event's list and official results. */
+  function titleLive(m: RaceAnalysis['meta'], listed: ListedRace | undefined): boolean {
+    if (!listed || !regatta || (m.eventId != null && m.eventId !== eventId)) return false;
+    const outcome = outcomeOf();
+    return liveTag(
+      {
+        gunMs: listed.gunMs,
+        eventOver: eventFinished(currentDoc(regatta)),
+        officialIn: officialFor(outcome, listed) != null,
+        officialWanted: linksOf(outcome).has(listed.division),
+      },
+      Date.now(),
+    );
+  }
+
+  /** "updated 11:32" after the title (and its Live tag) while the race on screen is refreshed; nothing otherwise. */
+  function liveMarkHtml(): string {
+    const a = analysis;
+    if (!live || !a || !current || liveKeyOf(current) !== live.key) return '';
+    return ` <span class="race-live" data-live-updated="${new Date(live.updatedMs).toISOString()}">${esc(liveLabel(live.updatedMs, a.meta.tzOffsetMs))}</span>`;
+  }
+  /** The live mark, and on the digest the last update (ISO) and refresh count, for checking a page by hand. */
+  function renderLiveMark(): void {
+    const html = liveMarkHtml();
+    if (live && html) {
+      els.digest.dataset.liveUpdated = new Date(live.updatedMs).toISOString();
+      els.digest.dataset.liveRefreshes = String(live.refreshes);
+    } else {
+      delete els.digest.dataset.liveUpdated;
+      delete els.digest.dataset.liveRefreshes;
+    }
+    if (html !== liveMarkShown) renderSummary();
+  }
+
+  /**
+   * One refresh of the live race `key`: the regatta document afresh, the official results linked again (the race's
+   * own asked for afresh), then the race analysed again in the worker (only its telemetry's new end fetched) and
+   * shown keeping the view (swapLive). Waits its turn while a load or the event's linking is under way; a load of
+   * anything else since drops it. Errors go to the poller (it backs off); nothing is said on screen.
+   */
+  async function refreshLive(key: string): Promise<LiveTick> {
+    const c = current;
+    const was = analysis;
+    if (!c || !was || liveKeyOf(c) !== key || c.eventId !== eventId || live?.key !== key) return 'done';
+    // Past the live span (refreshes failing all along, say): stop.
+    if (!isLiveNow()) {
+      syncLive();
+      return 'done';
+    }
+    if (pending.size || official.status === 'pending' || feed.status === 'running') return 'more';
+    const id = eventId;
+    const req = eventReq;
+    const gen = showGen;
+    const stale = (): boolean => id !== eventId || req !== eventReq || gen !== showGen || analysis !== was || live?.key !== key;
+    const next = await fetchRegatta(id, undefined, { fresh: true });
+    if (stale()) return 'more';
+    const doc = currentDoc(next);
+    let outcome = outcomeOf();
+    if (official.status === 'done') {
+      const ys = outcome?.status === 'linked' ? { eventId: outcome.eventId, raceNumber: listedOf(c.division, c.raceNumber)?.officialNumber ?? null } : null;
+      const override = ysParam ? { eventId: ysParam, cls: yscParam ?? null } : null;
+      const got = await linkOfficial(httpYsSource(undefined, ys), linkRequest(doc, events.find((e) => e.eventId === id), override));
+      if (stale()) return 'more';
+      // A failed link keeps the results linked before.
+      if (got.status === 'linked' || outcome?.status !== 'linked') outcome = got;
+    }
+    const reg = mergeOrphans(next, orphansFound ?? new Map<string, OrphanFound[]>());
+    const list = buildRaceList(currentDoc(reg), { links: linksOf(outcome), ...(orphansFound ? { orphans: orphansFound } : {}) });
+    const listed = findListed(list, c.division, c.raceNumber);
+    if (!listed) return 'done';
+    const off = officialFor(outcome, listed);
+    const logs = vkx.buffersFor(id, c.division, c.raceNumber);
+    const classLabel = events.find((e) => e.eventId === id)?.classLabel;
+    // A load asked for meanwhile goes first (this one would supersede it in the worker).
+    if (pending.size) return 'more';
+    let a: RaceAnalysis;
+    try {
+      a = await run(
+        { type: 'live', eventId: id, regatta: reg, division: c.division, raceNumber: c.raceNumber, allCompetitors, classLabel, refresh: true, ...(off ? { official: off } : {}), ...(logs.length ? { vkx: logs } : {}) },
+        true,
+      );
+    } catch (e) {
+      if (isSuperseded(e)) return 'more';
+      throw e;
+    }
+    if (stale()) return 'more';
+    // The Coach's model and the map's full-rate tracks, when shown for the race before, are made for the new one before
+    // it goes on screen (the worker holds it now), so neither blanks out meanwhile.
+    const coachWas = coach?.a === was ? coach : null;
+    const fullWas = fullRate?.a === was && fullRate.set ? fullRate : null;
+    const [raw, tracks] = await Promise.all([coachWas ? coachRawOf(raceKeyOf(a)) : null, fullWas ? fullRateOf(a) : null]);
+    if (stale()) return 'more';
+    baseRegatta = next;
+    regatta = reg;
+    if (official.status === 'done' && outcome) official = { status: 'done', outcome };
+    raceList = list;
+    renderRaceOptions();
+    if (live?.key === key) {
+      live.updatedMs = Date.now();
+      live.refreshes++;
+    }
+    swapLive(was, a, coachWas ? coachModelOf(a, raw) : undefined, fullWas ? new Map((tracks ?? []).map((tk) => [tk.id, tk])) : undefined);
+    syncLive();
+    return live?.key === key ? 'more' : 'done';
+  }
+
+  /**
+   * Put a live race's refreshed analysis `a` on screen in place of `was` (the same race), keeping the view: the boat,
+   * tab, leg selection and any leg's view or card window, sorts, both charts' zoom (the map's Fit grows with the new
+   * fixes), the scrubber (following the new end when it was at the end), playback and every scrolled list or table; no
+   * loading state, no URL change.
+   */
+  function swapLive(was: RaceAnalysis, a: RaceAnalysis, model: CoachModel | null | undefined, full: FullRateSet | undefined): void {
+    const oldEnd = scrubWindow(was).t1;
+    analysis = a;
+    if (model !== undefined) {
+      const before = coach?.model ?? null;
+      coach = { a, model };
+      coachBuilding = null;
+      // The card picked stays picked (renderCoach keeps coachSel while the debrief it indexes is this one).
+      if (model && coachDeb && coachDeb.model === before) coachDeb = { model, boat: coachDeb.boat, d: coachDebrief(a, model, coachDeb.boat) };
+    }
+    if (full) fullRate = { a, set: full };
+    // The over-early starts don't change with the race's later fixes: kept (a replay open stays open).
+    if (replays?.a === was) replays = { a, list: replays.list };
+    if (mapFit && mapFitFor?.a === was) {
+      const prev = mapFit;
+      mapFitFor = { a, leg: mapFitFor.leg };
+      mapFit = mapBox(a, mapFitFor.leg);
+      syncMapView(liveView(prev, mapView, mapFit));
+    }
+    scrubT = liveScrubT(scrubT, oldEnd, scrubWindow(a));
+    // The boat list, tables and other boxes rebuilt stay scrolled where they were.
+    keepScroll(els.digest, render);
   }
 
   let orphansFound: Map<string, OrphanFound[]> | null = null;
@@ -2940,9 +3249,11 @@ export function startApp(): void {
     setTrackPage({ event: id });
     cardEventId = id;
     cardDoc = doc;
+    stopLive();
     els.digest.hidden = true;
     paywall.hideLock();
     els.race.innerHTML = '<option>—</option>';
+    raceOptionsHtml = '';
     els.race.disabled = true;
     setStatus('');
     setNotice('');
@@ -3028,10 +3339,12 @@ export function startApp(): void {
     if (playing) stopPlay(false);
     pickerShown = true;
     current = null;
+    stopLive();
     hideEventCard();
     paywall.hideLock();
     els.digest.hidden = true;
     els.race.innerHTML = '<option>—</option>';
+    raceOptionsHtml = '';
     els.race.disabled = true;
     setStatus('');
     setNotice('');

@@ -73,7 +73,7 @@ function orderPlaces(times: (number | null)[], tie: (number | null)[]): (number 
   return out;
 }
 
-export function placeChanges(a: Pick<RaceAnalysis, 'legs' | 'boats'>): PlaceChanges {
+export function placeChanges(a: Pick<RaceAnalysis, 'legs' | 'boats'> & { meta?: Pick<RaceAnalysis['meta'], 'inProgress'> }): PlaceChanges {
   const columns = placeColumns(a.legs);
   const cols: (number | null)[][] = columns.map((c) => {
     if (c.kind === 'start') return a.boats.map((b) => b.start?.startPlace ?? null);
@@ -102,7 +102,8 @@ export function placeChanges(a: Pick<RaceAnalysis, 'legs' | 'boats'>): PlaceChan
       gains,
       since,
       lastCol: prev,
-      dnf: finishRank(b) == null,
+      // A race in progress: no finish yet is still racing.
+      dnf: finishRank(b) == null && !a.meta?.inProgress,
       net: first >= 0 && prev > first ? places[first]! - places[prev]! : null,
     };
   });

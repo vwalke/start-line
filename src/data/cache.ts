@@ -110,8 +110,10 @@ export async function cachedJsonFrom<T>(url: string, ttlMs: Ttl, opts: CacheOpts
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`);
   const text = await res.text();
   const body = JSON.parse(text) as T;
-  remember(url, now, body, text.length);
-  if (cache && ttl(body, now) > 0) {
+  // A ttl of 0 (a live race's tail, a new URL each minute) is kept nowhere.
+  const keep = ttl(body, now) > 0;
+  if (keep) remember(url, now, body, text.length);
+  if (cache && keep) {
     const stored = new Response(text, { headers: { 'content-type': 'application/json', [FETCHED_AT]: String(now) } });
     cache.put(url, stored).catch(() => undefined);
   }

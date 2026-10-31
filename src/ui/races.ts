@@ -48,10 +48,21 @@ export const rsSuffix = (r: Pick<ListedRace, 'practice' | 'number' | 'rsNumber'>
   r.rsNumber != null && (r.practice || r.number !== r.rsNumber) && !(r.number == null && !r.practice) ? `RS ${r.rsNumber}` : null;
 
 /** The race header's title: event · class · race name (as the picker names it), with RaceSense's number as a small tag when it differs. */
-export function raceTitleHtml(m: { eventName: string; boatClass: string; raceNumber: number }, listed: ListedRace | undefined, free = false): string {
+/**
+ * The race title. `live` (data/live.ts liveTag): a small "Live" tag after it, until official results are in; `after`:
+ * markup to follow it in the title (the refresh's quiet "updated 11:32", app.ts).
+ */
+export function raceTitleHtml(
+  m: { eventName: string; boatClass: string; raceNumber: number },
+  listed: ListedRace | undefined,
+  free = false,
+  live = false,
+  after = '',
+): string {
   const rs = listed ? rsSuffix(listed) : null;
   const title = listed ? raceName(listed) : isOrphanKey(m.raceNumber) ? 'Race' : `Race ${m.raceNumber}`;
-  return `<h2>${esc(m.eventName)}${free ? ' <span class="free-tag">Free</span>' : ''} · ${esc(m.boatClass)} · ${esc(title)}${rs ? ` <span class="rs-no">${esc(rs)}</span>` : ''}</h2>`;
+  const tag = live ? ' <span class="live-tag">Live</span>' : '';
+  return `<h2>${esc(m.eventName)}${free ? ' <span class="free-tag">Free</span>' : ''} · ${esc(m.boatClass)} · ${esc(title)}${rs ? ` <span class="rs-no">${esc(rs)}</span>` : ''}${tag}${after}</h2>`;
 }
 
 /** The picker's option: `Race 4 · Wed 11:40 · RS 5`, `Practice · Mon 09:55`, `Race 8 · Fri 09:55 · rebuilt`. */
@@ -85,7 +96,7 @@ export interface RaceHead {
 const listOf = (xs: readonly string[]): string => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 /** The header's chips and ⓘ for the race on screen. */
-export function raceHead(o: { race: ListedRace | undefined; official: OfficialState; feed: FeedCheck; results?: RaceResults; ys?: number | null }): RaceHead {
+export function raceHead(o: { race: ListedRace | undefined; official: OfficialState; feed: FeedCheck; results?: RaceResults; ys?: number | null; inProgress?: boolean }): RaceHead {
   const { race, official, feed, results } = o;
   const chips: Chip[] = [];
   const bullets: string[] = [];
@@ -152,7 +163,8 @@ export function raceHead(o: { race: ListedRace | undefined; official: OfficialSt
     if (results.times !== 'official') bullets.push(`Official finish times not used (${results.timesNote ?? 'not plausible'}): RaceSense’s finishes, else the tracks’ finish-line crossings (~).`);
     else bullets.push('Official finish times agree with the tracks’ finish-line crossings (median within a minute), so they are used.');
     if (results.officialNoTrack?.length) bullets.push(`In the official results without a track here: ${listOf(results.officialNoTrack)}.`);
-  } else if (results?.places === 'tracker' && !results.trackerFinishes) {
+  } else if (results?.places === 'tracker' && !results.trackerFinishes && !o.inProgress) {
+    // (A race still being sailed has no finishes yet: nothing to warn about.)
     // Tracker finishes themselves are explained where the places are (the ~ note), not here.
     chips.push(warnChip('no finishes'));
     bullets.push('Neither RaceSense nor the tracks give finishes for this race (no finish-line crossing found).');

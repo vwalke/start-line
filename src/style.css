@@ -296,6 +296,11 @@ input[type='search']:disabled, select:disabled { opacity: 0.6; }
 #digest.loading { opacity: 0.45; transition: opacity 0.2s; }
 #summary h2 { font-size: 1.2rem; margin: 10px 0 2px; }
 #summary p { margin: 0 0 10px; color: var(--ink-2); font-size: 0.9rem; }
+/* The race title's Live tag until official results are in (data/live.ts liveTag), and while it's refreshed each minute
+   (ui/live.ts) a quiet "updated 11:32" after it. */
+#summary h2 .live-tag { font-size: 0.7rem; font-weight: 600; color: var(--good); background: var(--good-bg); vertical-align: middle; padding: 1px 6px; border-radius: 999px; margin-left: 4px; white-space: nowrap; }
+#summary h2 .live-tag::before { content: ''; display: inline-block; width: 0.45em; height: 0.45em; margin-right: 0.3em; border-radius: 50%; background: currentColor; vertical-align: 0.1em; }
+#summary h2 .race-live { font-size: 0.75rem; font-weight: 400; color: var(--ink-3); vertical-align: middle; margin-left: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .muted { color: var(--ink-3); }
 
 /* Boat list on the left, the digest beside it; charts stacked full width of the content column. */

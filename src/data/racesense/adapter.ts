@@ -25,7 +25,7 @@ import {
   type MarkSeries,
   type Plausibility,
 } from '../finishes';
-import { holeFinish, lineFix, withLineFix } from '../holeFinish';
+import { finishPoint, holeFinish, lineFix, withLineFix } from '../holeFinish';
 import { finishedWithCode } from '../official/codes';
 import type { OfficialResultRow } from '../official/link';
 import type { Boat, CourseMark, EntryResults, LatLon, Line, MarkTrack, RaceData, RaceResults, RcStart, Track, WindSample } from '../types';
@@ -199,6 +199,9 @@ export function telemetryWindow(doc: RegattaDoc, ref: RaceRef): { after: number;
   const end = Math.min(st.startTime + NO_FINISH_WINDOW_MS, next != null ? next - 60_000 : Infinity);
   return { after: st.startTime - PRE_START_FETCH_MS, before: Math.max(end, st.startTime + 20 * 60_000) };
 }
+
+/** buildRaceData's error for a race with no boat's track (one opened before its boats are out, say). */
+export const NO_TRACKS = 'No boat tracks in the telemetry for this race';
 
 /** Firestore carries a 10-hex-digit serial; telemetry's `sn` is its low 16 bits as a number. */
 export function snFromHex(hex: string): number {
@@ -1414,7 +1417,7 @@ export function buildRaceData(
       ...(entries.has(sail) ? { entry: entries.get(sail)! } : {}),
     });
   }
-  if (!boats.length) throw new Error('No boat tracks in the telemetry for this race');
+  if (!boats.length) throw new Error(NO_TRACKS);
 
   const [lLat, lLon] = st.startLine.leftEnd;
   const [rLat, rLon] = st.startLine.rightEnd;
@@ -1477,6 +1480,14 @@ export function buildRaceData(
         const w = lastLegFrom(fx, lineAt, gunMs, endMs, feedRn, floor, axisDeg);
         const fix = w && lineFix(fx, lineAt, b.finishMs, w.from);
         if (fix) b.track = withLineFix(b.track, fix);
+        else {
+          // Display only: where it crossed the line then, so a finish between fixes far apart is drawn through it
+          // (analysis/finishThrough.ts): the device's own point for its own finish time, else one on the line along its track.
+          const f = finishes.get(b.sail);
+          const pos = f && Date.parse(f.finishingTime) === b.finishMs ? f.positionAtFinish?.coordinates : null;
+          const at = pos && Number.isFinite(pos[0]) && Number.isFinite(pos[1]) ? { lat: pos[1], lon: pos[0] } : finishPoint(fx, lineAt, b.finishMs);
+          if (at) b.finishAt = at;
+        }
       } else {
         // Display only: a boat with no accepted finish is drawn to its own crossing of the finish line (Boat.lineCrossMs),
         // found as tracker finishes are (the stage onset, else its last visit to the far end), not its first pass of the line.
