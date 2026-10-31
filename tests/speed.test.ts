@@ -28,6 +28,7 @@ import {
   type SpeedStyle,
 } from '../src/ui/speed';
 import { fixtureRace, m24Race } from './helpers';
+import { ordinal } from '../src/ui/format';
 
 const leg = (timeS: number, distGapS: number | null = null): LegResult => ({
   startMs: 0,
@@ -555,6 +556,8 @@ describe('a picked boat under Top N (M24 race 4)', () => {
   // A boat's track can be several polylines (a zoomed view cuts it): count boats.
   const boatsOf = (ps: string[]): number => new Set(ps.map(idOf)).size;
   const labels = (svg: string): string[] => [...svg.matchAll(/<text class="spd-pick-lbl"[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
+  // The speed rank as said on the map: "12th fastest on leg" (or "12th fastest" where the longer one has no room), never "#12".
+  const fastest = (n: number): RegExp => new RegExp(`^${ordinal(n)} fastest( on leg)?$`);
   const drawn = (id: string, l: number): boolean => a.drawings.some((d) => d.id === id && d.segments.some((s) => s.leg === l && s.x.length > 1));
   // A leg with a clean top 3 (no tie at the cut) and boats drawn well outside it.
   const leg = a.legs.findIndex((l) => {
@@ -593,7 +596,8 @@ describe('a picked boat under Top N (M24 race 4)', () => {
     expect(svg).toMatch(/<polyline class="spd-pick-case"[^>]*\/><polyline class="trk spd picked on"/);
     expect(svg).not.toContain('spd-sel');
     expect(idOf(ps[ps.length - 1])).toBe(slow);
-    expect(labels(svg)).toEqual([`#${slowRank.rank}`]);
+    expect(labels(svg)).toHaveLength(1);
+    expect(labels(svg)[0]).toMatch(fastest(slowRank.rank));
     expect(svg).toMatch(/<text class="spd-pick-lbl"[^>]* font-size="[\d.]+" stroke-width="[\d.]+"/);
   });
 
@@ -637,7 +641,8 @@ describe('a picked boat under Top N (M24 race 4)', () => {
     const outLegs = a.legs.filter((l) => drawn(slow, l.index) && (per[l.index].get(slow)?.rank ?? 0) > 3);
     expect(outLegs.length).toBeGreaterThan(0);
     const svg = trackMap(a, slow, null, { colour: 'rank', top: 3 });
-    expect(labels(svg)).toEqual(outLegs.map((l) => `#${per[l.index].get(slow)!.rank}`));
+    expect(labels(svg)).toHaveLength(outLegs.length);
+    labels(svg).forEach((t, i) => expect(t).toMatch(fastest(per[outLegs[i].index].get(slow)!.rank)));
     const list = outLegs.map((l) => `#${per[l.index].get(slow)!.rank} ${l.name}`).join(' · ');
     expect(speedKey(a, null, 'leg', 3, slow)).toContain(`picked: ${label(slow)}, ${list}`);
     for (const l of a.legs) {
@@ -649,7 +654,7 @@ describe('a picked boat under Top N (M24 race 4)', () => {
   it('with Rank by: Overall, one label at the end of the track and its race-time rank', () => {
     const [id, r] = [...overallRanks(a.boats)].filter(([b, k]) => k.rank > 3 && drawn(b, a.legs.length - 1)).pop()!;
     const svg = trackMap(a, id, null, { colour: 'rank', rankBy: 'overall', top: 3 });
-    expect(labels(svg)).toEqual([`#${r.rank}`]);
+    expect(labels(svg)).toEqual([`${ordinal(r.rank)} fastest`]);
     const mine = polylines(svg).filter((p) => idOf(p) === id);
     expect(mine.length).toBeGreaterThan(1);
     expect(mine.every((p) => /^<polyline class="trk spd picked on"/.test(p))).toBe(true);

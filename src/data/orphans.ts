@@ -7,7 +7,10 @@
  * against RaceSense; race 8 against the RO's .vkx timer), so the gun is the third-earliest
  * device flip rounded to the second, and stored a second later as RaceSense does (its
  * startTime is hh:mm:01 for an hh:mm:00 gun). The same race number starting again (Cascais
- * Wednesday: race 5 at ~14:34Z, abandoned, then ~16:2xZ) is a restart: the later start wins.
+ * Wednesday: race 5 at ~14:34Z, abandoned, then ~16:2xZ) is a restart: the later start is the race (its gun, line,
+ * results). A rebuilt race carries that start only: finding the earlier one's gun would take another search out of the
+ * probe budget. A race RaceSense lists keeps every start it records, and the Start tab shows an earlier one to look
+ * at, apart from the race (data/attempts.ts).
  *
  * Discovery is lazy, bounded and cheap: short windows (10 s, one request each, cached 30 days
  * for a finished event) and at most PROBE_BUDGET requests per division:

@@ -24,6 +24,7 @@ import { confidenceOf } from './opportunity';
 import { rankOpportunities } from './rank';
 import { codeInfo } from '../../data/official/codes';
 import { turnSeconds } from './penalty';
+import { startDigest, type StartDigest } from '../startSummary';
 
 export { fleetOf } from './fleet';
 
@@ -111,6 +112,8 @@ export interface RaceDigest {
   went?: WentDigest[];
   /** Penalty turns found on the track (D12: on the penalty card or a card of their own): how many loops and their seconds. */
   turns?: { loops: number; seconds: number };
+  /** The line at the gun with the boat's start, for the start strip (analysis/startSummary.ts); absent without start figures. */
+  start?: StartDigest;
 }
 
 /** One ➕ of a race: its family ('start', 'leg:upwind', 'round:leeward', …), what it was, the seconds gained. */
@@ -218,6 +221,7 @@ export function raceDigest(a: RaceAnalysis, model: CoachModel | null, sail: stri
       if (!findings.some((f) => f.theme === theme)) findings.push({ theme, kind: 'D11', variant: h.variant, seconds: 0, confidence: h.conf });
     }
   }
+  const start = startDigest(a, me.id);
   return {
     raceNumber: a.meta.raceNumber,
     sail,
@@ -230,6 +234,7 @@ export function raceDigest(a: RaceAnalysis, model: CoachModel | null, sail: stri
     evaluated: d && !d.noData ? evaluatedThemes(d.quality) : [],
     went: d && !d.noData ? d.plus.map((n) => wentOf(a, n)) : [],
     ...(turns ? { turns } : {}),
+    ...(start ? { start } : {}),
   };
 }
 

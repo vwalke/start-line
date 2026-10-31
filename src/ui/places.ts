@@ -12,7 +12,7 @@ import type { BoatResult, RaceAnalysis } from '../analysis/types';
 import { boatColor } from './charts';
 import type { KeyLine } from './info';
 import { boatLabel, esc, ordinal } from './format';
-import { textWidth } from './labels';
+import { textWidth, type Rect } from './labels';
 
 const SLOTS = 8;
 /** Below this width the right-hand labels are sail numbers only. */
@@ -75,8 +75,95 @@ export function placesKey(a: RaceAnalysis, pc: PlaceChanges = placeChanges(a)): 
       marks ? `Marks: rounding order, ${a.legSource === 'fleet' ? 'placed from where the fleet turned' : 'from the leg splits'}.` : 'One leg: Start → Finish only.',
       'Finish: the finish order. A DNF line stops at the last mark reached.',
       'Hover or tap a dot for place and gain; tap a line to select.',
+      'Selected boat: places gained or lost per leg; tap a leg to map it.',
     ],
   };
+}
+
+/** One leg's gain label on the selected boat's line: its column, text, where it sits (middle of the text) and its box. */
+export interface GainLabel {
+  /** The column the gain is measured at (its segment runs from `since[col]`). */
+  col: number;
+  text: string;
+  gain: number;
+  x: number;
+  y: number;
+  box: Rect;
+}
+
+type Pt = readonly [number, number];
+
+/** Whether segment p–q passes through rectangle `r` (Liang–Barsky). */
+export function segHitsRect(p: Pt, q: Pt, r: Rect): boolean {
+  const dx = q[0] - p[0];
+  const dy = q[1] - p[1];
+  let t0 = 0;
+  let t1 = 1;
+  const edges: [number, number][] = [
+    [-dx, p[0] - r.x0],
+    [dx, r.x1 - p[0]],
+    [-dy, p[1] - r.y0],
+    [dy, r.y1 - p[1]],
+  ];
+  for (const [pp, qq] of edges) {
+    if (pp === 0) {
+      if (qq < 0) return false;
+      continue;
+    }
+    const t = qq / pp;
+    if (pp < 0) t0 = Math.max(t0, t);
+    else t1 = Math.min(t1, t);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+const overlaps = (a: Rect, b: Rect): boolean => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+
+/** Space between a gain label and the line, px. */
+const GAIN_GAP = 3;
+
+/**
+ * Where each leg's gain goes on a boat's line (`pts`: per column, null without a place): beside its segment (from
+ * `since[k]` to column k), clear of every segment of the line, of the labels placed before it and inside `bounds`.
+ * Tried in turn: the segment's middle on its upper side, then its lower side, then a little toward either end; the
+ * first that is clear wins, else the first try. "±0" is left out (nothing changed on that leg).
+ */
+export function gainLabels(pts: readonly (Pt | null)[], gains: readonly (number | null)[], since: readonly (number | null)[], fs: number, bounds: Rect): GainLabel[] {
+  const segs: [Pt, Pt][] = [];
+  let prev: Pt | null = null;
+  for (const p of pts) {
+    if (!p) continue;
+    if (prev) segs.push([prev, p]);
+    prev = p;
+  }
+  const out: GainLabel[] = [];
+  gains.forEach((g, k) => {
+    const from = since[k];
+    const p = from != null ? pts[from] : null;
+    const q = pts[k];
+    if (g == null || g === 0 || !p || !q) return;
+    const text = gainLabel(g);
+    const hw = textWidth(text, fs) / 2 + 1;
+    const hh = fs * 0.55;
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+    const u: Pt = [(q[0] - p[0]) / len, (q[1] - p[1]) / len];
+    // The normal pointing up the page (screen-up: y down), then the other side.
+    const up: Pt = u[0] >= 0 ? [u[1], -u[0]] : [-u[1], u[0]];
+    // How far the text's middle must sit off the line for its box to clear it.
+    const off = hw * Math.abs(up[0]) + hh * Math.abs(up[1]) + GAIN_GAP;
+    const tries: Pt[] = [];
+    for (const t of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+      const m: Pt = [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+      for (const sgn of [1, -1]) tries.push([m[0] + up[0] * off * sgn, m[1] + up[1] * off * sgn]);
+    }
+    const boxAt = (c: Pt): Rect => ({ x0: c[0] - hw, y0: c[1] - hh, x1: c[0] + hw, y1: c[1] + hh });
+    const clear = (b: Rect): boolean =>
+      b.x0 >= bounds.x0 && b.x1 <= bounds.x1 && b.y0 >= bounds.y0 && b.y1 <= bounds.y1 && !segs.some(([s0, s1]) => segHitsRect(s0, s1, b)) && !out.some((l) => overlaps(l.box, b));
+    const at = tries.find((c) => clear(boxAt(c))) ?? tries[0];
+    out.push({ col: k, text, gain: g, x: at[0], y: at[1], box: boxAt(at) });
+  });
+  return out;
 }
 
 export interface PlacesOptions {
@@ -87,6 +174,8 @@ export interface PlacesOptions {
    * when that leaves each at least PLACES_FIT_MIN_ROW; else the usual rows, and the overlay scrolls.
    */
   heightPx?: number;
+  /** The link to a leg's view on the map (ui/mapLink.ts legMapHref) for the selected boat; null or absent: its legs aren't links. */
+  legHref?: (leg: number) => string | null;
 }
 
 /** Full screen: the smallest row the chart shrinks to (names stay readable), and the largest it grows to. */
@@ -178,9 +267,40 @@ export function placesChart(a: RaceAnalysis, highlight: string | null, opts: Pla
       <path class="pc-hit" d="${all}"/>
       <path class="pc-line" d="${all}" stroke="${col}" stroke-width="${r1(w)}"/>${dots}${label}</g>`;
   };
+  // The selected boat's legs: each one's change in places beside it, and the leg a link to its view on the map.
+  const selBp = sel ? drawn.find((bp) => bp.id === sel) : undefined;
+  let legs = '';
+  if (selBp) {
+    const pts = selBp.places.map((p, k) => (p == null ? null : ([x(k), y(p)] as const)));
+    const gfs = Math.max(10, fs - 1);
+    const placed = gainLabels(pts, selBp.gains, selBp.since, gfs, { x0: padL, y0: 0, x1: W - padR, y1: padT + rows * rowH });
+    const parts: string[] = [];
+    pts.forEach((q, k) => {
+      const from = selBp.since[k];
+      const p = from != null ? pts[from] : null;
+      if (!p || !q) return;
+      const c = pc.columns[k];
+      const leg = c.kind === 'finish' ? a.legs.length - 1 : c.kind === 'mark' ? c.legIndex! : null;
+      const lbl = placed.find((l) => l.col === k);
+      const text = lbl
+        ? `<text class="pc-gain ${lbl.gain > 0 ? 'up' : 'down'}" x="${r1(lbl.x)}" y="${r1(lbl.y + gfs * 0.35)}" font-size="${gfs}" text-anchor="middle">${esc(lbl.text)}</text>`
+        : '';
+      const href = leg != null ? (opts.legHref?.(leg) ?? null) : null;
+      if (!href || leg == null) {
+        parts.push(text);
+        return;
+      }
+      const g = selBp.gains[k];
+      const what = `${a.legs[leg]?.name ?? 'Leg'} on the map${g ? `: ${g > 0 ? 'gained' : 'lost'} ${Math.abs(g)} ${Math.abs(g) === 1 ? 'place' : 'places'}` : ''}`;
+      parts.push(
+        `<a class="pc-leg" href="${esc(href)}" data-leg-map="${leg}" aria-label="${esc(what)}"><title>${esc(what)}</title><path class="pc-leg-hit" d="M${r1(p[0])} ${r1(p[1])}L${r1(q[0])} ${r1(q[1])}"/>${text}</a>`,
+      );
+    });
+    legs = `<g class="pc-legs">${parts.join('')}</g>`;
+  }
   // The selected boat last, on top.
   const order = [...drawn].sort((p, q) => Number(p.id === sel) - Number(q.id === sel));
   const aria = `Rounding & Finish Positions: each boat's place at ${pc.columns.map((c) => c.label).join(', ')}.`;
   return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="chart places${narrow ? ' narrow' : ''}" role="img" aria-label="${esc(aria)}">
-    <g class="pc-grid-g">${grid.join('')}</g>${order.map(boatSvg).join('')}</svg>`;
+    <g class="pc-grid-g">${grid.join('')}</g>${order.map(boatSvg).join('')}${legs}</svg>`;
 }
