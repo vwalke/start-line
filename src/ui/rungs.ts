@@ -6,11 +6,13 @@
  * has them, smoothed over two minutes), the layline rung (ladder.ts rung), and the leader first by course progress
  * with estimated places skipped (as the tooltip skips them), so "Leader" is always the tooltip's first place.
  *
- * - A rung lies where its boat's rung puts it: `rung` from the leg's mark along the wind (the last leg's from the
- *   finish line's middle). The rung is measured from the bow (ladderNow.ts: the tracker plus the bow's distance
- *   ahead of it, along the way the hull points), so inside the laylines the line runs through the bow; past one, a
- *   little behind it, where its rung says it is. So the leader's is never behind the selected boat's, and the two
- *   lines are the distance in the label apart, bow to bow.
+ * - A rung lies where its boat's rung puts it: `rung` along the wind from where its leg ends for it (the mark, or on
+ *   the last leg the finish line extended to it, as ladderNow.ts endInto measures). The rung is measured from the
+ *   bow (ladderNow.ts: the tracker plus the bow's distance ahead of it, along the way the hull points), so inside
+ *   the laylines the line runs through the bow; past one, a
+ *   little behind it, where its rung says it is. So before the last leg the leader's is never behind the selected
+ *   boat's, and the two lines are the distance in the label apart, bow to bow; on the last leg, with the finish line
+ *   not square to the wind, each still meets its own bow and the label still reads the rung difference.
  * - The map draws each hull from that same bow (ui/charts.ts dotsSvg; a hull stretched to its smallest size on
  *   screen reaches further aft, never forward), so the line meets the bow as drawn at any zoom. Where the map draws
  *   a boat from other fixes than the ladder reads (a full-rate track, a filled hole), toDrawnBows moves the line the
@@ -100,18 +102,18 @@ const rungsOut: Rung[] = [];
 
 /**
  * Fill `r` from read `i` of `o.now`: false (no rung) when it has finished, has no position, or is on a reach.
- * The point is the leg's mark (the finish line's middle on the last leg) less the rung along the wind then, in map units.
+ * The point is where its leg ends for it (LadderRead ex, ey: the mark, or on the last leg the finish line extended to
+ * it) less the rung along the wind then, in map units.
  */
 function fillRung(o: RungInput, i: number, r: Rung): boolean {
   const { now } = o;
   const x = now.reads[i];
   if (!x || x.done || x.est || x.leg < 0 || !Number.isFinite(x.rung)) return false;
   if (!axisInto(now.course.kinds[x.leg], now.twdDeg, o.mapTwdDeg, r.axis)) return false;
-  const mark = now.course.pts[x.leg + 1];
   const tw = (now.twdDeg * Math.PI) / 180;
   const s = r.axis.kind === 'upwind' ? -x.rung : x.rung;
-  const px = mark[0] + s * Math.sin(tw);
-  const py = mark[1] + s * Math.cos(tw);
+  const px = x.ex + s * Math.sin(tw);
+  const py = x.ey + s * Math.cos(tw);
   const th = (o.mapTwdDeg * Math.PI) / 180;
   const c = Math.cos(th);
   const sn = Math.sin(th);
