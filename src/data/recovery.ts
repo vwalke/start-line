@@ -89,7 +89,7 @@ export function orphanContexts(doc: RegattaDoc, list: RaceList, outcome: LinkOut
     .filter((c): c is OrphanContext => c != null);
 }
 
-/** One telemetry request per probe, through the /api proxy and the client cache (30 days for a finished event). */
+/** One telemetry request per probe, through the /api proxy and the client cache (30 days for a finished event, once settled: data/live.ts telemetrySettled). */
 export const probeFetcher = (eventId: string, finished: boolean): FetchRows => async (after, before, division) =>
   parseTelemetry(await fetchTelemetry(eventId, division, after, before, { finished }));
 

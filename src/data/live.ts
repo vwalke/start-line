@@ -11,6 +11,21 @@ export const PRE_GUN_MS = 3 * 3_600_000;
 
 /** The one live window, used by the page, the worker and both caches: from PRE_GUN_MS before the gun to LIVE_SPAN_MS after it. */
 export const gunLive = (gunMs: number, now: number): boolean => gunMs - now <= PRE_GUN_MS && now - gunMs < LIVE_SPAN_MS;
+
+/**
+ * A race's telemetry is settled (the feed won't fill it in any more) once its window ended this long before: only then is
+ * a copy kept long, in the browser (30 days) and at the edge (functions/_lib.ts telemetryTtl), ms.
+ */
+export const SETTLED_MS = 24 * 3_600_000;
+
+/**
+ * Whether a copy of a telemetry window ending at `beforeMs`, fetched at `fetchedAt`, was fetched once settled: the window
+ * ended over SETTLED_MS before, or the event (ending `eventEndMs`) was over by as long. Judged by when the copy was
+ * fetched, so one fetched mid-race or just after (during a feed stall) stays short-lived for good.
+ */
+export const telemetrySettled = (beforeMs: number, fetchedAt: number, eventEndMs: number | null = null): boolean =>
+  fetchedAt - beforeMs > SETTLED_MS || (eventEndMs != null && fetchedAt - eventEndMs > SETTLED_MS);
+
 /** A live regatta document's freshness, ms (client); the edge's is functions/_lib.ts LIVE_TTL. */
 export const LIVE_REGATTA_TTL_MS = 30_000;
 

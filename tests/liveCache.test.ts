@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LIVE_TELEMETRY_TTL, LIVE_TTL, buildYsQuery, telemetryTtl, ttlFor, ysTtl, ysUpstreamQuery } from '../functions/_lib';
 import { DAY } from '../src/data/cache';
-import { LIVE_REGATTA_TTL_MS, LIVE_SPAN_MS, PRE_GUN_MS, hasLiveGun } from '../src/data/live';
+import { LIVE_REGATTA_TTL_MS, LIVE_SPAN_MS, PRE_GUN_MS, SETTLED_MS, hasLiveGun, telemetrySettled } from '../src/data/live';
 import { httpYsSource } from '../src/data/official/yachtscoring';
-import { fetchRegatta } from '../src/data/racesense/api';
+import { fetchRegatta, fetchTelemetry } from '../src/data/racesense/api';
 import type { RegattaResponse } from '../src/data/racesense/types';
 
 const NOW = Date.parse('2026-10-31T15:30:00Z');
@@ -124,5 +124,84 @@ describe('client TTLs', () => {
     // Without `live`, nothing changes.
     await httpYsSource().results(50575, 7);
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe('a finished race’s telemetry is kept 30 days in the browser only once settled', () => {
+  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ Fields: ['ts'], Rows: [[1]] }), { status: 200 }));
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockClear();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+  let n = 0;
+  const id = (): string => `settled-${++n}`;
+  // Race 8: its window ends 30 s after its last finish.
+  const after = GUN - 130_000;
+  const before = Date.parse('2026-10-31T17:20:00Z');
+
+  it('the rule: the window ended a day before the copy was fetched, or the event did', () => {
+    expect(telemetrySettled(before, before + SETTLED_MS + 1)).toBe(true);
+    expect(telemetrySettled(before, before + 2 * 3_600_000)).toBe(false);
+    expect(telemetrySettled(before, before + 2 * 3_600_000, before - SETTLED_MS - 1)).toBe(true);
+    expect(telemetrySettled(before, before + 2 * 3_600_000, before)).toBe(false);
+  });
+
+  it('fetched the same afternoon (over in the feed, the feed maybe stalled): a minute, and still a minute days later', async () => {
+    const e = id();
+    vi.setSystemTime(before + 20 * 60_000);
+    await fetchTelemetry(e, 'J70', after, before, { finished: true });
+    vi.setSystemTime(before + 22 * 60_000);
+    await fetchTelemetry(e, 'J70', after, before, { finished: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Read three days on: that copy was fetched unsettled, so it isn't taken now either.
+    const f = id();
+    vi.setSystemTime(before + 20 * 60_000);
+    await fetchTelemetry(f, 'J70', after, before, { finished: true });
+    vi.setSystemTime(before + 3 * DAY);
+    await fetchTelemetry(f, 'J70', after, before, { finished: true });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // …and the copy fetched then (settled) is kept.
+    vi.setSystemTime(before + 10 * DAY);
+    await fetchTelemetry(f, 'J70', after, before, { finished: true });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('fetched a day after the window, or after the event is over: kept 30 days', async () => {
+    const e = id();
+    vi.setSystemTime(before + DAY + 60_000);
+    await fetchTelemetry(e, 'J70', after, before, { finished: true });
+    vi.setSystemTime(before + 20 * DAY);
+    await fetchTelemetry(e, 'J70', after, before, { finished: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(before + 32 * DAY);
+    await fetchTelemetry(e, 'J70', after, before, { finished: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The event over a day before the copy was fetched counts on its own.
+    const g = id();
+    vi.setSystemTime(before + 3 * 3_600_000);
+    await fetchTelemetry(g, 'J70', after, before, { finished: true, eventEndMs: before - DAY - 60_000 });
+    vi.setSystemTime(before + 5 * DAY);
+    await fetchTelemetry(g, 'J70', after, before, { finished: true, eventEndMs: before - DAY - 60_000 });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('not finished: a minute, settled or not', async () => {
+    const e = id();
+    vi.setSystemTime(before + 3 * DAY);
+    await fetchTelemetry(e, 'J70', after, before);
+    vi.setSystemTime(before + 3 * DAY + 2 * 60_000);
+    await fetchTelemetry(e, 'J70', after, before);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('the edge judges a window the same way (7 days once settled)', () => {
+    const q = new URLSearchParams(`after=${after}&before=${before}`);
+    expect(telemetryTtl(q, before + SETTLED_MS + 1)).toBe(7 * 86_400);
+    expect(telemetryTtl(q, before + 2 * 3_600_000)).toBe(60);
   });
 });

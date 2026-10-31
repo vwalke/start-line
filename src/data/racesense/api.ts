@@ -4,7 +4,7 @@
  * so the browser Web Worker never has to CORS-fetch a third party.
  */
 import { DAY, HOUR, MINUTE, cachedJson, cachedJsonFrom, type CacheOpts } from '../cache';
-import { hasLiveGun, LIVE_REGATTA_TTL_MS } from '../live';
+import { hasLiveGun, LIVE_REGATTA_TTL_MS, telemetrySettled } from '../live';
 import type { LandingResponse, RegattaResponse, TelemetryPage, WindResponse } from './types';
 
 export const PROXY_BASE = '/api';
@@ -61,18 +61,21 @@ export function feedDivision(name: string): string {
  * (exclusive). Pages overlap by 1 ms so rows sharing the boundary
  * timestamp aren't lost; the adapter de-duplicates. `division` is the display name (mapped by feedDivision).
  * `fresh`: past our caches (a live race's refresh), stored as usual; `tail`: a live race's new end, past our caches
- * and kept out of Cache Storage (a new window each minute).
+ * and kept out of Cache Storage (a new window each minute). `finished` (the race over in the feed, or its event): its
+ * pages are kept 30 days, but only a copy fetched once settled (data/live.ts telemetrySettled: the window ended a day
+ * before, or the event, `eventEndMs`); any other copy a minute, so one fetched during a feed stall can't stick.
  */
 export async function fetchTelemetry(
   eventId: string,
   division: string | null,
   after: number,
   before: number,
-  opts: { signal?: AbortSignal; finished?: boolean; fresh?: boolean; tail?: boolean; onPage?: (n: number, rows: number) => void } = {},
+  opts: { signal?: AbortSignal; finished?: boolean; eventEndMs?: number | null; fresh?: boolean; tail?: boolean; onPage?: (n: number, rows: number) => void } = {},
 ): Promise<TelemetryPage[]> {
   const pages: TelemetryPage[] = [];
   let cursor = Math.floor(after);
-  const ttl = opts.tail ? 0 : opts.finished ? 30 * DAY : MINUTE;
+  const settled = (_body: unknown, fetchedAt: number): number => (telemetrySettled(before, fetchedAt, opts.eventEndMs ?? null) ? 30 * DAY : MINUTE);
+  const ttl = opts.tail ? 0 : opts.finished ? settled : MINUTE;
   const fresh = !!(opts.fresh || opts.tail);
   for (let n = 0; n < MAX_PAGES; n++) {
     const p = new URLSearchParams({ after: String(cursor), before: String(Math.floor(before)), limit: String(PAGE) });

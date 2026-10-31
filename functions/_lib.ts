@@ -4,7 +4,7 @@
  * route. The handler in functions/api/[[path]].ts is the only entry.
  */
 
-import { hasLiveGun, type GunDoc } from '../src/data/live';
+import { hasLiveGun, telemetrySettled, type GunDoc } from '../src/data/live';
 
 export const UPSTREAM = 'https://racesense.vakaros.com/api/';
 export const TELE_UPSTREAM = 'https://teleapi.regatta.app/telemetry/event/';
@@ -279,7 +279,8 @@ export function ttlFor(path: string, qs: URLSearchParams, body: string): number 
 export function telemetryTtl(qs: URLSearchParams, now = Date.now()): number {
   const before = Number(qs.get('before') ?? '');
   const after = Number(qs.get('after') ?? '');
-  if (Number.isFinite(before) && now - before > DAY * 1000) return 7 * DAY;
+  // Settled (the window ended a day ago, data/live.ts telemetrySettled, as the browser judges it): long.
+  if (Number.isFinite(before) && telemetrySettled(before, now)) return 7 * DAY;
   if (before > now || after > now - LIVE_TAIL_S * 1000) return LIVE_TELEMETRY_TTL;
   return MIN;
 }

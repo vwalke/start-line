@@ -113,7 +113,13 @@ async function racePages(
     return pages;
   }
   // A refresh fetches afresh, and so does the first one after the race finished (a copy cached mid-race could pass for final).
-  const pages = await fetchTelemetry(req.eventId, req.division, win.after, win.before, { finished, fresh: !!req.refresh && (live || !!h), signal, onPage });
+  const pages = await fetchTelemetry(req.eventId, req.division, win.after, win.before, {
+    finished,
+    eventEndMs: currentDoc(req.regatta).endDate ?? null,
+    fresh: !!req.refresh && (live || !!h),
+    signal,
+    onPage,
+  });
   // A race asked for since keeps its own (handle).
   if (req.id === latest) held = live ? { key, win, pages, last: pagesLastTs(pages), tails: 0 } : null;
   return pages;
@@ -132,7 +138,8 @@ async function analyse(req: RaceRequest, attempt: number | null = null, signal?:
   const official = at ? null : (req.official ?? null);
   const doc = currentDoc(regatta);
   const win = at ? attemptWindow(at) : telemetryWindow(doc, ref);
-  // A race of an event over for a day is finished too, finishes or not (its windows can be cached long).
+  // A race of an event over for a day is finished too, finishes or not (its windows can be cached long once settled:
+  // data/racesense/api.ts fetchTelemetry).
   const finished =
     !!at ||
     (listRaces(doc, { practice: true }).find((r) => r.division === ref.division && r.raceNumber === ref.raceNumber)?.finished ?? false) || eventFinished(doc);
@@ -143,7 +150,7 @@ async function analyse(req: RaceRequest, attempt: number | null = null, signal?:
   const { race } = findRace(doc, ref);
   const pages = onScreen
     ? await racePages(req, win, finished, race.starts.at(-1)?.startTime ?? null, signal, onPage)
-    : await fetchTelemetry(req.eventId, req.division, win.after, win.before, { finished, signal, onPage });
+    : await fetchTelemetry(req.eventId, req.division, win.after, win.before, { finished, eventEndMs: doc.endDate ?? null, signal, onPage });
   const line = race.starts.at(-1)?.startLine;
   const gun = race.starts.at(-1)?.startTime ?? win.after;
   const wind = line ? await fetchWind((line.leftEnd[0] + line.rightEnd[0]) / 2, (line.leftEnd[1] + line.rightEnd[1]) / 2, gun, signal) : undefined;
@@ -155,7 +162,7 @@ async function analyse(req: RaceRequest, attempt: number | null = null, signal?:
   if (data.course.length === 0 && (findRace(doc, ref).div.courses?.[0]?.achievements?.length ?? 0) > 2) {
     progress('Fetching mark positions…');
     // Paywall: an unfiltered window can carry another division's later race, so it may be refused (401 / 402): race on without marks.
-    const extra = await fetchTelemetry(req.eventId, null, gun, gun + 60_000, { finished, signal }).catch((e: unknown) => {
+    const extra = await fetchTelemetry(req.eventId, null, gun, gun + 60_000, { finished, eventEndMs: doc.endDate ?? null, signal }).catch((e: unknown) => {
       if (e instanceof Error && isPaywallError(e.message)) return [];
       throw e;
     });
