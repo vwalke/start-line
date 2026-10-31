@@ -4,6 +4,7 @@
  * so the browser Web Worker never has to CORS-fetch a third party.
  */
 import { DAY, HOUR, MINUTE, cachedJson, cachedJsonFrom, type CacheOpts } from '../cache';
+import { hasLiveGun, LIVE_REGATTA_TTL_MS } from '../live';
 import type { LandingResponse, RegattaResponse, TelemetryPage, WindResponse } from './types';
 
 export const PROXY_BASE = '/api';
@@ -17,11 +18,13 @@ export function fetchLanding(signal?: AbortSignal): Promise<LandingResponse> {
 }
 
 function loadRegatta(eventId: string, opts: CacheOpts = {}): Promise<{ body: RegattaResponse; cached: boolean }> {
-  // A finished event's document no longer changes; a live one does. Judge by when this copy was
-  // fetched: one saved mid-event stays short-lived even after the event ends.
+  // A finished event's document no longer changes; a live one does, most while a race is in progress. Judge by
+  // when this copy was fetched: one saved mid-event stays short-lived even after the event ends.
   const ttl = (body: unknown, fetchedAt: number): number => {
-    const end = (body as RegattaResponse).revisions?.at(-1)?.doc?.endDate;
-    return end && fetchedAt - end > DAY ? 7 * DAY : 2 * MINUTE;
+    const doc = (body as RegattaResponse).revisions?.at(-1)?.doc;
+    const end = doc?.endDate;
+    if (end && fetchedAt - end > DAY) return 7 * DAY;
+    return hasLiveGun(doc, fetchedAt) ? LIVE_REGATTA_TTL_MS : 2 * MINUTE;
   };
   return cachedJsonFrom<RegattaResponse>(`${PROXY_BASE}/regatta?event=${encodeURIComponent(eventId)}`, ttl, opts);
 }

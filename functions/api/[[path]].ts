@@ -35,6 +35,7 @@ import {
   telemetryTtl,
   ttlFor,
   ysTtl,
+  ysUpstreamQuery,
   type YsResource,
 } from '../_lib';
 import { paywallOn, privately, telemetryGate, type PaywallEnv } from '../_paywall';
@@ -119,7 +120,8 @@ async function yachtscoring(ctx: Ctx, origin: string, resource: YsResource, path
   let res: Response;
   try {
     // No request headers are forwarded: only our own accept and user agent.
-    res = await fetch(`${YS_UPSTREAM}${path}${suffix}`, { headers: { accept: 'application/json', 'user-agent': UA } });
+    const up = ysUpstreamQuery(qs);
+    res = await fetch(`${YS_UPSTREAM}${path}${up.size ? `?${up}` : ''}`, { headers: { accept: 'application/json', 'user-agent': UA } });
   } catch {
     return jsonError(502, 'Upstream unreachable');
   }
@@ -135,7 +137,7 @@ async function yachtscoring(ctx: Ctx, origin: string, resource: YsResource, path
   } catch {
     return jsonError(502, 'Upstream returned non-JSON');
   }
-  const ttl = ysTtl(resource, body);
+  const ttl = ysTtl(resource, body, Date.now(), qs.get('live') === '1');
   const out = new Response(JSON.stringify(body), {
     headers: {
       'content-type': 'application/json; charset=utf-8',
