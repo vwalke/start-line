@@ -500,6 +500,8 @@ export function tickLabelBox(t: SogTick, widthPx: number, m: TickMetrics = tickM
 }
 
 /** Labels `a` then `b` with at least TICK_GAP_EM between them. */
+export type TickLabel = (v: number) => string;
+
 const clearOf = (a: SogTick, b: SogTick, widthPx: number, m: TickMetrics): boolean =>
   tickLabelBox(b, widthPx, m)[0] - tickLabelBox(a, widthPx, m)[1] >= TICK_GAP_EM * m.fontPx;
 
@@ -516,12 +518,12 @@ function stepsInside(r: SogRange, step: number): number[] {
  * range, or that doesn't fit, passes to the next (2 kn may miss 4.5–5.5 where
  * 5 kn hits it); null when none does.
  */
-export function tickStep(r: SogRange, widthPx: number, m: TickMetrics = tickMetrics()): number | null {
+export function tickStep(r: SogRange, widthPx: number, m: TickMetrics = tickMetrics(), fmt: TickLabel = knLabel): number | null {
   const span = r.hi - r.lo;
   for (const s of TICK_STEPS) {
     const ks = stepsInside(r, s);
     if (!ks.length || (s / span) * widthPx < TICK_MIN_EM * m.fontPx) continue;
-    const ts = ks.map((kn) => ({ kn, pos: (kn - r.lo) / span, label: knLabel(kn) }));
+    const ts = ks.map((kn) => ({ kn, pos: (kn - r.lo) / span, label: fmt(kn) }));
     if (ts.every((t, i) => i === 0 || clearOf(ts[i - 1], t, widthPx, m))) return s;
   }
   return null;
@@ -534,14 +536,14 @@ export function tickStep(r: SogRange, widthPx: number, m: TickMetrics = tickMetr
  * labelled tick too close to an end label stays as a minor tick. Sizes follow
  * the labels' font (`m`).
  */
-export function sogTicks(r: SogRange, widthPx: number, m: TickMetrics = tickMetrics()): SogTick[] {
+export function sogTicks(r: SogRange, widthPx: number, m: TickMetrics = tickMetrics(), fmt: TickLabel = knLabel): SogTick[] {
   const span = r.hi - r.lo;
   const pos = (kn: number): number => (kn - r.lo) / span;
-  const lo: SogTick = { kn: r.lo, pos: 0, label: knLabel(r.lo), end: 'lo' };
-  const hi: SogTick = { kn: r.hi, pos: 1, label: knLabel(r.hi), end: 'hi' };
+  const lo: SogTick = { kn: r.lo, pos: 0, label: fmt(r.lo), end: 'lo' };
+  const hi: SogTick = { kn: r.hi, pos: 1, label: fmt(r.hi), end: 'hi' };
   const clear = (a: SogTick, b: SogTick): boolean => clearOf(a, b, widthPx, m);
-  const step = tickStep(r, widthPx, m);
-  const major: SogTick[] = step == null ? [] : stepsInside(r, step).map((kn) => ({ kn, pos: pos(kn), label: knLabel(kn) }));
+  const step = tickStep(r, widthPx, m, fmt);
+  const major: SogTick[] = step == null ? [] : stepsInside(r, step).map((kn) => ({ kn, pos: pos(kn), label: fmt(kn) }));
   const minor: SogTick[] = [];
   // Labels crowding an end label lose the label, not the tick.
   while (major.length && !clear(lo, major[0])) minor.push({ ...major.shift()!, label: null });
@@ -560,9 +562,18 @@ export function sogTicks(r: SogRange, widthPx: number, m: TickMetrics = tickMetr
  * where those aren't supported). "kn" sits just past the bar's end.
  */
 function scaleHtml(r: SogRange): string {
+  return valueScaleHtml(r, 'kn', barStyle(), knLabel);
+}
+
+/**
+ * scaleHtml for any scale: its unit ("m/min"), its bar's style (`--g` day bands, `--gd` night ones) and how a tick
+ * is labelled ("+10"). Gain/loss (ui/gain.ts) draws its key with it, its unit only in the aria-label and its title
+ * (`unitTick` false: none past the bar's end).
+ */
+export function valueScaleHtml(r: SogRange, unit: string, style: string, fmt: TickLabel, unitTick = true): string {
   const m = tickMetrics();
-  const wide = sogTicks(r, SOG_KEY_WIDE_PX, m);
-  const narrow = sogTicks(r, SOG_KEY_NARROW_PX, m);
+  const wide = sogTicks(r, SOG_KEY_WIDE_PX, m, fmt);
+  const narrow = sogTicks(r, SOG_KEY_NARROW_PX, m, fmt);
   const all = new Map<number, { t: SogTick; cls: string[] }>();
   for (const [set, show, lbl] of [
     [wide, 'w', 'lw'],
@@ -582,11 +593,11 @@ function scaleHtml(r: SogRange): string {
       return `<span class="${c}" style="left:${+(t.pos * 100).toFixed(3)}%">${label ? `<span class="tl">${label}</span>` : ''}</span>`;
     })
     .join('');
-  return `<span class="sog-scale" role="img" aria-label="${f1(r.lo)} to ${f1(r.hi)} kn"><span class="sog-bar" style="${barStyle()}"></span>${ticks}<span class="tu">kn</span></span>`;
+  return `<span class="sog-scale" role="img" aria-label="${f1(r.lo)} to ${f1(r.hi)} ${esc(unit)}"><span class="sog-bar" style="${style}"></span>${ticks}${unitTick ? `<span class="tu">${esc(unit)}</span>` : ''}</span>`;
 }
 
-const bar = (lo: string, hi: string): string =>
-  `<span class="sog-lo">${lo}</span><span class="sog-bar" style="${barStyle()}" aria-hidden="true"></span><span class="sog-hi">${hi}</span>`;
+const bar = (lo: string, hi: string, style = barStyle()): string =>
+  `<span class="sog-lo">${lo}</span><span class="sog-bar" style="${style}" aria-hidden="true"></span><span class="sog-hi">${hi}</span>`;
 const unavailable = (metric: string): string => `<span class="muted">${metric === 'SOG' ? 'Speed' : esc(metric)} colors aren't available for this race.</span>`;
 
 /** The bar with knots along it ("4.5 · 5 · 6 · 7 · 8", then "kn") and, given one, "SOG · what it spans" (`metric`: "VMG · …"; the method is in the ⓘ). */
@@ -596,9 +607,9 @@ export function sogKey(r: SogRange | null, what?: string, metric = 'SOG'): strin
     <span class="muted">${esc(metric)} · ${esc(what)}</span>` : ''}`;
 }
 
-/** The bar alone, "VMG · kn": the colors' key while what they're worked out from is still on its way. */
-export const sogKeyPending = (metric: string): string => `${bar('', '')}
-    <span class="muted">${esc(metric)} · kn</span>`;
+/** The bar alone, "VMG · kn": the colors' key while what they're worked out from is still on its way (`style`: another scale's bar). */
+export const sogKeyPending = (metric: string, unit = 'kn', style?: string): string => `${bar('', '', style)}
+    <span class="muted">${esc(metric)} · ${esc(unit)}</span>`;
 
 /**
  * Whole race, Per leg: one bar with no knots on it (its ends mean something

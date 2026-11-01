@@ -174,11 +174,11 @@ export function speedStyle(r: SpeedRank | undefined, top: SpeedTop, sel: Selecti
 
 // ---- preference -------------------------------------------------------------
 
-/** 'leg': one colour per leg. 'rank': this module (elapsed-time rank). 'sog': boat speed (ui/sog.ts). 'vmg': VMG (ui/vmg.ts). */
-export type TrackColour = 'leg' | 'rank' | 'sog' | 'vmg';
+/** 'leg': one colour per leg. 'rank': this module (elapsed-time rank). 'sog': boat speed (ui/sog.ts). 'vmg': VMG (ui/vmg.ts). 'gain': gain/loss vs the fleet (ui/gain.ts). */
+export type TrackColour = 'leg' | 'rank' | 'sog' | 'vmg' | 'gain';
 
 /** Colorings read from the Coach's model (its wind and ladder), which may arrive after the map's first paint. */
-export const needsCoach = (c: TrackColour): boolean => c === 'vmg';
+export const needsCoach = (c: TrackColour): boolean => c === 'vmg' || c === 'gain';
 export type RankBy = 'leg' | 'overall';
 
 /** Whole race in Boat speed: colour each leg on its own range (ui/sog.ts), or every leg on the race's. */
@@ -191,7 +191,7 @@ export const SOG_SCALE_KEY = 'recall.sogScale';
 
 /** The stored value; 'speed' is what rank colouring was saved as before Boat speed existed. */
 export const parseTrackColour = (raw: string | null | undefined): TrackColour =>
-  raw === 'rank' || raw === 'speed' ? 'rank' : raw === 'sog' || raw === 'vmg' ? raw : 'leg';
+  raw === 'rank' || raw === 'speed' ? 'rank' : raw === 'sog' || raw === 'vmg' || raw === 'gain' ? raw : 'leg';
 export const parseRankBy = (raw: string | null | undefined): RankBy => (raw === 'overall' ? 'overall' : 'leg');
 export const parseSpeedTop = (raw: string | null | undefined): SpeedTop => (raw === '3' ? 3 : raw === '10' ? 10 : 'all');
 export const parseSogScale = (raw: string | null | undefined): SogScale => (raw === 'race' ? 'race' : 'leg');
@@ -253,7 +253,7 @@ function seg(label: string, short: string, attr: string, value: string, opts: [s
 }
 
 /**
- * "Colour: Leg | Rank | Boat speed | VMG"; in Rank, "Rank by: Each leg | Overall"
+ * "Colour: Leg | Rank | Boat speed | VMG | Gain/loss"; in Rank, "Rank by: Each leg | Overall"
  * for the whole race and "Highlight: Top 3 | Top 10 | All"; in Boat speed or VMG
  * for the whole race, "Scale: Per leg | Whole race".
  */
@@ -269,6 +269,7 @@ export function colourControls(
     ['rank', 'Rank'],
     ['sog', 'Boat speed'],
     ['vmg', 'VMG'],
+    ['gain', 'Gain/loss'],
   ]);
   if (colour === 'sog' || colour === 'vmg') {
     return leg == null

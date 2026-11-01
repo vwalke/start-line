@@ -38,6 +38,8 @@ import {
   type StartColour,
 } from './sog';
 import { segmentVmgRange, trackVmgRange, vmgAt, vmgRangeOf, vmgValues } from './vmg';
+import { GAIN_BINS, gainRateColor, gainSeriesOf, gainStroke, gainValues, trackGainRange } from './gain';
+import { gainAt } from '../analysis/coach/gainLoss';
 import type { CoachModel } from '../analysis/coach';
 import { casedByDay, speedColor, speedRanking, speedStyle, type RankBy, type SogScale, type SpeedTop, type TrackColour } from './speed';
 import { FAV_GAP_PX, favouredTexts, lineBiasSvg } from './startLine';
@@ -665,11 +667,12 @@ export interface TrackMapOptions {
   /**
    * 'leg' (default): one colour per leg. 'rank': plasma and emphasis by
    * elapsed-time rank (ui/speed.ts). 'sog': trimmed turbo by each boat's own SOG (ui/sog.ts). 'vmg': the same
-   * scale by VMG (ui/vmg.ts), read on `coach`'s wind.
+   * scale by VMG (ui/vmg.ts), read on `coach`'s wind. 'gain': red–gray–green by gain or loss on the fleet's median
+   * boat up the ladder (ui/gain.ts).
    */
   colour?: TrackColour;
   /**
-   * The race's coach model, for VMG (its course and smoothed wind): undefined while it is on its way, null when the
+   * The race's coach model, for VMG and Gain/loss (its course, smoothed wind and ladder): undefined while it is on its way, null when the
    * race has none. Without it VMG's tracks are a neutral gray.
    */
   coach?: CoachModel | null;
@@ -780,7 +783,7 @@ interface TrackPaint {
 /** Tracks whose colors aren't ready yet (VMG before the Coach's wind is in): one neutral gray. */
 const NEUTRAL_PAINT: TrackPaint = { values: (pc) => pc.src.sog, range: () => ({ lo: 0, hi: 1 }), bins: 1, stroke: neutralStroke };
 
-/** The paint for the map's coloring, showing `leg` (or all); null for Leg and Rank (per-segment polylines). */
+/** The paint for the map's coloring, showing `leg` (or all); null for Leg and Rank (per-segment polylines). Gain/loss: one range for the view, red–gray–green (ui/gain.ts). */
 function trackPaint(a: RaceAnalysis, leg: number | null, opts: TrackMapOptions): TrackPaint | null {
   const scale = opts.sogScale ?? 'leg';
   if (opts.colour === 'sog') return { values: (pc) => pc.src.sog, range: (l) => segmentSogRange(a, l, leg, scale) };
@@ -788,6 +791,13 @@ function trackPaint(a: RaceAnalysis, leg: number | null, opts: TrackMapOptions):
     const m = opts.coach;
     if (!m) return NEUTRAL_PAINT;
     return { values: (pc) => vmgValues(m, pc.src, pc.leg, pc.i0, pc.i1), range: (l) => segmentVmgRange(a, m, l, leg, scale) };
+  }
+  if (opts.colour === 'gain') {
+    const m = opts.coach;
+    if (!m) return NEUTRAL_PAINT;
+    const s = gainSeriesOf(a, m);
+    const r = trackGainRange(a, m, leg);
+    return { values: (pc) => gainValues(s, pc.src, pc.id, pc.i0, pc.i1), range: () => r, bins: GAIN_BINS, stroke: gainStroke };
   }
   return null;
 }
@@ -1166,10 +1176,13 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
 
   const legRanges = perLeg ? legRangeList(a, vm ? vmgRangeOf(a, vm) : undefined) : '';
   const [what, low, high] = vm ? ['VMG', 'lowest', 'highest'] : ['boat speed (SOG)', 'slowest', 'fastest'];
+  const gr = opts.colour === 'gain' && opts.coach ? trackGainRange(a, opts.coach, leg) : null;
   const sogLabel = !valued
     ? opts.colour === 'vmg'
       ? 'colored by VMG'
-      : ''
+      : opts.colour === 'gain'
+        ? `colored by gain or loss on the fleet's median boat${gr ? `, up to ${gr.hi} m/min either way` : ''}: red losing, gray even, green gaining`
+        : ''
     : perLeg
       ? `colored by ${what}, scaled within each leg${legRanges ? ` (${legRanges})` : ''}: blue ${low} on that leg, through green and yellow, to red ${high}`
       : `colored by ${what}${sog ? `, ${f1(sog.lo)} to ${f1(sog.hi)} kn` : ''}: blue ${low}, through green and yellow, to red ${high}`;
@@ -1291,6 +1304,13 @@ function dotColour(a: RaceAnalysis, b: BoatAt, leg: number | null, opts: TrackMa
     const v = vmgAt(m, b);
     if (!r || !Number.isFinite(v)) return { c: PRE_COLOR };
     return { c: sogKnColor(v, r), cd: sogKnColor(v, r, 'dark') };
+  }
+  if (opts.colour === 'gain') {
+    const m = opts.coach;
+    if (!m) return { c: NEUTRAL_DAY, cd: NEUTRAL_NIGHT };
+    const r = trackGainRange(a, m, leg);
+    const v = gainAt(gainSeriesOf(a, m), b.id, b.t);
+    return { c: gainRateColor(v, r), cd: gainRateColor(v, r, 'dark') };
   }
   if (b.leg === PRE_LEG) return { c: PRE_COLOR };
   if (!speed) return { c: legColor(b.leg) };

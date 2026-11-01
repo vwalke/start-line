@@ -211,6 +211,16 @@ const readers = new WeakMap<CoachModel, LadderReader>();
 export function ladderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel): LadderReader {
   const have = readers.get(m);
   if (have) return have;
+  const reader = newLadderReader(a, m);
+  readers.set(m, reader);
+  return reader;
+}
+
+/**
+ * A reader of its own (not the one kept per model): for a pass over the whole race (gainLoss.ts) that mustn't move the
+ * moment the rungs' reader last read (its reads are filled in place).
+ */
+export function newLadderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel): LadderReader {
   const { course } = gapCourse(m);
   const live: LiveWind = liveWind(m);
   const lens = legLengths(course);
@@ -308,6 +318,5 @@ export function ladderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachMo
     now.leader = leaderOf(reads);
     return now;
   };
-  readers.set(m, reader);
   return reader;
 }

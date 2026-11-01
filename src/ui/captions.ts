@@ -101,13 +101,17 @@ export function mapKey(a: RaceAnalysis, o: { highlight?: string | null; colour: 
   } else if (o.colour === 'sog') {
     bullets.push("Boat speed: SOG, 4 s mean; colors span the fleet's 5th–95th percentile.");
     if (o.leg == null) bullets.push("Scale: Per leg uses each leg's own range; Whole race, one range.");
-  } else {
+  } else if (o.colour === 'vmg') {
     bullets.push(
       "VMG: SOG (4 s mean) along COG made good up the wind on a beat, down it on a run (the ladder's smoothed wind), toward the mark on a reach; below 0 = losing ground. Colors span the fleet's 5th–95th percentile.",
     );
     if (o.leg == null) bullets.push("Scale: Per leg uses each leg's own range; Whole race, one range.");
+  } else {
+    bullets.push(
+      "Gain/loss: how fast a boat climbs (or runs) the ladder vs the median boat on its leg, m/min over 30 s; green gaining, red losing, gray about even. Reaches by progress along the rhumb line.",
+    );
   }
-  bullets.push(`Hover or tap a track for time, speed, course${o.colour === 'vmg' ? ', VMG' : ''}, heel, place.`);
+  bullets.push(`Hover or tap a track for time, speed, course${o.colour === 'vmg' ? ', VMG' : o.colour === 'gain' ? ', gain/loss' : ''}, heel, place.`);
   bullets.push('Select a boat anywhere to highlight it on every chart and table.');
   return { chips, bullets };
 }

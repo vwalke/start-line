@@ -212,6 +212,7 @@ import {
   writePref,
 } from './speed';
 import { vmgHoverLeg, vmgKey, vmgTipLine } from './vmg';
+import { gainKey, gainTipLine } from './gain';
 import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
 import { followAfter, followCam, followStep, followTarget, reducedMotion, resetFollow } from './follow';
 import { MAP_SETTLE_MS, mapPaint } from './mapPaint';
@@ -720,7 +721,9 @@ export function startApp(): void {
             : sogKey(trackSogRange(a, k.leg), k.leg == null ? 'Whole race' : `${a.legs[k.leg]?.name ?? 'This leg'}`)
           : trackColour === 'vmg'
             ? vmgKey(a, coachModelFor(a), k.leg, k.sogScale)
-            : '';
+            : trackColour === 'gain'
+              ? gainKey(a, coachModelFor(a), k.leg)
+              : '';
     els.speedKey.hidden = trackColour === 'leg';
     renderKeyLine(els.mapCap, mapKey(a, { highlight, colour: trackColour, rankBy: k.rankBy, sogScale: k.sogScale, leg: k.leg }));
     renderKeyLine(els.placesCap, placesKey(a));
@@ -795,7 +798,7 @@ export function startApp(): void {
       coachBuilding = null;
       coach = { a, model: coachModelOf(a, raw) };
       if (analysis === a) {
-        // VMG's tracks and key wait for the Coach's wind: the whole view again (the Coach and the report with it).
+        // VMG's and Gain/loss's tracks and key wait for the Coach's wind and ladder: the whole view again (the Coach and the report with it).
         if (needsCoach(trackColour)) return render();
         renderCoach();
         renderReport();
@@ -2070,7 +2073,8 @@ export function startApp(): void {
     const vm = trackColour === 'vmg' ? coachModelFor(a) : null;
     const legLine =
       trackColour === 'sog' ? (l: number) => sogHoverLeg(a, l, legSel, keyed().sogScale) : vm ? (l: number) => vmgHoverLeg(a, vm, l, legSel, keyed().sogScale) : undefined;
-    const valueLine = vm ? (q: TipPoint) => vmgTipLine(vm, q) : undefined;
+    const gm = trackColour === 'gain' ? coachModelFor(a) : null;
+    const valueLine = vm ? (q: TipPoint) => vmgTipLine(vm, q) : gm ? (q: TipPoint) => gainTipLine(a, gm, q.id, q.t) : undefined;
     els.mapTip.innerHTML = mapTipHtml(mapTipLines(a, p, pick, { legLine, placeAt: placeReader(a), valueLine }));
     els.mapTip.hidden = false;
     // Beside the pointer, above it; flipped left near the right edge and below near the top, and kept inside the map;
