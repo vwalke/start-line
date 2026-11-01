@@ -6,14 +6,17 @@
  *   the model's end, each boat's distance still to go on its leg, `D`: its rung (bow-based, to its leg's end along the
  *   wind of the moment, past the layline the layline rule) on a beat or run; on a reach, its course progress negated
  *   (distance made good along the rhumb line). Finished, unplaced (`est`) or off any leg: no reading.
- * - The rate at sample j, over GAIN_WINDOW_MS centred on it (j ± h): for boat b on leg L at both ends,
- *   gain = (median over the boats on L at both ends of ΔD − ΔD_b) / Δt. Positive: b took more off its distance to go
- *   than the median boat on its leg did, i.e. it gained on it. The median of the changes, not the change of the median:
- *   a boat rounding into or out of the leg can't make the median jump.
+ * - The rate at sample j of boat b on leg L, over GAIN_WINDOW_MS centred on it (j ± h), shortened on a side where b
+ *   isn't on L throughout (the gun, its finish, a rounding: the window ends at b's last sample on L there), down to
+ *   half (h samples, 15 s; any shorter, no reading): gain = (median over the boats on L at both ends of that window
+ *   of ΔD − ΔD_b) / Δt. Positive: b took more off its distance to go than the median boat on its leg did, i.e. it
+ *   gained on it. The median of the changes, not the change of the median: a boat rounding into or out of the leg
+ *   can't make the median jump. So a boat reads from the gun, up to its finish and on through a rounding, each
+ *   sample on its own window (no reading held from a sample 15 s on, then a jump).
  * - Fewer than GAIN_MIN_BOATS on the leg (a strung-out fleet's leader, a leg the fleet is rounding into): the same on
  *   course progress (ladderNow.ts prog), against every boat on one leg at both ends of the window,
- *   gain = (Δprog_b − median Δprog) / Δt. A boat that changed legs in the window is in neither pool and reads nothing
- *   (on course progress its change spans two legs' scales); with fewer than GAIN_MIN_BOATS in the pool, no reading.
+ *   gain = (Δprog_b − median Δprog) / Δt. A boat that changed legs in that window is left out of the pool (on course
+ *   progress its change spans two legs' scales); with fewer than GAIN_MIN_BOATS in it, no reading.
  * - Smoothed by the mean over one sample either side (15 s); NaN where there is no reading.
  * - Worked out once per model (cached), read per fix by gainAt in O(1). A whole fleet's race is tens of ms (more on a
  *   phone), so the page works it out in slices between frames (gainFill, ui/gain.ts gainSeriesSoon); gainSeries
@@ -59,39 +62,73 @@ export const gainRates = (g: LadderGrid, stepMs = GAIN_STEP_MS, windowMs = GAIN_
 function* gainRateSteps(g: LadderGrid, stepMs: number, windowMs: number): Generator<void, Float32Array, void> {
   const { boats, n, leg, dist, prog } = g;
   const h = Math.max(1, Math.round(windowMs / 2 / stepMs));
-  const perMin = 60_000 / (2 * h * stepMs);
   const raw = new Float32Array(boats * n).fill(NaN);
-  const dD = new Float64Array(boats);
-  const dP = new Float64Array(boats);
-  const onLeg = new Int16Array(boats);
+  // Each boat's window at the sample: its first and last sample (−1: none).
+  const lo = new Int32Array(boats);
+  const hi = new Int32Array(boats);
   const pool = new Float64Array(boats);
+  // The medians worked out at this sample, by leg and window (NaN: too few boats), and the fleet's by window.
   const legMed = new Map<number, number>();
-  for (let j = h; j + h < n; j++) {
-    legMed.clear();
-    let fleet = 0;
-    for (let b = 0; b < boats; b++) {
-      const i0 = b * n + j - h;
-      const i1 = b * n + j + h;
-      const l0 = leg[i0];
-      const l1 = leg[i1];
-      onLeg[b] = l0 >= 0 && l0 === l1 && Number.isFinite(dist[i0]) && Number.isFinite(dist[i1]) ? l0 : -1;
-      dD[b] = onLeg[b] >= 0 ? dist[i1] - dist[i0] : NaN;
-      // Only a boat on one leg at both ends: one that rounded in the window adds the rest of its old leg and the start
-      // of the next, which would move the fleet's median. It reads nothing itself either, as on the ladder above.
-      dP[b] = l0 >= 0 && l0 === l1 ? prog[i1] - prog[i0] : NaN;
-      if (Number.isFinite(dP[b])) pool[fleet++] = dP[b];
-      if (onLeg[b] >= 0 && !legMed.has(onLeg[b])) legMed.set(onLeg[b], NaN);
-    }
-    const fleetMed = fleet >= GAIN_MIN_BOATS ? medianOf(pool, fleet) : NaN;
-    for (const L of legMed.keys()) {
+  const fleetMed = new Map<number, number>();
+  const medOnLeg = (L: number, j0: number, j1: number): number => {
+    const key = (L * n + j0) * n + j1;
+    let v = legMed.get(key);
+    if (v === undefined) {
       let k = 0;
-      for (let b = 0; b < boats; b++) if (onLeg[b] === L) pool[k++] = dD[b];
-      legMed.set(L, k >= GAIN_MIN_BOATS ? medianOf(pool, k) : NaN);
+      for (let c = 0; c < boats; c++) {
+        const i0 = c * n + j0;
+        const i1 = c * n + j1;
+        if (leg[i0] === L && leg[i1] === L && Number.isFinite(dist[i0]) && Number.isFinite(dist[i1])) pool[k++] = dist[i1] - dist[i0];
+      }
+      legMed.set(key, (v = k >= GAIN_MIN_BOATS ? medianOf(pool, k) : NaN));
+    }
+    return v;
+  };
+  const medOfFleet = (j0: number, j1: number): number => {
+    const key = j0 * n + j1;
+    let v = fleetMed.get(key);
+    if (v === undefined) {
+      let k = 0;
+      for (let c = 0; c < boats; c++) {
+        const i0 = c * n + j0;
+        const i1 = c * n + j1;
+        // Only a boat on one leg at both ends: one that rounded in the window adds the rest of its old leg and the
+        // start of the next, which would move the fleet's median.
+        if (leg[i0] >= 0 && leg[i0] === leg[i1] && Number.isFinite(prog[i0]) && Number.isFinite(prog[i1])) pool[k++] = prog[i1] - prog[i0];
+      }
+      fleetMed.set(key, (v = k >= GAIN_MIN_BOATS ? medianOf(pool, k) : NaN));
+    }
+    return v;
+  };
+  for (let j = 0; j < n; j++) {
+    legMed.clear();
+    fleetMed.clear();
+    for (let b = 0; b < boats; b++) {
+      const i = b * n + j;
+      const L = leg[i];
+      lo[b] = -1;
+      if (L < 0 || !Number.isFinite(dist[i])) continue;
+      // Up to h samples either side, as far as the boat stays on its leg: the gun, its finish or a rounding shortens
+      // the window on that side (the rate over what there is, not a reading held from a sample further on).
+      let a = 0;
+      while (a < h && j - a > 0 && leg[i - a - 1] === L && Number.isFinite(dist[i - a - 1])) a++;
+      let c = 0;
+      while (c < h && j + c + 1 < n && leg[i + c + 1] === L && Number.isFinite(dist[i + c + 1])) c++;
+      if (a + c < h) continue;
+      lo[b] = j - a;
+      hi[b] = j + c;
     }
     for (let b = 0; b < boats; b++) {
-      const med = onLeg[b] >= 0 ? legMed.get(onLeg[b])! : NaN;
-      if (Number.isFinite(med)) raw[b * n + j] = (med - dD[b]) * perMin;
-      else if (Number.isFinite(dP[b]) && Number.isFinite(fleetMed)) raw[b * n + j] = (dP[b] - fleetMed) * perMin;
+      if (lo[b] < 0) continue;
+      const i0 = b * n + lo[b];
+      const i1 = b * n + hi[b];
+      const perMin = 60_000 / ((hi[b] - lo[b]) * stepMs);
+      const med = medOnLeg(leg[i0], lo[b], hi[b]);
+      if (Number.isFinite(med)) raw[b * n + j] = (med - (dist[i1] - dist[i0])) * perMin;
+      else {
+        const fm = medOfFleet(lo[b], hi[b]);
+        if (Number.isFinite(fm)) raw[b * n + j] = (prog[i1] - prog[i0] - fm) * perMin;
+      }
     }
     yield;
   }
@@ -198,7 +235,10 @@ function* seriesSteps(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel): G
   const rate = yield* gainRateSteps(g, GAIN_STEP_MS, GAIN_WINDOW_MS);
   return { t0, stepMs: GAIN_STEP_MS, n, ids, index: new Map(ids.map((id, b) => [id, b])), rate, leg: g.leg };
 }
-/** Boat `id`'s gain rate at `t`, m/min: between the samples either side (the one with a reading, where only one has). NaN: none. */
+/**
+ * Boat `id`'s gain rate at `t`, m/min: between the samples either side; where only one has a reading, that reading up
+ * to half a step from it (the middle between the two), so a reading never runs on toward a sample without one. NaN: none.
+ */
 export function gainAt(s: GainSeries, id: string, t: number): number {
   const b = s.index.get(id);
   if (b == null || !Number.isFinite(t)) return NaN;
@@ -209,5 +249,5 @@ export function gainAt(s: GainSeries, id: string, t: number): number {
   const p = s.rate[b * s.n + j];
   const q = j + 1 < s.n ? s.rate[b * s.n + j + 1] : NaN;
   if (Number.isFinite(p) && Number.isFinite(q)) return p + (q - p) * f;
-  return Number.isFinite(p) ? p : q;
+  return f <= 0.5 ? p : q;
 }

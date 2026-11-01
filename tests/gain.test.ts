@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { CoachModel } from '../src/analysis/coach';
-import { GAIN_STEP_MS, gainAt, gainFill, gainRates, gainSeries, gainSeriesReady, type LadderGrid } from '../src/analysis/coach/gainLoss';
+import { GAIN_STEP_MS, gainAt, gainFill, gainRates, gainSeries, gainSeriesReady, type GainSeries, type LadderGrid } from '../src/analysis/coach/gainLoss';
 import { ladderReader } from '../src/analysis/coach/ladderNow';
 import { mapKey } from '../src/ui/captions';
 import { scrubFrame, trackMap, trackPoints } from '../src/ui/charts';
@@ -58,8 +58,42 @@ describe('gain rate on the fleet’s median boat (coach/gainLoss.ts)', () => {
     expect(mid(r, 1, n)).toBeCloseTo(-12, 4);
     expect(mid(r, 2, n)).toBeCloseTo(0, 4);
     expect(mid(r, 4, n)).toBeCloseTo(6, 4);
-    // No reading until a whole window fits.
-    expect(r[0]).toBeNaN();
+    // From the gun, on a window shortened to what there is.
+    expect(r[0]).toBeCloseTo(12, 4);
+  });
+
+  it('has no step at the gun edge beyond what the data gives', () => {
+    // Steady boats: the same rate at every sample, the gun's and the last one's included.
+    for (let j = 0; j < n; j++) {
+      expect(r[0 * n + j]).toBeCloseTo(12, 4);
+      expect(r[1 * n + j]).toBeCloseTo(-12, 4);
+      expect(r[2 * n + j]).toBeCloseTo(0, 4);
+    }
+    // A boat speeding up from the gun (its gain growing steadily): near the gun the readings step no more than they do
+    // later on (the one-sided windows lag, they don't jump).
+    const g = grid([60, 60, 60, 60], [0, 0, 0, 0], n);
+    const acc = 2; // m/min of gain each 5 s
+    for (let j = 0; j < n; j++) g.dist[j] -= (acc * j * j * GAIN_STEP_MS) / 2 / 60_000;
+    const q = gainRates(g);
+    const step = (j: number): number => Math.abs(q[j + 1] - q[j]);
+    for (let j = 0; j < 4; j++) {
+      expect(Number.isFinite(q[j])).toBe(true);
+      expect(step(j)).toBeLessThanOrEqual(step(10) + 1e-3);
+    }
+    expect(q[0]).toBeGreaterThanOrEqual(0);
+  });
+
+  it('reads between the samples, a lone reading only up to half a step from it', () => {
+    const rate = Float32Array.from([NaN, NaN, 10, 12, 14, NaN]);
+    const s: GainSeries = { t0: 0, stepMs: GAIN_STEP_MS, n: rate.length, ids: ['x'], index: new Map([['x', 0]]), rate, leg: new Int16Array(rate.length) };
+    const at = (x: number): number => gainAt(s, 'x', x * GAIN_STEP_MS);
+    expect(at(1.4)).toBeNaN();
+    expect(at(1.6)).toBe(10);
+    expect(at(2)).toBe(10);
+    expect(at(2.5)).toBeCloseTo(11, 6);
+    expect(at(4.5)).toBe(14);
+    expect(at(4.6)).toBeNaN();
+    expect(at(-0.1)).toBeNaN();
   });
 
   it('draws them green, red and the neutral gray', () => {
@@ -175,6 +209,8 @@ describe('Gain/loss on the race viewer map', () => {
     const id = s.ids[0];
     expect(Number.isFinite(gainAt(s, id, t))).toBe(true);
     expect(gainAt(s, id, a.meta.gunMs - 60_000)).toBeNaN();
+    // From the gun on (not 15 s after it): most of the fleet reads 2 s in.
+    expect(s.ids.filter((x) => Number.isFinite(gainAt(s, x, a.meta.gunMs + 2_000))).length).toBeGreaterThan(s.ids.length / 2);
   });
 
   it('is worked out in slices off the frames, to the same values as at once', () => {
@@ -229,7 +265,8 @@ describe('Gain/loss on the race viewer map', () => {
     expect(svg).toContain(`stroke-opacity="${GAIN_NONE.opacity}"`);
     expect(svg).not.toMatch(/no data|no reading|missing|\bgap\b/i);
     // The selected boat's ink outline runs only under its colored stretches.
-    const sel = trackMap(a, gainSeries(a, m).ids[0], null, { colour: 'gain', coach: m });
+    const withFaint = new RegExp(`<g class="sog-trk" data-id="([^"]+)"[^>]*>(?:(?!</g>).)*data-bin="${GAIN_BINS}"`).exec(svg)![1];
+    const sel = trackMap(a, withFaint, null, { colour: 'gain', coach: m });
     const outline = /<path class="sog-sel" d="([^"]*)"/.exec(sel)![1];
     const on = /<g class="sog-trk on"[^>]*>(.*?)<\/g>/.exec(sel)![1];
     const faintD = new RegExp(`data-bin="${GAIN_BINS}" d="([^"]*)"`).exec(on)?.[1];
