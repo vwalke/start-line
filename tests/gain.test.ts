@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { CoachModel } from '../src/analysis/coach';
 import { GAIN_STEP_MS, gainAt, gainFill, gainRates, gainSeries, gainSeriesReady, type LadderGrid } from '../src/analysis/coach/gainLoss';
@@ -273,6 +274,18 @@ describe('Gain/loss on the race viewer map', () => {
     const b = cap.bullets.find((x) => x.startsWith('Gain/loss: '));
     expect(b).toContain('m/min over 30 s');
     expect(cap.bullets.join(' ')).not.toMatch(/\bgap\b|over early|OCS/i);
+  });
+
+  it('lets the five Color buttons wrap on the narrowest phones, one segmented line from 381 px up', () => {
+    const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
+    const m = /@media \(max-width: (\d+)px\) \{\s*\.seg:has\(> button\[data-colour\]\) \{ flex-wrap: wrap; gap: 4px; \}([^@]*?)\n\}/.exec(css);
+    expect(m).not.toBeNull();
+    const px = Number(m![1]);
+    expect(px).toBeGreaterThanOrEqual(320);
+    expect(px).toBeLessThan(470);
+    // Wrapped, every button its own rounded one (no square end mid-group), none overlapping the one before.
+    expect(m![2]).toContain('.seg:has(> button[data-colour]) button { margin-left: 0; border-radius: 6px; }');
+    expect(colourControls('leg', 'leg', null).match(/<button /g)).toHaveLength(5);
   });
 
   it('is in the menu, and its stored value parses', () => {
