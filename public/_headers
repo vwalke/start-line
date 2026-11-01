@@ -1,2 +1,4 @@
+# Pages doesn't apply this to Function responses: /assets/* is served by functions/assets/[[path]].ts, which sets
+# this same Cache-Control itself (functions/_assets.ts ASSET_CACHE_CONTROL; tests/assetsFunction.test.ts keeps them equal).
 /assets/*
   Cache-Control: public, max-age=31536000, immutable

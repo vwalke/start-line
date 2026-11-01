@@ -1346,7 +1346,7 @@ src/ui/paywall.ts            lock card and account sheet (only when /api/auth/me
 src/feedback/, functions/_feedback.ts, functions/api/feedback.ts  the Feedback button and sheet, and POST /api/feedback (see Feedback)
 src/ui/nav.ts                the app's paths and history entries (see Page views)
 src/ui/track.ts, functions/_track.ts, _trackSchema.ts, functions/api/track.ts  usage events and POST /api/track (see Usage tracking)
-functions/assets/[[path]].ts, functions/_assets.ts  /assets/* passed through; a missing file is a 404 (no-store), never index.html cached as a script
+functions/assets/[[path]].ts, functions/_assets.ts  /assets/* passed through with the year-long Cache-Control (Pages skips public/_headers for Functions); a missing file is a 404 (no-store), never index.html cached as a script
 scripts/usage-report.mjs     a day's usage from Analytics Engine (read-only)
 migrations/0001_paywall.sql  D1 schema for the paywall (not applied: see Paywall)
 tests/                       vitest; offline, using tests/fixtures (benelux_r8, c31_r10, m24_r4, j88_r5, j105_r1–r3, ic37_r5, gate_*, cascais_r2, cascais_r3, anom_*: tracker glitches, vkx/, stripe/: fake webhook events); tests/d1mem.ts runs the paywall's SQL against the migration's schema in memory; tests/setup.ts yields to the event loop after each test (a long run of synchronous tests otherwise times out vitest's worker RPC, 'Timeout calling "onTaskUpdate"')
