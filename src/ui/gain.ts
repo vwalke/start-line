@@ -12,8 +12,10 @@
  *   The red is darker than the green in both schemes (OKLab L: day 0.40–0.52 vs 0.56–0.62, night 0.60–0.66 vs
  *   0.80–0.86), so they read apart for red-green color-blind viewers; every bin ≥ 3:1 on its chart (the day gray is
  *   a shade darker than sog.ts NEUTRAL_DAY for that).
- * - No reading (before the gun, after a boat's finish, off any leg) draws gray, like even; the wind still on its way,
- *   or the rates still being worked out (gainSeriesSoon), every track gray (charts.ts NEUTRAL_PAINT).
+ * - No reading (before the gun, after a boat's finish, off any leg): the track goes on in a faint translucent tint of
+ *   the gray (GAIN_NONE), well under the even bin's on either chart, so it never reads as keeping pace; the key has no
+ *   entry for it and the hover no gain line. The wind still on its way, or the rates still being worked out
+ *   (gainSeriesSoon), every track the neutral gray (charts.ts NEUTRAL_PAINT).
  */
 import type { CoachModel } from '../analysis/coach';
 import { GAIN_SLICE_MS, gainAt, gainFill, gainSeries, gainSeriesReady, type GainSeries } from '../analysis/coach/gainLoss';
@@ -21,6 +23,7 @@ import type { RaceAnalysis } from '../analysis/types';
 import type { SrcTrack } from './mapPieces';
 import { binPos, NEUTRAL_NIGHT, percentile, sogBin, sogKeyPending, valueScaleHtml, type SogRange, type SogScheme } from './sog';
 import { esc } from './format';
+import { SPEED_BG } from './speed';
 
 /** Colors on the scale (odd: the middle one is gray). */
 export const GAIN_BINS = 9;
@@ -37,18 +40,34 @@ export const GAIN_COLORS: Record<SogScheme, readonly string[]> = {
   dark: ['#e62c2c', '#ea3d38', '#e5554c', '#df695e', NEUTRAL_NIGHT, '#7bd77f', '#6fe276', '#5fed6c', '#54f667'],
 };
 
+/** Stretches with no reading: this gray at this opacity, by day and by night (one opacity: the night color is `--cd`). */
+export const GAIN_NONE = { light: '#9aa1a9', dark: '#8a94a1', opacity: 0.45 } as const;
+
+/** `hex` at `o` over `bg`, as #rrggbb. */
+const over = (hex: string, o: number, bg: string): string =>
+  `#${[1, 3, 5].map((i) => Math.round(o * parseInt(hex.slice(i, i + 2), 16) + (1 - o) * parseInt(bg.slice(i, i + 2), 16)).toString(16).padStart(2, '0')).join('')}`;
+
+/** What a stretch with no reading shows as on each chart (GAIN_NONE over SPEED_BG). */
+export const GAIN_NONE_SEEN: Record<SogScheme, string> = {
+  light: over(GAIN_NONE.light, GAIN_NONE.opacity, SPEED_BG.light),
+  dark: over(GAIN_NONE.dark, GAIN_NONE.opacity, SPEED_BG.dark),
+};
+
 /** The color at scale position `s` (0 = losing fastest, 0.5 = even, 1 = gaining fastest; clamped, NaN → even): its bin's, as #rrggbb. */
 export function gainColor(s: number, scheme: SogScheme = 'light'): string {
   const x = Number.isFinite(s) ? Math.min(1, Math.max(0, s)) : 0.5;
   return GAIN_COLORS[scheme][Math.min(GAIN_BINS - 1, Math.floor(x * GAIN_BINS))];
 }
 
-/** Bin `b`'s stroke: the day color, and the night one as `--cd`. */
-export const gainStroke = (b: number, bins = GAIN_BINS): string => `stroke="${gainColor(binPos(b, bins))}" style="--cd:${gainColor(binPos(b, bins), 'dark')}"`;
+/** Bin `b`'s stroke: the day color, and the night one as `--cd`; bin GAIN_BINS (charts.ts: the steps with no reading) the faint tint. */
+export const gainStroke = (b: number): string =>
+  b >= GAIN_BINS
+    ? `stroke="${GAIN_NONE.light}" stroke-opacity="${GAIN_NONE.opacity}" style="--cd:${GAIN_NONE.dark}"`
+    : `stroke="${gainColor(binPos(b, GAIN_BINS))}" style="--cd:${gainColor(binPos(b, GAIN_BINS), 'dark')}"`;
 
-/** The color a rate on `r` is drawn in (its bin's, as on the tracks and the key's bar); no reading: gray. */
+/** The color a rate on `r` is drawn in (its bin's, as on the tracks and the key's bar); no reading: the faint tint as seen. */
 export const gainRateColor = (v: number, r: SogRange, scheme: SogScheme = 'light'): string =>
-  gainColor(binPos(sogBin(Number.isFinite(v) ? v : 0, r, GAIN_BINS), GAIN_BINS), scheme);
+  Number.isFinite(v) ? gainColor(binPos(sogBin(v, r, GAIN_BINS), GAIN_BINS), scheme) : GAIN_NONE_SEEN[scheme];
 
 /** The model's gain rates (gainLoss.ts), for race `a`. */
 export const gainSeriesOf = (a: RaceAnalysis, m: CoachModel): GainSeries => gainSeries(a, m);
@@ -117,19 +136,18 @@ interface SrcGain {
 const perSeries = new WeakMap<GainSeries, WeakMap<SrcTrack, SrcGain>>();
 
 /**
- * Boat `id`'s gain rate at each fix of `src` (m/min; no reading → 0, drawn gray), indexed as `src`, fixes [i0, i1)
+ * Boat `id`'s gain rate at each fix of `src` (m/min; NaN: no reading, drawn faint), indexed as `src`, fixes [i0, i1)
  * worked out once per model and source.
  */
 export function gainValues(s: GainSeries, src: SrcTrack, id: string, i0 = 0, i1 = src.t.length): Float32Array {
   let bySrc = perSeries.get(s);
   if (!bySrc) perSeries.set(s, (bySrc = new WeakMap()));
   let g = bySrc.get(src);
-  if (!g) bySrc.set(src, (g = { v: new Float32Array(src.t.length), done: new Uint8Array(src.t.length) }));
+  if (!g) bySrc.set(src, (g = { v: new Float32Array(src.t.length).fill(NaN), done: new Uint8Array(src.t.length) }));
   const hi = Math.min(i1, src.t.length);
   for (let i = Math.max(0, i0); i < hi; i++) {
     if (g.done[i]) continue;
-    const v = gainAt(s, id, src.t[i]);
-    g.v[i] = Number.isFinite(v) ? v : 0;
+    g.v[i] = gainAt(s, id, src.t[i]);
     g.done[i] = 1;
   }
   return g.v;

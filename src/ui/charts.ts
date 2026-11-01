@@ -28,6 +28,7 @@ import {
   sogKnColor,
   sogIndex,
   sogPathsSvg,
+  SOG_BINS,
   startSogRange,
   trackSogRange,
   type BinStroke,
@@ -778,6 +779,8 @@ interface TrackPaint {
   range: (segLeg: number) => SogRange | null;
   bins?: number;
   stroke?: BinStroke;
+  /** Steps with no value take a bin of their own past the scale's (`stroke(bins)`: Gain/loss's faint tint), not the lowest. */
+  none?: boolean;
 }
 
 /** Tracks whose colors aren't ready yet (VMG before the Coach's wind is in): one neutral gray. */
@@ -797,7 +800,7 @@ function trackPaint(a: RaceAnalysis, leg: number | null, opts: TrackMapOptions):
     if (!m) return NEUTRAL_PAINT;
     const s = gainSeriesOf(a, m);
     const r = trackGainRange(a, m, leg);
-    return { values: (pc) => gainValues(s, pc.src, pc.id, pc.i0, pc.i1), range: () => r, bins: GAIN_BINS, stroke: gainStroke };
+    return { values: (pc) => gainValues(s, pc.src, pc.id, pc.i0, pc.i1), range: () => r, bins: GAIN_BINS, stroke: gainStroke, none: true };
   }
   return null;
 }
@@ -820,11 +823,11 @@ function sogLayer(
   for (const d of a.drawings) {
     for (const pc of piecesOf(d)) {
       let acc = byBoat.get(d.id);
-      if (!acc) byBoat.set(d.id, (acc = emptySogPaths(paint.bins)));
+      if (!acc) byBoat.set(d.id, (acc = emptySogPaths((paint.bins ?? SOG_BINS) + (paint.none ? 1 : 0))));
       const x = pc.rx.subarray(pc.i0, pc.i1);
       const y = pc.ry.subarray(pc.i0, pc.i1);
       const range = paint.range(pc.leg) ?? { lo: 0, hi: 1 };
-      addSogTrack(acc, x, y, paint.values(pc).subarray(pc.i0, pc.i1), range, nearClip(x, y, clip));
+      addSogTrack(acc, x, y, paint.values(pc).subarray(pc.i0, pc.i1), range, nearClip(x, y, clip), paint.none);
     }
   }
   const out: string[] = [];
@@ -836,7 +839,9 @@ function sogLayer(
     if (!body) continue;
     const cls = highlight ? (on ? 'sog-trk on' : 'sog-trk dim') : 'sog-trk';
     const g = `<g class="${cls}" data-id="${esc(id)}" stroke-width="${(w * k).toFixed(2)}">${body}</g>`;
-    if (on) sel = `<path class="sog-sel" d="${acc.bins.join('')}" stroke-width="${((w + 2.4) * k).toFixed(2)}"/>${g}`;
+    // The selected boat's ink outline runs under its colored stretches only: the faint ones stay quiet.
+    const outline = paint.none ? acc.bins.slice(0, -1).join('') : acc.bins.join('');
+    if (on) sel = `${outline ? `<path class="sog-sel" d="${outline}" stroke-width="${((w + 2.4) * k).toFixed(2)}"/>` : ''}${g}`;
     else out.push(g);
   }
   return out.join('') + sel;
@@ -1310,6 +1315,8 @@ function dotColour(a: RaceAnalysis, b: BoatAt, leg: number | null, opts: TrackMa
     if (!m) return { c: NEUTRAL_DAY, cd: NEUTRAL_NIGHT };
     const r = trackGainRange(a, m, leg);
     const v = gainAt(gainSeriesOf(a, m), b.id, b.t);
+    // No reading (before the gun, finished): the dot as in VMG and Boat speed, not the tracks' faint tint.
+    if (!Number.isFinite(v)) return { c: PRE_COLOR };
     return { c: gainRateColor(v, r), cd: gainRateColor(v, r, 'dark') };
   }
   if (b.leg === PRE_LEG) return { c: PRE_COLOR };

@@ -234,10 +234,20 @@ const xy = (x: number, y: number): string => `${x.toFixed(1)},${y.toFixed(1)}`;
  * Append one run of track to `acc`. Each step i → i+1 takes the bin of its
  * mean SOG; consecutive same-bin steps extend one "M…L…" run, and a new run
  * starts on the shared point, so the line stays continuous. Steps with an end
- * outside `inside` are skipped.
+ * outside `inside` are skipped. `none`: `acc` has one bin past the scale's,
+ * which takes the steps with no value at an end (Gain/loss's faint stretches);
+ * else they take the lowest bin.
  */
-export function addSogTrack(acc: SogPaths, x: ArrayLike<number>, y: ArrayLike<number>, sog: ArrayLike<number>, r: SogRange, inside: (i: number) => boolean = () => true): void {
-  const bins = acc.bins.length;
+export function addSogTrack(
+  acc: SogPaths,
+  x: ArrayLike<number>,
+  y: ArrayLike<number>,
+  sog: ArrayLike<number>,
+  r: SogRange,
+  inside: (i: number) => boolean = () => true,
+  none = false,
+): void {
+  const bins = acc.bins.length - (none ? 1 : 0);
   let cur = -1;
   const n = Math.min(x.length, y.length, sog.length);
   for (let i = 0; i + 1 < n; i++) {
@@ -247,7 +257,8 @@ export function addSogTrack(acc: SogPaths, x: ArrayLike<number>, y: ArrayLike<nu
     }
     const p = xy(x[i], y[i]);
     const q = xy(x[i + 1], y[i + 1]);
-    const b = sogBin((sog[i] + sog[i + 1]) / 2, r, bins);
+    const v = (sog[i] + sog[i + 1]) / 2;
+    const b = none && !Number.isFinite(v) ? bins : sogBin(v, r, bins);
     if (b === cur) acc.bins[b] += `L${q}`;
     else acc.bins[b] += `M${p}L${q}`;
     cur = b;

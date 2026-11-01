@@ -4,7 +4,7 @@ import { GAIN_STEP_MS, gainAt, gainFill, gainRates, gainSeries, gainSeriesReady,
 import { ladderReader } from '../src/analysis/coach/ladderNow';
 import { mapKey } from '../src/ui/captions';
 import { scrubFrame, trackMap, trackPoints } from '../src/ui/charts';
-import { GAIN_COLORS, GAIN_NEUTRAL_DAY, gainColor, gainKey, gainRateColor, gainSeriesSoon, gainTipLine, GAIN_BINS, GAIN_KEY_TEXT, trackGainRange } from '../src/ui/gain';
+import { GAIN_COLORS, GAIN_NEUTRAL_DAY, gainColor, gainKey, gainRateColor, gainSeriesSoon, gainStroke, gainTipLine, GAIN_NONE, GAIN_NONE_SEEN, GAIN_BINS, GAIN_KEY_TEXT, trackGainRange } from '../src/ui/gain';
 import { mapTipLines } from '../src/ui/mapPoints';
 import { NEUTRAL_DAY, NEUTRAL_NIGHT, sogKey } from '../src/ui/sog';
 import { colourControls, contrast, needsCoach, parseTrackColour, SPEED_BG } from '../src/ui/speed';
@@ -67,7 +67,27 @@ describe('gain rate on the fleet’s median boat (coach/gainLoss.ts)', () => {
     expect(gainRateColor(mid(r, 1, n), range)).toBe(gainColor(0.5 / GAIN_BINS));
     expect(gainRateColor(mid(r, 2, n), range)).toBe(GAIN_NEUTRAL_DAY);
     expect(gainRateColor(mid(r, 2, n), range, 'dark')).toBe(NEUTRAL_NIGHT);
-    expect(gainRateColor(NaN, range)).toBe(GAIN_NEUTRAL_DAY);
+  });
+
+  it('draws no reading in a faint tint, clearly apart from the even gray, on either chart', () => {
+    const range = { lo: -10, hi: 10 };
+    for (const scheme of ['light', 'dark'] as const) {
+      const faint = gainRateColor(NaN, range, scheme);
+      const even = gainRateColor(0.2, range, scheme);
+      expect(faint).toBe(GAIN_NONE_SEEN[scheme]);
+      expect(even).toBe(GAIN_COLORS[scheme][(GAIN_BINS - 1) / 2]);
+      expect(faint).not.toBe(even);
+      // Faint but there on its chart; the even gray clearly stronger, and the two apart.
+      expect(contrast(faint, SPEED_BG[scheme])).toBeGreaterThanOrEqual(1.3);
+      expect(contrast(faint, SPEED_BG[scheme])).toBeLessThan(2.2);
+      expect(contrast(even, SPEED_BG[scheme])).toBeGreaterThanOrEqual(3);
+      expect(contrast(faint, even)).toBeGreaterThanOrEqual(1.5);
+      // A gray, as the even bin is.
+      expect(oklab(faint).C).toBeLessThan(0.03);
+    }
+    // The faint stretches' stroke is translucent; the bins' strokes aren't.
+    expect(gainStroke(GAIN_BINS)).toBe(`stroke="${GAIN_NONE.light}" stroke-opacity="${GAIN_NONE.opacity}" style="--cd:${GAIN_NONE.dark}"`);
+    expect(gainStroke((GAIN_BINS - 1) / 2)).toBe(`stroke="${GAIN_NEUTRAL_DAY}" style="--cd:${NEUTRAL_NIGHT}"`);
   });
 
   it('is gray only in the middle bin: the bins beside it already clearly red and green, the ends strongest', () => {
@@ -201,8 +221,20 @@ describe('Gain/loss on the race viewer map', () => {
     expect(r.hi % 5).toBe(0);
     const bins = new Set([...svg.matchAll(/<path class="sog" data-bin="(\d+)"/g)].map((x) => Number(x[1])));
     expect(bins.size).toBeGreaterThan(2);
-    for (const b of bins) expect(b).toBeLessThan(GAIN_BINS);
+    for (const b of bins) expect(b).toBeLessThanOrEqual(GAIN_BINS);
     expect(svg).toContain(`stroke="${gainColor(0.5)}"`);
+    // Before the gun and after the finish the tracks go on in the faint tint (the bin past the scale's), unbroken.
+    expect(bins.has(GAIN_BINS)).toBe(true);
+    expect(svg).toContain(`stroke-opacity="${GAIN_NONE.opacity}"`);
+    expect(svg).not.toMatch(/no data|no reading|missing|\bgap\b/i);
+    // The selected boat's ink outline runs only under its colored stretches.
+    const sel = trackMap(a, gainSeries(a, m).ids[0], null, { colour: 'gain', coach: m });
+    const outline = /<path class="sog-sel" d="([^"]*)"/.exec(sel)![1];
+    const on = /<g class="sog-trk on"[^>]*>(.*?)<\/g>/.exec(sel)![1];
+    const faintD = new RegExp(`data-bin="${GAIN_BINS}" d="([^"]*)"`).exec(on)?.[1];
+    expect(faintD).toBeTruthy();
+    expect(outline).not.toContain(faintD);
+    expect(outline.length).toBeGreaterThan(0);
     expect(svg).toMatch(/tracks colored by gain or loss on the fleet(&#39;|')s median boat, up to \d+ m\/min either way: red losing, gray even, green gaining/);
     expect(trackMap(a, null, 1, { colour: 'gain', coach: m })).toContain('<g class="sog-trk"');
     const waiting = trackMap(a, null, null, { colour: 'gain' });
