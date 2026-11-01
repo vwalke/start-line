@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import { defineConfig } from 'vitest/config';
+import { shellChunks } from './vite.chunks';
 
 /** The build's commit for the Feedback sheet (src/feedback/build.ts): Cloudflare Pages' own, else git's, else 'dev'. */
 function appCommit(): string {
@@ -43,7 +44,13 @@ export default defineConfig({
   server: { proxy: apiProxy },
   preview: { proxy: apiProxy },
   worker: { format: 'es' },
-  build: { target: 'es2022', sourcemap: true },
+  build: {
+    target: 'es2022',
+    sourcemap: true,
+    // The entry chunk imported by no other chunk, so index.html's boot-retry can load it afresh (vite.chunks.ts).
+    // Not the workers' builds (worker.rollupOptions).
+    rollupOptions: { output: { manualChunks: shellChunks() } },
+  },
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',

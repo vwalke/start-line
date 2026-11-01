@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DAY, MINUTE, cachedJson } from '../src/data/cache';
+import { CACHE_TIMEOUT_MS, DAY, MINUTE, cachedJson, cachedJsonFrom } from '../src/data/cache';
 import { fetchRegatta, fetchUsableRegatta } from '../src/data/racesense/api';
 import type { RegattaResponse } from '../src/data/racesense/types';
 
@@ -125,5 +125,67 @@ describe('a ttl-0 body (a live race’s tail page) is kept nowhere', () => {
     await cachedJson(kept, MINUTE);
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(put).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('a stuck Cache API (WebKit) falls back to the network', () => {
+  const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
+  const url = (): string => `/api/regatta/stuck-${++n}`;
+  /** Lets the pending promise chain run, without moving the clock. */
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  };
+
+  it('fetches once caches.open has hung for CACHE_TIMEOUT_MS, and not before', async () => {
+    vi.stubGlobal('caches', { open: () => never<Cache>(), delete: async () => true });
+    served = regatta(true);
+    const got = cachedJsonFrom<RegattaResponse>(url(), DAY);
+    await vi.advanceTimersByTimeAsync(CACHE_TIMEOUT_MS - 1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await got).toEqual({ body: served, cached: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('fetches once cache.match has hung for CACHE_TIMEOUT_MS, and still stores the copy', async () => {
+    const put = vi.fn(async () => undefined);
+    vi.stubGlobal('caches', { open: async () => ({ match: () => never<Response | undefined>(), put }), delete: async () => true });
+    served = regatta(true);
+    const got = cachedJsonFrom<RegattaResponse>(url(), DAY);
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(CACHE_TIMEOUT_MS);
+    expect(await got).toEqual({ body: served, cached: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not wait on cache.put', async () => {
+    vi.stubGlobal('caches', { open: async () => ({ match: async () => undefined, put: () => never<void>() }), delete: async () => true });
+    served = regatta(true);
+    const got = cachedJsonFrom<RegattaResponse>(url(), DAY);
+    await settle();
+    let done = false;
+    void got.then(() => (done = true));
+    await settle();
+    expect(done).toBe(true);
+  });
+
+  it('drops a late failure without an unhandled rejection', async () => {
+    const late = <T>(): Promise<T> => new Promise<T>((_, reject) => setTimeout(() => reject(new Error('late')), 2 * CACHE_TIMEOUT_MS));
+    vi.stubGlobal('caches', { open: async () => ({ match: () => late<Response | undefined>(), put: async () => undefined }), delete: async () => true });
+    served = regatta(true);
+    const got = cachedJsonFrom<RegattaResponse>(url(), DAY);
+    await vi.advanceTimersByTimeAsync(3 * CACHE_TIMEOUT_MS);
+    expect((await got).cached).toBe(false);
+  });
+
+  it('still answers from a quick Cache Storage hit without a fetch', async () => {
+    vi.setSystemTime(END + 2 * DAY);
+    const body = regatta(true);
+    const hit = (): Response => new Response(JSON.stringify(body), { headers: { 'x-start-line-fetched-at': String(Date.now() - MINUTE) } });
+    vi.stubGlobal('caches', { open: async () => ({ match: async () => hit(), put: async () => undefined }), delete: async () => true });
+    expect(await cachedJsonFrom<RegattaResponse>(url(), DAY)).toEqual({ body, cached: true });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
