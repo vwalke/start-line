@@ -13,6 +13,11 @@ const OLD_CACHES = ['start-line-v1'];
 const FETCHED_AT = 'x-start-line-fetched-at';
 const MEMORY_ENTRY_MAX = 750_000;
 const MEMORY_TOTAL_MAX = 4_000_000;
+/**
+ * How long opening Cache Storage, or a read from it, may take before it counts as no cache: a stuck Cache
+ * API (a known WebKit failure) then costs a short wait and a network fetch instead of a page that never loads.
+ */
+export const CACHE_TIMEOUT_MS = 2000;
 
 const memory = new Map<string, { at: number; body: unknown; bytes: number }>();
 let memoryBytes = 0;
@@ -52,10 +57,21 @@ function purgeOldCaches(): void {
   }
 }
 
+/** `p`, or `fallback` if it fails or takes longer than CACHE_TIMEOUT_MS (a late answer or failure is dropped). */
+function orAfterTimeout<T>(p: Promise<T>, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), CACHE_TIMEOUT_MS);
+    p.then(
+      (v) => (clearTimeout(timer), resolve(v)),
+      () => (clearTimeout(timer), resolve(fallback)),
+    );
+  });
+}
+
 async function openCache(): Promise<Cache | null> {
   purgeOldCaches();
   try {
-    return typeof caches === 'undefined' ? null : await caches.open(CACHE_NAME);
+    return typeof caches === 'undefined' ? null : await orAfterTimeout(caches.open(CACHE_NAME), null);
   } catch {
     return null; // e.g. insecure context or storage disabled
   }
@@ -87,7 +103,7 @@ export async function cachedJsonFrom<T>(url: string, ttlMs: Ttl, opts: CacheOpts
   const cache = await openCache();
   if (cache && !opts.fresh) {
     try {
-      const hit = await cache.match(url);
+      const hit = await orAfterTimeout(cache.match(url), undefined);
       if (hit) {
         const at = Number(hit.headers.get(FETCHED_AT) ?? 0);
         const text = await hit.text();
