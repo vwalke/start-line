@@ -39,8 +39,8 @@ import {
   type StartColour,
 } from './sog';
 import { segmentVmgRange, trackVmgRange, vmgAt, vmgBow, vmgRangeOf, vmgValues } from './vmg';
-import { GAIN_BINS, gainRateColor, gainSeriesOf, gainStroke, gainValues, trackGainRange } from './gain';
-import { gainAt } from '../analysis/coach/gainLoss';
+import { GAIN_BINS, gainBin, gainColor, gainStroke } from './gain';
+import { legGainAt, legPlaces } from '../analysis/coach/gainLoss';
 import type { CoachModel } from '../analysis/coach';
 import { casedByDay, speedColor, speedRanking, speedStyle, type RankBy, type SogScale, type SpeedTop, type TrackColour } from './speed';
 import { FAV_GAP_PX, favouredTexts, lineBiasSvg } from './startLine';
@@ -668,8 +668,8 @@ export interface TrackMapOptions {
   /**
    * 'leg' (default): one colour per leg. 'rank': plasma and emphasis by
    * elapsed-time rank (ui/speed.ts). 'sog': trimmed turbo by each boat's own SOG (ui/sog.ts). 'vmg': the same
-   * scale by VMG (ui/vmg.ts), read on `coach`'s wind. 'gain': red–gray–green by gain or loss on the fleet's median
-   * boat up the ladder (ui/gain.ts).
+   * scale by VMG (ui/vmg.ts), read on `coach`'s wind. 'gain': each leg red–gray–green by the places the boat
+   * gained or lost on it (ui/gain.ts).
    */
   colour?: TrackColour;
   /**
@@ -771,23 +771,28 @@ const SOG_W = 1.4;
 const SOG_W_ON = 2.6;
 
 /**
- * How a value-colored mode (Boat speed, VMG) paints the tracks: each piece's values (indexed as its source), the range
- * a piece of a leg is binned on, how many bins, and their strokes.
+ * How a value-colored mode (Boat speed, VMG, Gain/loss) paints the tracks: each piece's values (indexed as its source),
+ * the range a piece of a leg is binned on, how many bins, and their strokes.
  */
 interface TrackPaint {
   values: (pc: MapPiece) => Float32Array;
   range: (segLeg: number) => SogRange | null;
   bins?: number;
   stroke?: BinStroke;
-  /** Steps with no value take a bin of their own past the scale's (`stroke(bins)`: Gain/loss's faint tint), not the lowest. */
-  none?: boolean;
+  /** The one bin a whole piece takes (Gain/loss: its leg's places), its values unread. */
+  bin?: (pc: MapPiece) => number;
 }
+
+const UNIT_RANGE: SogRange = { lo: 0, hi: 1 };
 
 /** Tracks whose colors aren't ready yet (VMG before the Coach's wind is in): one neutral gray. */
 const NEUTRAL_PAINT: TrackPaint = { values: (pc) => pc.src.sog, range: () => ({ lo: 0, hi: 1 }), bins: 1, stroke: neutralStroke };
 
-/** The paint for the map's coloring, showing `leg` (or all); null for Leg and Rank (per-segment polylines). Gain/loss: one range for the view, red–gray–green (ui/gain.ts). */
-function trackPaint(a: RaceAnalysis, leg: number | null, opts: TrackMapOptions): TrackPaint | null {
+/**
+ * The paint for the map's coloring, showing `leg` (or all) at `now` (ms; Infinity: the whole race); null for Leg and
+ * Rank (per-segment polylines). Gain/loss: each piece its leg's places (ui/gain.ts), the leg under way at `now` so far.
+ */
+function trackPaint(a: RaceAnalysis, leg: number | null, opts: TrackMapOptions, now: number): TrackPaint | null {
   const scale = opts.sogScale ?? 'leg';
   if (opts.colour === 'sog') return { values: (pc) => pc.src.sog, range: (l) => segmentSogRange(a, l, leg, scale) };
   if (opts.colour === 'vmg') {
@@ -798,9 +803,8 @@ function trackPaint(a: RaceAnalysis, leg: number | null, opts: TrackMapOptions):
   if (opts.colour === 'gain') {
     const m = opts.coach;
     if (!m) return NEUTRAL_PAINT;
-    const s = gainSeriesOf(a, m);
-    const r = trackGainRange(a, m, leg);
-    return { values: (pc) => gainValues(s, pc.src, pc.id, pc.i0, pc.i1), range: () => r, bins: GAIN_BINS, stroke: gainStroke, none: true };
+    const lp = legPlaces(a, m);
+    return { values: (pc) => pc.src.sog, range: () => UNIT_RANGE, bins: GAIN_BINS, stroke: gainStroke, bin: (pc) => gainBin(legGainAt(lp, pc.id, pc.leg, now)) };
   }
   return null;
 }
@@ -823,11 +827,11 @@ function sogLayer(
   for (const d of a.drawings) {
     for (const pc of piecesOf(d)) {
       let acc = byBoat.get(d.id);
-      if (!acc) byBoat.set(d.id, (acc = emptySogPaths((paint.bins ?? SOG_BINS) + (paint.none ? 1 : 0))));
+      if (!acc) byBoat.set(d.id, (acc = emptySogPaths(paint.bins ?? SOG_BINS)));
       const x = pc.rx.subarray(pc.i0, pc.i1);
       const y = pc.ry.subarray(pc.i0, pc.i1);
-      const range = paint.range(pc.leg) ?? { lo: 0, hi: 1 };
-      addSogTrack(acc, x, y, paint.values(pc).subarray(pc.i0, pc.i1), range, nearClip(x, y, clip), paint.none);
+      const range = paint.range(pc.leg) ?? UNIT_RANGE;
+      addSogTrack(acc, x, y, paint.values(pc).subarray(pc.i0, pc.i1), range, nearClip(x, y, clip), paint.bin?.(pc));
     }
   }
   const out: string[] = [];
@@ -839,9 +843,7 @@ function sogLayer(
     if (!body) continue;
     const cls = highlight ? (on ? 'sog-trk on' : 'sog-trk dim') : 'sog-trk';
     const g = `<g class="${cls}" data-id="${esc(id)}" stroke-width="${(w * k).toFixed(2)}">${body}</g>`;
-    // The selected boat's ink outline runs under its colored stretches only: the faint ones stay quiet.
-    const outline = paint.none ? acc.bins.slice(0, -1).join('') : acc.bins.join('');
-    if (on) sel = `${outline ? `<path class="sog-sel" d="${outline}" stroke-width="${((w + 2.4) * k).toFixed(2)}"/>` : ''}${g}`;
+    if (on) sel = `<path class="sog-sel" d="${acc.bins.join('')}" stroke-width="${((w + 2.4) * k).toFixed(2)}"/>${g}`;
     else out.push(g);
   }
   return out.join('') + sel;
@@ -932,13 +934,13 @@ const PRE_COLOR = 'var(--ink-3)';
  * boat speed, every hole filled in (ui/gapFill.ts) and drawn as the rest. Track before the gun is neutral in Leg
  * and Rank, by SOG in Boat speed.
  */
-function trackLayer(a: RaceAnalysis, highlight: string | null, leg: number | null, opts: TrackMapOptions, po: PieceOptions, sc: MapScale): TrackLayer {
+function trackLayer(a: RaceAnalysis, highlight: string | null, leg: number | null, opts: TrackMapOptions, po: PieceOptions, sc: MapScale, now = Infinity): TrackLayer {
   const { box, unit, k } = sc;
   const twd = a.wind.twdAtGunDeg;
   const clip = po.clip ?? null;
   const sw = (width: number): string => `stroke-width="${(width * k).toFixed(2)}"`;
   const speed = opts.colour === 'rank' ? speedRanking(a, leg, opts.rankBy ?? 'leg') : null;
-  const paint = trackPaint(a, leg, opts);
+  const paint = trackPaint(a, leg, opts, now);
   // A picked boat that isn't racing: grey and dashed on top, split at the fleet's
   // leg times. It never moves the fit, and Rank / Boat speed never colour it.
   const nc = pickedExcluded(a, highlight);
@@ -1181,12 +1183,11 @@ export function trackMap(a: RaceAnalysis, highlight: string | null, leg: number 
 
   const legRanges = perLeg ? legRangeList(a, vm ? vmgRangeOf(a, vm) : undefined) : '';
   const [what, low, high] = vm ? ['VMG', 'lowest', 'highest'] : ['boat speed (SOG)', 'slowest', 'fastest'];
-  const gr = opts.colour === 'gain' && opts.coach ? trackGainRange(a, opts.coach, leg) : null;
   const sogLabel = !valued
     ? opts.colour === 'vmg'
       ? 'colored by VMG'
       : opts.colour === 'gain'
-        ? `colored by gain or loss on the fleet's median boat${gr ? `, up to ${gr.hi} m/min either way` : ''}: red losing, gray even, green gaining`
+        ? 'colored by the places each boat gained or lost on each leg: red lost, gray held, green gained'
         : ''
     : perLeg
       ? `colored by ${what}, scaled within each leg${legRanges ? ` (${legRanges})` : ''}: blue ${low} on that leg, through green and yellow, to red ${high}`
@@ -1313,11 +1314,9 @@ function dotColour(a: RaceAnalysis, b: BoatAt, leg: number | null, opts: TrackMa
   if (opts.colour === 'gain') {
     const m = opts.coach;
     if (!m) return { c: NEUTRAL_DAY, cd: NEUTRAL_NIGHT };
-    const r = trackGainRange(a, m, leg);
-    const v = gainAt(gainSeriesOf(a, m), b.id, b.t);
-    // No reading (before the gun, finished): the dot as in VMG and Boat speed, not the tracks' faint tint.
-    if (!Number.isFinite(v)) return { c: PRE_COLOR };
-    return { c: gainRateColor(v, r), cd: gainRateColor(v, r, 'dark') };
+    // As its track at the scrubber's time: its leg's places so far (before the gun, the held gray).
+    const g = legGainAt(legPlaces(a, m), b.id, b.leg, b.t);
+    return { c: gainColor(g), cd: gainColor(g, 'dark') };
   }
   if (b.leg === PRE_LEG) return { c: PRE_COLOR };
   if (!speed) return { c: legColor(b.leg) };
@@ -1410,7 +1409,7 @@ export function scrubFrame(a: RaceAnalysis, highlight: string | null, leg: numbe
   const sc = mapScale(box, s.screen);
   const clip = mapClip(box, zoom);
   const po: PieceOptions = { leg, win: s.win, clip, pre: true, full: s.full };
-  const layer = s.trailMs ? null : trackLayer(a, highlight, leg, opts, po, sc);
+  const layer = s.trailMs ? null : trackLayer(a, highlight, leg, opts, po, sc, s.t);
   const boats = boatsAt(a, highlight, s.t, s.full);
   // What the rungs' labels keep clear of: the boats and their labels (dotsSvg), the marks and the corners' wind arrow and scale bar.
   rungTaken.clear();

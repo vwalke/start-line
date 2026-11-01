@@ -174,7 +174,7 @@ export function speedStyle(r: SpeedRank | undefined, top: SpeedTop, sel: Selecti
 
 // ---- preference -------------------------------------------------------------
 
-/** 'leg': one colour per leg. 'rank': this module (elapsed-time rank). 'sog': boat speed (ui/sog.ts). 'vmg': VMG (ui/vmg.ts). 'gain': gain/loss vs the fleet (ui/gain.ts). */
+/** 'leg': one colour per leg. 'rank': this module (elapsed-time rank). 'sog': boat speed (ui/sog.ts). 'vmg': VMG (ui/vmg.ts). 'gain': places gained or lost on each leg (ui/gain.ts). */
 export type TrackColour = 'leg' | 'rank' | 'sog' | 'vmg' | 'gain';
 
 /** Colorings read from the Coach's model (its wind and ladder), which may arrive after the map's first paint. */
