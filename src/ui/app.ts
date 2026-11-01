@@ -212,7 +212,7 @@ import {
   writePref,
 } from './speed';
 import { vmgHoverLeg, vmgKey, vmgTipLine } from './vmg';
-import { gainKey, gainTipLine } from './gain';
+import { gainKey, gainSeriesSoon, gainTipLine } from './gain';
 import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
 import { followAfter, followCam, followStep, followTarget, reducedMotion, resetFollow } from './follow';
 import { MAP_SETTLE_MS, mapPaint } from './mapPaint';
@@ -722,7 +722,7 @@ export function startApp(): void {
           : trackColour === 'vmg'
             ? vmgKey(a, coachModelFor(a), k.leg, k.sogScale)
             : trackColour === 'gain'
-              ? gainKey(a, coachModelFor(a), k.leg)
+              ? gainKey(a, colourCoachFor(a), k.leg)
               : '';
     els.speedKey.hidden = trackColour === 'leg';
     renderKeyLine(els.mapCap, mapKey(a, { highlight, colour: trackColour, rankBy: k.rankBy, sogScale: k.sogScale, leg: k.leg }));
@@ -812,6 +812,20 @@ export function startApp(): void {
   /** The coach model of `a` for the map's coloring: undefined while it is on its way (asked for here), null when the race has none. */
   function coachModelFor(a: RaceAnalysis): CoachModel | null | undefined {
     return ensureCoach(a) ? coach!.model : undefined;
+  }
+
+  /**
+   * The coach model for the map's current coloring: in Gain/loss, undefined (the tracks' gray while the wind is on its
+   * way) until its rates are worked out too, in slices when the page is idle (gain.ts gainSeriesSoon); then the view
+   * once more, unless the race or the coloring has changed meanwhile.
+   */
+  function colourCoachFor(a: RaceAnalysis): CoachModel | null | undefined {
+    const m = coachModelFor(a);
+    if (!m || trackColour !== 'gain') return m;
+    const ready = gainSeriesSoon(a, m, () => {
+      if (analysis === a && coach?.model === m && trackColour === 'gain') render();
+    });
+    return ready ? m : undefined;
   }
 
   // ---- Report (ui/report.ts, reportView.ts): one printable page for the selected boat, on `#report` or `report=1`; built only while open.
@@ -1440,7 +1454,7 @@ export function startApp(): void {
   const keyed = (): ReturnType<typeof keyLeg> => keyLeg(legSel, focusOn, rankBy, sogScale);
   const mapOpts = (): TrackMapOptions => {
     const k = keyed();
-    const coachNow = needsCoach(trackColour) && analysis ? coachModelFor(analysis) : undefined;
+    const coachNow = needsCoach(trackColour) && analysis ? colourCoachFor(analysis) : undefined;
     return { colour: trackColour, rankBy: k.rankBy, top: speedTop, sogScale: k.sogScale, view: mapView, replay: replayOn, vs: focusOn?.vs, coach: coachNow };
   };
 
@@ -2073,7 +2087,7 @@ export function startApp(): void {
     const vm = trackColour === 'vmg' ? coachModelFor(a) : null;
     const legLine =
       trackColour === 'sog' ? (l: number) => sogHoverLeg(a, l, legSel, keyed().sogScale) : vm ? (l: number) => vmgHoverLeg(a, vm, l, legSel, keyed().sogScale) : undefined;
-    const gm = trackColour === 'gain' ? coachModelFor(a) : null;
+    const gm = trackColour === 'gain' ? colourCoachFor(a) : null;
     const valueLine = vm ? (q: TipPoint) => vmgTipLine(vm, q) : gm ? (q: TipPoint) => gainTipLine(a, gm, q.id, q.t) : undefined;
     els.mapTip.innerHTML = mapTipHtml(mapTipLines(a, p, pick, { legLine, placeAt: placeReader(a), valueLine }));
     els.mapTip.hidden = false;

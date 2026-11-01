@@ -15,7 +15,9 @@
  *   gain = (Δprog_b − median Δprog) / Δt. A boat that changed legs in the window is in neither pool and reads nothing
  *   (on course progress its change spans two legs' scales); with fewer than GAIN_MIN_BOATS in the pool, no reading.
  * - Smoothed by the mean over one sample either side (15 s); NaN where there is no reading.
- * - Worked out once per model (cached), read per fix by gainAt in O(1).
+ * - Worked out once per model (cached), read per fix by gainAt in O(1). A whole fleet's race is tens of ms (more on a
+ *   phone), so the page works it out in slices between frames (gainFill, ui/gain.ts gainSeriesSoon); gainSeries
+ *   works it out at once (tests, node, or finishing a fill under way).
  */
 import type { RaceAnalysis } from '../types';
 import type { CoachModel } from './index';
@@ -42,8 +44,19 @@ function medianOf(xs: Float64Array, k: number): number {
   return k % 2 ? s[(k - 1) >> 1] : (s[k / 2 - 1] + s[k / 2]) / 2;
 }
 
+/** Runs `it` to its end: a sliced pass at once. */
+function runOut<T>(it: Generator<void, T, void>): T {
+  for (;;) {
+    const r = it.next();
+    if (r.done) return r.value;
+  }
+}
+
 /** The gain rate (m/min, NaN: none) of every boat at every sample of `g`, sampled `stepMs` apart, over `windowMs` (above). */
-export function gainRates(g: LadderGrid, stepMs = GAIN_STEP_MS, windowMs = GAIN_WINDOW_MS): Float32Array {
+export const gainRates = (g: LadderGrid, stepMs = GAIN_STEP_MS, windowMs = GAIN_WINDOW_MS): Float32Array => runOut(gainRateSteps(g, stepMs, windowMs));
+
+/** gainRates a slice at a time: pausing after each sample, and after each boat's smoothing. */
+function* gainRateSteps(g: LadderGrid, stepMs: number, windowMs: number): Generator<void, Float32Array, void> {
   const { boats, n, leg, dist, prog } = g;
   const h = Math.max(1, Math.round(windowMs / 2 / stepMs));
   const perMin = 60_000 / (2 * h * stepMs);
@@ -80,6 +93,7 @@ export function gainRates(g: LadderGrid, stepMs = GAIN_STEP_MS, windowMs = GAIN_
       if (Number.isFinite(med)) raw[b * n + j] = (med - dD[b]) * perMin;
       else if (Number.isFinite(dP[b]) && Number.isFinite(fleetMed)) raw[b * n + j] = (dP[b] - fleetMed) * perMin;
     }
+    yield;
   }
   const out = new Float32Array(boats * n).fill(NaN);
   for (let b = 0; b < boats; b++) {
@@ -96,6 +110,7 @@ export function gainRates(g: LadderGrid, stepMs = GAIN_STEP_MS, windowMs = GAIN_
       // A sample with no reading of its own stays without one (finished, off the leg).
       if (k && Number.isFinite(raw[b * n + j])) out[b * n + j] = s / k;
     }
+    yield;
   }
   return out;
 }
@@ -113,10 +128,55 @@ export interface GainSeries {
 
 const cache = new WeakMap<CoachModel, GainSeries>();
 
-/** The gain rates for race `a`'s coach model (above), worked out once per model. */
+/** The gain rates for race `a`'s coach model (above), worked out once per model: at once, or finishing a fill under way. */
 export function gainSeries(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel): GainSeries {
   const hit = cache.get(m);
   if (hit) return hit;
+  gainFill(a, m).step(Infinity);
+  return cache.get(m)!;
+}
+
+/** The model's gain rates if they're worked out (gainSeries, gainFill), else null. */
+export const gainSeriesReady = (m: CoachModel): GainSeries | null => cache.get(m) ?? null;
+
+/** A main-thread slice of a fill (ui/gain.ts gainSeriesSoon), ms: well inside a frame. */
+export const GAIN_SLICE_MS = 8;
+
+/** gainSeries a slice at a time: `step` works until `deadline` (performance.now(), ms; at least one sample), true once the series is in. */
+export interface GainFill {
+  step(deadline: number): boolean;
+}
+
+const fills = new WeakMap<CoachModel, GainFill>();
+
+/**
+ * The model's fill (one per model, kept while under way: a fill left unstepped resumes where it stopped). Its values
+ * are gainSeries's: the same reads in the same order, only paused between samples.
+ */
+export function gainFill(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel): GainFill {
+  const have = fills.get(m);
+  if (have) return have;
+  const it = seriesSteps(a, m);
+  const f: GainFill = {
+    step(deadline) {
+      if (cache.has(m)) return true;
+      do {
+        const r = it.next();
+        if (r.done) {
+          cache.set(m, r.value);
+          fills.delete(m);
+          return true;
+        }
+      } while (performance.now() < deadline);
+      return false;
+    },
+  };
+  fills.set(m, f);
+  return f;
+}
+
+/** The series (above), pausing after each sample of the ladder and each step of gainRates. */
+function* seriesSteps(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel): Generator<void, GainSeries, void> {
   const read = newLadderReader(a, m);
   const t0 = m.gunMs;
   const n = Math.max(1, Math.floor(Math.max(0, m.endMs - t0) / GAIN_STEP_MS) + 1);
@@ -133,12 +193,11 @@ export function gainSeries(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachMode
       g.dist[i] = !ok ? NaN : Number.isFinite(r.rung) ? r.rung : -r.prog;
       g.prog[i] = ok ? r.prog : NaN;
     }
+    yield;
   }
-  const s: GainSeries = { t0, stepMs: GAIN_STEP_MS, n, ids, index: new Map(ids.map((id, b) => [id, b])), rate: gainRates(g), leg: g.leg };
-  cache.set(m, s);
-  return s;
+  const rate = yield* gainRateSteps(g, GAIN_STEP_MS, GAIN_WINDOW_MS);
+  return { t0, stepMs: GAIN_STEP_MS, n, ids, index: new Map(ids.map((id, b) => [id, b])), rate, leg: g.leg };
 }
-
 /** Boat `id`'s gain rate at `t`, m/min: between the samples either side (the one with a reading, where only one has). NaN: none. */
 export function gainAt(s: GainSeries, id: string, t: number): number {
   const b = s.index.get(id);

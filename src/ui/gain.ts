@@ -13,10 +13,10 @@
  *   0.80–0.86), so they read apart for red-green color-blind viewers; every bin ≥ 3:1 on its chart (the day gray is
  *   a shade darker than sog.ts NEUTRAL_DAY for that).
  * - No reading (before the gun, after a boat's finish, off any leg) draws gray, like even; the wind still on its way,
- *   every track gray (charts.ts NEUTRAL_PAINT).
+ *   or the rates still being worked out (gainSeriesSoon), every track gray (charts.ts NEUTRAL_PAINT).
  */
 import type { CoachModel } from '../analysis/coach';
-import { gainAt, gainSeries, type GainSeries } from '../analysis/coach/gainLoss';
+import { GAIN_SLICE_MS, gainAt, gainFill, gainSeries, gainSeriesReady, type GainSeries } from '../analysis/coach/gainLoss';
 import type { RaceAnalysis } from '../analysis/types';
 import type { SrcTrack } from './mapPieces';
 import { binPos, NEUTRAL_NIGHT, percentile, sogBin, sogKeyPending, valueScaleHtml, type SogRange, type SogScheme } from './sog';
@@ -52,6 +52,41 @@ export const gainRateColor = (v: number, r: SogRange, scheme: SogScheme = 'light
 
 /** The model's gain rates (gainLoss.ts), for race `a`. */
 export const gainSeriesOf = (a: RaceAnalysis, m: CoachModel): GainSeries => gainSeries(a, m);
+
+/** Runs `run` when the page is idle (or soon, if it never is); a timer where there's no requestIdleCallback. */
+export type Later = (run: () => void) => void;
+const whenIdle: Later = (run) => {
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 200 });
+  else setTimeout(run, 0);
+};
+
+/** The model whose fill is being stepped, and what to call when it's in. */
+let wanted: CoachModel | null = null;
+let onIn: (() => void) | null = null;
+
+/**
+ * The model's gain rates if worked out; else null, and they're worked out in GAIN_SLICE_MS slices when the page is idle
+ * (gainLoss.ts gainFill), `done` called once they're in (the latest caller's). Asking for another model stops this
+ * one's slices (its fill kept, to resume if asked again), so a race switch never paints with another race's.
+ */
+export function gainSeriesSoon(a: RaceAnalysis, m: CoachModel, done: () => void, later: Later = whenIdle): GainSeries | null {
+  const s = gainSeriesReady(m);
+  if (s) return s;
+  onIn = done;
+  if (wanted === m) return null;
+  wanted = m;
+  const f = gainFill(a, m);
+  const tick = (): void => {
+    if (wanted !== m) return;
+    if (!f.step(performance.now() + GAIN_SLICE_MS)) return later(tick);
+    wanted = null;
+    const cb = onIn;
+    onIn = null;
+    cb?.();
+  };
+  later(tick);
+  return null;
+}
 
 /** ± the fleet's 90th percentile of |gain| (above) over the samples of `leg` (or every leg), as a range. */
 export function gainRangeOf(s: GainSeries, leg: number | null): SogRange {

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { GAIN_STEP_MS, gainAt, gainRates, gainSeries, type LadderGrid } from '../src/analysis/coach/gainLoss';
+import type { CoachModel } from '../src/analysis/coach';
+import { GAIN_STEP_MS, gainAt, gainFill, gainRates, gainSeries, gainSeriesReady, type LadderGrid } from '../src/analysis/coach/gainLoss';
 import { ladderReader } from '../src/analysis/coach/ladderNow';
 import { mapKey } from '../src/ui/captions';
 import { scrubFrame, trackMap, trackPoints } from '../src/ui/charts';
-import { GAIN_COLORS, GAIN_NEUTRAL_DAY, gainColor, gainKey, gainRateColor, gainTipLine, GAIN_BINS, GAIN_KEY_TEXT, trackGainRange } from '../src/ui/gain';
+import { GAIN_COLORS, GAIN_NEUTRAL_DAY, gainColor, gainKey, gainRateColor, gainSeriesSoon, gainTipLine, GAIN_BINS, GAIN_KEY_TEXT, trackGainRange } from '../src/ui/gain';
 import { mapTipLines } from '../src/ui/mapPoints';
 import { NEUTRAL_DAY, NEUTRAL_NIGHT, sogKey } from '../src/ui/sog';
 import { colourControls, contrast, needsCoach, parseTrackColour, SPEED_BG } from '../src/ui/speed';
@@ -153,6 +154,44 @@ describe('Gain/loss on the race viewer map', () => {
     const id = s.ids[0];
     expect(Number.isFinite(gainAt(s, id, t))).toBe(true);
     expect(gainAt(s, id, a.meta.gunMs - 60_000)).toBeNaN();
+  });
+
+  it('is worked out in slices off the frames, to the same values as at once', () => {
+    const fresh = (): CoachModel => coachRace(fixtureRace()).m;
+    const whole = gainSeries(a, m);
+    // One sample a step (a deadline already past): the same values as the series worked out at once.
+    const m1 = fresh();
+    const f = gainFill(a, m1);
+    let steps = 1;
+    while (!f.step(0)) steps++;
+    expect(steps).toBeGreaterThan(whole.n);
+    const sliced = gainSeriesReady(m1)!;
+    expect(sliced.ids).toEqual(whole.ids);
+    expect(sliced.leg).toEqual(whole.leg);
+    expect(sliced.rate).toEqual(whole.rate);
+    // In the page: null (the tracks' gray) until the slices are done, then `done` once; another model asked for
+    // meanwhile stops the first one's slices, and its own `done` alone is called.
+    const queue: (() => void)[] = [];
+    const later = (run: () => void): void => void queue.push(run);
+    const drain = (): void => {
+      while (queue.length) queue.shift()!();
+    };
+    const m2 = fresh();
+    const m3 = fresh();
+    const calls: string[] = [];
+    // m2 partly worked out, then asked for, then m3 asked for before m2's next slice runs.
+    for (let i = 0; i < 5; i++) expect(gainFill(a, m2).step(0)).toBe(false);
+    expect(gainSeriesSoon(a, m2, () => calls.push('m2'), later)).toBeNull();
+    expect(gainSeriesSoon(a, m3, () => calls.push('m3'), later)).toBeNull();
+    drain();
+    expect(calls).toEqual(['m3']);
+    expect(gainSeriesReady(m2)).toBeNull();
+    expect(gainSeriesSoon(a, m3, () => calls.push('again'), later)!.rate).toEqual(whole.rate);
+    // The stopped one resumes where it was, to the same values.
+    expect(gainSeriesSoon(a, m2, () => calls.push('m2'), later)).toBeNull();
+    drain();
+    expect(calls).toEqual(['m3', 'm2']);
+    expect(gainSeriesReady(m2)!.rate).toEqual(whole.rate);
   });
 
   it('draws red–gray–green paths per bin, one symmetric range, and gray until the wind is in', () => {
