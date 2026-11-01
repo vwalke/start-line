@@ -10,9 +10,10 @@
  *   gain = (median over the boats on L at both ends of ΔD − ΔD_b) / Δt. Positive: b took more off its distance to go
  *   than the median boat on its leg did, i.e. it gained on it. The median of the changes, not the change of the median:
  *   a boat rounding into or out of the leg can't make the median jump.
- * - Fewer than GAIN_MIN_BOATS on the leg (a strung-out fleet's leader, a boat rounding within the window): the same on
- *   course progress (ladderNow.ts prog), against every boat racing then, gain = (Δprog_b − median Δprog) / Δt; with
- *   fewer than GAIN_MIN_BOATS racing at all, no reading.
+ * - Fewer than GAIN_MIN_BOATS on the leg (a strung-out fleet's leader, a leg the fleet is rounding into): the same on
+ *   course progress (ladderNow.ts prog), against every boat on one leg at both ends of the window,
+ *   gain = (Δprog_b − median Δprog) / Δt. A boat that changed legs in the window is in neither pool and reads nothing
+ *   (on course progress its change spans two legs' scales); with fewer than GAIN_MIN_BOATS in the pool, no reading.
  * - Smoothed by the mean over one sample either side (15 s); NaN where there is no reading.
  * - Worked out once per model (cached), read per fix by gainAt in O(1).
  */
@@ -62,7 +63,9 @@ export function gainRates(g: LadderGrid, stepMs = GAIN_STEP_MS, windowMs = GAIN_
       const l1 = leg[i1];
       onLeg[b] = l0 >= 0 && l0 === l1 && Number.isFinite(dist[i0]) && Number.isFinite(dist[i1]) ? l0 : -1;
       dD[b] = onLeg[b] >= 0 ? dist[i1] - dist[i0] : NaN;
-      dP[b] = l0 >= 0 && l1 >= 0 ? prog[i1] - prog[i0] : NaN;
+      // Only a boat on one leg at both ends: one that rounded in the window adds the rest of its old leg and the start
+      // of the next, which would move the fleet's median. It reads nothing itself either, as on the ladder above.
+      dP[b] = l0 >= 0 && l0 === l1 ? prog[i1] - prog[i0] : NaN;
       if (Number.isFinite(dP[b])) pool[fleet++] = dP[b];
       if (onLeg[b] >= 0 && !legMed.has(onLeg[b])) legMed.set(onLeg[b], NaN);
     }

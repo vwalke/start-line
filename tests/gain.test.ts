@@ -109,6 +109,23 @@ describe('gain rate on the fleet’s median boat (coach/gainLoss.ts)', () => {
     expect(Number.isNaN(mid(gainRates(grid([60, 70], [0, 0], n)), 0, n))).toBe(true);
   });
 
+  it('leaves a boat that rounded in the window out of the fleet’s median on course progress', () => {
+    // Fewer than 3 on each leg: 50 and 60 m/min on leg 1, 70 on leg 2, so the fleet's median is 60. Boat 3 rounds from
+    // leg 1 into leg 2 at sample 12, its course progress jumping 400 m there (the next leg's scale).
+    const g = grid([50, 60, 70, 60], [1, 1, 2, 1], n);
+    for (let j = 12; j < n; j++) {
+      g.leg[3 * n + j] = 2;
+      g.prog[3 * n + j] += 400;
+    }
+    const q = gainRates(g);
+    for (const j of [10, 12, 14]) {
+      // With it in the pool the median would be 65: the pacer would read −5.
+      expect(q[1 * n + j]).toBeCloseTo(0, 4);
+      expect(q[0 * n + j]).toBeCloseTo(-10, 4);
+      expect(q[2 * n + j]).toBeCloseTo(10, 4);
+    }
+  });
+
   it('has no reading off the leg (finished, unplaced)', () => {
     const g = grid(speeds, [0, 0, 0, 0, 0], n);
     for (let j = 10; j < n; j++) g.leg[0 * n + j] = -1;
