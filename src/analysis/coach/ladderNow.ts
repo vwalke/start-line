@@ -120,7 +120,7 @@ export function rungXY(px: number, py: number, ex: number, ey: number, wx: numbe
 }
 
 /** Where leg `leg` ends for a boat at (px, py), into `out` (timeGap.ts progressEnd: the last leg's finish line extended). */
-function endInto(c: Course, leg: number, px: number, py: number, out: { ex: number; ey: number }): void {
+export function endInto(c: Course, leg: number, px: number, py: number, out: { ex: number; ey: number }): void {
   const f = c.finish;
   const last = leg === c.kinds.length - 1;
   if (f && last) {
@@ -203,6 +203,9 @@ export function leaderOf(reads: readonly Pick<LadderRead, 'est' | 'done' | 'fini
   return best;
 }
 
+/** How far boat `b`'s bow is ahead of its tracker in race `a`, m (data/classes.ts bowAheadM): what the rungs and VMG's bearing to the mark measure from. */
+export const bowAheadOf = (a: Pick<RaceAnalysis, 'meta'>, b: { bowOffsetM?: number | null }): number => bowAheadM(b.bowOffsetM, raceClass(a.meta)?.dims ?? null);
+
 export type LadderReader = (t: number) => LadderNow;
 
 const readers = new WeakMap<CoachModel, LadderReader>();
@@ -211,6 +214,16 @@ const readers = new WeakMap<CoachModel, LadderReader>();
 export function ladderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel): LadderReader {
   const have = readers.get(m);
   if (have) return have;
+  const reader = newLadderReader(a, m);
+  readers.set(m, reader);
+  return reader;
+}
+
+/**
+ * A reader of its own (not the one kept per model): for a pass over the whole race (gainLoss.ts) that mustn't move the
+ * moment the rungs' reader last read (its reads are filled in place).
+ */
+export function newLadderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel): LadderReader {
   const { course } = gapCourse(m);
   const live: LiveWind = liveWind(m);
   const lens = legLengths(course);
@@ -225,7 +238,6 @@ export function ladderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachMo
   const extra = extraTracked(a);
   const racing = a.boats.filter((b) => !extra.has(b.sail) && !extra.has(b.id) && !neverRaced(b.finishCode));
   const tracks = racing.map((b) => m.tracks.get(b.id) ?? null);
-  const dims = raceClass(a.meta)?.dims ?? null;
   const reads: LadderRead[] = racing.map((b) => ({
     id: b.id,
     finishMs: b.finishMs,
@@ -236,7 +248,7 @@ export function ladderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachMo
     y: NaN,
     hx: 0,
     hy: 0,
-    bowM: bowAheadM(b.bowOffsetM, dims),
+    bowM: bowAheadOf(a, b),
     bx: NaN,
     by: NaN,
     ex: NaN,
@@ -308,6 +320,5 @@ export function ladderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachMo
     now.leader = leaderOf(reads);
     return now;
   };
-  readers.set(m, reader);
   return reader;
 }

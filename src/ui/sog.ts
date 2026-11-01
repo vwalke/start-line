@@ -104,19 +104,20 @@ export function percentile(xs: ArrayLike<number>, p: number): number {
 }
 
 /**
- * The 5th–95th percentile of the finite, non-negative values, widened to
- * whole 0.5 kn and to at least MIN_SPAN_KN; null when there are none.
+ * The 5th–95th percentile of the finite values at or above `floor` (by default
+ * non-negative; VMG passes -Infinity), widened to whole 0.5 kn and to at least
+ * MIN_SPAN_KN; null when there are none.
  */
-export function sogRange(values: Iterable<number>): SogRange | null {
+export function sogRange(values: Iterable<number>, floor = 0): SogRange | null {
   const xs: number[] = [];
-  for (const v of values) if (Number.isFinite(v) && v >= 0) xs.push(v);
+  for (const v of values) if (Number.isFinite(v) && v >= floor) xs.push(v);
   if (!xs.length) return null;
   const sorted = Float64Array.from(xs).sort();
   let lo = Math.floor(percentile(sorted, 0.05) * 2) / 2;
   let hi = Math.ceil(percentile(sorted, 0.95) * 2) / 2;
   if (hi - lo < MIN_SPAN_KN) {
     const mid = (lo + hi) / 2;
-    lo = Math.max(0, Math.floor((mid - MIN_SPAN_KN / 2) * 2) / 2);
+    lo = Math.max(floor, Math.floor((mid - MIN_SPAN_KN / 2) * 2) / 2);
     hi = lo + MIN_SPAN_KN;
   }
   return { lo, hi };
@@ -171,31 +172,39 @@ export function trackSogRange(a: RaceAnalysis, leg: number | null): SogRange | n
 /** The leg whose range colours a segment of leg `leg`: anything before leg 1 borrows leg 1's. */
 export const scaleLeg = (leg: number): number => Math.max(0, leg);
 
+/** A track map's fleet range in knots for one leg, or the whole race (null): Boat speed's trackSogRange, VMG's trackVmgRange (ui/vmg.ts). */
+export type RangeOf = (leg: number | null) => SogRange | null;
+
+/** The range a segment of leg `segLeg` is binned on, for the map showing `view` (one leg, or all) under `scale`, from the ranges `of`. */
+export function segmentRange(of: RangeOf, segLeg: number, view: number | null, scale: SogScale): SogRange | null {
+  if (view != null) return of(view);
+  if (scale === 'race') return of(null);
+  return of(scaleLeg(segLeg)) ?? of(null);
+}
+
 /** The range a segment of leg `segLeg` is binned on, for the map showing `view` (one leg, or all) under `scale`. */
 export function segmentSogRange(a: RaceAnalysis, segLeg: number, view: number | null, scale: SogScale): SogRange | null {
-  if (view != null) return trackSogRange(a, view);
-  if (scale === 'race') return trackSogRange(a, null);
-  return trackSogRange(a, scaleLeg(segLeg)) ?? trackSogRange(a, null);
+  return segmentRange((l) => trackSogRange(a, l), segLeg, view, scale);
 }
 
 /** Each leg's fleet range, in leg order (null where the leg has no speed data). */
-export const legSogRanges = (a: RaceAnalysis): { name: string; range: SogRange | null }[] =>
-  a.legs.map((l) => ({ name: l.name, range: trackSogRange(a, l.index) }));
+export const legSogRanges = (a: RaceAnalysis, of: RangeOf = (l) => trackSogRange(a, l)): { name: string; range: SogRange | null }[] =>
+  a.legs.map((l) => ({ name: l.name, range: of(l.index) }));
 
 const legName = (a: RaceAnalysis, leg: number): string => a.legs[leg]?.name ?? (leg < 0 ? 'Before leg 1' : `Leg ${leg + 1}`);
 const span = (r: SogRange): string => `${f1(r.lo)}–${f1(r.hi)}`;
 
-/** "Beat 1 5.0–7.0 · Run 1 6.0–13.5 · … kn": every leg's range, for the key and the map's label. */
-export function legRangeList(a: RaceAnalysis): string {
-  const parts = legSogRanges(a)
+/** "Beat 1 5.0–7.0 · Run 1 6.0–13.5 · … kn": every leg's range (Boat speed's, or `of`'s), for the key and the map's label. */
+export function legRangeList(a: RaceAnalysis, of?: RangeOf): string {
+  const parts = legSogRanges(a, of)
     .filter((l) => l.range)
     .map((l) => `${l.name} ${span(l.range!)}`);
   return parts.length ? `${parts.join(' · ')} kn` : '';
 }
 
-/** The hover's leg line: "Beat 2 · range 4.5–7.0 kn" when scaled per leg, else just the leg. */
-export function sogHoverLeg(a: RaceAnalysis, leg: number, view: number | null, scale: SogScale): string {
-  const r = view == null && scale === 'leg' ? segmentSogRange(a, leg, null, 'leg') : null;
+/** The hover's leg line: "Beat 2 · range 4.5–7.0 kn" when scaled per leg (Boat speed's ranges, or `of`'s), else just the leg. */
+export function sogHoverLeg(a: RaceAnalysis, leg: number, view: number | null, scale: SogScale, of: RangeOf = (l) => trackSogRange(a, l)): string {
+  const r = view == null && scale === 'leg' ? segmentRange(of, leg, null, 'leg') : null;
   return `${legName(a, leg)}${r ? ` · range ${span(r)} kn` : ''}`;
 }
 
@@ -225,10 +234,20 @@ const xy = (x: number, y: number): string => `${x.toFixed(1)},${y.toFixed(1)}`;
  * Append one run of track to `acc`. Each step i → i+1 takes the bin of its
  * mean SOG; consecutive same-bin steps extend one "M…L…" run, and a new run
  * starts on the shared point, so the line stays continuous. Steps with an end
- * outside `inside` are skipped.
+ * outside `inside` are skipped. `none`: `acc` has one bin past the scale's,
+ * which takes the steps with no value at an end (Gain/loss's faint stretches);
+ * else they take the lowest bin.
  */
-export function addSogTrack(acc: SogPaths, x: ArrayLike<number>, y: ArrayLike<number>, sog: ArrayLike<number>, r: SogRange, inside: (i: number) => boolean = () => true): void {
-  const bins = acc.bins.length;
+export function addSogTrack(
+  acc: SogPaths,
+  x: ArrayLike<number>,
+  y: ArrayLike<number>,
+  sog: ArrayLike<number>,
+  r: SogRange,
+  inside: (i: number) => boolean = () => true,
+  none = false,
+): void {
+  const bins = acc.bins.length - (none ? 1 : 0);
   let cur = -1;
   const n = Math.min(x.length, y.length, sog.length);
   for (let i = 0; i + 1 < n; i++) {
@@ -238,21 +257,30 @@ export function addSogTrack(acc: SogPaths, x: ArrayLike<number>, y: ArrayLike<nu
     }
     const p = xy(x[i], y[i]);
     const q = xy(x[i + 1], y[i + 1]);
-    const b = sogBin((sog[i] + sog[i + 1]) / 2, r, bins);
+    const v = (sog[i] + sog[i + 1]) / 2;
+    const b = none && !Number.isFinite(v) ? bins : sogBin(v, r, bins);
     if (b === cur) acc.bins[b] += `L${q}`;
     else acc.bins[b] += `M${p}L${q}`;
     cur = b;
   }
 }
 
-/** The SVG for `acc`: one path per bin present. */
-export function sogPathsSvg(acc: SogPaths): string {
+/** A bin's stroke attributes (day `stroke`, night `--cd`): Boat speed's sogStroke, or another scale's. */
+export type BinStroke = (b: number, bins: number) => string;
+
+/** The SVG for `acc`: one path per bin present, stroked by `stroke` (default Boat speed's ramp). */
+export function sogPathsSvg(acc: SogPaths, stroke: BinStroke = sogStroke): string {
   let s = '';
   acc.bins.forEach((d, b) => {
-    if (d) s += `<path class="sog" data-bin="${b}" d="${d}" ${sogStroke(b, acc.bins.length)}/>`;
+    if (d) s += `<path class="sog" data-bin="${b}" d="${d}" ${stroke(b, acc.bins.length)}/>`;
   });
   return s;
 }
+
+/** A muted gray that reads on the day and the night chart: tracks whose colors aren't ready yet (VMG's wind still loading). */
+export const NEUTRAL_DAY = '#9aa1a9';
+export const NEUTRAL_NIGHT = '#6e7783';
+export const neutralStroke: BinStroke = () => `stroke="${NEUTRAL_DAY}" style="--cd:${NEUTRAL_NIGHT}"`;
 
 // ---- hover lookup -----------------------------------------------------------
 
@@ -469,8 +497,8 @@ export interface SogTick {
   end?: 'lo' | 'hi';
 }
 
-/** "6", "6.5": whole knots without a decimal. */
-const knLabel = (kn: number): string => (Number.isInteger(kn) ? String(kn) : kn.toFixed(1));
+/** "6", "6.5", "−0.5": whole knots without a decimal, a true minus below zero. */
+const knLabel = (kn: number): string => `${kn < 0 ? '−' : ''}${Number.isInteger(kn) ? String(Math.abs(kn)) : Math.abs(kn).toFixed(1)}`;
 const near = (x: number, y: number): boolean => Math.abs(x - y) < 1e-6;
 
 /** A tick label's [left, right] in px on a bar `widthPx` wide: the ends sit inside the bar, the rest centred. */
@@ -483,6 +511,8 @@ export function tickLabelBox(t: SogTick, widthPx: number, m: TickMetrics = tickM
 }
 
 /** Labels `a` then `b` with at least TICK_GAP_EM between them. */
+export type TickLabel = (v: number) => string;
+
 const clearOf = (a: SogTick, b: SogTick, widthPx: number, m: TickMetrics): boolean =>
   tickLabelBox(b, widthPx, m)[0] - tickLabelBox(a, widthPx, m)[1] >= TICK_GAP_EM * m.fontPx;
 
@@ -499,12 +529,12 @@ function stepsInside(r: SogRange, step: number): number[] {
  * range, or that doesn't fit, passes to the next (2 kn may miss 4.5–5.5 where
  * 5 kn hits it); null when none does.
  */
-export function tickStep(r: SogRange, widthPx: number, m: TickMetrics = tickMetrics()): number | null {
+export function tickStep(r: SogRange, widthPx: number, m: TickMetrics = tickMetrics(), fmt: TickLabel = knLabel): number | null {
   const span = r.hi - r.lo;
   for (const s of TICK_STEPS) {
     const ks = stepsInside(r, s);
     if (!ks.length || (s / span) * widthPx < TICK_MIN_EM * m.fontPx) continue;
-    const ts = ks.map((kn) => ({ kn, pos: (kn - r.lo) / span, label: knLabel(kn) }));
+    const ts = ks.map((kn) => ({ kn, pos: (kn - r.lo) / span, label: fmt(kn) }));
     if (ts.every((t, i) => i === 0 || clearOf(ts[i - 1], t, widthPx, m))) return s;
   }
   return null;
@@ -517,14 +547,14 @@ export function tickStep(r: SogRange, widthPx: number, m: TickMetrics = tickMetr
  * labelled tick too close to an end label stays as a minor tick. Sizes follow
  * the labels' font (`m`).
  */
-export function sogTicks(r: SogRange, widthPx: number, m: TickMetrics = tickMetrics()): SogTick[] {
+export function sogTicks(r: SogRange, widthPx: number, m: TickMetrics = tickMetrics(), fmt: TickLabel = knLabel): SogTick[] {
   const span = r.hi - r.lo;
   const pos = (kn: number): number => (kn - r.lo) / span;
-  const lo: SogTick = { kn: r.lo, pos: 0, label: knLabel(r.lo), end: 'lo' };
-  const hi: SogTick = { kn: r.hi, pos: 1, label: knLabel(r.hi), end: 'hi' };
+  const lo: SogTick = { kn: r.lo, pos: 0, label: fmt(r.lo), end: 'lo' };
+  const hi: SogTick = { kn: r.hi, pos: 1, label: fmt(r.hi), end: 'hi' };
   const clear = (a: SogTick, b: SogTick): boolean => clearOf(a, b, widthPx, m);
-  const step = tickStep(r, widthPx, m);
-  const major: SogTick[] = step == null ? [] : stepsInside(r, step).map((kn) => ({ kn, pos: pos(kn), label: knLabel(kn) }));
+  const step = tickStep(r, widthPx, m, fmt);
+  const major: SogTick[] = step == null ? [] : stepsInside(r, step).map((kn) => ({ kn, pos: pos(kn), label: fmt(kn) }));
   const minor: SogTick[] = [];
   // Labels crowding an end label lose the label, not the tick.
   while (major.length && !clear(lo, major[0])) minor.push({ ...major.shift()!, label: null });
@@ -543,9 +573,18 @@ export function sogTicks(r: SogRange, widthPx: number, m: TickMetrics = tickMetr
  * where those aren't supported). "kn" sits just past the bar's end.
  */
 function scaleHtml(r: SogRange): string {
+  return valueScaleHtml(r, 'kn', barStyle(), knLabel);
+}
+
+/**
+ * scaleHtml for any scale: its unit ("m/min"), its bar's style (`--g` day bands, `--gd` night ones) and how a tick
+ * is labelled ("+10"). Gain/loss (ui/gain.ts) draws its key with it, its unit only in the aria-label and its title
+ * (`unitTick` false: none past the bar's end).
+ */
+export function valueScaleHtml(r: SogRange, unit: string, style: string, fmt: TickLabel, unitTick = true): string {
   const m = tickMetrics();
-  const wide = sogTicks(r, SOG_KEY_WIDE_PX, m);
-  const narrow = sogTicks(r, SOG_KEY_NARROW_PX, m);
+  const wide = sogTicks(r, SOG_KEY_WIDE_PX, m, fmt);
+  const narrow = sogTicks(r, SOG_KEY_NARROW_PX, m, fmt);
   const all = new Map<number, { t: SogTick; cls: string[] }>();
   for (const [set, show, lbl] of [
     [wide, 'w', 'lw'],
@@ -565,26 +604,34 @@ function scaleHtml(r: SogRange): string {
       return `<span class="${c}" style="left:${+(t.pos * 100).toFixed(3)}%">${label ? `<span class="tl">${label}</span>` : ''}</span>`;
     })
     .join('');
-  return `<span class="sog-scale" role="img" aria-label="${f1(r.lo)} to ${f1(r.hi)} kn"><span class="sog-bar" style="${barStyle()}"></span>${ticks}<span class="tu">kn</span></span>`;
+  return `<span class="sog-scale" role="img" aria-label="${f1(r.lo)} to ${f1(r.hi)} ${esc(unit)}"><span class="sog-bar" style="${style}"></span>${ticks}${unitTick ? `<span class="tu">${esc(unit)}</span>` : ''}</span>`;
 }
 
-const bar = (lo: string, hi: string): string =>
-  `<span class="sog-lo">${lo}</span><span class="sog-bar" style="${barStyle()}" aria-hidden="true"></span><span class="sog-hi">${hi}</span>`;
-/** The bar with knots along it ("4.5 · 5 · 6 · 7 · 8", then "kn") and, given one, "SOG · what it spans" (the method is in the ⓘ). */
-export function sogKey(r: SogRange | null, what?: string): string {
-  if (!r) return `<span class="muted">Speed colors aren't available for this race.</span>`;
+const bar = (lo: string, hi: string, style = barStyle()): string =>
+  `<span class="sog-lo">${lo}</span><span class="sog-bar" style="${style}" aria-hidden="true"></span><span class="sog-hi">${hi}</span>`;
+const unavailable = (metric: string): string => `<span class="muted">${metric === 'SOG' ? 'Speed' : esc(metric)} colors aren't available for this race.</span>`;
+
+/** The bar with knots along it ("4.5 · 5 · 6 · 7 · 8", then "kn") and, given one, "SOG · what it spans" (`metric`: "VMG · …"; the method is in the ⓘ). */
+export function sogKey(r: SogRange | null, what?: string, metric = 'SOG'): string {
+  if (!r) return unavailable(metric);
   return `${scaleHtml(r)}${what ? `
-    <span class="muted">SOG · ${esc(what)}</span>` : ''}`;
+    <span class="muted">${esc(metric)} · ${esc(what)}</span>` : ''}`;
 }
+
+/** The bar alone, "VMG · kn": the colors' key while what they're worked out from is still on its way (`style`: another scale's bar). */
+export const sogKeyPending = (metric: string, unit = 'kn', style?: string): string => `${bar('', '', style)}
+    <span class="muted">${esc(metric)} · ${esc(unit)}</span>`;
 
 /**
  * Whole race, Per leg: one bar with no knots on it (its ends mean something
  * different on each leg), "slow → fast within each leg", then each leg's range
- * (.sog-legs wraps below: flex-basis: 100%).
+ * (.sog-legs wraps below: flex-basis: 100%). VMG passes its ranges (`of`), its
+ * name and its ends ("low", "high").
  */
-export function sogLegKey(a: RaceAnalysis): string {
-  const list = legRangeList(a);
-  if (!list) return `<span class="muted">Speed colors aren't available for this race.</span>`;
-  return `${bar('slow', 'fast')}
-    <span>slow → fast within each leg</span><span class="sog-legs">${esc(list)}</span>`;
+export function sogLegKey(a: RaceAnalysis, of?: RangeOf, metric = 'SOG', ends: [string, string] = ['slow', 'fast']): string {
+  const list = legRangeList(a, of);
+  if (!list) return unavailable(metric);
+  const what = metric === 'SOG' ? '' : `${esc(metric)}: `;
+  return `${bar(ends[0], ends[1])}
+    <span>${what}${ends[0]} → ${ends[1]} within each leg</span><span class="sog-legs">${esc(list)}</span>`;
 }
