@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Course } from '../src/analysis/coach/ladder';
+import { bowAheadOf, ladderReader } from '../src/analysis/coach/ladderNow';
 import { vmgFrame, vmgKn } from '../src/analysis/coach/trackVmg';
 import { mapKey } from '../src/ui/captions';
 import { scrubFrame, trackMap, trackPoints } from '../src/ui/charts';
 import { cogAt, mapTipLines } from '../src/ui/mapPoints';
 import { NEUTRAL_DAY, SOG_BINS } from '../src/ui/sog';
 import { colourControls, needsCoach, parseTrackColour, readPref, writePref, COLOUR_KEY } from '../src/ui/speed';
-import { segmentVmgRange, trackVmgRange, vmgAt, vmgHoverLeg, vmgKey, vmgTipLine, vmgValues } from '../src/ui/vmg';
+import { segmentVmgRange, trackVmgRange, vmgAt, vmgHoverLeg, vmgKey, vmgBow, vmgTipLine, vmgValues } from '../src/ui/vmg';
 import { coachRace, fixtureRace } from './helpers';
 
 /**
@@ -61,6 +62,22 @@ describe('VMG at a point (coach/trackVmg.ts vmgKn)', () => {
     expect(vmgKn(beatFinish, 90, 2, 0, 300, S, 90 + 40)).toBeCloseTo(S * Math.cos(40 * RAD), 9);
   });
 
+  it('on a reach, toward the mark from the bow (as the rungs measure), along the course over ground', () => {
+    const reach = { ...course, finish: null };
+    // 30 m south of the rhumb line, 600 m short of the mark, sailing 45°: the bow 4 m ahead along that course.
+    const bow = 4;
+    const cog = 45;
+    const [bx, by] = [600 + bow * Math.sin(cog * RAD), -30 + bow * Math.cos(cog * RAD)];
+    expect(vmgKn(reach, 200, 2, 600, -30, S, cog, bow)).toBeCloseTo(vmgKn(reach, 200, 2, bx, by, S, cog), 12);
+    expect(vmgKn(reach, 200, 2, 600, -30, S, cog, bow)).not.toBeCloseTo(vmgKn(reach, 200, 2, 600, -30, S, cog), 6);
+    // Close to the mark a few metres matter: just past it, the tracker still has it ahead, the bow not.
+    expect(vmgKn(reach, 200, 2, 998, 0, S, 90)).toBeCloseTo(S, 9);
+    expect(vmgKn(reach, 200, 2, 998, 0, S, 90, bow)).toBeCloseTo(-S, 9);
+    // The finish line extended, from the bow too; a beat or run doesn't depend on position.
+    expect(vmgKn(course, 0, 2, 998, 300, S, 90, bow)).toBeCloseTo(-S, 9);
+    expect(vmgKn(course, 30, 0, 0, 500, S, 70, bow)).toBe(vmgKn(course, 30, 0, 0, 500, S, 70));
+  });
+
   it('is negative sailing away; 0 when not moving; NaN with no speed or no such leg', () => {
     expect(vmgKn(course, 0, 0, 0, 500, S, 180)).toBeCloseTo(-S, 9);
     expect(vmgKn(course, 0, 1, 0, 500, S, 0)).toBeCloseTo(-S, 9);
@@ -81,19 +98,25 @@ describe('VMG on the race viewer map', () => {
     let n = 0;
     for (const d of a.drawings) {
       for (const s of d.segments) {
-        const v = vmgValues(m, s, s.leg);
+        const bow = vmgBow(a, d.id);
+        const v = vmgValues(m, s, s.leg, bow);
         for (let i = 0; i < s.t.length; i += 7) {
-          const want = vmgKn(f.course, f.twdAt(s.t[i]), s.leg, s.x[i], s.y[i], s.sog[i], cogAt(s.x, s.y, i));
+          const want = vmgKn(f.course, f.twdAt(s.t[i]), s.leg, s.x[i], s.y[i], s.sog[i], cogAt(s.x, s.y, i), bow);
           if (Number.isNaN(want)) expect(v[i]).toBeNaN();
           else expect(v[i]).toBeCloseTo(want, 4);
-          expect(vmgAt(m, { t: s.t[i], leg: s.leg, x: s.x[i], y: s.y[i], sog: s.sog[i], cog: cogAt(s.x, s.y, i) })).toBeCloseTo(v[i], 4);
+          expect(vmgAt(m, { t: s.t[i], leg: s.leg, x: s.x[i], y: s.y[i], sog: s.sog[i], cog: cogAt(s.x, s.y, i) }, bow)).toBeCloseTo(v[i], 4);
           n++;
         }
       }
     }
     expect(n).toBeGreaterThan(100);
+    // The bow the rungs read: the same offset per boat (ladderNow.ts bowAheadOf), and a real one in this class.
+    const reads = ladderReader(a, m)(a.meta.gunMs + 60_000).reads;
+    for (const r of reads) expect(vmgBow(a, r.id)).toBe(r.bowM);
+    expect(reads.some((r) => r.bowM > 0)).toBe(true);
+    expect(vmgBow(a, a.boats[0].id)).toBe(bowAheadOf(a, a.boats[0]));
     // VMG never beats SOG.
-    for (const d of a.drawings) for (const s of d.segments) vmgValues(m, s, s.leg).forEach((v, i) => Number.isFinite(v) && expect(v).toBeLessThanOrEqual(s.sog[i] + 1e-4));
+    for (const d of a.drawings) for (const s of d.segments) vmgValues(m, s, s.leg, vmgBow(a, d.id)).forEach((v, i) => Number.isFinite(v) && expect(v).toBeLessThanOrEqual(s.sog[i] + 1e-4));
   });
 
   it('scales on the fleet’s 5th–95th percentile, per leg or the race', () => {
@@ -134,7 +157,7 @@ describe('VMG on the race viewer map', () => {
   it('shows VMG in the tooltip, and a key in knots', () => {
     const p = trackPoints(a, null);
     const i = Math.floor(p.ix.x.length / 2);
-    const lines = mapTipLines(a, p, { kind: 'fix', i }, { valueLine: (q) => vmgTipLine(m, q) });
+    const lines = mapTipLines(a, p, { kind: 'fix', i }, { valueLine: (q) => vmgTipLine(m, q, vmgBow(a, q.id)) });
     expect(lines[3]).toMatch(/^VMG −?\d+\.\d kn$/);
     expect(vmgKey(a, m, 0, 'leg')).toContain('VMG · ');
     expect(vmgKey(a, m, 0, 'leg')).toContain('<span class="tu">kn</span>');

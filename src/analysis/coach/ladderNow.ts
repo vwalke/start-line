@@ -203,6 +203,9 @@ export function leaderOf(reads: readonly Pick<LadderRead, 'est' | 'done' | 'fini
   return best;
 }
 
+/** How far boat `b`'s bow is ahead of its tracker in race `a`, m (data/classes.ts bowAheadM): what the rungs and VMG's bearing to the mark measure from. */
+export const bowAheadOf = (a: Pick<RaceAnalysis, 'meta'>, b: { bowOffsetM?: number | null }): number => bowAheadM(b.bowOffsetM, raceClass(a.meta)?.dims ?? null);
+
 export type LadderReader = (t: number) => LadderNow;
 
 const readers = new WeakMap<CoachModel, LadderReader>();
@@ -235,7 +238,6 @@ export function newLadderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: Coac
   const extra = extraTracked(a);
   const racing = a.boats.filter((b) => !extra.has(b.sail) && !extra.has(b.id) && !neverRaced(b.finishCode));
   const tracks = racing.map((b) => m.tracks.get(b.id) ?? null);
-  const dims = raceClass(a.meta)?.dims ?? null;
   const reads: LadderRead[] = racing.map((b) => ({
     id: b.id,
     finishMs: b.finishMs,
@@ -246,7 +248,7 @@ export function newLadderReader(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: Coac
     y: NaN,
     hx: 0,
     hy: 0,
-    bowM: bowAheadM(b.bowOffsetM, dims),
+    bowM: bowAheadOf(a, b),
     bx: NaN,
     by: NaN,
     ex: NaN,

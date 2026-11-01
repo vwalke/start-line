@@ -38,7 +38,7 @@ import {
   type SogRange,
   type StartColour,
 } from './sog';
-import { segmentVmgRange, trackVmgRange, vmgAt, vmgRangeOf, vmgValues } from './vmg';
+import { segmentVmgRange, trackVmgRange, vmgAt, vmgBow, vmgRangeOf, vmgValues } from './vmg';
 import { GAIN_BINS, gainRateColor, gainSeriesOf, gainStroke, gainValues, trackGainRange } from './gain';
 import { gainAt } from '../analysis/coach/gainLoss';
 import type { CoachModel } from '../analysis/coach';
@@ -793,7 +793,7 @@ function trackPaint(a: RaceAnalysis, leg: number | null, opts: TrackMapOptions):
   if (opts.colour === 'vmg') {
     const m = opts.coach;
     if (!m) return NEUTRAL_PAINT;
-    return { values: (pc) => vmgValues(m, pc.src, pc.leg, pc.i0, pc.i1), range: (l) => segmentVmgRange(a, m, l, leg, scale) };
+    return { values: (pc) => vmgValues(m, pc.src, pc.leg, vmgBow(a, pc.id), pc.i0, pc.i1), range: (l) => segmentVmgRange(a, m, l, leg, scale) };
   }
   if (opts.colour === 'gain') {
     const m = opts.coach;
@@ -1306,7 +1306,7 @@ function dotColour(a: RaceAnalysis, b: BoatAt, leg: number | null, opts: TrackMa
     const m = opts.coach;
     if (!m) return { c: NEUTRAL_DAY, cd: NEUTRAL_NIGHT };
     const r = segmentVmgRange(a, m, b.leg, leg, opts.sogScale ?? 'leg');
-    const v = vmgAt(m, b);
+    const v = vmgAt(m, b, vmgBow(a, b.id));
     if (!r || !Number.isFinite(v)) return { c: PRE_COLOR };
     return { c: sogKnColor(v, r), cd: sogKnColor(v, r, 'dark') };
   }
