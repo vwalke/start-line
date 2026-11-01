@@ -1346,6 +1346,7 @@ src/ui/paywall.ts            lock card and account sheet (only when /api/auth/me
 src/feedback/, functions/_feedback.ts, functions/api/feedback.ts  the Feedback button and sheet, and POST /api/feedback (see Feedback)
 src/ui/nav.ts                the app's paths and history entries (see Page views)
 src/ui/track.ts, functions/_track.ts, _trackSchema.ts, functions/api/track.ts  usage events and POST /api/track (see Usage tracking)
+vite.chunks.ts               keeps the entry chunk (assets/index-*.js) a leaf: main.ts's static imports go to a 'shell' chunk, so index.html's boot-retry can reload the entry alone
 functions/assets/[[path]].ts, functions/_assets.ts  /assets/* passed through with the year-long Cache-Control (Pages skips public/_headers for Functions); a missing file is a 404 (no-store), never index.html cached as a script
 scripts/usage-report.mjs     a day's usage from Analytics Engine (read-only)
 migrations/0001_paywall.sql  D1 schema for the paywall (not applied: see Paywall)

@@ -16,5 +16,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "tests", "functions", "workers", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "tests", "functions", "workers", "vite.config.ts", "vite.chunks.ts", "vitest.config.ts"]
 }

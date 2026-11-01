@@ -46,7 +46,8 @@
       })(location);
     </script>
     <!-- If the built app's script fails to load, or hasn't started (src/boot.ts) 8 s in, load it once more under a new URL
-         (at most once a minute per tab). Does nothing in vite dev (/src/main.ts). tests/bootRetry.test.ts runs it. -->
+         (at most once a minute per tab). No other chunk imports the entry (vite.chunks.ts), so the new URL is all it takes.
+         Does nothing in vite dev (/src/main.ts). tests/bootRetry.test.ts runs it. -->
     <script data-boot-retry>
       (function (w, d) {
         var KEY = 'recall.bootRetry', tried = false;
