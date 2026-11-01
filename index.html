@@ -45,6 +45,31 @@
         document.documentElement.setAttribute('data-route', app ? 'app' : 'landing');
       })(location);
     </script>
+    <!-- If the built app's script fails to load, or hasn't started (src/boot.ts) 8 s in, load it once more under a new URL
+         (at most once a minute per tab). Does nothing in vite dev (/src/main.ts). tests/bootRetry.test.ts runs it. -->
+    <script data-boot-retry>
+      (function (w, d) {
+        var KEY = 'recall.bootRetry', tried = false;
+        function retry() {
+          var s = d.querySelector('script[type=module][src*="/assets/index-"]'), now = Date.now();
+          if (tried || !s || d.documentElement.hasAttribute('data-booted')) return;
+          tried = true;
+          try {
+            if (now - Number(sessionStorage.getItem(KEY)) < 60000) return;
+            sessionStorage.setItem(KEY, String(now));
+          } catch (e) {}
+          var r = d.createElement('script');
+          r.type = 'module';
+          r.src = s.getAttribute('src') + '?r=' + now;
+          d.head.appendChild(r);
+        }
+        w.addEventListener('error', function (e) {
+          var t = e.target;
+          if (t && t.tagName === 'SCRIPT' && /\/assets\/index-/.test(t.getAttribute('src') || '')) retry();
+        }, true);
+        setTimeout(retry, 8000);
+      })(window, document);
+    </script>
   </head>
   <body>
     <header class="masthead">
