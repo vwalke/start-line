@@ -15,7 +15,7 @@
 import type { RaceAnalysis } from '../types';
 import type { CoachModel } from './index';
 import { legLengths } from './ladder';
-import { ladderReader, type LadderNow, type LadderRead } from './ladderNow';
+import { ladderReader, type LadderNow, type LadderRead, type LadderReader } from './ladderNow';
 import { fleetPlaces, type FleetPlaces } from './legStory';
 
 export { PROG_NEAR_S, PROG_SPAN_S } from './ladderNow';
@@ -83,9 +83,12 @@ export function dtgAt(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel, ba
   return r ? readDtg(a, base, now, r) : null;
 }
 
-/** Every racing boat's place at `t` by distance to go, out of the fixed fleet. DNS/DNC and official extras are left out. */
-export function progressAt(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel, base: ProgressBase, t: number): ProgressPlaces {
-  const now = ladderReader(a, m)(t);
+/**
+ * Every racing boat's place at `t` by distance to go, out of the fixed fleet. DNS/DNC and official extras are left out.
+ * `read`: the ladder read from (default the model's own; gainLoss.ts passes one of its own, ladderNow.ts newLadderReader).
+ */
+export function progressAt(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel, base: ProgressBase, t: number, read: LadderReader = ladderReader(a, m)): ProgressPlaces {
+  const now = read(t);
   const rows: { id: string; i: number; done: boolean; r: { dtg: number; est: boolean } }[] = [];
   now.reads.forEach((x, i) => {
     const r = readDtg(a, base, now, x);

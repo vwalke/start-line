@@ -1,186 +1,73 @@
 /**
- * "Color: Gain/loss" for the track map: every stretch of track shaded by how fast the boat was gaining on (green) or
- * losing to (red) the fleet's median boat up the ladder of its leg (analysis/coach/gainLoss.ts, m/min over 30 s), on
- * a diverging scale through a muted gray (about even).
+ * "Color: Gain/loss" for the track map: each leg of a boat's track one color, by the places it gained (green) or lost
+ * (red) on that leg (analysis/coach/gainLoss.ts: its place entering the leg less its place at the leg's end; the leg
+ * it is on at the replay's time, its change so far), a muted gray where it held its place.
  *
- * - Bins: GAIN_BINS, an odd number, so the middle bin (± a ninth of the range around 0) is the gray. Drawn as Boat
- *   speed is (ui/sog.ts batched paths, `stroke` = day, `--cd` = night).
- * - Range: symmetric, ± the fleet's 90th percentile of |gain| over the leg shown (or the race), up to whole 5 m/min,
- *   clamped to GAIN_MIN–GAIN_MAX; beyond it clamps to the ends.
- * - Colors: one explicit color per bin and scheme, picked in OKLCH (red hue 27°, green 145°): only the middle bin is
- *   gray; the bins beside it are already clearly red or green (chroma ≥ 0.15), stepping to the strongest at the ends.
- *   The red is darker than the green in both schemes (OKLab L: day 0.40–0.52 vs 0.56–0.62, night 0.60–0.66 vs
- *   0.80–0.86), so they read apart for red-green color-blind viewers; every bin ≥ 3:1 on its chart (the day gray is
- *   a shade darker than sog.ts NEUTRAL_DAY for that).
- * - No reading (before the gun, after a boat's finish, off any leg): the track goes on in a faint translucent tint of
- *   the gray (GAIN_NONE), well under the even bin's on either chart, so it never reads as keeping pace; the key has no
- *   entry for it and the hover no gain line. The wind still on its way, or the rates still being worked out
- *   (gainSeriesSoon), every track the neutral gray (charts.ts NEUTRAL_PAINT).
+ * - Shades: GAIN_BINS, −3 or more · −2 · −1 · held · +1 · +2 · +3 or more (GAIN_CAP), drawn as Boat speed is (ui/sog.ts
+ *   batched paths, `stroke` = day, `--cd` = night). Deeper by day and brighter by night with more places; the red
+ *   darker than the green at each step (OKLab L), so they read apart for red-green color-blind viewers; every shade
+ *   ≥ 3:1 on its chart.
+ * - Before the gun, or no place at one end of the leg: the held gray, and no hover line. The Coach's ladder still on
+ *   its way: every track the neutral gray (charts.ts NEUTRAL_PAINT).
  */
 import type { CoachModel } from '../analysis/coach';
-import { GAIN_SLICE_MS, gainAt, gainFill, gainSeries, gainSeriesReady, type GainSeries } from '../analysis/coach/gainLoss';
+import { legGainAt, legPlaces } from '../analysis/coach/gainLoss';
 import type { RaceAnalysis } from '../analysis/types';
-import type { SrcTrack } from './mapPieces';
-import { binPos, NEUTRAL_NIGHT, percentile, sogBin, sogKeyPending, valueScaleHtml, type SogRange, type SogScheme } from './sog';
 import { esc } from './format';
-import { SPEED_BG } from './speed';
+import type { BinStroke, SogScheme } from './sog';
 
-/** Colors on the scale (odd: the middle one is gray). */
-export const GAIN_BINS = 9;
-/** The range's half-width, m/min: at least, at most. */
-export const GAIN_MIN = 5;
-export const GAIN_MAX = 100;
+/** Places gained or lost beyond this shade as this many. */
+export const GAIN_CAP = 3;
+/** Shades on the scale: −GAIN_CAP … +GAIN_CAP (the middle one gray). */
+export const GAIN_BINS = 2 * GAIN_CAP + 1;
 
-/** The day scale's middle bin: a muted gray, ≥ 3:1 on white. */
+/** The held gray, by day. */
 export const GAIN_NEUTRAL_DAY = '#868d96';
 
-/** Each bin's color, losing fastest → even → gaining fastest: by day and by night (above). */
+/** Each shade, lost most → held → gained most: by day and by night. */
 export const GAIN_COLORS: Record<SogScheme, readonly string[]> = {
-  light: ['#8a020b', '#9e020f', '#b00c15', '#b6322d', GAIN_NEUTRAL_DAY, '#409d48', '#279936', '#089428', '#008d24'],
-  dark: ['#e62c2c', '#ea3d38', '#e5554c', '#df695e', NEUTRAL_NIGHT, '#7bd77f', '#6fe276', '#5fed6c', '#54f667'],
+  light: ['#8a020b', '#ab1f1a', '#cc4a40', GAIN_NEUTRAL_DAY, '#4fa257', '#23903c', '#007a26'],
+  dark: ['#ff3326', '#e0574c', '#a8645e', '#6e7783', '#6aa870', '#5fd06a', '#6ff57c'],
 };
 
-/** Stretches with no reading: this gray at this opacity, by day and by night (one opacity: the night color is `--cd`). */
-export const GAIN_NONE = { light: '#9aa1a9', dark: '#8a94a1', opacity: 0.45 } as const;
+/** The shade for `g` places gained (− lost), capped at GAIN_CAP either way; null: the held gray. */
+export const gainBin = (g: number | null): number => (g == null ? GAIN_CAP : Math.min(GAIN_CAP, Math.max(-GAIN_CAP, Math.round(g))) + GAIN_CAP);
 
-/** `hex` at `o` over `bg`, as #rrggbb. */
-const over = (hex: string, o: number, bg: string): string =>
-  `#${[1, 3, 5].map((i) => Math.round(o * parseInt(hex.slice(i, i + 2), 16) + (1 - o) * parseInt(bg.slice(i, i + 2), 16)).toString(16).padStart(2, '0')).join('')}`;
+/** The color for `g` places gained (above), as #rrggbb. */
+export const gainColor = (g: number | null, scheme: SogScheme = 'light'): string => GAIN_COLORS[scheme][gainBin(g)];
 
-/** What a stretch with no reading shows as on each chart (GAIN_NONE over SPEED_BG). */
-export const GAIN_NONE_SEEN: Record<SogScheme, string> = {
-  light: over(GAIN_NONE.light, GAIN_NONE.opacity, SPEED_BG.light),
-  dark: over(GAIN_NONE.dark, GAIN_NONE.opacity, SPEED_BG.dark),
-};
+/** Shade `b`'s stroke: the day color, and the night one as `--cd`. */
+export const gainStroke: BinStroke = (b) => `stroke="${GAIN_COLORS.light[b]}" style="--cd:${GAIN_COLORS.dark[b]}"`;
 
-/** The color at scale position `s` (0 = losing fastest, 0.5 = even, 1 = gaining fastest; clamped, NaN → even): its bin's, as #rrggbb. */
-export function gainColor(s: number, scheme: SogScheme = 'light'): string {
-  const x = Number.isFinite(s) ? Math.min(1, Math.max(0, s)) : 0.5;
-  return GAIN_COLORS[scheme][Math.min(GAIN_BINS - 1, Math.floor(x * GAIN_BINS))];
+/** "+2 places on Beat 2", "−1 place on Run 1", "Held place on Beat 1". */
+export function placesLine(g: number, legName: string): string {
+  if (g === 0) return `Held place on ${legName}`;
+  const n = Math.abs(g);
+  return `${g > 0 ? '+' : '−'}${n} place${n === 1 ? '' : 's'} on ${legName}`;
 }
-
-/** Bin `b`'s stroke: the day color, and the night one as `--cd`; bin GAIN_BINS (charts.ts: the steps with no reading) the faint tint. */
-export const gainStroke = (b: number): string =>
-  b >= GAIN_BINS
-    ? `stroke="${GAIN_NONE.light}" stroke-opacity="${GAIN_NONE.opacity}" style="--cd:${GAIN_NONE.dark}"`
-    : `stroke="${gainColor(binPos(b, GAIN_BINS))}" style="--cd:${gainColor(binPos(b, GAIN_BINS), 'dark')}"`;
-
-/** The color a rate on `r` is drawn in (its bin's, as on the tracks and the key's bar); no reading: the faint tint as seen. */
-export const gainRateColor = (v: number, r: SogRange, scheme: SogScheme = 'light'): string =>
-  Number.isFinite(v) ? gainColor(binPos(sogBin(v, r, GAIN_BINS), GAIN_BINS), scheme) : GAIN_NONE_SEEN[scheme];
-
-/** The model's gain rates (gainLoss.ts), for race `a`. */
-export const gainSeriesOf = (a: RaceAnalysis, m: CoachModel): GainSeries => gainSeries(a, m);
-
-/** Runs `run` when the page is idle (or soon, if it never is); a timer where there's no requestIdleCallback. */
-export type Later = (run: () => void) => void;
-const whenIdle: Later = (run) => {
-  if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 200 });
-  else setTimeout(run, 0);
-};
-
-/** The model whose fill is being stepped, and what to call when it's in. */
-let wanted: CoachModel | null = null;
-let onIn: (() => void) | null = null;
 
 /**
- * The model's gain rates if worked out; else null, and they're worked out in GAIN_SLICE_MS slices when the page is idle
- * (gainLoss.ts gainFill), `done` called once they're in (the latest caller's). Asking for another model stops this
- * one's slices (its fill kept, to resume if asked again), so a race switch never paints with another race's.
+ * The tooltip's line for a fix of boat `id` on leg `leg`, the map at `now` (ms; Infinity: the whole race): its leg's
+ * places (placesLine; the leg under way, so far). Null before the gun or with no place at one end.
  */
-export function gainSeriesSoon(a: RaceAnalysis, m: CoachModel, done: () => void, later: Later = whenIdle): GainSeries | null {
-  const s = gainSeriesReady(m);
-  if (s) return s;
-  onIn = done;
-  if (wanted === m) return null;
-  wanted = m;
-  const f = gainFill(a, m);
-  const tick = (): void => {
-    if (wanted !== m) return;
-    if (!f.step(performance.now() + GAIN_SLICE_MS)) return later(tick);
-    wanted = null;
-    const cb = onIn;
-    onIn = null;
-    cb?.();
-  };
-  later(tick);
-  return null;
+export function gainTipLine(a: RaceAnalysis, m: CoachModel, id: string, leg: number, now: number): string | null {
+  const g = legGainAt(legPlaces(a, m), id, leg, now);
+  return g == null ? null : placesLine(g, a.legs[leg]?.name ?? `Leg ${leg + 1}`);
 }
 
-/** ± the fleet's 90th percentile of |gain| (above) over the samples of `leg` (or every leg), as a range. */
-export function gainRangeOf(s: GainSeries, leg: number | null): SogRange {
-  const xs: number[] = [];
-  for (let i = 0; i < s.rate.length; i++) {
-    const v = s.rate[i];
-    if (Number.isFinite(v) && (leg == null ? s.leg[i] >= 0 : s.leg[i] === leg)) xs.push(Math.abs(v));
-  }
-  const p = xs.length ? percentile(Float64Array.from(xs).sort(), 0.9) : 0;
-  const R = Math.min(GAIN_MAX, Math.max(GAIN_MIN, Math.ceil(p / 5) * 5));
-  return { lo: -R, hi: R };
-}
+export const GAIN_KEY_TEXT = 'Places gained/lost on the leg';
 
-const ranges = new WeakMap<GainSeries, Map<number | null, SogRange>>();
-/** The track map's range for leg `leg` (or all), once per model. */
-export function trackGainRange(a: RaceAnalysis, m: CoachModel, leg: number | null): SogRange {
-  const s = gainSeriesOf(a, m);
-  let byLeg = ranges.get(s);
-  if (!byLeg) ranges.set(s, (byLeg = new Map()));
-  if (!byLeg.has(leg)) byLeg.set(leg, gainRangeOf(s, leg));
-  return byLeg.get(leg)!;
-}
+/** Each shade's label, lost most → gained most: "−3+" … "0" … "+3+". */
+export const GAIN_LABELS: readonly string[] = Array.from({ length: GAIN_BINS }, (_, b) => {
+  const g = b - GAIN_CAP;
+  const s = g > 0 ? `+${g}` : g < 0 ? `−${-g}` : '0';
+  return Math.abs(g) === GAIN_CAP ? `${s}+` : s;
+});
 
-interface SrcGain {
-  v: Float32Array;
-  done: Uint8Array;
-}
-const perSeries = new WeakMap<GainSeries, WeakMap<SrcTrack, SrcGain>>();
-
-/**
- * Boat `id`'s gain rate at each fix of `src` (m/min; NaN: no reading, drawn faint), indexed as `src`, fixes [i0, i1)
- * worked out once per model and source.
- */
-export function gainValues(s: GainSeries, src: SrcTrack, id: string, i0 = 0, i1 = src.t.length): Float32Array {
-  let bySrc = perSeries.get(s);
-  if (!bySrc) perSeries.set(s, (bySrc = new WeakMap()));
-  let g = bySrc.get(src);
-  if (!g) bySrc.set(src, (g = { v: new Float32Array(src.t.length).fill(NaN), done: new Uint8Array(src.t.length) }));
-  const hi = Math.min(i1, src.t.length);
-  for (let i = Math.max(0, i0); i < hi; i++) {
-    if (g.done[i]) continue;
-    g.v[i] = gainAt(s, id, src.t[i]);
-    g.done[i] = 1;
-  }
-  return g.v;
-}
-
-/** "+12", "−3", "0": a rate with its sign. */
-export const signedRate = (v: number): string => {
-  const r = Math.round(v);
-  return r > 0 ? `+${r}` : r < 0 ? `−${-r}` : '0';
-};
-
-/** The tooltip's line: "+12 m/min vs fleet" (null where there's no reading). */
-export function gainTipLine(a: RaceAnalysis, m: CoachModel, id: string, t: number): string | null {
-  const v = gainAt(gainSeriesOf(a, m), id, t);
-  return Number.isFinite(v) ? `${signedRate(v)} m/min vs fleet` : null;
-}
-
-const bands = (scheme: SogScheme): string => {
-  const pct = (b: number): string => `${+((b / GAIN_BINS) * 100).toFixed(2)}%`;
-  return `linear-gradient(to right, ${Array.from({ length: GAIN_BINS }, (_, b) => `${gainColor(binPos(b, GAIN_BINS), scheme)} ${pct(b)} ${pct(b + 1)}`).join(', ')})`;
-};
-const gainBarStyle = (): string => `--g:${bands('light')};--gd:${bands('dark')}`;
-
-export const GAIN_KEY_TEXT = 'Gain/loss vs fleet · m/min';
-
-/**
- * The key: the red–gray–green bar with − / 0 / + ticks in m/min, "Gain/loss vs fleet · m/min". `m` undefined: the
- * wind is still on its way (the bar alone); null: none for this race.
- */
-export function gainKey(a: RaceAnalysis, m: CoachModel | null | undefined, leg: number | null): string {
-  if (m === undefined) return sogKeyPending('Gain/loss vs fleet', 'm/min', gainBarStyle());
-  if (!m) return `<span class="muted">Gain/loss colors aren't available for this race.</span>`;
-  // The title carries the unit: the ticks don't (a "m/min" past the bar's end ran into it).
-  return `${valueScaleHtml(trackGainRange(a, m, leg), 'm/min', gainBarStyle(), signedRate, false)}
+/** The key: a swatch per shade with its places, and "Places gained/lost on the leg". `m` null: none for this race. */
+export function gainKey(m: CoachModel | null | undefined): string {
+  if (m === null) return `<span class="muted">Gain/loss colors aren't available for this race.</span>`;
+  const sw = GAIN_LABELS.map((l, b) => `<span class="gain-sw" style="--c:${GAIN_COLORS.light[b]};--cd:${GAIN_COLORS.dark[b]}">${l}</span>`).join('');
+  return `<span class="gain-key" role="img" aria-label="${esc(`${GAIN_KEY_TEXT}: red lost, gray held, green gained; deeper with more places, up to ${GAIN_CAP} or more`)}">${sw}</span>
     <span class="muted">${esc(GAIN_KEY_TEXT)}</span>`;
 }

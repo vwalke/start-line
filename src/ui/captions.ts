@@ -108,10 +108,10 @@ export function mapKey(a: RaceAnalysis, o: { highlight?: string | null; colour: 
     if (o.leg == null) bullets.push("Scale: Per leg uses each leg's own range; Whole race, one range.");
   } else {
     bullets.push(
-      "Gain/loss: how fast a boat climbs (or runs) the ladder vs the median boat on its leg, m/min over 30 s; green gaining, red losing, gray about even. Reaches by progress along the rhumb line.",
+      'Gain/loss: each leg one color, by the places the boat gained (green) or lost (red) on it, from its place entering the leg (its start place, or its rounding of the mark before) to its rounding at the end or its finish; gray held. Deeper shades for 2 and for 3 or more places. In a replay, the leg a boat is on shows its change so far.',
     );
   }
-  bullets.push(`Hover or tap a track for time, speed, course${o.colour === 'vmg' ? ', VMG' : o.colour === 'gain' ? ', gain/loss' : ''}, heel, place.`);
+  bullets.push(`Hover or tap a track for time, speed, course${o.colour === 'vmg' ? ', VMG' : o.colour === 'gain' ? ', places on the leg' : ''}, heel, place.`);
   bullets.push('Select a boat anywhere to highlight it on every chart and table.');
   return { chips, bullets };
 }

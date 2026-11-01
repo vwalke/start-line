@@ -589,6 +589,11 @@ svg .sog-hover { fill: none; stroke: var(--ink); pointer-events: none; }
 :root[data-theme='dark'] svg .sog[style] { stroke: var(--cd); }
 :root[data-theme='dark'] svg .sog-fill[style] { fill: var(--cd); }
 :root[data-theme='dark'] .speed-key .sog-bar { background: var(--gd); }
+/* Gain/loss's key (ui/gain.ts): a short stroke of each shade, as the tracks draw it, with its places beside it. */
+.speed-key .gain-key { display: inline-flex; flex-wrap: wrap; gap: 2px 8px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.speed-key .gain-sw { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.speed-key .gain-sw::before { content: ''; width: 14px; height: 4px; border-radius: 2px; background: var(--c); }
+:root[data-theme='dark'] .speed-key .gain-sw::before { background: var(--cd); }
 .start-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin: 0 0 6px; }
 .start-tools .zoom { margin: 0; }
 .map-wrap { position: relative; }

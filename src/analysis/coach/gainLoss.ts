@@ -1,253 +1,117 @@
 /**
- * Gain/loss on the fleet, for the Race Viewer's "Color: Gain/loss" (ui/gain.ts): how fast each boat is closing on, or
- * dropping behind, the fleet's median boat up the ladder of its leg, in m/min.
+ * Places gained or lost on each leg, for the Race Viewer's "Color: Gain/loss" (ui/gain.ts): a boat's place entering
+ * the leg less its place at the leg's end (+ = gained), one number for the whole leg.
  *
- * - Read on the ladder the Leader line draws (ladderNow.ts, a reader of its own): every GAIN_STEP_MS from the gun to
- *   the model's end, each boat's distance still to go on its leg, `D`: its rung (bow-based, to its leg's end along the
- *   wind of the moment, past the layline the layline rule) on a beat or run; on a reach, its course progress negated
- *   (distance made good along the rhumb line). Finished, unplaced (`est`) or off any leg: no reading.
- * - The rate at sample j of boat b on leg L, over GAIN_WINDOW_MS centred on it (j ± h), shortened on a side where b
- *   isn't on L throughout (the gun, its finish, a rounding: the window ends at b's last sample on L there), down to
- *   half (h samples, 15 s; any shorter, no reading): gain = (median over the boats on L at both ends of that window
- *   of ΔD − ΔD_b) / Δt. Positive: b took more off its distance to go than the median boat on its leg did, i.e. it
- *   gained on it. The median of the changes, not the change of the median: a boat rounding into or out of the leg
- *   can't make the median jump. So a boat reads from the gun, up to its finish and on through a rounding, each
- *   sample on its own window (no reading held from a sample 15 s on, then a jump).
- * - Fewer than GAIN_MIN_BOATS on the leg (a strung-out fleet's leader, a leg the fleet is rounding into): the same on
- *   course progress (ladderNow.ts prog), against every boat on one leg at both ends of the window,
- *   gain = (Δprog_b − median Δprog) / Δt. A boat that changed legs in that window is left out of the pool (on course
- *   progress its change spans two legs' scales); with fewer than GAIN_MIN_BOATS in it, no reading.
- * - Smoothed by the mean over one sample either side (15 s); NaN where there is no reading.
- * - Worked out once per model (cached), read per fix by gainAt in O(1). A whole fleet's race is tens of ms (more on a
- *   phone), so the page works it out in slices between frames (gainFill, ui/gain.ts gainSeriesSoon); gainSeries
- *   works it out at once (tests, node, or finishing a fill under way).
+ * - Places at the start, each mark and the finish are the bump chart's (analysis/places.ts placeChanges): leg 1 is
+ *   entered at the start table's place among the clean starters at the gun; every later leg at the boat's place in
+ *   the order the fleet rounded the mark before it; the last leg ends at the finish order.
+ * - Where the bump chart has no place for a boat there (no start place, no rounding time at the mark), its place on
+ *   the ladder (coach/progress.ts progressAt, the tooltip's place): entering, at its first fix on the leg (from the
+ *   gun on); at the end, at its last fix on the leg.
+ * - The leg a boat is on at the map's time `now` (its rounding or finish still to come): its place on the ladder at
+ *   `now`, the change so far; a boat that stopped short of the leg's end (retired) at its last fix on the leg.
+ * - Before the gun, a leg not yet started at `now`, or no place at one end: null (ui/gain.ts draws it gray).
+ *
+ * Worked out once per model (legPlaces, cached); a leg's value (legGainAt) is a map lookup and a subtraction, the
+ * ladder read at most once per `now` for the whole fleet.
  */
-import type { RaceAnalysis } from '../types';
+import { placeChanges, roundingMs } from '../places';
+import { PRE_LEG, type RaceAnalysis } from '../types';
 import type { CoachModel } from './index';
-import { newLadderReader } from './ladderNow';
+import { newLadderReader, type LadderReader } from './ladderNow';
+import { progressAt, progressBase, type ProgressBase, type ProgressPlaces } from './progress';
 
-/** Sampled this often, ms. */
-export const GAIN_STEP_MS = 5_000;
-/** The rate is the change over this long, centred, ms. */
-export const GAIN_WINDOW_MS = 30_000;
-/** Fewer boats than this on a leg: compared on course progress with the fleet instead. */
-export const GAIN_MIN_BOATS = 3;
-
-/** Each boat's ladder at every sample (boat b, sample j at b·n + j): its leg (−1: no reading), distance to go and course progress, m. */
-export interface LadderGrid {
-  boats: number;
-  n: number;
-  leg: Int16Array;
-  dist: Float64Array;
-  prog: Float64Array;
+/** One boat's legs: places entering and at the end (null: from the ladder, read when first asked), when each ends, its first and last fix on each. */
+interface BoatLegs {
+  entry: (number | null)[];
+  exit: (number | null)[];
+  /** The rounding (or the finish) ending each leg, ms; Infinity: none. */
+  endMs: number[];
+  /** The boat's first and last fix on each leg, ms; NaN: none. */
+  firstMs: number[];
+  lastMs: number[];
+  /** The ladder's place at firstMs / lastMs, once read (undefined: not yet; null: none). */
+  firstPlace: (number | null | undefined)[];
+  lastPlace: (number | null | undefined)[];
 }
 
-function medianOf(xs: Float64Array, k: number): number {
-  const s = xs.subarray(0, k).sort();
-  return k % 2 ? s[(k - 1) >> 1] : (s[k / 2 - 1] + s[k / 2]) / 2;
+/** Every racing boat's legs (above), and what reads the ladder where the bump chart has no place. */
+export interface LegPlaces {
+  byId: Map<string, BoatLegs>;
+  /** The ladder's place of boat `id` at `t`, out of the fixed fleet; null: none (no position then). */
+  placeAt: (id: string, t: number) => number | null;
 }
 
-/** Runs `it` to its end: a sliced pass at once. */
-function runOut<T>(it: Generator<void, T, void>): T {
-  for (;;) {
-    const r = it.next();
-    if (r.done) return r.value;
-  }
-}
+const cache = new WeakMap<CoachModel, LegPlaces>();
 
-/** The gain rate (m/min, NaN: none) of every boat at every sample of `g`, sampled `stepMs` apart, over `windowMs` (above). */
-export const gainRates = (g: LadderGrid, stepMs = GAIN_STEP_MS, windowMs = GAIN_WINDOW_MS): Float32Array => runOut(gainRateSteps(g, stepMs, windowMs));
-
-/** gainRates a slice at a time: pausing after each sample, and after each boat's smoothing. */
-function* gainRateSteps(g: LadderGrid, stepMs: number, windowMs: number): Generator<void, Float32Array, void> {
-  const { boats, n, leg, dist, prog } = g;
-  const h = Math.max(1, Math.round(windowMs / 2 / stepMs));
-  const raw = new Float32Array(boats * n).fill(NaN);
-  // Each boat's window at the sample: its first and last sample (−1: none).
-  const lo = new Int32Array(boats);
-  const hi = new Int32Array(boats);
-  const pool = new Float64Array(boats);
-  // The medians worked out at this sample, by leg and window (NaN: too few boats), and the fleet's by window.
-  const legMed = new Map<number, number>();
-  const fleetMed = new Map<number, number>();
-  const medOnLeg = (L: number, j0: number, j1: number): number => {
-    const key = (L * n + j0) * n + j1;
-    let v = legMed.get(key);
-    if (v === undefined) {
-      let k = 0;
-      for (let c = 0; c < boats; c++) {
-        const i0 = c * n + j0;
-        const i1 = c * n + j1;
-        if (leg[i0] === L && leg[i1] === L && Number.isFinite(dist[i0]) && Number.isFinite(dist[i1])) pool[k++] = dist[i1] - dist[i0];
-      }
-      legMed.set(key, (v = k >= GAIN_MIN_BOATS ? medianOf(pool, k) : NaN));
-    }
-    return v;
-  };
-  const medOfFleet = (j0: number, j1: number): number => {
-    const key = j0 * n + j1;
-    let v = fleetMed.get(key);
-    if (v === undefined) {
-      let k = 0;
-      for (let c = 0; c < boats; c++) {
-        const i0 = c * n + j0;
-        const i1 = c * n + j1;
-        // Only a boat on one leg at both ends: one that rounded in the window adds the rest of its old leg and the
-        // start of the next, which would move the fleet's median.
-        if (leg[i0] >= 0 && leg[i0] === leg[i1] && Number.isFinite(prog[i0]) && Number.isFinite(prog[i1])) pool[k++] = prog[i1] - prog[i0];
-      }
-      fleetMed.set(key, (v = k >= GAIN_MIN_BOATS ? medianOf(pool, k) : NaN));
-    }
-    return v;
-  };
-  for (let j = 0; j < n; j++) {
-    legMed.clear();
-    fleetMed.clear();
-    for (let b = 0; b < boats; b++) {
-      const i = b * n + j;
-      const L = leg[i];
-      lo[b] = -1;
-      if (L < 0 || !Number.isFinite(dist[i])) continue;
-      // Up to h samples either side, as far as the boat stays on its leg: the gun, its finish or a rounding shortens
-      // the window on that side (the rate over what there is, not a reading held from a sample further on).
-      let a = 0;
-      while (a < h && j - a > 0 && leg[i - a - 1] === L && Number.isFinite(dist[i - a - 1])) a++;
-      let c = 0;
-      while (c < h && j + c + 1 < n && leg[i + c + 1] === L && Number.isFinite(dist[i + c + 1])) c++;
-      if (a + c < h) continue;
-      lo[b] = j - a;
-      hi[b] = j + c;
-    }
-    for (let b = 0; b < boats; b++) {
-      if (lo[b] < 0) continue;
-      const i0 = b * n + lo[b];
-      const i1 = b * n + hi[b];
-      const perMin = 60_000 / ((hi[b] - lo[b]) * stepMs);
-      const med = medOnLeg(leg[i0], lo[b], hi[b]);
-      if (Number.isFinite(med)) raw[b * n + j] = (med - (dist[i1] - dist[i0])) * perMin;
-      else {
-        const fm = medOfFleet(lo[b], hi[b]);
-        if (Number.isFinite(fm)) raw[b * n + j] = (prog[i1] - prog[i0] - fm) * perMin;
-      }
-    }
-    yield;
-  }
-  const out = new Float32Array(boats * n).fill(NaN);
-  for (let b = 0; b < boats; b++) {
-    for (let j = 0; j < n; j++) {
-      let s = 0;
-      let k = 0;
-      for (let q = Math.max(0, j - 1); q <= Math.min(n - 1, j + 1); q++) {
-        const v = raw[b * n + q];
-        if (Number.isFinite(v)) {
-          s += v;
-          k++;
-        }
-      }
-      // A sample with no reading of its own stays without one (finished, off the leg).
-      if (k && Number.isFinite(raw[b * n + j])) out[b * n + j] = s / k;
-    }
-    yield;
-  }
-  return out;
-}
-
-/** The fleet's gain rates over the race: boat `ids[b]`'s at t0 + j·stepMs at b·n + j, and its leg then (−1: none). */
-export interface GainSeries {
-  t0: number;
-  stepMs: number;
-  n: number;
-  ids: string[];
-  index: Map<string, number>;
-  rate: Float32Array;
-  leg: Int16Array;
-}
-
-const cache = new WeakMap<CoachModel, GainSeries>();
-
-/** The gain rates for race `a`'s coach model (above), worked out once per model: at once, or finishing a fill under way. */
-export function gainSeries(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel): GainSeries {
+/** Race `a`'s leg places for its coach model `m` (above), once per model. */
+export function legPlaces(a: Pick<RaceAnalysis, 'legs' | 'boats' | 'meta' | 'drawings'>, m: CoachModel): LegPlaces {
   const hit = cache.get(m);
   if (hit) return hit;
-  gainFill(a, m).step(Infinity);
-  return cache.get(m)!;
-}
-
-/** The model's gain rates if they're worked out (gainSeries, gainFill), else null. */
-export const gainSeriesReady = (m: CoachModel): GainSeries | null => cache.get(m) ?? null;
-
-/** A main-thread slice of a fill (ui/gain.ts gainSeriesSoon), ms: well inside a frame. */
-export const GAIN_SLICE_MS = 8;
-
-/** gainSeries a slice at a time: `step` works until `deadline` (performance.now(), ms; at least one sample), true once the series is in. */
-export interface GainFill {
-  step(deadline: number): boolean;
-}
-
-const fills = new WeakMap<CoachModel, GainFill>();
-
-/**
- * The model's fill (one per model, kept while under way: a fill left unstepped resumes where it stopped). Its values
- * are gainSeries's: the same reads in the same order, only paused between samples.
- */
-export function gainFill(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel): GainFill {
-  const have = fills.get(m);
-  if (have) return have;
-  const it = seriesSteps(a, m);
-  const f: GainFill = {
-    step(deadline) {
-      if (cache.has(m)) return true;
-      do {
-        const r = it.next();
-        if (r.done) {
-          cache.set(m, r.value);
-          fills.delete(m);
-          return true;
-        }
-      } while (performance.now() < deadline);
-      return false;
-    },
-  };
-  fills.set(m, f);
-  return f;
-}
-
-/** The series (above), pausing after each sample of the ladder and each step of gainRates. */
-function* seriesSteps(a: Pick<RaceAnalysis, 'boats' | 'meta'>, m: CoachModel): Generator<void, GainSeries, void> {
-  const read = newLadderReader(a, m);
-  const t0 = m.gunMs;
-  const n = Math.max(1, Math.floor(Math.max(0, m.endMs - t0) / GAIN_STEP_MS) + 1);
-  const ids = read(t0).reads.map((r) => r.id);
-  const boats = ids.length;
-  const g: LadderGrid = { boats, n, leg: new Int16Array(boats * n), dist: new Float64Array(boats * n), prog: new Float64Array(boats * n) };
-  for (let j = 0; j < n; j++) {
-    const now = read(t0 + j * GAIN_STEP_MS);
-    for (let b = 0; b < boats; b++) {
-      const r = now.reads[b];
-      const i = b * n + j;
-      const ok = !r.est && !r.done && r.leg >= 0 && Number.isFinite(r.prog);
-      g.leg[i] = ok ? r.leg : -1;
-      g.dist[i] = !ok ? NaN : Number.isFinite(r.rung) ? r.rung : -r.prog;
-      g.prog[i] = ok ? r.prog : NaN;
+  const n = a.legs.length;
+  const pc = placeChanges(a);
+  const byId = new Map<string, BoatLegs>();
+  a.boats.forEach((b, i) => {
+    const places = pc.boats[i].places;
+    const firstMs = Array<number>(n).fill(NaN);
+    const lastMs = Array<number>(n).fill(NaN);
+    for (const s of a.drawings.find((d) => d.id === b.id)?.segments ?? []) {
+      const k = s.leg;
+      if (k < 0 || k >= n || !s.t.length) continue;
+      const t0 = Math.max(a.meta.gunMs, s.t[0]);
+      const t1 = s.t[s.t.length - 1];
+      if (!(firstMs[k] <= t0)) firstMs[k] = t0;
+      if (!(lastMs[k] >= t1)) lastMs[k] = t1;
     }
-    yield;
-  }
-  const rate = yield* gainRateSteps(g, GAIN_STEP_MS, GAIN_WINDOW_MS);
-  return { t0, stepMs: GAIN_STEP_MS, n, ids, index: new Map(ids.map((id, b) => [id, b])), rate, leg: g.leg };
+    byId.set(b.id, {
+      // Column k of the bump chart is the start (k = 0) or the mark ending leg k − 1; column k + 1 ends leg k.
+      entry: places.slice(0, n),
+      exit: places.slice(1, n + 1),
+      endMs: a.legs.map((_, k) => (k === n - 1 ? b.finishMs : roundingMs(b, k)) ?? Infinity),
+      firstMs,
+      lastMs,
+      firstPlace: Array(n),
+      lastPlace: Array(n),
+    });
+  });
+  // A reader of its own: reading here mustn't move the moment the rungs' reader last read (ladderNow.ts newLadderReader).
+  const read: LadderReader = newLadderReader(a, m);
+  const base: ProgressBase = progressBase(a, m);
+  let last: { t: number; at: ProgressPlaces } | null = null;
+  const placeAt = (id: string, t: number): number | null => {
+    if (last?.t !== t) last = { t, at: progressAt(a, m, base, t, read) };
+    const r = last.at.byId.get(id);
+    return r && !r.est ? r.place : null;
+  };
+  const lp: LegPlaces = { byId, placeAt };
+  cache.set(m, lp);
+  return lp;
 }
+
 /**
- * Boat `id`'s gain rate at `t`, m/min: between the samples either side; where only one has a reading, that reading up
- * to half a step from it (the middle between the two), so a reading never runs on toward a sample without one. NaN: none.
+ * Places boat `id` gained (+) or lost (−) on leg `leg` as the map shows it at `now` (ms; Infinity: the whole race):
+ * its place entering the leg less its place at the leg's end, or on the leg it is on at `now`, its place then. Null
+ * before the gun, on a leg not started at `now`, or with no place at one end.
  */
-export function gainAt(s: GainSeries, id: string, t: number): number {
-  const b = s.index.get(id);
-  if (b == null || !Number.isFinite(t)) return NaN;
-  const x = (t - s.t0) / s.stepMs;
-  if (x < 0 || x > s.n - 1) return NaN;
-  const j = Math.min(s.n - 1, Math.floor(x));
-  const f = x - j;
-  const p = s.rate[b * s.n + j];
-  const q = j + 1 < s.n ? s.rate[b * s.n + j + 1] : NaN;
-  if (Number.isFinite(p) && Number.isFinite(q)) return p + (q - p) * f;
-  return f <= 0.5 ? p : q;
+export function legGainAt(lp: LegPlaces, id: string, leg: number, now: number): number | null {
+  const row = lp.byId.get(id);
+  if (!row || leg === PRE_LEG || leg < 0 || leg >= row.entry.length) return null;
+  if (!(row.firstMs[leg] <= now)) return null;
+  let entry = row.entry[leg];
+  if (entry == null) {
+    if (row.firstPlace[leg] === undefined) row.firstPlace[leg] = lp.placeAt(id, row.firstMs[leg]);
+    entry = row.firstPlace[leg]!;
+  }
+  if (entry == null) return null;
+  const exit = row.exit[leg];
+  if (exit != null && row.endMs[leg] <= now) return entry - exit;
+  // The leg under way at `now` (or ended with no place at its end): the ladder's place then, or at its last fix on the leg if earlier.
+  const end = row.lastMs[leg];
+  if (now < end) {
+    const p = lp.placeAt(id, now);
+    return p == null ? null : entry - p;
+  }
+  if (row.lastPlace[leg] === undefined) row.lastPlace[leg] = lp.placeAt(id, end);
+  const p = row.lastPlace[leg];
+  return p == null ? null : entry - p;
 }
