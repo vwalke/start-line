@@ -168,6 +168,19 @@ export interface TipOptions {
   legLine?: (leg: number) => string;
   /** The boat's place at time `t`, or null when there's no sound one. */
   placeAt?: (id: string, t: number) => PlaceRead | null;
+  /** The map's coloring at the point, under SOG and COG ("VMG 5.2 kn"), or null for none. */
+  valueLine?: (p: TipPoint) => string | null;
+}
+
+/** A point as the tooltip reads it: the boat, when, its leg, where (east/north m), its SOG and COG. */
+export interface TipPoint {
+  id: string;
+  t: number;
+  leg: number;
+  x: number;
+  y: number;
+  sog: number;
+  cog: number;
 }
 
 const legName = (a: Pick<RaceAnalysis, 'legs'>, leg: number): string => a.legs[leg]?.name ?? `Leg ${leg + 1}`;
@@ -184,7 +197,8 @@ function timeLine(a: Pick<RaceAnalysis, 'meta'>, t: number): string {
 /**
  * The tooltip for a pick, as lines of plain text (the first is the boat). A point:
  * time, SOG and COG, heel (only with a roll reading), leg ("pre-start" before
- * the gun), and place (only when `placeAt` has one). A boat's dot: the same for
+ * the gun), and place (only when `placeAt` has one); under SOG and COG, the map's
+ * coloring there when `valueLine` gives one. A boat's dot: the same for
  * its interpolated state at the scrubber's time (and "last fix …" while it is held
  * past its final fix).
  */
@@ -196,6 +210,8 @@ export function mapTipLines(a: Pick<RaceAnalysis, 'boats' | 'legs' | 'meta'>, p:
   if (pick.kind === 'dot') {
     const d = p.dots[pick.d];
     const lines = [who(d.id), timeLine(a, d.t), motion(d.sog, d.cog)];
+    const value = opts.valueLine?.(d);
+    if (value) lines.push(value);
     const heel = heelLabel(d.roll);
     if (heel) lines.push(heel);
     lines.push(leg(d.leg));
@@ -212,7 +228,10 @@ export function mapTipLines(a: Pick<RaceAnalysis, 'boats' | 'legs' | 'meta'>, p:
   const j = p.offs[s] + k;
   const t = seg.t[j];
   const pieceLeg = p.legs[s];
-  const lines = [who(id), timeLine(a, t), motion(seg.sog[j], cogAt(seg.x, seg.y, j))];
+  const cog = cogAt(seg.x, seg.y, j);
+  const lines = [who(id), timeLine(a, t), motion(seg.sog[j], cog)];
+  const value = opts.valueLine?.({ id, t, leg: pieceLeg, x: seg.x[j], y: seg.y[j], sog: seg.sog[j], cog });
+  if (value) lines.push(value);
   const heel = heelLabel(seg.roll?.[j]);
   if (heel) lines.push(heel);
   lines.push(leg(pieceLeg));

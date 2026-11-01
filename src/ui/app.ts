@@ -156,7 +156,7 @@ import {
   type MapFocus,
 } from './mapLink';
 import { mapKey, raceNotesKey, startKey } from './captions';
-import { mapTipHtml, mapTipLines, mapTipPos, pickAt, pickMapPoint, type MapPoints, type PlaceRead } from './mapPoints';
+import { mapTipHtml, mapTipLines, mapTipPos, pickAt, pickMapPoint, type MapPoints, type PlaceRead, type TipPoint } from './mapPoints';
 import { createFullscreen, inertOthers, lockScroll, moveNodes, trapFocus, type ScrollLock } from './fullscreen';
 import { boatLabel, esc, f1, gunTimeLine, legCount } from './format';
 import { dismissHint, hintStore, showHint } from './hints';
@@ -202,6 +202,7 @@ import {
   SOG_SCALE_KEY,
   TOP_KEY,
   colourControls,
+  needsCoach,
   parseRankBy,
   parseSogScale,
   parseSpeedTop,
@@ -210,6 +211,7 @@ import {
   speedKey,
   writePref,
 } from './speed';
+import { vmgHoverLeg, vmgKey, vmgTipLine } from './vmg';
 import { legsNotesHtml, legsTable, startNotesHtml, startTable, toggleSort, type SortState } from './table';
 import { followAfter, followCam, followStep, followTarget, reducedMotion, resetFollow } from './follow';
 import { MAP_SETTLE_MS, mapPaint } from './mapPaint';
@@ -716,7 +718,9 @@ export function startApp(): void {
           ? k.leg == null && k.sogScale === 'leg'
             ? sogLegKey(a)
             : sogKey(trackSogRange(a, k.leg), k.leg == null ? 'Whole race' : `${a.legs[k.leg]?.name ?? 'This leg'}`)
-          : '';
+          : trackColour === 'vmg'
+            ? vmgKey(a, coachModelFor(a), k.leg, k.sogScale)
+            : '';
     els.speedKey.hidden = trackColour === 'leg';
     renderKeyLine(els.mapCap, mapKey(a, { highlight, colour: trackColour, rankBy: k.rankBy, sogScale: k.sogScale, leg: k.leg }));
     renderKeyLine(els.placesCap, placesKey(a));
@@ -791,6 +795,8 @@ export function startApp(): void {
       coachBuilding = null;
       coach = { a, model: coachModelOf(a, raw) };
       if (analysis === a) {
+        // VMG's tracks and key wait for the Coach's wind: the whole view again (the Coach and the report with it).
+        if (needsCoach(trackColour)) return render();
         renderCoach();
         renderReport();
         // The ladder rungs wait for the Coach's ladder (ladderAt).
@@ -798,6 +804,11 @@ export function startApp(): void {
       }
     });
     return false;
+  }
+
+  /** The coach model of `a` for the map's coloring: undefined while it is on its way (asked for here), null when the race has none. */
+  function coachModelFor(a: RaceAnalysis): CoachModel | null | undefined {
+    return ensureCoach(a) ? coach!.model : undefined;
   }
 
   // ---- Report (ui/report.ts, reportView.ts): one printable page for the selected boat, on `#report` or `report=1`; built only while open.
@@ -1426,7 +1437,8 @@ export function startApp(): void {
   const keyed = (): ReturnType<typeof keyLeg> => keyLeg(legSel, focusOn, rankBy, sogScale);
   const mapOpts = (): TrackMapOptions => {
     const k = keyed();
-    return { colour: trackColour, rankBy: k.rankBy, top: speedTop, sogScale: k.sogScale, view: mapView, replay: replayOn, vs: focusOn?.vs };
+    const coachNow = needsCoach(trackColour) && analysis ? coachModelFor(analysis) : undefined;
+    return { colour: trackColour, rankBy: k.rankBy, top: speedTop, sogScale: k.sogScale, view: mapView, replay: replayOn, vs: focusOn?.vs, coach: coachNow };
   };
 
   /** Full-rate tracks for the map (once per race, asked of the worker the first time the view is tight enough); null until then. */
@@ -2055,8 +2067,11 @@ export function startApp(): void {
     dot.setAttribute('cy', String(cy));
     dot.setAttribute('r', String(4 * px));
     dot.setAttribute('stroke-width', String(1.5 * px));
-    const legLine = trackColour === 'sog' ? (l: number) => sogHoverLeg(a, l, legSel, keyed().sogScale) : undefined;
-    els.mapTip.innerHTML = mapTipHtml(mapTipLines(a, p, pick, { legLine, placeAt: placeReader(a) }));
+    const vm = trackColour === 'vmg' ? coachModelFor(a) : null;
+    const legLine =
+      trackColour === 'sog' ? (l: number) => sogHoverLeg(a, l, legSel, keyed().sogScale) : vm ? (l: number) => vmgHoverLeg(a, vm, l, legSel, keyed().sogScale) : undefined;
+    const valueLine = vm ? (q: TipPoint) => vmgTipLine(vm, q) : undefined;
+    els.mapTip.innerHTML = mapTipHtml(mapTipLines(a, p, pick, { legLine, placeAt: placeReader(a), valueLine }));
     els.mapTip.hidden = false;
     // Beside the pointer, above it; flipped left near the right edge and below near the top, and kept inside the map;
     // off a replay's label (another corner of the pointer) so it never hides the replay's facts.

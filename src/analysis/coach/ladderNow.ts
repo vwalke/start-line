@@ -120,7 +120,7 @@ export function rungXY(px: number, py: number, ex: number, ey: number, wx: numbe
 }
 
 /** Where leg `leg` ends for a boat at (px, py), into `out` (timeGap.ts progressEnd: the last leg's finish line extended). */
-function endInto(c: Course, leg: number, px: number, py: number, out: { ex: number; ey: number }): void {
+export function endInto(c: Course, leg: number, px: number, py: number, out: { ex: number; ey: number }): void {
   const f = c.finish;
   const last = leg === c.kinds.length - 1;
   if (f && last) {
