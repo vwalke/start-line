@@ -84,7 +84,8 @@ describe('C31 race 10: the start and legs tables', () => {
     expect(l.manoeuvreGap).toBe(true);
     expect(keysOf(legs).some((k) => k === 'dq' || k.endsWith('.dq'))).toBe(false);
     expect(cellOf(legs, b.id, 'L0.tacks')).toBe('4');
-    expect(cellOf(legs, b.id, 'L2.tacks')).toBe('2');
+    // 4, was 2: two more tacks across Beat 2's late holes (manoeuvres.test.ts, C31 r10), still a plain count.
+    expect(cellOf(legs, b.id, 'L2.tacks')).toBe('4');
     expect(cellOf(legs, b.id, 'tacks')).toBe(String(b.legs.reduce((s, x) => s + x!.tacks, 0)));
     expect(cellOf(legs, b.id, 'L0.dist')).toBe(fM(l.distM));
     expect(legs).not.toMatch(/class="gap"|dq-low|telemetry gap|longest gap|Low data|>~/);

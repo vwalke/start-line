@@ -246,19 +246,20 @@ describe('D17 on J/24 Nationals R2 (dense on Beat 2: 38 tacks measured from 26 b
   it('the Report’s legs table: the measured cost against the selected group’s, like the SOG / VMG medians', () => {
     const boat = idOf(r, 'USA 1938');
     const rep = (group: Group) => buildReport({ a: r.a, boat, raceName: 'Race 2', model: r.m, deb: debriefOf(r.a, r.m, boat), group, official: null });
-    expect(rep({ kind: 'fleet' }).legs[2].manoeuvres).toBe('4 tacks · ~0 m each (fleet ~14)');
+    // 6, not 4: the device heading shows two more tacks across the 10 s fixes late on the beat (manoeuvres.ts heading fallback).
+    expect(rep({ kind: 'fleet' }).legs[2].manoeuvres).toBe('6 tacks · ~0 m each (fleet ~14)');
     // Legs without enough measured stay as they were.
     expect(rep({ kind: 'fleet' }).legs[0].manoeuvres).toMatch(/^~?\d+ tacks?$/);
     // The top 3 (the default group) is under D17_MIN_REF_BOATS: no cost.
     expect(defaultLadderGroup().kind).toBe('leaders');
-    expect(rep(defaultLadderGroup()).legs[2].manoeuvres).toBe('4 tacks');
+    expect(rep(defaultLadderGroup()).legs[2].manoeuvres).toBe('6 tacks');
     // A custom group: the median of its boats' medians.
     const fm = fleetManoeuvres(r);
     const ids = [...fm.entries()].filter(([id, legs]) => id !== boat && (legs[2]?.measured.length ?? 0) >= 2).map(([id]) => id).slice(0, 6);
     const meds = ids.map((id) => median(fm.get(id)![2]!.measured.map((x) => x.lossM)));
     expect(ids.length).toBeGreaterThanOrEqual(D17_MIN_REF_BOATS);
     const custom = rep({ kind: 'custom', ids } as Group).legs[2].manoeuvres;
-    expect(custom).toBe(`4 tacks · ~0 m each (group ~${Math.round(Math.max(0, median(meds)))})`);
+    expect(custom).toBe(`6 tacks · ~0 m each (group ~${Math.round(Math.max(0, median(meds)))})`);
     expect(legCost({ a: r.a, m: r.m, boat }, 2, new Set(ids))!.fMedM).toBeCloseTo(median(meds), 9);
   });
   it('one D17 card a race per kind of manoeuvre, one D14 card a race, for every boat', () => {
@@ -340,7 +341,8 @@ describe('D17 across telemetry gaps: J/105 R3 (fixes 5–10 s apart in places)',
       }
     }
     // A third of the turns measured there are across such a gap (none before: the gap flag skipped them).
-    expect([flagged, measured]).toEqual([33, 84]);
+    // 34 / 85, not 33 / 84: a side held MAN_GAP_SHORT_DWELL_MS up to a hole now counts, so one more turn out of it is found.
+    expect([flagged, measured]).toEqual([34, 85]);
   });
 });
 
