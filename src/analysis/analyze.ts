@@ -524,7 +524,8 @@ export function analyzeRace(input: RaceData, opts: AnalyzeOptions = {}): RaceAna
     // Tacks and gybes from the gun to the last leg end this boat reached (split by leg below).
     const ends = drawTt.filter((x): x is number => x != null);
     const lastEnd = ends.length > 1 ? ends[ends.length - 1] : null;
-    const manoeuvres = ranked && lastEnd != null ? detectManoeuvres(tr, twdAt, gun, lastEnd) : [];
+    // `tr` brings its heading, SOG and roll to the detector; a heading already swapped for the course stays unused.
+    const manoeuvres = ranked && lastEnd != null ? detectManoeuvres(tr, twdAt, gun, lastEnd, { headingSource: headings.get(b.id)?.source }) : [];
     // Leeward heel per fix (analysis/heel.ts), blanked around those manoeuvres; null when the feed has no roll.
     const heel = tr.roll ? heelSeries(tr.t, tr.roll, signedTwa(tr, twdAt).twa, manoeuvres, tr.pitch) : null;
     if (tr.t.length > 1 && tr.t[0] <= gun && tr.t[tr.t.length - 1] >= gun) {
