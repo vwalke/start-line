@@ -6,6 +6,7 @@ import {
   MAN_GAP_MS,
   MAN_GAP_SHORT_DWELL_MS,
   MAN_HEEL_DWELL_MS,
+  MAN_HEEL_GAP_FIXES,
   MAN_HEEL_MERGE_MS,
   MAN_HEEL_ROLL_DEG,
   MAN_HEEL_TWA_MS,
@@ -13,6 +14,7 @@ import {
   MAN_ROUNDING_MS,
   MAN_TWA_MAX,
   MAN_TWA_MIN,
+  MAN_UPWIND_DEG,
   detectManoeuvres,
   manoeuvresByLeg,
   signedTwa,
@@ -123,6 +125,7 @@ describe('manoeuvre tunables', () => {
   it('are the documented values', () => {
     expect([MAN_TWA_MIN, MAN_TWA_MAX, MAN_DWELL_MS, MAN_MIN_SOG_KN, MAN_GAP_MS, MAN_ROUNDING_MS]).toEqual([20, 160, 10_000, 1.5, 5_000, 15_000]);
     expect([MAN_GAP_SHORT_DWELL_MS, MAN_HEEL_ROLL_DEG, MAN_HEEL_DWELL_MS, MAN_HEEL_MERGE_MS, MAN_HEEL_TWA_MS]).toEqual([3_000, 5, 3_000, 15_000, 10_000]);
+    expect([MAN_UPWIND_DEG, MAN_HEEL_GAP_FIXES]).toEqual([90, 2]);
   });
 });
 
@@ -276,11 +279,54 @@ describe('detectManoeuvres across holes', () => {
     expect(run(gybe, { drop: [101, 170], sparse: [170, 270, 7], rollDeg: 10 })).toEqual([]);
   });
 
+  // Port close-hauled into a hole that starts while still upwind (TWA about −65); out of it on a starboard run, heeled the other way.
+  const markHole = (runHdg: number): Key[] => [[0, PORT, 6], [100, PORT, 6], [104, 100, 7], [108, 180, 8], [112, runHdg, 8], [300, runHdg, 8]];
+
+  it('upwind into a hole and out of it on a run is a gybe, never a tack (windward-mark bear-away, #326 / #380 / #16 race 8)', () => {
+    // TWA +110 after: the shortest turn (−65 → +110) is through head to wind, but a beat → run across the hole is a bear-away.
+    for (const opts of [{}, { heading: true }, { heading: true, rollDeg: 12 }] as SailOpts[]) {
+      const ms = run(markHole(250), { drop: [102, 240], ...opts });
+      expect(kinds(ms)).toEqual([['gybe', true]]);
+      // The windward mark inside the hole: no tack on the beat, the gybe on the run.
+      expect(manoeuvresByLeg(ms, [0, 170_000, 300_000], ['upwind', 'downwind'])).toEqual([
+        { tacks: 0, gybes: 0, gap: false },
+        { tacks: 0, gybes: 1, gap: true },
+      ]);
+    }
+    // Sparse heading-only fixes on the run, the heel flipped: still the one gybe.
+    expect(kinds(run(markHole(250), { drop: [102, 240], sparse: [240, 300, 7], heading: true, rollDeg: 12 }))).toEqual([['gybe', true]]);
+  });
+
+  it('a heel flip with the heading downwind on one side is no tack, even where the heading is too unclear to give a side', () => {
+    // Out of the hole dead downwind (TWA +170: no side from the heading, no course on the sparse fixes), heeled to port.
+    expect(run(markHole(190), { drop: [102, 240], sparse: [240, 300, 7], heading: true, rollDeg: 12 })).toEqual([]);
+  });
+
+  it('one heeled fix out of a hole is no heel side; MAN_HEEL_GAP_FIXES in a row are', () => {
+    // Starboard, a tack onto port and back inside a long hole, which shows the port heel for one fix (or three) in the middle.
+    const keys: Key[] = [[0, STBD, 6], [100, STBD, 6], [104, PORT, 4.2], [108, PORT, 6], [150, PORT, 6], [154, STBD, 4.2], [158, STBD, 6], [300, STBD, 6]];
+    expect(run(keys, { drop: [[101, 139.9], [140.1, 200]], rollDeg: 15 })).toEqual([]);
+    expect(kinds(run(keys, { drop: [[101, 139.9], [140.5, 200]], rollDeg: 15 }))).toEqual([['tack', true], ['tack', true]]);
+  });
+
+  it('a heading-only fix with an unclear TWA is no sample: it neither holds a side nor breaks one', () => {
+    // #16's shape with every other port fix pinched to TWA −15 (heading 15°): no two clear port fixes in a row.
+    const pinched: Key[] = [[0, STBD, 6], [120, STBD, 6], [124, PORT, 4.2], [128, PORT, 6]];
+    for (let s = 130; s <= 214; s += 14) pinched.push([s - 1, PORT, 6], [s, 15, 6], [s + 1, PORT, 6]);
+    pinched.push([220, PORT, 6], [224, STBD, 4.2], [228, STBD, 6], [360, STBD, 6]);
+    expect(run(pinched, { sparse })).toEqual([]);
+    expect(kinds(run(pinched, { sparse, heading: true }))).toEqual([['tack', true], ['tack', true]]);
+  });
+
   it('heel and course on the same tack across a hole: one tack', () => {
     // Dense on port after the hole: the course counts the tack, the heel flip is that tack.
     const ms = run(heelOnly, { drop: [101, 170], rollDeg: 15 });
     expect(kinds(ms)).toEqual([['tack', true]]);
     expect(run(hole1513, { drop: [70, 350], rollDeg: 15, heading: true })).toHaveLength(2);
+    // One fix inside the hole near head to wind (TWA −10: no course sample) still heeled to port: the course times the
+    // tack across the whole hole, well before the heel flip, and it is still that one tack (#380, race 8).
+    const pinch: Key[] = [[0, PORT, 6], [195, PORT, 6], [200, 10, 6], [230, STBD, 6], [360, STBD, 6]];
+    expect(kinds(run(pinch, { drop: [[101, 199.9], [200.1, 250]], rollDeg: 15, heading: true }))).toEqual([['tack', true]]);
   });
 
   it('a clean zig-zag with roll and heading counts each tack once, none approximate', () => {
@@ -370,7 +416,9 @@ describe('tacks and gybes on the fixtures', () => {
     const b = a.boats.find((x) => x.sail === 'FRA 901')!;
     // 4, was 2: after its two clean tacks, heading 272° → 4° → 340° → 243° (roll −11 → +8 → +11 → −12) across 64 s and 46 s holes.
     expect(b.legs[2]).toMatchObject({ tacks: 4, gybes: 0, manoeuvreGap: true });
-    expect(b.legs[0]).toMatchObject({ tacks: 4, gybes: 0, manoeuvreGap: true });
+    // 3, was 4: port (TWA −41) into an 809 s hole across the windward mark, out on a starboard run (TWA +138): a gybe on the run now.
+    expect(b.legs[0]).toMatchObject({ tacks: 3, gybes: 0, manoeuvreGap: true });
+    expect(b.legs[1]).toMatchObject({ tacks: 0, gybes: 1, manoeuvreGap: true });
   });
 
   it.each([
