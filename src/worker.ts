@@ -20,6 +20,7 @@ import { mergeUploadBytes } from './data/vkx/merge';
 import { canTail, joinTail, pagesLastTs, tailAfter, type Window } from './data/racesense/tail';
 import { gunLive } from './data/live';
 import { isPaywallError } from './data/paywall';
+import { toWire, type WireError } from './data/loadErrors';
 import { attemptRegatta, attemptWindow, earlierAttempts } from './data/attempts';
 
 export interface RaceRequest {
@@ -66,7 +67,8 @@ export type WorkerResponse =
   /** `replays` null: that race isn't the one last analysed here; no replay (the Coach has no start crossings either). */
   | { id: number; type: 'start-replay'; replays: StartReplay[] | null }
   | { id: number; type: 'attempt'; analysis: RaceAnalysis }
-  | { id: number; type: 'error'; message: string };
+  /** `unavailable`: the track feed can't be reached (data/loadErrors.ts); fromWire makes the page's Error again. */
+  | ({ id: number; type: 'error' } & WireError);
 
 const ctx = self as unknown as {
   postMessage(msg: WorkerResponse, transfer?: Transferable[]): void;
@@ -204,7 +206,7 @@ ctx.onmessage = (ev) => {
       const raw = last && last.key === req.key ? coachRaw(last.analysis, last.data) : null;
       ctx.postMessage({ id: req.id, type: 'coach-raw', raw });
     } catch (err) {
-      ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) });
+      ctx.postMessage({ id: req.id, type: 'error', ...toWire(err) });
     }
     return;
   }
@@ -213,7 +215,7 @@ ctx.onmessage = (ev) => {
       const tracks = last && last.key === req.key ? fullRateTracks(last.data, req.wants) : null;
       ctx.postMessage({ id: req.id, type: 'full-rate', tracks }, tracks ? fullRateBuffers(tracks) : []);
     } catch (err) {
-      ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) });
+      ctx.postMessage({ id: req.id, type: 'error', ...toWire(err) });
     }
     return;
   }
@@ -222,11 +224,11 @@ ctx.onmessage = (ev) => {
       const replays = last && last.key === req.key ? startReplays(last.analysis, last.data) : null;
       ctx.postMessage({ id: req.id, type: 'start-replay', replays });
     } catch (err) {
-      ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) });
+      ctx.postMessage({ id: req.id, type: 'error', ...toWire(err) });
     }
     return;
   }
-  const fail = (err: unknown): void => ctx.postMessage({ id: req.id, type: 'error', message: err instanceof Error ? err.message : String(err) });
+  const fail = (err: unknown): void => ctx.postMessage({ id: req.id, type: 'error', ...toWire(err) });
   if (req.type === 'cancel') {
     attemptAborts.get(req.id)?.abort();
     attemptAborts.delete(req.id);

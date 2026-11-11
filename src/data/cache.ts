@@ -7,6 +7,8 @@
  * does not pin tens of megabytes in the worker. The Cache API still holds
  * them for a later visit.
  */
+import { HttpError, telemetryUnavailableFrom } from './loadErrors';
+
 const CACHE_NAME = 'start-line-v2';
 /** Older caches whose entries could be wrongly fresh (TTL judged by the read time). */
 const OLD_CACHES = ['start-line-v1'];
@@ -123,7 +125,7 @@ export async function cachedJsonFrom<T>(url: string, ttlMs: Ttl, opts: CacheOpts
     headers: { accept: 'application/json' },
     ...(opts.fresh ? { cache: 'no-cache' as const } : {}),
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`);
+  if (!res.ok) throw await failure(res, url);
   const text = await res.text();
   const body = JSON.parse(text) as T;
   // A ttl of 0 (a live race's tail, a new URL each minute) is kept nowhere.
@@ -134,6 +136,23 @@ export async function cachedJsonFrom<T>(url: string, ttlMs: Ttl, opts: CacheOpts
     cache.put(url, stored).catch(() => undefined);
   }
   return { body, cached: false };
+}
+
+/**
+ * The error for a failed response: the telemetry proxy's "unavailable" 503 as such, anything else an HttpError
+ * whose message is the status only. The URL (with its query) goes to the console, never into the message.
+ */
+async function failure(res: Response, url: string): Promise<Error> {
+  console.warn(`[recall] ${`${res.status} ${res.statusText}`.trimEnd()} for ${url}`);
+  if (res.status === 503) {
+    try {
+      const unavailable = telemetryUnavailableFrom(JSON.parse(await res.text()));
+      if (unavailable) return unavailable;
+    } catch {
+      /* not our JSON (Cloudflare's own page, say) */
+    }
+  }
+  return new HttpError(res.status, res.statusText);
 }
 
 /** GET JSON with caching; see cachedJsonFrom. */

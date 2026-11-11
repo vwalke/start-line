@@ -1523,6 +1523,24 @@ body.report-on .content > :not(#report) { display: none !important; }
 .lock-secondary:hover { border-color: var(--ink); }
 .lock-primary:disabled, .lock-secondary:disabled { opacity: 0.55; cursor: default; }
 .lock-msg { margin: 10px 0 0; font-size: 0.9rem; color: var(--ink-2); }
+
+/* Live tracks paused (ui/telemetryUnavailable.ts): in place of the digest, calm, with the pickers above still usable. */
+.paused { margin: 12px 0 0; }
+.paused-card { max-width: 640px; display: flex; gap: 16px; align-items: flex-start; padding: 18px 20px; }
+.paused-icon { flex: none; width: 44px; height: 44px; color: var(--ink-2); }
+.paused-icon .paused-signal { stroke: var(--accent); }
+.paused-main { min-width: 0; }
+.paused-title { margin: 0; font-family: var(--sans-display); font-size: 1.12rem; font-weight: 700; line-height: 1.3; letter-spacing: -0.005em; color: var(--ink); }
+.paused-context { margin: 3px 0 0; font-size: 0.85rem; color: var(--ink-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.paused-body { margin: 10px 0 0; max-width: 60ch; line-height: 1.5; color: var(--ink); }
+.paused-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 14px; }
+.paused-hint { font-size: 0.85rem; color: var(--ink-2); }
+.paused-hint:empty { display: none; }
+@media (max-width: 480px) {
+  .paused-card { flex-direction: column; gap: 10px; padding: 16px; }
+  .paused-icon { width: 36px; height: 36px; }
+  .paused-retry { width: 100%; justify-content: center; }
+}
 .lock-small { margin: 10px 0 0; font-size: 0.8rem; color: var(--ink-3); }
 .linkish { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .lock-results { margin-top: 12px; font-size: 0.85rem; }

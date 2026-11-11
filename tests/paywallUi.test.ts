@@ -64,6 +64,11 @@ describe('paywall flag on the page', () => {
     expect(isPaywallError('401  for /api/telemetry/event/x')).toBe(true);
     expect(isPaywallError('404 Not Found for /api/telemetry/event/x')).toBe(false);
     expect(isPaywallError('4021 rows')).toBe(false);
+    // Today's shape (data/loadErrors.ts HttpError): the status alone, no URL.
+    expect(isPaywallError('402 Payment Required')).toBe(true);
+    expect(isPaywallError('401 Unauthorized')).toBe(true);
+    expect(isPaywallError('401')).toBe(true);
+    expect(isPaywallError('503 Service Unavailable')).toBe(false);
   });
 });
 

@@ -231,7 +231,16 @@ import { createNav, popAction, type Screen } from './nav';
 import { raceId, setTrackAuth, setTrackPage, track } from './track';
 import { setPageState } from '../feedback/state';
 import { freeRacesOf, type FreeRaces } from '../data/freeRace';
-import { isPaywallError } from '../data/paywall';
+import { fromWire, isTelemetryUnavailable, type TelemetryUnavailableError } from '../data/loadErrors';
+import {
+  EVENT_LOAD_FAILED,
+  RACE_LIST_FAILED,
+  RACE_LOAD_FAILED,
+  REOPEN_FAILED,
+  classifyLoadError,
+  createPausedCard,
+  logLoadFailure,
+} from './telemetryUnavailable';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -403,7 +412,7 @@ export function startApp(): void {
     if (attemptWait) {
       if (msg.type === 'progress') return;
       attemptWaits.delete(msg.id);
-      attemptWait(msg.type === 'attempt' ? msg.analysis : new Error(msg.type === 'error' ? msg.message : 'unexpected reply'));
+      attemptWait(msg.type === 'attempt' ? msg.analysis : msg.type === 'error' ? fromWire(msg) : new Error('unexpected reply'));
       return;
     }
     // Coach requests count down from -1, apart from the race loads.
@@ -419,7 +428,7 @@ export function startApp(): void {
     if (msg.type === 'progress') {
       if (msg.id !== quietReq) setStatus(msg.message);
     } else if (msg.type === 'done') p?.resolve(msg.analysis);
-    else if (msg.type === 'error') p?.reject(new Error(msg.message));
+    else if (msg.type === 'error') p?.reject(fromWire(msg));
     if (msg.type !== 'progress') pending.delete(msg.id);
   };
   /** The worker request of a live race's refresh in flight (its progress isn't shown). */
@@ -546,6 +555,23 @@ export function startApp(): void {
   cardEl.className = 'event-card-wrap';
   cardEl.hidden = true;
   els.digest.before(cardEl);
+  /** "Live tracks are paused" (the track feed can't be reached): in place of the digest, tried again each minute. */
+  const pausedEl = document.createElement('div');
+  pausedEl.id = 'paused';
+  pausedEl.className = 'paused';
+  pausedEl.hidden = true;
+  els.digest.before(pausedEl);
+  /** The race the paused card stands for. */
+  let pausedRace: { eventId: string; division: string; raceNumber: number } | null = null;
+  const paused = createPausedCard(
+    pausedEl,
+    async () => {
+      const r = pausedRace;
+      if (r && r.eventId === eventId) await loadRace(r.division, r.raceNumber, undefined, { quiet: true });
+    },
+    { hidden: () => document.visibilityState === 'hidden' },
+  );
+  const pausedKey = (id: string, division: string, raceNumber: number): string => `${id}|${division}|${raceNumber}`;
   let matchCount = 0;
   /** The race on screen (null until one loads); what recall.lastView records. */
   let current: { eventId: string; division: string; raceNumber: number } | null = null;
@@ -2683,9 +2709,12 @@ export function startApp(): void {
 
   type RaceLoad = 'ok' | 'superseded' | Error;
   /** Analyse and show a race of the loaded event; on failure the notice says so (the picker stays usable). */
-  async function loadRace(division: string, raceNumber: number, restore?: ViewState): Promise<RaceLoad> {
+  async function loadRace(division: string, raceNumber: number, restore?: ViewState, opts: { quiet?: boolean } = {}): Promise<RaceLoad> {
     if (!regatta) return new Error('no event loaded');
     const id = eventId;
+    // Another race: the paused card (and its retry) for the last one goes; a retry of the same race keeps it up.
+    const pkey = pausedKey(id, division, raceNumber);
+    if (paused.key() && paused.key() !== pkey) hidePaused();
     // Don't replaceState until this race is on screen: a kill mid-switch keeps the last
     // successful race in both the URL and recall.lastView (and not the half-switched one).
     const view = viewForRace(current, { eventId: id, division, raceNumber }, { leg: userLeg(), boat: highlight, sort, startSort }, restore);
@@ -2707,13 +2736,14 @@ export function startApp(): void {
       const reg = regatta;
       const logs = vkx.buffersFor(id, division, raceNumber);
       const req = { type: 'live' as const, eventId: id, regatta: reg, division, raceNumber, allCompetitors, classLabel, ...(off ? { official: off } : {}), ...(logs.length ? { vkx: logs } : {}) };
-      if (!(await show(run(req), view))) return 'superseded';
+      if (!(await show(run(req, opts.quiet), view))) return 'superseded';
       current = { eventId: id, division, raceNumber };
       racePage(false);
       if (analysis) vkx.raceShown({ eventId: id, division, raceNumber, regatta: reg, analysis });
       setUrl({ event: id, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
       save();
       setNotice('');
+      hidePaused();
       stopWaiting();
       syncLive(true);
       reapplyOfficial();
@@ -2721,19 +2751,62 @@ export function startApp(): void {
     } catch (e) {
       if (isSuperseded(e)) return 'superseded';
       setStatus('');
-      if (paywall.me().paywall && id === eventId && isPaywallError((e as Error).message)) {
+      if (paywall.me().paywall && id === eventId && classifyLoadError(e) === 'paywall') {
         // The server says no (a pass ended, signed out elsewhere): lock it, and re-read who this is.
         showLocked(division, raceNumber);
         void paywall.refresh();
         return 'ok';
       }
+      // The track feed can't be reached: the paused card in place of the digest, tried again each minute.
+      if (id === eventId && classifyLoadError(e) === 'unavailable') {
+        showPaused(division, raceNumber, e as TelemetryUnavailableError);
+        return e as Error;
+      }
+      const noTracks = id === eventId && (e as Error).message === NO_TRACKS;
+      // A quiet retry of the paused race that failed some other way (offline, say): the card stays, its timer goes on.
+      if (opts.quiet && paused.key() === pkey && !noTracks) {
+        logLoadFailure('race load', e);
+        return e as Error;
+      }
+      hidePaused();
       // Opened before its boats are out (its start sequence, say): tried again each minute, and on live from there.
-      if (id === eventId && (e as Error).message === NO_TRACKS && waitForTracks(division, raceNumber)) return e as Error;
+      if (noTracks && waitForTracks(division, raceNumber)) return e as Error;
       if (waiting?.key === key) stopWaiting();
-      // Keep the event/race picker so another race can be tried.
-      setNotice(`Couldn't load that race (${(e as Error).message}).`);
+      // Keep the event/race picker so another race can be tried. The details go to the console, not the page.
+      logLoadFailure('race load', e);
+      setNotice(RACE_LOAD_FAILED);
       return e as Error;
     }
+  }
+
+  /**
+   * The paused card for a race of the loaded event whose tracks can't be fetched (the feed unavailable): the
+   * digest hidden (nothing to chart), the pickers left as they are so another race can be tried, and one retry
+   * armed (the server's Retry-After, else a minute).
+   */
+  function showPaused(division: string, raceNumber: number, e: TelemetryUnavailableError): void {
+    stopLive();
+    setStatus('');
+    setNotice('');
+    paywall.hideLock();
+    els.digest.hidden = true;
+    const listed = listedOf(division, raceNumber);
+    const title = titleOf(eventId);
+    pausedRace = { eventId, division, raceNumber };
+    paused.show(
+      {
+        key: pausedKey(eventId, division, raceNumber),
+        eventName: title !== eventId ? title : null,
+        raceName: listed ? raceName(listed) : null,
+        gunMs: listed?.gunMs ?? null,
+      },
+      e.retryAfter,
+    );
+  }
+
+  function hidePaused(): void {
+    pausedRace = null;
+    paused.hide();
   }
 
   /** The race on screen, for the usage events (track.ts): race_open once each time another race is shown. */
@@ -2755,6 +2828,7 @@ export function startApp(): void {
     setUrl({ event: eventId, div: division, race: String(raceNumber), nc: allCompetitors ? NC_ALL : null });
     racePage(true);
     setStatus('');
+    hidePaused();
     els.digest.hidden = true;
     paywall.showLock(els.digest, {
       doc: currentDoc(regatta),
@@ -3206,6 +3280,8 @@ export function startApp(): void {
     opts: { strict?: boolean; view?: ViewState } = {},
   ): Promise<EventLoad> {
     const req = ++eventReq;
+    // Another event: the last one's paused card and its retry go.
+    if (pausedRace && pausedRace.eventId !== id) hidePaused();
     setStatus('Loading event…');
     try {
       // A cached copy with no finishers may predate them; that refetches once before 'empty'.
@@ -3271,6 +3347,7 @@ export function startApp(): void {
     cardEventId = id;
     cardDoc = doc;
     stopLive();
+    hidePaused();
     els.digest.hidden = true;
     paywall.hideLock();
     els.race.innerHTML = '<option>—</option>';
@@ -3362,6 +3439,7 @@ export function startApp(): void {
     current = null;
     stopLive();
     hideEventCard();
+    hidePaused();
     paywall.hideLock();
     els.digest.hidden = true;
     els.race.innerHTML = '<option>—</option>';
@@ -3471,7 +3549,8 @@ export function startApp(): void {
     } catch (e) {
       setStatus('');
       els.event.innerHTML = '<option>—</option>';
-      setNotice(`Couldn't load the live race list (${(e as Error).message}).`, { label: 'Retry', run: () => void boot() });
+      logLoadFailure('race list', e);
+      setNotice(RACE_LIST_FAILED, { label: 'Retry', run: () => void boot() });
       return;
     }
     const explicit = params.eventId;
@@ -3503,7 +3582,8 @@ export function startApp(): void {
         showEventCard(explicit, emptyDoc);
       } catch (e) {
         setStatus('');
-        setNotice(`Couldn't load event ${explicit} (${(e as Error).message}). Pick another event.`);
+        logLoadFailure(`event ${explicit}`, e);
+        setNotice(EVENT_LOAD_FAILED);
       }
       return;
     }
@@ -3540,6 +3620,8 @@ export function startApp(): void {
       r = e as Error;
     }
     if (r === 'superseded') return;
+    // The race's tracks can't be fetched right now: its paused card is up (and tries again); the saved race stays.
+    if (isTelemetryUnavailable(r)) return;
     if (r === 'ok') {
       setNotice('Reopened your last race.', {
         label: 'Latest race',
@@ -3559,7 +3641,8 @@ export function startApp(): void {
       return;
     }
     if (r instanceof Error && (isTransientError(r.message) || navigator.onLine === false)) {
-      setNotice(`Couldn't reopen your last race (${r.message}).`, {
+      logLoadFailure('reopen last race', r);
+      setNotice(REOPEN_FAILED, {
         label: 'Retry',
         run: () => {
           setNotice('');
@@ -3568,11 +3651,13 @@ export function startApp(): void {
       });
       return;
     }
-    const why = r === 'missing' ? `${want.division} race ${want.raceNumber} is no longer listed` : r.message;
+    // Why, in words: a race no longer listed is said; anything else (its details logged) isn't.
+    if (r instanceof Error) logLoadFailure('reopen last race', r);
+    const why = r === 'missing' ? ` (${want.division} race ${want.raceNumber} is no longer listed)` : '';
     forget();
     await openLatest();
     // Unless the latest race had its own trouble to report.
-    if (els.notice.hidden) setNotice(`Couldn't reopen your last race (${why}). Showing the latest race.`);
+    if (els.notice.hidden) setNotice(`Couldn't reopen your last race${why}. Showing the latest race.`);
   }
 
   // Leaving the app: make sure the last state is on disk (iOS may evict a backgrounded web app).

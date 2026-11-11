@@ -218,7 +218,11 @@ export const legExtremeText = (e: LegTypeSummary['best']): string => `${e.label}
 export function placeWhat(r: RegattaSummary['rows'][number]): string {
   const f = r.digest?.finish ?? null;
   if (r.status === 'pending' || r.status === 'running') return 'not analyzed yet';
-  if (r.status === 'error') return isPaywallError(r.error ?? '') ? 'locked: unlock this regatta to see it' : `couldn't load: ${r.error ?? ''}`;
+  if (r.status === 'error') {
+    if (isPaywallError(r.error ?? '')) return 'locked: unlock this regatta to see it';
+    // A bare HTTP status (data/loadErrors.ts) means nothing on a chip: just that it didn't load.
+    return !r.error || /^\d{3}\b/.test(r.error) ? "couldn't load" : `couldn't load: ${r.error}`;
+  }
   if (f) {
     const coded = f.code ? `${f.code}${f.points != null ? ` (${pointsText(f.points)} points)` : ''}${onWaterText(f) ? `, ${onWaterText(f)}` : ''}` : 'no place';
     // "unofficial" goes with a place only: a tracker race's boat without one has nothing unofficial shown.

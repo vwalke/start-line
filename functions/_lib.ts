@@ -299,3 +299,23 @@ export const jsonError = (status: number, msg: string): Response =>
       'x-content-type-options': 'nosniff',
     },
   });
+
+/** Seconds the page waits before asking for telemetry again (the 503's Retry-After and body). */
+export const TELEMETRY_RETRY_S = 60;
+/** What the page may show when the track feed can't be reached: calm, no codes, no hosts, no blame. */
+export const TELEMETRY_UNAVAILABLE_MESSAGE = "RaceSense track data is temporarily unavailable. We'll keep trying.";
+
+/** The telemetry feed refused us (401 / 403) or is down (5xx, unreachable): 503 with a body the page recognises. */
+export const telemetryUnavailable = (): Response =>
+  new Response(JSON.stringify({ error: 'telemetry_unavailable', message: TELEMETRY_UNAVAILABLE_MESSAGE, retryAfter: TELEMETRY_RETRY_S }), {
+    status: 503,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+      'retry-after': String(TELEMETRY_RETRY_S),
+    },
+  });
+
+/** Upstream telemetry statuses that read as the feed being unavailable (rather than a bad request or no data). */
+export const telemetryDown = (status: number): boolean => status === 401 || status === 403 || status >= 500;
