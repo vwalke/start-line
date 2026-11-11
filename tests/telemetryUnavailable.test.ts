@@ -120,7 +120,9 @@ describe('the paused card', () => {
   it('headline, body, icon and Try again; nothing technical', () => {
     const html = pausedCardHtml({ key: 'k', eventName: 'ClubSwan 28 Gold Cup 2026', raceName: 'Race 1', gunMs: GUN });
     expect(html).toContain(PAUSED_TITLE);
-    expect(PAUSED_TITLE).toBe('Live tracks are paused');
+    expect(PAUSED_TITLE).toBe('Race tracks are paused');
+    expect(PAUSED_BODY).toBe("We're working with Vakaros to restore RaceSense track data. The event schedule and race list are still here.");
+    expect(html).not.toMatch(/\blive\b|replays will return/i);
     expect(html).toContain(PAUSED_BODY.replace("'", '&#39;'));
     expect(html).toMatch(/<svg[^>]*aria-hidden="true"/);
     expect(html).toContain('role="status"');

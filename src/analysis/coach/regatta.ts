@@ -377,6 +377,8 @@ export interface RegattaRace {
   status: 'pending' | 'running' | 'done' | 'error';
   digest: RaceDigest | null;
   error?: string;
+  /** The error was the track feed being unavailable (data/loadErrors.ts): the chip says so, briefly. */
+  unavailable?: boolean;
 }
 
 export interface RecurringFinding {

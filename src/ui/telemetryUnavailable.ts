@@ -1,5 +1,5 @@
 /**
- * "Live tracks are paused": the card shown in place of the digest when the telemetry proxy says the track feed
+ * "Race tracks are paused": the card shown in place of the digest when the telemetry proxy says the track feed
  * can't be reached (503 telemetry_unavailable, data/loadErrors.ts), with a Try again button and one quiet retry
  * timer. Also the page's plain words for any other failed load: never a URL, query or status code (those go to
  * the console).
@@ -8,9 +8,8 @@ import { isTelemetryUnavailable, DEFAULT_RETRY_S } from '../data/loadErrors';
 import { isPaywallError } from '../data/paywall';
 import { esc } from './format';
 
-export const PAUSED_TITLE = 'Live tracks are paused';
-export const PAUSED_BODY =
-  "We're working with Vakaros to restore RaceSense track data. The event schedule and race list are still here, and replays will return as soon as the feed is back.";
+export const PAUSED_TITLE = 'Race tracks are paused';
+export const PAUSED_BODY = "We're working with Vakaros to restore RaceSense track data. The event schedule and race list are still here.";
 export const PAUSED_RETRY = 'Try again';
 export const PAUSED_TRYING = 'Trying again…';
 

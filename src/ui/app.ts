@@ -555,7 +555,7 @@ export function startApp(): void {
   cardEl.className = 'event-card-wrap';
   cardEl.hidden = true;
   els.digest.before(cardEl);
-  /** "Live tracks are paused" (the track feed can't be reached): in place of the digest, tried again each minute. */
+  /** "Race tracks are paused" (the track feed can't be reached): in place of the digest, tried again each minute. */
   const pausedEl = document.createElement('div');
   pausedEl.id = 'paused';
   pausedEl.className = 'paused';

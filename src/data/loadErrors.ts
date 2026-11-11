@@ -7,7 +7,7 @@
  *
  * The telemetry proxy answers 503 `{ error: 'telemetry_unavailable', message, retryAfter }` when the track feed
  * can't be reached (functions/_lib.ts telemetryUnavailable): a TelemetryUnavailableError, which the page shows as
- * "Live tracks are paused" (ui/telemetryUnavailable.ts) and tries again after `retryAfter` seconds.
+ * "Race tracks are paused" (ui/telemetryUnavailable.ts) and tries again after `retryAfter` seconds.
  */
 
 /** Seconds before trying again when the server didn't say. */

@@ -1524,7 +1524,7 @@ body.report-on .content > :not(#report) { display: none !important; }
 .lock-primary:disabled, .lock-secondary:disabled { opacity: 0.55; cursor: default; }
 .lock-msg { margin: 10px 0 0; font-size: 0.9rem; color: var(--ink-2); }
 
-/* Live tracks paused (ui/telemetryUnavailable.ts): in place of the digest, calm, with the pickers above still usable. */
+/* Race tracks paused (ui/telemetryUnavailable.ts): in place of the digest, calm, with the pickers above still usable. */
 .paused { margin: 12px 0 0; }
 .paused-card { max-width: 640px; display: flex; gap: 16px; align-items: flex-start; padding: 18px 20px; }
 .paused-icon { flex: none; width: 44px; height: 44px; color: var(--ink-2); }
