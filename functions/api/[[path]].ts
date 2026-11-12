@@ -32,7 +32,9 @@ import {
   looksLikeJson,
   parseRoute,
   stripPersonal,
+  telemetryDown,
   telemetryTtl,
+  telemetryUnavailable,
   ttlFor,
   ysTtl,
   ysUpstreamQuery,
@@ -61,7 +63,7 @@ async function cachedUpstream(
   cacheKey: Request,
   upstream: string,
   ttl: number,
-  opts: { buffer: boolean; cache?: Cache | null },
+  opts: { buffer: boolean; cache?: Cache | null; telemetry?: boolean },
 ): Promise<Response> {
   const cache = opts.cache === undefined ? edgeCache() : opts.cache;
   if (cache) {
@@ -77,8 +79,11 @@ async function cachedUpstream(
   try {
     res = await fetch(upstream, { headers: { accept: 'application/json', 'user-agent': UA } });
   } catch {
-    return jsonError(502, 'Upstream unreachable');
+    return opts.telemetry ? telemetryUnavailable() : jsonError(502, 'Upstream unreachable');
   }
+  // Telemetry refused (it now wants a token we don't have) or down: a 503 the page shows as paused, not a bare 502
+  // (Cloudflare swaps a Function's 502 body for its own plain-text page).
+  if (!res.ok && opts.telemetry && telemetryDown(res.status)) return telemetryUnavailable();
   if (!res.ok) return jsonError(res.status === 404 ? 404 : 502, `Upstream ${res.status}`);
 
   const headers = {
@@ -172,7 +177,7 @@ export const onRequestGet = async (ctx: Ctx): Promise<Response> => {
         new Request(`${url.origin}/api/${path}${suffix}`),
         `${TELE_UPSTREAM}${route.eventId}${suffix}`,
         telemetryTtl(q.qs),
-        { buffer: false, cache },
+        { buffer: false, cache, telemetry: true },
       );
     if (!paywallOn(ctx.env)) return serve();
     // Paywall: decided before the shared edge cache is read. Race 1 (free) keeps today's caching;

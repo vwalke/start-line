@@ -169,5 +169,5 @@ export function peekBuy(token: string | null): BuyIntent | null {
 /** Manage subscription: a same-origin POST answered with `{ url }` (Stripe's Billing Portal), which the page then opens. */
 export const openPortal = (f?: typeof fetch): Promise<PostResult> => post(`${BILLING_BASE}/portal`, {}, f);
 
-/** A data request refused by the paywall: the worker's error text starts with the status (data/cache.ts). */
+/** A data request refused by the paywall: the worker's error text starts with the status (data/loadErrors.ts HttpError). */
 export const isPaywallError = (message: string): boolean => /^40[12]\b/.test(message);

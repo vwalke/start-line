@@ -82,6 +82,23 @@ describe('the Coach panel follows the app: no race chips, no boat select', () =>
     expect(placeWhat(row)).toBe('locked: unlock this regatta to see it');
   });
 
+  it("a race whose tracks are paused (the feed unavailable): the chip says so, briefly, as the paused card does", () => {
+    const w = fakeWorker();
+    const runner = createRegattaRunner(w.make, () => {});
+    runner.want([job(1), job(2)]);
+    const message = "RaceSense track data is temporarily unavailable. We'll keep trying.";
+    w.reply({ id: w.sent[0].id, type: 'error', message, unavailable: { retryAfter: 60 } });
+    // Any other error is unchanged: no flag, the old wording.
+    w.reply({ id: w.sent[1].id, type: 'error', message: 'Bad data' });
+    const [paused, other] = summarizeRegatta(runner.races()).rows;
+    expect(paused).toMatchObject({ status: 'error', unavailable: true, error: message });
+    expect(placeWhat(paused)).toBe('tracks are paused');
+    expect(placeWhat(paused)).not.toMatch(/live|replays|\/api\/|\b\d{3}\b/i);
+    expect(other.unavailable).toBeUndefined();
+    expect(placeWhat(other)).toBe("couldn't load: Bad data");
+    expect(regattaPlacesHtml(summarizeRegatta(runner.races()))).toContain('title="Race 1: tracks are paused"');
+  });
+
   it('the boat is the one selected in the app, if it sailed this race; else a prompt to pick one in the boat list', () => {
     const a = { boats: [{ id: 'A' }, { id: 'B' }] } as RaceAnalysis;
     expect(coachBoatFor(a, 'B')).toBe('B');

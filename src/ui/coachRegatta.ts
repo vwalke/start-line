@@ -8,6 +8,7 @@
  * costs nothing and a change of any of those re-runs only what it touches. Nothing here needs a
  * race to have been opened before (the cold-load case).
  */
+import { fromWire, isTelemetryUnavailable } from '../data/loadErrors';
 import { isPaywallError } from '../data/paywall';
 import { legWord, summarizeRegatta, type LegTypeSummary, type PenaltyRow, type RaceFinish, type RegattaRace, type RegattaSummary, type WentWell, type WorkOn } from '../analysis/coach/regatta';
 import { codeInfo, pointsText } from '../data/official/codes';
@@ -105,7 +106,7 @@ export interface RegattaRunner {
   progress(): RegattaProgress;
 }
 
-type Cached = { status: 'done'; digest: NonNullable<RegattaRace['digest']> } | { status: 'error'; error: string };
+type Cached = { status: 'done'; digest: NonNullable<RegattaRace['digest']> } | { status: 'error'; error: string; unavailable?: boolean };
 
 /**
  * Analyse the wanted races one at a time on a worker made on first use. `onChange` runs after
@@ -144,7 +145,8 @@ export function createRegattaRunner(makeWorker: () => WorkerPort, onChange: () =
       if (d && d.sail === running.job.request.sail && d.raceNumber === running.job.raceNumber) {
         cache.set(key, { status: 'done', digest: d });
       } else {
-        cache.set(key, { status: 'error', error: msg.type === 'error' ? msg.message : 'unexpected reply' });
+        const err = msg.type === 'error' ? fromWire(msg) : new Error('unexpected reply');
+        cache.set(key, { status: 'error', error: err.message, ...(isTelemetryUnavailable(err) ? { unavailable: true } : {}) });
       }
       running = null;
       pump();
@@ -176,7 +178,7 @@ export function createRegattaRunner(makeWorker: () => WorkerPort, onChange: () =
         const c = cache.get(j.key);
         const base = { raceNumber: j.raceNumber, label: j.label, name: j.name };
         if (c?.status === 'done') return { ...base, status: 'done', digest: c.digest };
-        if (c?.status === 'error') return { ...base, status: 'error', digest: null, error: c.error };
+        if (c?.status === 'error') return { ...base, status: 'error', digest: null, error: c.error, ...(c.unavailable ? { unavailable: true } : {}) };
         return { ...base, status: running?.job.key === j.key ? 'running' : 'pending', digest: null };
       });
     },
@@ -214,11 +216,17 @@ export const LEG_TYPE: Record<LegTypeSummary['kind'], string> = { upwind: 'Beats
 /** A leg-type row's best or worst leg: "R2 Beat 1: −12 s, 3rd of 20". */
 export const legExtremeText = (e: LegTypeSummary['best']): string => `${e.label} ${e.leg}: ${secs(e.deltaS)}, ${ordinal(e.rank)} of ${e.of}`;
 
-/** What a race's place chip says on hover: "3rd of 20, official", "not analysed yet", "couldn't load: …". */
+/** What a race's place chip says on hover: "3rd of 20, official", "not analysed yet", "tracks are paused", "couldn't load: …". */
 export function placeWhat(r: RegattaSummary['rows'][number]): string {
   const f = r.digest?.finish ?? null;
   if (r.status === 'pending' || r.status === 'running') return 'not analyzed yet';
-  if (r.status === 'error') return isPaywallError(r.error ?? '') ? 'locked: unlock this regatta to see it' : `couldn't load: ${r.error ?? ''}`;
+  if (r.status === 'error') {
+    if (isPaywallError(r.error ?? '')) return 'locked: unlock this regatta to see it';
+    // The track feed unavailable (the paused card's case): short, not the server's whole sentence.
+    if (r.unavailable) return 'tracks are paused';
+    // A bare HTTP status (data/loadErrors.ts) means nothing on a chip: just that it didn't load.
+    return !r.error || /^\d{3}\b/.test(r.error) ? "couldn't load" : `couldn't load: ${r.error}`;
+  }
   if (f) {
     const coded = f.code ? `${f.code}${f.points != null ? ` (${pointsText(f.points)} points)` : ''}${onWaterText(f) ? `, ${onWaterText(f)}` : ''}` : 'no place';
     // "unofficial" goes with a place only: a tracker race's boat without one has nothing unofficial shown.
